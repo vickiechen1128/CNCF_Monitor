@@ -405,6 +405,7 @@ func validateDatabase(in *ResourceInput) error {
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
@@ -421,6 +422,7 @@ func validateMiddleware(in *ResourceInput) error {
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
@@ -457,6 +459,7 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}

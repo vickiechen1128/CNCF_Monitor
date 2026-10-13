@@ -26,9 +26,10 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 // 取值说明不得另立一份「类别 → 列」映射，避免新增漂移点。
 //
 // 决策 103 scheme-B：模板列头不含 `cloud_code`（资源侧不再经导入写 cloud_code，
-// 统一由所属网域派生）；决策 101：host 另保留 `zone_env` **兼容导入列**（承接历史
-// Excel，不进标签、不作分区权威）——列位置严格按 §5.16.1 主机模板列序排在 `cluster`
-// 之后、`owner` 之前。
+// 统一由所属网域派生）；决策 101 后续：host 的 `zone_env` 兼容导入列**已废弃**，
+// 模板不再输出该列——分区权威值为所属网域 `zone_type`，该列既不进标签也不作分区
+// 权威，留着只会诱导填假值。存量 Excel 仍可能带该列，导入侧按列名静默忽略
+// （见 excel.go 的 removedTemplateColumns），值不落库。
 //
 // 决策 D-7（P1）：五类列头**末尾**统一追加可选 `scrape_port` 列（实例级采集端口
 // 覆盖，0=未指定）——一律追加末尾、不插中间，防列序依赖断裂；旧模板（无该列）导入
@@ -36,7 +37,7 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryHost: {
 		"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-		"biz_code", "app_code", "platform_code", "env", "cluster", "zone_env", "owner", "status",
+		"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 		"scrape_port",
 	},
 	models.ResourceCategoryDatabase: {
@@ -94,7 +95,6 @@ var templateColumnDocs = map[string]templateColumnDoc{
 	"platform_code":    {"平台", "平台编码（留空按所属应用主平台兜底）"},
 	"env":              {"环境", "环境枚举"},
 	"cluster":          {"集群", "集群名称"},
-	"zone_env":         {"分区（兼容列）", "INT（互联网区 internet）/ GOV（政务外网区 extranet）；仅主机兼容导入列，不进标签、不作分区权威（权威值为所属网域 zone_type）"},
 	"owner":            {"负责人", "负责人（自由文本）"},
 	"status":           {"运行状态", "源状态 → 目标状态"},
 	"scrape_port":      {"采集端口", "实例级采集端口覆盖：留空（0）=未指定，填值须 1~65535"},
@@ -119,7 +119,7 @@ var templateOptionalColumns = map[string]bool{
 	"hostname": true, "version": true, "owner": true, "protocol": true,
 	"health_check_url": true, "metrics_path": true, "scheme": true,
 	"exporter_type": true, "custom_labels": true, "scrape_port": true,
-	"platform_code": true, "service_code": true, "zone_env": true,
+	"platform_code": true, "service_code": true,
 }
 
 // valueSheetHeaderRow 是 sheet2「取值说明」的表头行（F-23-② 拆出「中文含义」列、
@@ -310,8 +310,10 @@ func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainS
 
 // templateColumnRequiredLabel 返回某列在某资源类别下的必填口径文案。
 // 口径真值来自 excel.go 的必填分化（L267-L279）与 validate.go 的各 validate*
-// 分派函数，不来自前端表单（前端 cluster 选填与后端判必填的矛盾属设计侧待裁定项，
-// 本轮只如实按后端口径标注，不改口径）。
+// 分派函数。cluster 的「host / generic_target 可空、application / database /
+// middleware 必填」按 PRD §5.2 与 design-decisions 决策 F 的明文分化标注（chenrt 已
+// 裁定「保持按类分化必填」，非待裁定项）；前端已在 M07 本轮同步补齐同一套按类分化
+// 规则，此前「前端 cluster 选填 vs 后端判必填」的矛盾已消解。
 func templateColumnRequiredLabel(category models.ResourceCategory, col string) string {
 	switch col {
 	case "network_domain":

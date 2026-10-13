@@ -755,3 +755,78 @@ func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T) {
 		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
 	})
 }
+
+// ---------------------------------------------------------------------------
+// 决策 101 后续：zone_env 废弃后的存量模板兼容回归
+// ---------------------------------------------------------------------------
+
+// legacyHostHeaderWithZoneEnv 构造废弃前的存量 host 模板列头：在 cluster 之后
+// 插入 zone_env（原位置），共 14 列；其余列与当前 TemplateColumns[host] 一致。
+func legacyHostHeaderWithZoneEnv() []string {
+	cols := TemplateColumns[models.ResourceCategoryHost]
+	out := make([]string, 0, len(cols)+1)
+	for _, c := range cols {
+		out = append(out, c)
+		if c == "cluster" {
+			out = append(out, "zone_env")
+		}
+	}
+	return out
+}
+
+// TestExcelLegacyTemplateWithZoneEnvStillImports 存量模板（带已废弃的 zone_env 列）
+// 兼容回归：按列名剔除后仍通过严格逐列比对，行级校验不因该列报错，且该列的值
+// 不进入 ImportRow 的任何字段（静默忽略）。
+func TestExcelLegacyTemplateWithZoneEnvStillImports(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+
+	header := legacyHostHeaderWithZoneEnv()
+	require.Len(t, header, len(TemplateColumns[models.ResourceCategoryHost])+1,
+		"存量模板应比当前模板多一列 zone_env")
+	require.NotContains(t, TemplateColumns[models.ResourceCategoryHost], "zone_env",
+		"当前 host 模板不应再输出 zone_env")
+
+	vals := baseValues(models.ResourceCategoryHost)
+	vals["zone_env"] = "GOV" // 存量文件里该列填了值，必须被忽略而非报错
+	row := make([]string, len(header))
+	for i, col := range header {
+		row[i] = vals[col]
+	}
+
+	rows, err := ParseExcel(buildXLSXWithHeader(t, header, [][]string{row}), models.ResourceCategoryHost)
+	require.NoError(t, err, "存量模板（带 zone_env）导入应成功，不得因该列报错")
+	require.Len(t, rows, 1)
+	require.NoError(t, ValidateImportRow(&rows[0], store, newAppStore(t), nil, ok, nil))
+
+	// 该列的值不落到任何字段：ImportRow 已无 ZoneEnv 字段，且行内其余字段正常解析。
+	assert.Equal(t, "cluster-1", rows[0].Input.Cluster, "cluster 应正常解析（列序未被错位）")
+	assert.Equal(t, "ops", rows[0].Input.Owner, "owner 应正常解析（zone_env 之后的列不错位）")
+}
+
+// TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn 回归护栏：剔除废弃列
+// 不能放宽为「列数相同即可」，真正未定义的动态列仍须报「超出模板」。
+func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T) {
+	header := append(legacyHostHeaderWithZoneEnv(), "extra_col")
+	_, err := ParseExcel(buildXLSXWithHeader(t, header, nil), models.ResourceCategoryHost)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "超出模板")
+}
+
+// TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval 回归断言：其余四类模板
+// 本就不含 zone_env，废弃后列头与解析行为不变。
+func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T) {
+	for _, cat := range []models.ResourceCategory{
+		models.ResourceCategoryDatabase,
+		models.ResourceCategoryMiddleware,
+		models.ResourceCategoryApplication,
+		models.ResourceCategoryGenericTarget,
+	} {
+		t.Run(string(cat), func(t *testing.T) {
+			assert.NotContains(t, TemplateColumns[cat], "zone_env", "非 host 模板不应含 zone_env")
+			rows, err := ParseExcel(buildXLSXWithHeader(t, TemplateColumns[cat], nil), cat)
+			require.NoError(t, err)
+			assert.Empty(t, rows)
+		})
+	}
+}

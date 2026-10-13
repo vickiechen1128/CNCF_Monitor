@@ -184,21 +184,38 @@ type UpdateAppPlatformRelRequest struct {
 	IsPrimary *bool `json:"is_primary"`
 }
 
+// validateAppPlatformRefs 校验应用与平台均可用于建立关联关系。
+//
+// 文案按「未登记 / 已停用」分化（决策 110 文案对齐）：前端 ImportModal 的
+// isPendingRegistrationError 以「reason 含『未登记』且不含『已停用』」判定待登记
+// 高亮——「已停用」引导的是去管理页**启用**而非登记，若沿用合并文案
+// 「未登记或已停用」会同时含两个关键词而被前端判为非待登记，登记指引丢失。
+//
+// 本入口是 POST /api/v2/platform/app-platform-rel 独立写入（非 Excel 导入），
+// 不在 import.go 的声明 sheet 事务通道内，因此**不提「平台声明」sheet**——
+// 该入口无法通过声明 sheet 补齐字典值，提示即欺骗。与 validatePlatformCode
+// （导入路径，支持声明 sheet）的文案差异由此而来。
 func validateAppPlatformRefs(appStore *ApplicationDictStore, platformStore *PlatformDictStore, appCode, platformCode string) error {
 	app, found, err := appStore.Lookup(appCode)
 	if err != nil {
 		return fmt.Errorf("应用字典加载失败：%w", err)
 	}
-	if !found || app.Status != models.AppStatusEnabled {
-		return fmt.Errorf("应用 %s 未登记或已停用，请到『应用字典』登记或启用后重试", appCode)
+	if !found {
+		return fmt.Errorf("应用 %s 未登记，请到『应用字典』登记后重试", appCode)
+	}
+	if app.Status != models.AppStatusEnabled {
+		return fmt.Errorf("应用 %s 已停用，请到『应用字典』启用后重试", appCode)
 	}
 
 	platform, found, err := platformStore.Lookup(platformCode)
 	if err != nil {
 		return fmt.Errorf("平台字典加载失败：%w", err)
 	}
-	if !found || !platform.Enabled {
-		return fmt.Errorf("平台 %s 未登记或已停用，请到『平台字典』登记或启用后重试", platformCode)
+	if !found {
+		return fmt.Errorf("平台 %s 未登记，请在『平台管理』页登记后重试", platformCode)
+	}
+	if !platform.Enabled {
+		return fmt.Errorf("平台 %s 已停用，请在『平台管理』页启用后重试", platformCode)
 	}
 	return nil
 }

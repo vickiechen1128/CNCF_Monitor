@@ -77,12 +77,17 @@ func TestAppPlatformRelEndpoints(t *testing.T) {
 	assert.Contains(t, out["error"], "已存在主平台")
 
 	// 停用平台与停用应用均不可建立新关联。
+	// 原特征：断言合并文案「未登记或已停用」；本轮按决策 110 文案分化为
+	// 「已停用」（引导启用，**不含「未登记」**，否则前端 isPendingRegistrationError
+	// 会因同时命中两个关键词而丢失待登记高亮语义）。
 	code, out = doJSON(t, r, http.MethodPost, "/api/v2/platform/app-platform-rel", `{"app_code":"app-b","platform_code":"old-platform"}`)
 	require.Equal(t, http.StatusBadRequest, code)
-	assert.Contains(t, out["error"], "未登记或已停用")
+	assert.Contains(t, out["error"], "平台 old-platform 已停用，请在『平台管理』页启用后重试")
+	assert.NotContains(t, out["error"], "未登记", "已停用文案不得含「未登记」，否则前端会误判为待登记")
 	code, out = doJSON(t, r, http.MethodPost, "/api/v2/platform/app-platform-rel", `{"app_code":"old-app","platform_code":"platform-a"}`)
 	require.Equal(t, http.StatusBadRequest, code)
-	assert.Contains(t, out["error"], "未登记或已停用")
+	assert.Contains(t, out["error"], "应用 old-app 已停用，请到『应用字典』启用后重试")
+	assert.NotContains(t, out["error"], "未登记", "已停用文案不得含「未登记」")
 
 	// GET 支持 app_code / platform_code 组合过滤，且信封使用 list 键。
 	code, out = doJSON(t, r, http.MethodGet, "/api/v2/platform/app-platform-rel?app_code=app-a&platform_code=platform-b", "")
@@ -114,6 +119,53 @@ func TestAppPlatformRelEndpoints(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&models.AppPlatformRel{}).Where("app_code = ?", "app-a").Count(&count).Error)
 	assert.Equal(t, int64(1), count)
+}
+
+// TestValidateAppPlatformRefs_GuidanceByRegistrationState 覆盖「未登记 / 已停用 /
+// 已启用正常」三态的引导文案分化（决策 110 文案对齐）：
+//   - 未登记：引导去管理页登记，含「未登记」（前端待登记高亮依赖该关键词）；
+//   - 已停用：引导去管理页启用，**不含「未登记」**（否则前端
+//     isPendingRegistrationError 因同时命中两个关键词而把停用态误判为待登记，
+//     提示用户去登记一个已存在的条目）；
+//   - 已启用：正常放行。
+//
+// 本入口为独立写入（非导入事务），**不支持声明 sheet 通道**，因此文案不提
+// 「平台声明」sheet——此处显式断言不含该字样，防止后续误加无效引导。
+func TestValidateAppPlatformRefs_GuidanceByRegistrationState(t *testing.T) {
+	db := openAppPlatformRelTestDB(t)
+	appStore := NewApplicationDictStore(db)
+	platformStore := NewPlatformDictStore(db)
+
+	t.Run("平台未登记", func(t *testing.T) {
+		err := validateAppPlatformRefs(appStore, platformStore, "app-a", "no-such-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 no-such-platform 未登记，请在『平台管理』页登记后重试")
+	})
+
+	t.Run("平台已停用", func(t *testing.T) {
+		err := validateAppPlatformRefs(appStore, platformStore, "app-b", "old-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 old-platform 已停用，请在『平台管理』页启用后重试")
+		assert.NotContains(t, err.Error(), "未登记", "已停用文案不得含「未登记」")
+		assert.NotContains(t, err.Error(), "平台声明", "独立写入口无声明 sheet 通道，文案不得提声明 sheet")
+	})
+
+	t.Run("应用未登记", func(t *testing.T) {
+		err := validateAppPlatformRefs(appStore, platformStore, "no-such-app", "platform-a")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "应用 no-such-app 未登记，请到『应用字典』登记后重试")
+	})
+
+	t.Run("应用已停用", func(t *testing.T) {
+		err := validateAppPlatformRefs(appStore, platformStore, "old-app", "platform-a")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "应用 old-app 已停用，请到『应用字典』启用后重试")
+		assert.NotContains(t, err.Error(), "未登记", "已停用文案不得含「未登记」")
+	})
+
+	t.Run("已启用正常放行", func(t *testing.T) {
+		require.NoError(t, validateAppPlatformRefs(appStore, platformStore, "app-a", "platform-a"))
+	})
 }
 
 // TestAppPlatformStorePrimaryPlatformOf 覆盖决策 110 兜底取值核心路径：

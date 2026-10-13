@@ -266,7 +266,8 @@
 
 - 必填：`resource_category`（创建必传）、`network_domain_id`（M06 网域，须存在）、`env`
 - **{v2.41 决策 93/95} `biz_code` / `app_code` 必填按类型分化**：见 §10A。历史 v2.30 口径「`biz_code` 全类型必填」已撤销。
-- 可选：`cluster`、`owner`、`status`（默认 `online`）、`scrape_port`（{v0.2} 实例级采集端口覆盖，可选；留空由 M09 按「网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → `ExporterTemplate.default_port`」解析，见 Module_01 §5.1 端口一致性）、**`platform_code`（{v2026-09-28 决策 110} 一等字段，可空；留空走所属应用 `app_platform_rel` 主平台兜底，见 §5E；填值须命中未停用平台且与该应用关联平台集合自洽，服务端硬校验）**
+- **{M07 本轮} `cluster` 必填规则同 `app_code`**：host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 `cluster` 标签）；application / database / middleware 必填。见 §10A。
+- 可选：`owner`、`status`（默认 `online`）、`scrape_port`（{v0.2} 实例级采集端口覆盖，可选；留空由 M09 按「网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → `ExporterTemplate.default_port`」解析，见 Module_01 §5.1 端口一致性）、**`platform_code`（{v2026-09-28 决策 110} 一等字段，可空；留空走所属应用 `app_platform_rel` 主平台兜底，见 §5E；填值须命中未停用平台且与该应用关联平台集合自洽，服务端硬校验）**
 - 服务端固定：`source_type=manual`、`tenant_id=platform_admin`、`resource_id`（M07 生成 uuid）
 - 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`endpoint`/`health_check_url?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
 
@@ -274,19 +275,21 @@
 
 - 仅可更新：`network_domain_id`/`biz_code`/`app_code`/`platform_code`/`env`/`cluster`/`owner`/`status`/`scrape_port` + 各类型差异化字段（**`platform_code` 可空一等字段，决策 110**；编辑保留停用/不自洽历史值口径同 §5A）
 - 不可改：`resource_category`、`source_type`（不随请求体）
-- `biz_code`/`app_code` 必填分化同 §10A；编辑已属停用条目时提示并允许保留历史值
+- `biz_code`/`app_code`/`cluster` 必填分化同 §10A；编辑已属停用条目时提示并允许保留历史值
 
-### 10A. {v2.41 决策 93/95} `biz_code`/`app_code` 必填分化口径（新增）
+### 10A. {v2.41 决策 93/95 / M07 决策 F} `biz_code`/`app_code`/`cluster` 必填分化口径（新增）
 
-| 类型 | `biz_code` | `app_code` | 说明 |
-|------|-----------|-----------|------|
-| host | 可空可后补 | 可空 | 静态资源登记仅应用概念、无业务，`biz` 常缺 |
-| database | 可空可后补 | 必填（MVP 1 实例 = 1 主 app_code；多库 1:N 延后 v0.2+，决策 94） | |
-| middleware | 可空可后补 | 必填 | |
-| application | **必填**（上线后） | 必填 | 应用上线跑起来后才出现业务 |
-| generic_target | 二选一（与 app_code） | 二选一（与 biz_code） | app/biz **至少填一个**（决策 95），不会全空致指标无归属 |
+| 类型 | `biz_code` | `app_code` | `cluster` | 说明 |
+|------|-----------|-----------|-----------|------|
+| host | 可空可后补 | 可空 | 可空（空值不注入标签） | 静态资源登记仅应用概念、无业务、无集群归属，`biz` / `cluster` 常缺 |
+| database | 可空可后补 | 必填（MVP 1 实例 = 1 主 app_code；多库 1:N 延后 v0.2+，决策 94） | 必填 | |
+| middleware | 可空可后补 | 必填 | 必填 | |
+| application | **必填**（上线后） | 必填 | 必填 | 应用上线跑起来后才出现业务 |
+| generic_target | 二选一（与 app_code） | 二选一（与 biz_code） | 可空（空值不注入标签） | app/biz **至少填一个**（决策 95），不会全空致指标无归属 |
 
-> 空值语义：`biz_code`/`app_code` 空值**不注入** `biz`/`app` 标签（复用既有空值不注入语义）；前端展示留空（-）。`app_code` 只允许引用应用字典**未停用**条目；`biz_code` 引用启用业务条目（host/db/middleware 为空时不校验存在性）。未归类口径（M05）：`biz_code` 空=未归类业务、`app_code` 空=未归类应用，并存。
+> 空值语义：`biz_code`/`app_code`/`cluster` 空值**不注入** `biz`/`app`/`cluster` 标签（复用既有空值不注入语义，5.15 规则 4）；前端展示留空（-）。`app_code` 只允许引用应用字典**未停用**条目；`biz_code` 引用启用业务条目（host/db/middleware 为空时不校验存在性）。未归类口径（M05）：`biz_code` 空=未归类业务、`app_code` 空=未归类应用，并存。
+>
+> `cluster` 分化依据（M07 决策 F / PRD §5.2）：规则**完全同 `app_code`** —— host / generic_target 放开为可空（SNMP 交换机等设备类无集群归属，强制必填会逼填假数据污染 `cluster` 标签）；application / database / middleware 保持必填。后端校验点见 `platform/config/resource/validate.go` 的 `validateDatabase` / `validateMiddleware` / `validateApplication`（`validateHost` / `validateGenericTarget` 不校验）；Excel 导入必填口径同源 `excel.go`，sheet2「取值说明」必填口径文案由 `templateColumnRequiredLabel` 按类别输出。
 
 ### 10B. {v2.44 决策 103 / M06 决策 78} `cloud_code` / `zone_type` 契约增量（方案 B，取代决策 98 / 101 / 102 方案 A）
 
@@ -311,7 +314,8 @@
 
 #### 10B.3 Excel 导入增量
 
-- 五类模板**移除 `cloud_code` 列**（云经网域派生，导入仅填 `network_domain`）；**host 保留 `zone_env` 兼容列**（承接历史 Excel，不进标签、不作分区权威）。
+- 五类模板**移除 `cloud_code` 列**（云经网域派生，导入仅填 `network_domain`）；**host 已移除 `zone_env` 列**（{M07 本轮} 该列彻底废弃：分区权威值为所属网域 `zone_type`，留着只会诱导填假值；存量 Excel 若仍带该列，导入时按列名静默忽略——不报错、值不落库）。
+- **存量 Excel 兼容口径**：`validateHeader` 在逐列严格比对前按**列名**剔除已废弃列（`excel.go` 的 `removedTemplateColumns`），因此存量 host 模板（14 列，含 `cluster` 之后的 `zone_env`）与新模板（13 列）**均被接受**，且剔除按列名而非列数，列序差异不会被误判为「列头超出模板」；真正未定义的动态列仍报「超出模板」。
 - 历史 Excel 云值归一（`TX → PUB-TX` / `CU → GM-CU`）改由 **M06 网域登记层**处理；资源导入层不再接触 `cloud_code`。
 
 #### 10B.4 网络分区单一权威（决策 101 / 103 修订）

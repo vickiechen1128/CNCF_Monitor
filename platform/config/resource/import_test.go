@@ -276,6 +276,34 @@ func TestImportResource_CreateOnly_Success(t *testing.T) {
 	assert.NotEmpty(t, rec.ImportNo)
 }
 
+// TestImportResource_LegacyTemplateZoneEnvIgnored 端到端回归：存量 host 模板带
+// 已废弃的 zone_env 列（且填了值）时导入成功，且该值不落库（Host.ZoneEnv 保持
+// 空串），导入记录不产生任何错误明细。
+func TestImportResource_LegacyTemplateZoneEnvIgnored(t *testing.T) {
+	db := openImportTestDB(t)
+	r := mountImport(t, db)
+
+	header := legacyHostHeaderWithZoneEnv()
+	vals := baseValues(models.ResourceCategoryHost)
+	vals["instance_ip"] = "10.0.0.1"
+	vals["zone_env"] = "GOV"
+	row := make([]string, len(header))
+	for i, col := range header {
+		row[i] = vals[col]
+	}
+
+	w, out := doImportUpload(t, r, "host", buildXLSXWithHeader(t, header, [][]string{row}),
+		map[string]string{"resource_category": "host", "mode": "create_only"})
+	require.Equal(t, http.StatusOK, w.Code, "存量模板导入应成功：%s", out.Error)
+	assert.Equal(t, 1, out.Data.Success)
+	assert.Equal(t, 0, out.Data.Failed)
+	assert.Empty(t, out.Data.Errors, "废弃列不得产生错误明细")
+
+	var h models.Host
+	require.NoError(t, db.Where("private_ip = ?", "10.0.0.1").First(&h).Error)
+	assert.Empty(t, h.ZoneEnv, "已废弃的 zone_env 值不落库")
+}
+
 func TestImportResource_CreateOnly_DuplicateFails(t *testing.T) {
 	db := openImportTestDB(t)
 	r := mountImport(t, db)

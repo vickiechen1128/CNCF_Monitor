@@ -109,9 +109,11 @@ func valueSheetColumnRows(valueSheet [][]string) [][]string {
 // PRD §5.16.1 回填归设计侧，开发不改 PRD）。
 func TestTemplateColumnsMatchPRD(t *testing.T) {
 	expected := map[models.ResourceCategory][]string{
+		// 决策 101 后续：zone_env 已废弃，host 模板不再输出该列（原特征：列头含
+		// zone_env，位于 cluster 与 owner 之间，共 14 列）。
 		models.ResourceCategoryHost: {
 			"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-			"biz_code", "app_code", "platform_code", "env", "cluster", "zone_env", "owner", "status",
+			"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 			"scrape_port",
 		},
 		models.ResourceCategoryDatabase: {
@@ -220,9 +222,12 @@ func TestDownloadTemplateValueSheet(t *testing.T) {
 	// network_domain：实时取自 M06 网域清单
 	assert.Contains(t, flat, "default", "取值说明应包含 default 网域")
 	assert.Contains(t, flat, "gz-prod-01", "取值说明应包含注入的 M06 网域清单")
-	// zone_env：host 兼容导入列取值提示（决策 101，不进标签、不作分区权威）
-	assert.Contains(t, flat, "INT（互联网区 internet）/ GOV（政务外网区 extranet）")
-	assert.Contains(t, flat, "不进标签、不作分区权威")
+	// zone_env：已废弃（决策 101 后续），取值说明不再出现该列的任何释义
+	//（原特征：断言包含「INT（互联网区 internet）/ GOV（政务外网区 extranet）」
+	// 与「不进标签、不作分区权威」两条兼容列提示）。
+	assert.NotContains(t, flat, "zone_env", "已废弃列不应出现在取值说明")
+	assert.NotContains(t, flat, "INT（互联网区 internet）/ GOV（政务外网区 extranet）")
+	assert.NotContains(t, flat, "不进标签、不作分区权威")
 	// biz_code：业务字典启用项（infra/payment/data-api），停用项 legacy 不出现
 	assert.Contains(t, flat, "infra")
 	assert.Contains(t, flat, "payment")
@@ -394,7 +399,7 @@ func TestDownloadTemplateValueSheetRequiredLabel(t *testing.T) {
 		models.ResourceCategoryHost: {
 			"instance_ip": "必填", "os_type": "必填", "env": "必填",
 			"biz_code": "可留空", "app_code": "可留空", "cluster": "可留空",
-			"network_domain": "可留空", "status": "可留空", "zone_env": "可留空",
+			"network_domain": "可留空", "status": "可留空",
 		},
 		models.ResourceCategoryDatabase: {
 			"app_code": "必填", "cluster": "必填", "database_type": "必填",
