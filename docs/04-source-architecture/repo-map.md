@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-13 20:53 · commit: `73b4593`
+> 生成时间: 2026-10-13 23:03 · commit: `b7c1b4b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1338,6 +1338,7 @@
 - `func openAppPlatformRelTestDB(t *testing.T) *gorm.DB`
 - `func newAppPlatformStore(t *testing.T) *AppPlatformStore`
 - `func TestAppPlatformRelEndpoints(t *testing.T)`
+- `func TestValidateAppPlatformRefs_GuidanceByRegistrationState(t *testing.T)`
 - `func TestAppPlatformStorePrimaryPlatformOf(t *testing.T)`
 
 ### `platform/config/resource/application_dict.go`
@@ -1601,6 +1602,10 @@
 - `func withoutScrapePort(cols []string) []string`
 - `func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T)`
 - `func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T)`
+- `func legacyHostHeaderWithZoneEnv() []string`
+- `func TestExcelLegacyTemplateWithZoneEnvStillImports(t *testing.T)`
+- `func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T)`
+- `func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T)`
 
 ### `platform/config/resource/import.go`
 
@@ -1631,6 +1636,7 @@
 - `func countHosts(t *testing.T, db *gorm.DB) int64`
 - `func hostRow(ip, status string) []string`
 - `func TestImportResource_CreateOnly_Success(t *testing.T)`
+- `func TestImportResource_LegacyTemplateZoneEnvIgnored(t *testing.T)`
 - `func TestImportResource_CreateOnly_DuplicateFails(t *testing.T)`
 - `func TestImportResource_Upsert_UpdatesExisting(t *testing.T)`
 - `func TestImportResource_Upsert_Mixed(t *testing.T)`
