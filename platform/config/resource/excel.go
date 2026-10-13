@@ -49,7 +49,8 @@ func (e *ImportRowError) Error() string {
 // 列模板（TemplateColumns，§5.16.1）逐列比对，列缺失/列名不符/多余列均返回错误
 // （handler 包装为 bad_request，不支持动态列；唯一例外：末列 scrape_port 允许缺省，
 // 旧模板兼容、缺列按 0 处理——决策 D-7 P1）；随后按表头把每行映射为 ImportRow
-// （原始文本，含 Row 行号）。不执行行级校验——调用方需对每行调用
+// （原始文本，含 Row 行号）。空行与与模板示例行逐格一致的行（F-23-① sheet1 第 2 行，
+// 用户忘删时不应被静默导入）不产出 ImportRow。不执行行级校验——调用方需对每行调用
 // ValidateImportRow。未知资源类型返回错误。
 func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow, error) {
 	expected, ok := TemplateColumns[category]
@@ -83,6 +84,12 @@ func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow
 		cells := rows[i]
 		if allEmpty(cells) {
 			continue // 跳过空行（Excel 末尾常见空白行）
+		}
+		if isTemplateExampleRow(category, cells) {
+			// 跳过与模板示例行逐格一致的数据行（F-23-①：sheet1 第 2 行为示例行，
+			// 用户忘删也不应被当作真实资源导入）。只影响行的取舍，不改动后续
+			// 行级校验规则与错误文案；行号仍取 i+1，错误反馈行号不变。
+			continue
 		}
 		row := ImportRow{
 			Row:      i + 1, // 表头后第一行 = Excel 第 2 行（§5.16.3）
@@ -211,6 +218,35 @@ func parsePort(raw string) (int, string) {
 func allEmpty(cells []string) bool {
 	for _, c := range cells {
 		if strings.TrimSpace(c) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// isTemplateExampleRow 判断一行是否与该类别的模板示例行（templateExampleRow，
+// F-23-① sheet1 第 2 行）逐格一致：比对到模板列数为止，缺失的尾部单元格视为空串；
+// 超出模板列数的多余单元格一律视为非示例行。
+//
+// ParseExcel 用它兜住「用户下载模板后忘记删除示例行」的场景——示例行不进入
+// 校验与导入链路，不会被当作真实资源写入。判定为**逐格全等**：用户只要改动任一
+// 格（含按真实字典填码），该行即按普通数据行走原有校验流程，行为与改造前一致。
+func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool {
+	example := templateExampleRow(category)
+	if len(example) == 0 {
+		return false
+	}
+	for i, want := range example {
+		got := ""
+		if i < len(cells) {
+			got = strings.TrimSpace(cells[i])
+		}
+		if got != want {
+			return false
+		}
+	}
+	for i := len(example); i < len(cells); i++ {
+		if strings.TrimSpace(cells[i]) != "" {
 			return false
 		}
 	}
