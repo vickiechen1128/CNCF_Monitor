@@ -2,6 +2,7 @@ package scrapejob
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,8 @@ const (
 //   - blackbox：blackbox_module 必填 + blackbox_targets 非空且 protocol ∈ 限定集；
 //     monitor_type / exporter_template_id 置空
 //   - instance_selection_mode 默认 manual
+//   - scrape_interval / scrape_timeout 非空时须为带单位的 Prometheus duration
+//     字面量（裸数字如 "180" 会被 promtool check config 拒绝，2026-10-12 诊断）
 func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 	if strings.TrimSpace(job.JobName) == "" {
 		return fmt.Errorf("job_name 不能为空")
@@ -37,6 +40,15 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 	}
 	if err := validateNetworkDomain(db, job.NetworkDomainID); err != nil {
 		return err
+	}
+	// 时长校验：空串合法（F-28 留空=继承，保存时由 resolveJobScrapeParams 回落
+	// 层叠默认）；非空但缺单位（如 "180"）在保存时即拦为 bad_request，避免留到
+	// 变更单外部校验才失败，用户还要回头重新编辑下发。
+	if job.ScrapeInterval != "" && !models.ValidPromDuration(job.ScrapeInterval) {
+		return fmt.Errorf("scrape_interval %q 非法：须为带单位的时长（如 15s/1m/2h），单位可选 ms/s/m/h/d/w/y", job.ScrapeInterval)
+	}
+	if job.ScrapeTimeout != "" && !models.ValidPromDuration(job.ScrapeTimeout) {
+		return fmt.Errorf("scrape_timeout %q 非法：须为带单位的时长（如 10s/30s），单位可选 ms/s/m/h/d/w/y", job.ScrapeTimeout)
 	}
 	if job.InstanceSelectionMode == "" {
 		job.InstanceSelectionMode = defaultInstanceSelection
@@ -107,11 +119,40 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		job.AuthType = models.AuthTypeNone
 	}
 
+	// 保存时回收失效实例引用（根治编辑死锁）：资源在 CMDB 被软删后
+	// selected_instance_ids 无人回收，而前端实例选择器只列存活资源——用户既看不到
+	// 也无法取消勾选这些失效 ID，编辑任何字段（如 scrape_interval）回传旧 ID 都会被
+	// 网域校验拦下，形成"改任何参数都报错"的死锁。这里统一剔除已不存在（含软删）
+	// 的引用；**存活但跨网域**的引用不剔除——那是真正的配置错误，仍由
+	// validateSelectedInstancesDomain 拦为 bad_request。
+	reclaimMissingInstanceIDs(db, job)
+
 	// 已选实例须属于同一网域（非同域 bad_request）。
 	if err := validateSelectedInstancesDomain(db, job); err != nil {
 		return err
 	}
 	return nil
+}
+
+// reclaimMissingInstanceIDs 剔除 job.SelectedInstanceIDs 中已不存在（含软删）的
+// 资源引用。存活引用原样保留（含跨网域的，交由域校验拦截）。
+func reclaimMissingInstanceIDs(db *gorm.DB, job *models.ScrapeJob) {
+	if len(job.SelectedInstanceIDs) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(job.SelectedInstanceIDs))
+	dropped := 0
+	for _, id := range job.SelectedInstanceIDs {
+		if _, _, _, alive := lookupResourceMeta(db, id, false); alive {
+			kept = append(kept, id)
+		} else {
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		log.Printf("[scrapejob] job %q 保存时回收 %d 个失效实例引用（资源已删除或不存在）", job.JobName, dropped)
+		job.SelectedInstanceIDs = kept
+	}
 }
 
 // validateNetworkDomain 校验网域已纳管且非冻结：is_monitored=true 且 status=enabled
@@ -132,6 +173,7 @@ func validateNetworkDomain(db *gorm.DB, domainID string) error {
 
 // validateSelectedInstancesDomain 校验 job.SelectedInstanceIDs 均属于 job 的网域
 // （非同域 bad_request）。空选择集（手填 exporter 场景）直接通过。
+// 校验失败时经 describeInstanceRejection 解析真实原因并生成带实例名的文案。
 func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error {
 	if len(job.SelectedInstanceIDs) == 0 {
 		return nil
@@ -142,10 +184,35 @@ func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("实例 %q 不属于网域 %q", id, job.NetworkDomainID)
+			return fmt.Errorf("%s", describeInstanceRejection(db, id, job.NetworkDomainID))
 		}
 	}
 	return nil
+}
+
+// describeInstanceRejection 解析「已选实例未通过网域校验」的真实原因，生成带实例名
+// 的可操作文案（不暴露裸 UUID——用户不认识资源 ID）。
+//
+// 存在的理由：GORM 软删过滤让「实例已删除」与「实例属于其他网域」在资源查询中同样
+// 表现为查不到；旧文案一律报「不属于网域」，把用户引去排查网域配置（实际该实例的
+// 网域就是当前网域）。这里用 Unscoped 复查区分三种情况：
+//   - 资源已软删：报「已被删除」，指引从已选实例中移除（实例选择器只列存活资源，
+//     保存时由 reclaimMissingInstanceIDs 自动回收，见 validateJobRequest）；
+//   - 资源存活但网域不同：报真实归属网域，指引改选本网域实例；
+//   - 彻底不存在：报不存在。
+func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string {
+	name, _, resDomain, found := lookupResourceMeta(db, resourceID, true) // Unscoped：含软删
+	if !found {
+		return fmt.Sprintf("实例 %q 不存在（可能已被彻底删除），请从已选实例中移除", resourceID)
+	}
+	label := strings.TrimSpace(name)
+	if label == "" {
+		label = resourceID
+	}
+	if _, _, _, alive := lookupResourceMeta(db, resourceID, false); alive {
+		return fmt.Sprintf("实例 %q 属于网域 %q，与本任务网域 %q 不同；请改选本网域实例", label, resDomain, domainID)
+	}
+	return fmt.Sprintf("实例 %q 已被删除，仍残留在已选实例中；请从已选实例中移除后重试", label)
 }
 
 // resourceInDomain 报告 resourceID 资源是否存在于指定网域（host/database/

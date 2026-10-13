@@ -423,7 +423,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         form={form}
         layout="vertical"
         requiredMark
-        preserve={false}
+        // 不要用 preserve={false}：standard/blackbox 分支切换卸载时会连带删除
+        // network_domain_id/blackbox_* 等值，且 StrictMode 开发态 StrictEffects
+        // 模拟卸载会二次删除，导致编辑态回显清空。提交语义不受影响：
+        // getFieldsValue()/validateFields() 仅收集已挂载字段，buildBody 按 job_type 显式组装。
         initialValues={{ job_type: 'standard', auth_type: 'none', tls_skip_verify: false }}
       >
         <Row gutter={16}>

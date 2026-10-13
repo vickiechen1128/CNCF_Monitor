@@ -28,11 +28,24 @@ type jobInstanceItem struct {
 	PortSource string `json:"port_source"`
 }
 
-// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
-// instance-candidates：host=InstanceName/PrivateIP，database=ResourceID/InstanceIP，
-// middleware=AppName/InstanceIP，application=ServiceName/采集地址（endpoint:port），
-// generic_target=TargetName/InstanceIP。未命中返回空串。
+// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP（仅存活资源，
+// 受 GORM 软删过滤）。口径对齐 instance-candidates：host=InstanceName/PrivateIP，
+// database=ResourceID/InstanceIP，middleware=AppName/InstanceIP，
+// application=ServiceName/采集地址（endpoint:port），generic_target=TargetName/InstanceIP。
+// 未命中返回空串。
 func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
+	name, ip, _, found = lookupResourceMeta(db, resourceID, false)
+	return
+}
+
+// lookupResourceMeta 是 resolveResourceMeta 的底层查询，额外返回资源所属
+// network_domain_id；unscoped=true 时用 Unscoped 绕过 GORM 软删过滤，已删资源也能
+// 解析出删除前的实例名/IP/网域。
+//
+// 存在的理由：软删过滤下「实例已删除」与「实例属于其他网域」在查询里同样表现为
+// 查不到，旧校验文案一律报「不属于网域」会把用户引去排查网域配置（实际该实例的
+// 网域就是当前网域），且裸 UUID 对用户无意义；用本函数可区分两种失败并带实例名报错。
+func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip, domainID string, found bool) {
 	lookups := []struct {
 		dest    any
 		getMeta func(any) (string, string)
@@ -59,12 +72,17 @@ func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found
 		}},
 	}
 	for _, l := range lookups {
-		if err := db.Where("resource_id = ?", resourceID).First(l.dest).Error; err == nil {
+		q := db.Where("resource_id = ?", resourceID)
+		if unscoped {
+			q = q.Unscoped()
+		}
+		if err := q.First(l.dest).Error; err == nil {
 			n, i := l.getMeta(l.dest)
-			return n, i, true
+			d, _ := models.GetResourceField(l.dest, "network_domain_id")
+			return n, i, d, true
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // ListJobInstances 是 GET /api/v2/platform/scrape-jobs/:id/instances 的 handler：
@@ -198,7 +216,7 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !okDomain {
-			response.BadRequest(c, fmt.Errorf("实例 %q 不属于网域 %q", resourceID, job.NetworkDomainID))
+			response.BadRequest(c, fmt.Errorf("%s", describeInstanceRejection(db, resourceID, job.NetworkDomainID)))
 			return
 		}
 

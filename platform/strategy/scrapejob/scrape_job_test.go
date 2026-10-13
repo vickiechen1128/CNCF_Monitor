@@ -1268,3 +1268,116 @@ func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T) {
 	require.NoError(t, db.First(&stored, j.ID).Error)
 	assert.Equal(t, "draft", stored.DraftStatus, "校验失败不应翻转状态")
 }
+
+// 失效实例引用不再阻断编辑（根治死锁）：资源在 CMDB 被软删后 selected_instance_ids
+// 无人回收，而实例选择器只列存活资源——用户看不到也无法取消勾选失效 ID，编辑任何
+// 参数（如 scrape_interval）都会被域校验误拦。保存时应自动回收软删引用。
+func TestUpdateScrapeJobReclaimsSoftDeletedInstanceRefs(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1", "host-2"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	// CMDB 软删 host-2：实例选择器从此看不到它，用户无法在 UI 中取消勾选。
+	require.NoError(t, db.Delete(&models.Host{}, "resource_id = ?", "host-2").Error)
+
+	// 前端编辑动线原样回传旧 ID，改采集间隔应成功（而不是被失效引用拦下）。
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
+		`{"scrape_interval":"60s","selected_instance_ids":["host-1","host-2"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var out struct {
+		Data struct {
+			ScrapeInterval      string   `json:"scrape_interval"`
+			SelectedInstanceIDs []string `json:"selected_instance_ids"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "60s", out.Data.ScrapeInterval)
+	assert.Equal(t, []string{"host-1"}, out.Data.SelectedInstanceIDs, "保存时应自动回收软删实例引用")
+
+	// 库内同样已回收，后续保存不再带失效引用。
+	var stored models.ScrapeJob
+	require.NoError(t, db.First(&stored, job.ID).Error)
+	assert.Equal(t, []string{"host-1"}, stored.SelectedInstanceIDs)
+}
+
+// 跨网域误选的报错带实例名与真实归属网域，不再只抛裸 UUID + 误导性文案
+// （旧文案把「实例已删除」也报成「不属于网域」，用户不认识资源 ID）。
+func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedEnabledDomain(t, db, "other")
+	seedHost(t, db, "r-42", "other", "10.0.9.42", "online")
+
+	body := `{"job_name":"node-prod","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["r-42"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "host-r-42", "报错应带实例名而非裸 UUID")
+	assert.Contains(t, w.Body.String(), "属于网域")
+	assert.NotContains(t, w.Body.String(), "不属于网域", "误导性旧文案不应再出现")
+}
+
+// 安装确认遇失效引用：Unscoped 复查区分「已删除」与「跨网域」，报已删除 + 实例名。
+func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	require.NoError(t, db.Delete(&models.Host{}, "resource_id = ?", "host-1").Error)
+
+	w := perform(t, r, http.MethodPost,
+		"/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/instances/host-1/confirm",
+		`{"confirmed_by":"platform_admin"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "已被删除", "应报真实原因：实例已删除")
+	assert.Contains(t, w.Body.String(), "host-host-1", "报错应带实例名")
+	assert.NotContains(t, w.Body.String(), "不属于网域", "软删不应被误报为跨网域")
+}
+
+// TestCreateScrapeJobDurationValidation 覆盖 2026-10-12 诊断：裸数字时长（如 "180"）
+// 会留到 promtool check config 才失败（not a valid duration string），必须在保存入口
+// 拦为 bad_request；空串合法（F-28 留空=继承层叠默认）。
+func TestCreateScrapeJobDurationValidation(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 裸数字 scrape_interval → bad_request。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"dur-bad","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180","metrics_path":"/metrics","scheme":"http"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_interval")
+
+	// 缺单位 scrape_timeout → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"dur-bad2","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_timeout":"10","metrics_path":"/metrics","scheme":"http"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_timeout")
+
+	// 合法带单位、留空（继承）均放行。
+	for i, body := range []string{
+		`{"job_name":"dur-ok","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`,
+		`{"job_name":"dur-empty","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"","scrape_timeout":"","metrics_path":"/metrics","scheme":"http"}`,
+	} {
+		w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, "case %d: %s", i, w.Body.String())
+	}
+}

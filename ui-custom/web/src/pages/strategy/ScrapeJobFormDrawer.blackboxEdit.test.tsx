@@ -14,6 +14,8 @@ vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+    // {T01-P6} 编辑态生效端口回显数据源；blackbox 分支不拉取，返回空即可
+    instances: vi.fn().mockResolvedValue({ status: 'success', data: { items: [], total: 0 } }),
   },
 }))
 vi.mock('../../api/domain', () => ({
@@ -104,8 +106,8 @@ describe('ScrapeJobFormDrawer blackbox edit echo (regression)', () => {
       expect(screen.getAllByDisplayValue('https://example.com').length).toBe(2)
     })
     expect(screen.getByDisplayValue('1.2.3.4:80')).toBeInTheDocument()
-    // 网域下拉应渲染（拨测分支专属），且值已由 setFieldsValue 写入表单
-    expect(screen.getByText('仅已纳管非冻结网域')).toBeInTheDocument()
+    // 网域下拉应回显选中项（mc-a → 网域A），而非空值占位文案
+    expect(await screen.findByText('网域A')).toBeInTheDocument()
   })
 
   it('submits edit with echoed blackbox payload', async () => {
