@@ -115,6 +115,49 @@ export function EdgeAgentsPage() {
   /** 重启入口仅在线节点可用；offline/unknown（心跳超时按离线口径展示）/retired 一律禁用 */
   const restartable = (record: AgentView) => record.status === 'online'
 
+  /** F-43 清空回传积压：与重启一致的在线前置；破坏性操作二次确认文案需红色警示 */
+  const flushable = restartable
+
+  /**
+   * F-43 清空回传积压：登记破坏性 seq 指令（下次心跳执行「停 vmagent → 删持久队列
+   * → 重新拉起」，积压数据永久丢弃，换取回传通道实时性恢复）。确认弹窗必须红色警示
+   * 丢弃量，防止误触。
+   */
+  const confirmFlushBacklog = (record: AgentView) => {
+    Modal.confirm({
+      title: '清空回传积压',
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>
+            确定要清空节点「{record.hostname}」的回传积压（
+            {formatBacklogBytes(record.queue_backlog_bytes)}）吗？
+          </p>
+          <p style={{ color: '#cf1322', marginBottom: 8, fontWeight: 600 }}>
+            这是破坏性操作：队列内全部积压数据将被永久丢弃，无法恢复。
+          </p>
+          <ul style={{ paddingLeft: 20, margin: 0 }}>
+            <li>节点会先停止采集回传，清空 vmagent 持久队列后立即重新拉起；约 30s 内随下次心跳下发执行；</li>
+            <li>适用于积压过大、回传延迟已超出时效容忍的止血场景（当前积压大概率已过时）；</li>
+            <li>清空后回传积压归零、新数据实时回传；如需避免再次积压，请调整采集间隔或下发积压磁盘上限。</li>
+          </ul>
+        </div>
+      ),
+      okText: '确认清空（数据丢弃）',
+      okType: 'danger',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await edgeAgentsApi.flushBacklog(record.id)
+          message.success(`节点「${record.hostname}」清空积压指令已登记，约 30s 内随下次心跳执行`)
+          reload()
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '清空积压指令登记失败，请稍后重试')
+        }
+      },
+    })
+  }
+
   /** F-42 人工重启采集进程：登记 seq 指令（约 30s 内随下次心跳下发执行，幂等滚动重启） */
   const confirmRestart = (record: AgentView) => {
     Modal.confirm({
@@ -330,9 +373,24 @@ export function EdgeAgentsPage() {
                       </Tooltip>
                     ),
                   },
+                  {
+                    // F-43 清空回传积压（破坏性）：同样仅在线节点可下发；离线时禁用并说明
+                    key: 'flush-backlog',
+                    danger: true,
+                    disabled: !flushable(record),
+                    label: flushable(record) ? (
+                      '清空回传积压'
+                    ) : (
+                      <Tooltip title={record.status === 'retired' ? '节点已退役，无法下发清空指令' : '节点离线，无法下发清空指令'}>
+                        <span>清空回传积压</span>
+                      </Tooltip>
+                    ),
+                  },
                 ],
                 onClick: ({ key }) => {
                   if (key === 'restart' && restartable(record)) confirmRestart(record)
+                  // 破坏性操作必须在 onClick 处再判一次在线（与 disabled 双保险）
+                  if (key === 'flush-backlog' && flushable(record)) confirmFlushBacklog(record)
                 },
               }}
               trigger={['click']}

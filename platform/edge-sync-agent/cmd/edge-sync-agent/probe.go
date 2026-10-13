@@ -249,6 +249,53 @@ func (p *ProcProbe) RestartCollector() error {
 	return nil
 }
 
+// FlushBacklog 清空 vmagent 回传持久队列（F-43 破坏性指令执行体）。时序必须是
+// 「先 Stop 再删队列目录再 Start」：vmagent 运行中持有队列文件句柄，运行中删除
+// 行为未定义，且 Stop 后不再有新数据写入队列。队列目录取 vmagent 当前启动参数的
+// -remoteWrite.tmpDataPath（EDGE_WAL_DIR 或版本目录下 vmagent-cache），与
+// RestartCollector 同源，避免两处路径推导漂移。删除使用 RemoveAll（目录已不存在
+// 视为已清空，不报错）。完成后 Start 拉起 vmagent 从零重建队列目录，立刻回传新数据；
+// Start 失败交由 supervisor tick 按退避正常拉起。
+func (p *ProcProbe) FlushBacklog() error {
+	c := &supervisor.Component{Type: contract.ComponentTypeCollector}
+	if err := p.Stop(c); err != nil {
+		return err
+	}
+	vd := p.configDir()
+	if vd == "" {
+		// 无生效配置版本时进程本就不会在跑，队列目录无从谈起：前一步 Stop 已保证
+		// 不再有回传，直接返回成功（幂等：重复指令不会误删）。
+		p.mu.Lock()
+		delete(p.lastArgs, contract.ComponentTypeCollector)
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Lock()
+	last, ok := p.lastArgs[contract.ComponentTypeCollector]
+	p.mu.Unlock()
+	// 队列目录从最近一次启动参数推导（-remoteWrite.tmpDataPath=...）；参数缺失
+	//（老版本启动过的进程）按 EDGE_WAL_DIR 兜底，与 specs 的推导保持一致。
+	var wal string
+	if ok {
+		for _, a := range last {
+			if strings.HasPrefix(a, "-remoteWrite.tmpDataPath=") {
+				wal = strings.TrimPrefix(a, "-remoteWrite.tmpDataPath=")
+				break
+			}
+		}
+	}
+	if wal == "" {
+		wal = envOr("EDGE_WAL_DIR", filepath.Join(vd, "vmagent-cache"))
+	}
+	if err := os.RemoveAll(wal); err != nil {
+		return fmt.Errorf("probe: flush backlog remove %s: %w", wal, err)
+	}
+	if err := p.Start(c); err != nil {
+		return fmt.Errorf("probe: flush backlog restart collector: %w", err)
+	}
+	return nil
+}
+
 // StopAll 优雅停止全部子进程（main 退出时调用）。
 func (p *ProcProbe) StopAll() {
 	p.mu.Lock()

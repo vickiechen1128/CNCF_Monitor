@@ -329,6 +329,17 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
             )}
           </Descriptions.Item>
         )}
+        {/* F-43：最近一次清空回传积压破坏性指令留痕（无记录不展示） */}
+        {(agent.flush_requested_by || agent.flush_requested_at) && (
+          <Descriptions.Item label="最近清空回传积压">
+            {agent.flush_requested_at ? formatLocalTime(agent.flush_requested_at) : '-'}
+            {agent.flush_requested_by && (
+              <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+                由 {agent.flush_requested_by} 发起（队列数据已丢弃）
+              </Text>
+            )}
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="最后心跳">
           {agent.last_heartbeat ? formatRelativeTime(agent.last_heartbeat) : '-'}
         </Descriptions.Item>

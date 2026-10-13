@@ -41,7 +41,9 @@ func RequestVMAgentRestart(db *gorm.DB, id uint, requestedBy string, now time.Ti
 			ErrRestartNotOnline, agent.Status)
 	}
 	updates := map[string]interface{}{
-		"vm_agent_restart_seq": gorm.Expr("vm_agent_restart_seq + ?", 1),
+		// COALESCE 兜底存量行 NULL（AutoMigrate 加列不回填，SQL NULL+1=NULL 会导致
+		// 指令位永远推不动，心跳透传 0、Agent 永不执行）。
+		"vm_agent_restart_seq": gorm.Expr("COALESCE(vm_agent_restart_seq, 0) + ?", 1),
 		"restart_requested_by": requestedBy,
 		"restart_requested_at": now,
 	}

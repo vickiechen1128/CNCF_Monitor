@@ -128,6 +128,10 @@ type AgentView struct {
 	VMAgentRestartSeq  int64   `json:"vm_agent_restart_seq,omitempty"`
 	RestartRequestedBy string  `json:"restart_requested_by,omitempty"`
 	RestartRequestedAt *string `json:"restart_requested_at,omitempty"`
+	// 清空回传积压留痕（F-43，机制同上）：指令位当前值 + 最近一次触发人/时间。
+	FlushBacklogSeq  int64   `json:"flush_backlog_seq,omitempty"`
+	FlushRequestedBy string  `json:"flush_requested_by,omitempty"`
+	FlushRequestedAt *string `json:"flush_requested_at,omitempty"`
 }
 
 func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView {
@@ -161,10 +165,16 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		MetadataMaxDiskUsagePerURL: a.MetadataMaxDiskUsagePerURL,
 		VMAgentRestartSeq:          a.VMAgentRestartSeq,
 		RestartRequestedBy:         a.RestartRequestedBy,
+		FlushBacklogSeq:            a.FlushBacklogSeq,
+		FlushRequestedBy:           a.FlushRequestedBy,
 	}
 	if a.RestartRequestedAt != nil {
 		s := a.RestartRequestedAt.UTC().Format(time.RFC3339)
 		v.RestartRequestedAt = &s
+	}
+	if a.FlushRequestedAt != nil {
+		s := a.FlushRequestedAt.UTC().Format(time.RFC3339)
+		v.FlushRequestedAt = &s
 	}
 	// F-15 症状层：心跳超时（离线）或已退纳管（retired）时，节点已失去可信的实时状态，展示层统一降级：
 	//   - 组件状态（CollectorStatus / Components[].status）覆写为 unknown——retired 节点可能残留孤儿

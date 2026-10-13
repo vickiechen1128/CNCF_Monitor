@@ -69,19 +69,24 @@ type Puller struct {
 	lastValid         []byte
 	lastValidMetadata *contract.Metadata
 
-	// F-42 人工重启指令：onRestart 为执行回调（复位 supervisor 守护状态 + 无条件滚动
-	// 重启 vmagent 采集子进程），nil 表示未装配（仅推进 seq 不执行）；restartStatePath
-	// 为已执行 seq 的持久化文件（agent 重启后据此恢复，避免重复执行）；executedRestartSeq
-	// 是本地已执行的 vm_agent_restart_seq（内存 + 磁盘）。
+	// F-42/F-43 中心指令：onRestart 为人工重启回调（复位 supervisor 守护状态 + 无条件
+	// 滚动重启 vmagent 采集子进程），onFlushBacklog 为清空回传积压回调（F-43：停
+	// vmagent → 删其持久队列目录 → 重新拉起，破坏性、有意丢弃积压数据），nil 均表示
+	// 未装配（仅推进 seq 不执行）；restartStatePath 为两类已执行 seq 的持久化文件
+	//（agent 重启后据此恢复，避免重复执行）；executedRestartSeq / executedFlushSeq
+	// 是本地已执行的 vm_agent_restart_seq / flush_backlog_seq（内存 + 磁盘）。
 	onRestart          func() error
+	onFlushBacklog     func() error
 	restartStatePath   string
 	executedRestartSeq int64
+	executedFlushSeq   int64
 }
 
 // NewPuller 构造 Puller。deploy 可为 nil（T11-13 接入前仅保留，不落盘）；
-// onRestart 可为 nil（人工重启指令回调，F-42）；restartStatePath 为已执行重启指令
-// seq 的持久化文件路径（空串则仅内存保留，agent 重启后会重复执行一次幂等滚动重启）。
-func NewPuller(cfg *config.Config, tok *token.Store, cli *client.Client, runtime RuntimeProvider, deploy Deployer, logg *logger.Logger, onRestart func() error, restartStatePath string) *Puller {
+// onRestart / onFlushBacklog 可为 nil（F-42/F-43 指令回调）；restartStatePath 为
+// 已执行指令 seq 的持久化文件路径（空串则仅内存保留，agent 重启后会重复执行一次
+// 幂等指令）。
+func NewPuller(cfg *config.Config, tok *token.Store, cli *client.Client, runtime RuntimeProvider, deploy Deployer, logg *logger.Logger, onRestart func() error, onFlushBacklog func() error, restartStatePath string) *Puller {
 	if runtime == nil {
 		runtime = staticRuntime{}
 	}
@@ -93,6 +98,7 @@ func NewPuller(cfg *config.Config, tok *token.Store, cli *client.Client, runtime
 		deploy:           deploy,
 		logger:           logg,
 		onRestart:        onRestart,
+		onFlushBacklog:   onFlushBacklog,
 		restartStatePath: restartStatePath,
 	}
 	p.loadRestartState()
@@ -138,10 +144,13 @@ func (p *Puller) RunOnce(ctx context.Context) error {
 		return err
 	}
 
-	// F-42 人工重启指令：seq 判定 + 幂等执行。失败不落盘（seq 不推进），下轮心跳
+	// F-42/F-43 中心指令：seq 判定 + 幂等执行。失败不落盘（seq 不推进），下轮心跳
 	// 自动重试；不阻断本轮拉包。
 	if err := p.handleRestartCommand(resp); err != nil {
 		p.warnf("处理重启采集进程指令失败（seq=%d），将在下轮心跳重试: %v", resp.VMAgentRestartSeq, err)
+	}
+	if err := p.handleFlushCommand(resp); err != nil {
+		p.warnf("处理清空回传积压指令失败（seq=%d），将在下轮心跳重试: %v", resp.FlushBacklogSeq, err)
 	}
 
 	if !resp.ConfigChanged && !resp.ParamsChanged {
@@ -154,9 +163,34 @@ func (p *Puller) RunOnce(ctx context.Context) error {
 	return p.pullAndVerify(ctx, resp.ConfigDownloadURL)
 }
 
-// restartState 是重启指令执行状态的持久化结构（F-42，落 <configRoot>/restart-state.json）。
+// restartState 是指令执行状态的持久化结构（F-42/F-43，落 <configRoot>/restart-state.json）。
 type restartState struct {
 	ExecutedVMAgentRestartSeq int64 `json:"executed_vm_agent_restart_seq"`
+	// ExecutedFlushBacklogSeq 是「清空回传积压」指令已执行序号（F-43）。零值兼容：
+	// 旧版本文件无该键时按 0 处理。
+	ExecutedFlushBacklogSeq int64 `json:"executed_flush_backlog_seq"`
+}
+
+// handleFlushCommand 处理心跳响应携带的「清空回传积压」破坏性指令（F-43）：中心递增的
+// flush_backlog_seq 大于本地已执行 seq 时执行回调（停 vmagent → 删其持久队列目录 →
+// 重新拉起，积压数据有意丢弃），成功后更新内存 seq 并落盘；失败不落盘由调用方告警、
+// 下轮心跳重试。幂等：重复心跳（seq 未再递增）不会重复执行。
+func (p *Puller) handleFlushCommand(resp *contract.HeartbeatResponse) error {
+	if resp.FlushBacklogSeq <= p.executedFlushSeq {
+		return nil
+	}
+	if p.onFlushBacklog == nil {
+		// 未装配回调（老版本装配）也推进 seq，避免每轮心跳重复判定。
+		p.setExecutedFlushSeq(resp.FlushBacklogSeq)
+		return nil
+	}
+	p.infof("收到清空回传积压指令: seq=%d（本地已执行 %d），停 vmagent 并清空持久队列", resp.FlushBacklogSeq, p.executedFlushSeq)
+	if err := p.onFlushBacklog(); err != nil {
+		return err
+	}
+	p.setExecutedFlushSeq(resp.FlushBacklogSeq)
+	p.infof("清空回传积压指令执行完成: seq=%d", resp.FlushBacklogSeq)
+	return nil
 }
 
 // handleRestartCommand 处理心跳响应携带的人工重启指令（F-42）：中心递增的
@@ -186,21 +220,38 @@ func (p *Puller) handleRestartCommand(resp *contract.HeartbeatResponse) error {
 // 重启（无害，仅多一次进程重启）。
 func (p *Puller) setExecutedRestartSeq(seq int64) {
 	p.executedRestartSeq = seq
+	p.persistRestartState()
+}
+
+// setExecutedFlushSeq 更新清积压指令内存 seq 并持久化（F-43，语义同 setExecutedRestartSeq）。
+func (p *Puller) setExecutedFlushSeq(seq int64) {
+	p.executedFlushSeq = seq
+	p.persistRestartState()
+}
+
+// persistRestartState 将两类已执行指令 seq 落盘（F-42/F-43）。落盘失败仅告警不回滚：
+// 内存值已推进，agent 进程存活期内不会重复执行；agent 重启后若恰逢落盘失败会多执行
+// 一次幂等指令（重启无害；清积压会误删一轮新数据，但通道本身不稳定时窗口极小，
+// 可接受）。
+func (p *Puller) persistRestartState() {
 	if p.restartStatePath == "" {
 		return
 	}
-	b, err := json.Marshal(&restartState{ExecutedVMAgentRestartSeq: seq})
+	b, err := json.Marshal(&restartState{
+		ExecutedVMAgentRestartSeq: p.executedRestartSeq,
+		ExecutedFlushBacklogSeq:   p.executedFlushSeq,
+	})
 	if err != nil {
-		p.warnf("序列化重启指令状态失败: %v", err)
+		p.warnf("序列化指令状态失败: %v", err)
 		return
 	}
 	if err := os.WriteFile(p.restartStatePath, b, 0o644); err != nil {
-		p.warnf("持久化重启指令状态失败: %v", err)
+		p.warnf("持久化指令状态失败: %v", err)
 	}
 }
 
-// loadRestartState 构造时从磁盘恢复已执行的重启指令 seq（文件缺失/损坏按 0 处理，
-// 下轮心跳按中心最新 seq 幂等补执行）。
+// loadRestartState 构造时从磁盘恢复两类已执行指令 seq（F-42/F-43；文件缺失/损坏按 0
+// 处理，下轮心跳按中心最新 seq 幂等补执行）。
 func (p *Puller) loadRestartState() {
 	if p.restartStatePath == "" {
 		return
@@ -211,10 +262,11 @@ func (p *Puller) loadRestartState() {
 	}
 	var st restartState
 	if err := json.Unmarshal(b, &st); err != nil {
-		p.warnf("解析重启指令状态文件失败，按 0 处理: %v", err)
+		p.warnf("解析指令状态文件失败，按 0 处理: %v", err)
 		return
 	}
 	p.executedRestartSeq = st.ExecutedVMAgentRestartSeq
+	p.executedFlushSeq = st.ExecutedFlushBacklogSeq
 }
 
 // buildHeartbeat 由 RuntimeSnapshot 组装心跳请求。

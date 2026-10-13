@@ -19,10 +19,12 @@ const baseDomain: NetworkDomain = {
 function renderDrawer(domain: NetworkDomain = baseDomain) {
   const onSubmit = vi.fn().mockResolvedValue(undefined)
   const onClose = vi.fn()
-  render(
+  const utils = render(
     <OnboardDomainDrawer open domain={domain} onSubmit={onSubmit} onClose={onClose} />,
   )
-  return { onSubmit, onClose }
+  // 透出 unmount：同一用例内二次渲染前必须卸载前一个抽屉，
+  // 否则 RTL 多容器叠加，queryByText 会命中上一抽屉的残留字段。
+  return { ...utils, onSubmit, onClose }
 }
 
 /**
@@ -52,7 +54,8 @@ describe('OnboardDomainDrawer（网域纳管抽屉）', () => {
   })
 
   it('F-42：agent_pull 域展示「回传积压磁盘上限」字段并随提交透传；local 域不展示', async () => {
-    const { onSubmit } = renderDrawer()
+    const first = renderDrawer()
+    const { onSubmit } = first
     expect(screen.getByText('回传积压磁盘上限')).toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText(/留空按采集节点默认兜底/), { target: { value: '50GB' } })
@@ -63,7 +66,8 @@ describe('OnboardDomainDrawer（网域纳管抽屉）', () => {
       expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ max_disk_usage_per_url: '50GB' }))
     })
 
-    // local 域：无该字段（中心直连不生成回传参数）
+    // local 域：无该字段（中心直连不生成回传参数）；先卸载 agent_pull 抽屉避免残留 DOM 命中
+    first.unmount()
     renderDrawer({ ...baseDomain, id: 'default', name: 'default', domain_type: 'management', channel: 'local' })
     expect(screen.queryByText('回传积压磁盘上限')).toBeNull()
   })

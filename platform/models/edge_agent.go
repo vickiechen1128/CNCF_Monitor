@@ -73,9 +73,15 @@ type EdgeAgent struct {
 	// 简化机制）：管理端点每次触发 +1，心跳响应透传最新值，Agent 本地持久化已执行
 	// seq、发现更大值时幂等执行（重复心跳不重复重启）。无 pending/回报状态机，
 	// 重启效果靠组件状态/积压/回传延迟列自然反映。
+	// FlushBacklogSeq 是「清空回传积压」破坏性指令位（F-43，机制同上）：Agent 执行
+	// 前必须先停 vmagent 再删持久队列目录（进程持有队列文件句柄，运行中删除行为未
+	// 定义），队列内积压数据**有意丢弃**换取回传通道实时性恢复。
 	VMAgentRestartSeq  int64           `json:"vm_agent_restart_seq,omitempty"`
 	RestartRequestedBy string          `gorm:"size:64" json:"restart_requested_by,omitempty"` // 最近的触发人（审计留痕）
 	RestartRequestedAt *time.Time      `json:"restart_requested_at,omitempty"`                // 最近的触发时间
+	FlushBacklogSeq    int64           `json:"flush_backlog_seq,omitempty"`                   // 清空回传积压指令位（F-43）
+	FlushRequestedBy   string          `gorm:"size:64" json:"flush_requested_by,omitempty"`   // 最近的清积压触发人（审计留痕）
+	FlushRequestedAt   *time.Time      `json:"flush_requested_at,omitempty"`                  // 最近的清积压触发时间
 	Components         []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"`   // 组件清单（JSON 载体）
 	LastError          string          `gorm:"type:text" json:"last_error,omitempty"`
 }

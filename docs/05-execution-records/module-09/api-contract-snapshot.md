@@ -116,6 +116,7 @@
 | `blackbox_yml` | string | blackbox.yml（可选） |
 | `targets_files` | object | `<job_name>.json` → content 的映射（前端数据驱动遍历渲染子 Tab） |
 | `metadata` | object | `{ source_data_version, trigger_summary, checksum, generator_version, superseded_by_change_no? }` 技术信息（折叠） |
+| `alertmanager_source_version_id` | string | 可选；**内部追溯字段（排障/审计用，前端不消费）**。本单 alertmanager.yml 产物来源的 M08 留痕版本 ID（生成时与产物内容同一次加载获得；无 AM 产物/来源缺失时省略）。2026-10-13 dev-feedback #44：M09 确认下发后按它**精确**回填 M08 留痕的 applied_at/source_change_no（原「取最新一条 applied」口径在 reuse 路径下会把来源版本遗留「已提交，待确认下发」）；管理域变更单废弃时亦以各活单的来源版本为保护对象 |
 | `change_items` | [ConfigChangeItem] | 结构化变更清单 |
 
 ### ConfigChangeItem

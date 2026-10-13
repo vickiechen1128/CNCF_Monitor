@@ -24,9 +24,11 @@ vi.mock('../../../api/client', () => ({
   getStoredUser: (...a: unknown[]) => getStoredUserMock(...a),
 }))
 const restartMock = vi.fn()
+const flushBacklogMock = vi.fn()
 vi.mock('../../../api/edgeAgents', () => ({
   edgeAgentsApi: {
     restart: (...a: unknown[]) => restartMock(...a),
+    flushBacklog: (...a: unknown[]) => flushBacklogMock(...a),
   },
 }))
 
@@ -364,10 +366,14 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
-    const item = await screen.findByText('重启采集进程')
+    // 注意：前置测试的 Modal.confirm 标题可能异步残留在 body，按 li 内菜单项过滤
+    const items = await screen.findAllByText('重启采集进程')
+    const item = items.find((el) => el.closest('li'))!
     expect(item.closest('li')?.className).toContain('ant-dropdown-menu-item-disabled')
+    // 计数断言（而非 toBeNull）：前置测试的 Modal.confirm Portal 可能异步残留在 body
+    const modalCountBefore = screen.queryAllByText(/确定要重启节点/).length
     fireEvent.click(item)
-    expect(screen.queryByText(/确定要重启节点/)).toBeNull()
+    expect(screen.queryAllByText(/确定要重启节点/).length).toBe(modalCountBefore)
     expect(restartMock).not.toHaveBeenCalled()
   })
 
@@ -381,5 +387,48 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
 
     expect(await screen.findByText('edge01')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /更多/ })).toBeNull()
+  })
+
+  it('F-43：admin 经「更多 → 清空回传积压」二次确认（红色破坏性警示）后下发清空指令', async () => {
+    const agents: AgentView[] = [agentRow(2, 'edge02', { queue_backlog_bytes: 3637 * 1024 * 1024 })]
+    const reload = vi.fn()
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 }, reload }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    flushBacklogMock.mockResolvedValue({})
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    fireEvent.click(await screen.findByText('清空回传积压'))
+    // 二次确认弹窗：红色「永久丢弃」警示 + 展示当前积压量（GB）+ 危险按钮
+    expect(await screen.findByText(/确定要清空节点「edge02」的回传积压/)).toBeInTheDocument()
+    expect(await screen.findByText(/队列内全部积压数据将被永久丢弃/)).toBeInTheDocument()
+    const okBtn = await screen.findByRole('button', { name: /确认清空（数据丢弃）/ })
+    expect(okBtn.className).toContain('danger')
+    fireEvent.click(okBtn)
+    await waitFor(() => expect(flushBacklogMock).toHaveBeenCalledWith(2))
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(restartMock).not.toHaveBeenCalled()
+  })
+
+  it('F-43：离线节点清空积压菜单项禁用（破坏性操作仅限在线节点）', async () => {
+    const agents: AgentView[] = [agentRow(3, 'edge03', { status: 'offline' })]
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 0, offline: 1 } }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    // 注意：前置测试的 Modal.confirm 标题可能异步残留在 body，按 li 内菜单项过滤
+    const items = await screen.findAllByText('清空回传积压')
+    const item = items.find((el) => el.closest('li'))!
+    expect(item.closest('li')?.className).toContain('ant-dropdown-menu-item-disabled')
+    // 计数断言（而非 toBeNull）：前置测试的 Modal.confirm Portal 可能异步残留在 body
+    const modalCountBeforeFlush = screen.queryAllByText(/确定要清空节点/).length
+    fireEvent.click(item)
+    expect(screen.queryAllByText(/确定要清空节点/).length).toBe(modalCountBeforeFlush)
+    expect(flushBacklogMock).not.toHaveBeenCalled()
   })
 })

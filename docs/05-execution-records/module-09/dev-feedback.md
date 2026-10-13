@@ -685,3 +685,25 @@
 - **发现场景**：F-39/F-40 回传积压排查延伸 + PM 提问「vmagent 日志空间怎么管理、用户不知道怎么改参数」（2026-10-10）；重启按钮归属讨论（2026-10-10，PM 提问「操作列增加按钮是否合理」→ 采纳）。
 - **是否需设计侧确认**：是——页面落位（网域抽屉「回传参数」分组、采集节点操作列「更多」Dropdown）与默认值分层（开发/生产）需 prototype-designer 过目；两套网域表单并存的权威入口对齐 #19 先例。
 - **状态**：open（**设计定稿 2026-10-10，两轮 PM 拍板收束：① 配置入口 = M09 域详情/纳管抽屉「回传参数」分组；② 人工重启按钮本期随 F-42 实施，seq 简化机制，入口 = M09 采集节点列表操作列「更多」**；实施顺序：F-42 本体（metadata 携带 + 域抽屉表单 + supervisor diff 滚动重启 + probe.go 硬底线）→ seq 重启按钮（复用滚动重启函数）→ 互相指引 + 全量验证）
+
+## 2026-10-13（回传积压治理：清空积压破坏性指令，随 f42-6 前端批次）
+
+### F-43：「清空回传积压」节点级破坏性运维指令（① 空白判定 + ③ 技术优化，2026-10-13，已实现）
+
+- **类别**：① 空白判定（积压只能队外手工清，平台无处置出口）+ ③ 技术优化
+- **PRD 章节 / 文件位置**：M09 采集节点列表操作列；关联 F-39（积压可观测）、F-40（延迟三态）、F-42（seq 重启指令位先例）
+- **动机（生产实测 2026-10-13）**：GL-OPS-GITLAB-01-X86（mc-edge-debug 域）因 Cloudflare 免费隧道吞吐瓶颈，vmagent 持久队列积压 **1.4GB、端到端回传延迟 9h+**，按既有链路要 9 小时才排空——排空期间时效性无意义，运维需要「在边缘就地丢弃积压、立即恢复实时回传」的能力，此前只能 SSH 上节点手工删队列目录。
+- **方案（PM 拍板 2026-10-13，用户同意并入 f42-6 前端批次）**：节点级「清空回传积压」破坏性指令，全栈复用 F-42 seq 简化幂等机制（management 端点乐观推进 seq + 留痕 → 心跳响应透传 → agent 判定更大 seq 时执行 → 成功才持久化，失败下轮重试），无需 pending/回报状态机。
+- **破坏性护栏**：
+  1. 中心侧仅 `status=online` 节点可下发（sentinel `ErrFlushNotOnline` → 400；离线 = 心跳停 = 指令发不出，不预约），端点挂 RequireAdmin；
+  2. agent 执行时序：**先 Stop vmagent → 删持久队列目录 → Start**（进程持句柄，运行中删除行为未定义）；
+  3. 队列目录从 vmagent 最近启动参数 `-remoteWrite.tmpDataPath=` 推导（缺失回落 `EDGE_WAL_DIR` 环境变量 / configDir 下 `vmagent-cache`，与 specs 同源防漂移）；`RemoveAll` 且目录不存在视为已清空；
+  4. 前端 Modal.confirm danger 二次确认：红色警示「队列内全部积压数据将被**永久丢弃**，无法恢复」，okText「确认清空（数据丢弃）」+ 展示当前积压量；操作列入口仅在线可用，离线/退役 disabled + tooltip；执行语义明示「有意丢弃数据」而非重启（区别于 F-42 重启按钮文案）。
+- **变更点**：
+  - 数据层：`EdgeAgent` 新增 `FlushBacklogSeq` / `FlushRequestedBy` / `FlushRequestedAt` 指令位 + 留痕（AutoMigrate 自动加列）；
+  - 中心侧：`platform/edge/flush_handler.go`（`PUT /api/v2/platform/edge-agents/:id/flush-backlog`，gorm.Expr 原子递增 + 留痕 + 重读视图）；`AgentView` 透出 seq/留痕；心跳 Save Omit 六字段（含 restart 三字段）防心跳全量覆盖并发指令，响应前重读最新 seq（`sql.NullInt64` 防 NULL 行 500）；
+  - agent：契约 `HeartbeatResponse.FlushBacklogSeq`（omitempty，老 Agent 忽略未知字段向后兼容）；puller 双回调 + restart-state.json 增 `ExecutedFlushBacklogSeq`（与 restart seq 共库互不破坏，零值兼容旧文件）；probe 新增 `FlushBacklog()`（Stop→删队列→Start）；main 接线第二回调；
+  - 前端：`edgeAgentsApi.flushBacklog(id)` + 类型 + 操作列「更多」danger 菜单项（确认弹窗）+ 节点详情抽屉「最近清空回传积压」留痕行（发起人/时间）。
+- **幂等与竞态**：seq 未递增不重复执行；回调失败不推进 seq 不落盘（下轮心跳重试）；未装配回调仅推进 seq（向后兼容）。执行效果靠下轮心跳 `backlog_bytes` 归零自然反映，无回报状态机。
+- **状态**：**已实现（2026-10-13，f42-6/f43 批次）**
+- **验证**：platform flush 专项测试（seq 0→1→2、留痕、offline/retired→403/404/400、admin 端点）通过；edge-sync-agent `go vet ./...` + `go test ./...` 9 包全过；前端 vitest 21 用例全绿（含 F-43 admin 下发 / 离线禁用两用例，antd Modal Portal 残留改为计数断言防 flake）。

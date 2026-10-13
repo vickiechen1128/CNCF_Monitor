@@ -39,9 +39,11 @@ func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string
 	ag.GET("/:id", GetAgentHandler(db, lagQuerier))
 	// F-42 人工滚动重启 vmagent：写端点挂 RequireAdmin 最小授权门（对齐 deployment
 	// review-fix B 口径）。返回 403 文案「需要管理员权限」。
+	// F-43 清空回传积压（破坏性操作）：同挂 RequireAdmin。
 	adminAg := ag.Group("")
 	adminAg.Use(auth.RequireAdmin())
 	adminAg.PUT("/:id/restart", RestartAgentHandler(db))
+	adminAg.PUT("/:id/flush-backlog", FlushBacklogHandler(db))
 
 	pk := platform.Group("/edge-packages")
 	pk.GET("", ListPackagesHandler(dir))

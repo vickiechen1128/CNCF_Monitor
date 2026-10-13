@@ -113,6 +113,12 @@ type HeartbeatResponse struct {
 	// 幂等滚动重启 vmagent 采集子进程（仅采集进程，Agent 本体与持久队列不受影响），
 	// 执行成功后本地持久化已执行序号；失败不落盘，下轮心跳自动重试。0/缺失表示无指令。
 	VMAgentRestartSeq int64 `json:"vm_agent_restart_seq,omitempty"`
+	// FlushBacklogSeq 是中心侧已登记的「清空回传积压」破坏性指令序号（F-43，机制同
+	// VMAgentRestartSeq）：Agent 发现响应序号大于本地已执行序号时执行——停 vmagent
+	// 采集子进程、删除其持久队列目录（积压数据有意丢弃）、重新拉起。执行成功后本地
+	// 持久化已执行序号；失败不落盘，下轮心跳自动重试。0/缺失表示无指令。老版本
+	// Agent 忽略该未知字段，天然向后兼容。
+	FlushBacklogSeq int64 `json:"flush_backlog_seq,omitempty"`
 }
 
 // Metadata 是配置包内 metadata.json 的内容（PRD §6.3），与中心 zipper.go 对齐：

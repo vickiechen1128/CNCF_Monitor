@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -70,6 +71,10 @@ type HeartbeatResponse struct {
 	// 机制）：管理端点推进后随心跳响应透传，Agent 本地持久化已执行 seq、发现更大
 	// 值时幂等执行滚动重启。0 表示从未触发。
 	VMAgentRestartSeq int64 `json:"vm_agent_restart_seq,omitempty"`
+	// FlushBacklogSeq 是该节点当前的「清空回传积压」破坏性指令位（F-43，机制同
+	// restart seq）：Agent 发现更大值时先停 vmagent 再清其持久队列目录，有意丢弃
+	// 积压数据换取回传通道实时性。0 表示从未触发。
+	FlushBacklogSeq int64 `json:"flush_backlog_seq,omitempty"`
 }
 
 // HeartbeatService 处理边缘 Agent 心跳上报：自动注册缺失实例、以中心接收时间更新
@@ -113,9 +118,11 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	agent.MetadataMaxDiskUsagePerURL = req.MetadataMaxDiskUsagePerURL
 	agent.ConfigVersion = req.ConfigVersion
 	agent.Status = "online"
-	// F-42：心跳全量 Save 前剔除重启指令位三字段——seq 只由管理端点推进，心跳以
-	// findOrRegisterAgent 读出的快照回写会覆盖并发窗口内管理端点的 +1（竞态丢失）。
-	if err := s.db.Omit("VMAgentRestartSeq", "RestartRequestedBy", "RestartRequestedAt").Save(agent).Error; err != nil {
+	// F-42/F-43：心跳全量 Save 前剔除指令位与留痕五字段——seq 只由管理端点推进，
+	// 心跳以 findOrRegisterAgent 读出的快照回写会覆盖并发窗口内管理端点的推进
+	//（竞态丢失）。
+	if err := s.db.Omit("VMAgentRestartSeq", "RestartRequestedBy", "RestartRequestedAt",
+		"FlushBacklogSeq", "FlushRequestedBy", "FlushRequestedAt").Save(agent).Error; err != nil {
 		return nil, fmt.Errorf("save edge agent runtime state: %w", err)
 	}
 
@@ -214,12 +221,21 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		}
 	}
 
-	// F-42：响应前重读重启指令位最新值——心跳处理期间管理端点可能并发推进 seq
-	//（agent 行内存快照是处理开始时读的），透传最新值避免指令延迟一轮才达。
-	var restartSeq int64
+	// F-42/F-43：响应前重读两条指令位最新值——心跳处理期间管理端点可能并发推进
+	// seq（agent 行内存快照是处理开始时读的），透传最新值避免指令延迟一轮才达。
+	// 兼容历史行：列新增前落库的 agent 行 seq 为 NULL，直接 Scan 进 int64 会报
+	// "converting NULL to int64 is unsupported"，使整个心跳 500，agent 视为心跳失败
+	// 保留旧配置、永不拉包（2026-10-12 诊断：deploy 永久停留「待执行」即此因）。
+	var seqNull sql.NullInt64
 	if err := s.db.Model(&models.EdgeAgent{}).Select("vm_agent_restart_seq").
-		Where("id = ?", agent.ID).Scan(&restartSeq).Error; err != nil {
+		Where("id = ?", agent.ID).Scan(&seqNull).Error; err != nil {
 		return nil, fmt.Errorf("load vm_agent_restart_seq: %w", err)
+	}
+	restartSeq := seqNull.Int64
+	var flushSeqNull sql.NullInt64
+	if err := s.db.Model(&models.EdgeAgent{}).Select("flush_backlog_seq").
+		Where("id = ?", agent.ID).Scan(&flushSeqNull).Error; err != nil {
+		return nil, fmt.Errorf("load flush_backlog_seq: %w", err)
 	}
 
 	return &HeartbeatResponse{
@@ -228,6 +244,7 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		ConfigDownloadURL: configDownloadURL(authority, dom.ID),
 		ParamsChanged:     paramsChanged,
 		VMAgentRestartSeq: restartSeq,
+		FlushBacklogSeq:   flushSeqNull.Int64,
 	}, nil
 }
 

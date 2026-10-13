@@ -217,4 +217,24 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     expect(screen.getByText('未下发（agent 内置兜底 2GB）')).toBeInTheDocument()
     expect(screen.queryByText('最近人工重启')).toBeNull()
   })
+
+  it('F-43：展示最近清空回传积压留痕（发起人+时间），无记录不展示留痕行', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    const { unmount } = renderDrawer(
+      baseAgent({
+        flush_backlog_seq: 3,
+        flush_requested_by: 'ops-admin',
+        flush_requested_at: '2026-10-12T04:00:00Z',
+      }),
+    )
+
+    const row = screen.getByText('最近清空回传积压').closest('tr')
+    expect(row?.textContent).toContain('ops-admin')
+    expect(row?.textContent).toContain('队列数据已丢弃')
+    unmount()
+
+    // 无清积压留痕 → 不渲染噪声行
+    renderDrawer(baseAgent({}))
+    expect(screen.queryByText('最近清空回传积压')).toBeNull()
+  })
 })

@@ -144,12 +144,12 @@ func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer {
 
 func newPuller(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider) *Puller {
 	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
-	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), nil, "")
+	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), nil, nil, "")
 }
 
 func newPullerWithRestart(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onRestart func() error, statePath string) *Puller {
 	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
-	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), onRestart, statePath)
+	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), onRestart, nil, statePath)
 }
 
 func TestRunOnceValidConfigDeploysAndRetains(t *testing.T) {
@@ -451,5 +451,166 @@ func TestRunOnceRestartSeqFailureRetries(t *testing.T) {
 	var st restartState
 	if err := json.Unmarshal(b, &st); err != nil || st.ExecutedVMAgentRestartSeq != 3 {
 		t.Fatalf("restart state = %s err=%v", b, err)
+	}
+}
+
+// ---- F-43 清空回传积压（破坏性 seq 指令） ----
+
+func newPullerWithFlush(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onFlush func() error, statePath string) *Puller {
+	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
+	p := NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), nil, nil, statePath)
+	p.onFlushBacklog = onFlush
+	return p
+}
+
+// TestRunOnceFlushSeqTriggersCallbackAndPersists 覆盖 F-43 清积压指令：心跳响应 seq
+// 大于本地已执行序号时执行回调并落盘；重复心跳不重复执行（幂等）；agent 重启后从
+// 磁盘恢复 seq 不重复执行；seq 递增再执行。与 F-42 重启共用同一状态文件（两个 seq
+// 互不干扰，字段独立读写）。
+func TestRunOnceFlushSeqTriggersCallbackAndPersists(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	calls := 0
+
+	// 预置一份含重启 seq=7 的状态文件：确认 flush 读写不破坏 restart seq 字段。
+	if err := os.WriteFile(statePath, []byte(`{"executed_vm_agent_restart_seq":7}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+	if p.executedRestartSeq != 7 {
+		t.Fatalf("preloaded restart seq not restored: %d", p.executedRestartSeq)
+	}
+
+	// 第一轮：flush seq=2 → 回调执行，两个 seq 一起落盘。
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 2}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("flush callback calls = %d want 1", calls)
+	}
+	if p.executedFlushSeq != 2 {
+		t.Fatalf("executedFlushSeq = %d want 2", p.executedFlushSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("flush state not persisted: %v", err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("state unmarshal: %v", err)
+	}
+	if st.ExecutedFlushBacklogSeq != 2 || st.ExecutedVMAgentRestartSeq != 7 {
+		t.Fatalf("state = %s（flush=2 restart=7 须同时保留）", b)
+	}
+
+	// 第二轮：同一 seq 不重复执行（幂等）；flush seq 递增才再执行。
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 2}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("duplicate heartbeat re-triggered flush, calls = %d", calls)
+	}
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 3}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p.executedFlushSeq != 3 {
+		t.Fatalf("incremented flush seq not executed: calls=%d seq=%d", calls, p.executedFlushSeq)
+	}
+
+	// agent 重启恢复：flush seq=3、restart seq=7，均不再重复执行。
+	p2 := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+	if p2.executedFlushSeq != 3 {
+		t.Fatalf("restored executedFlushSeq = %d want 3", p2.executedFlushSeq)
+	}
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 3, VMAgentRestartSeq: 7}
+	if err := p2.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("flush/restart re-executed after agent restart, calls = %d", calls)
+	}
+}
+
+// TestRunOnceFlushSeqFailureRetries 覆盖 F-43 失败重试语义：回调失败不推进 seq、
+// 不落盘，下轮心跳对同一 seq 自动重试；成功后推进并持久化。
+func TestRunOnceFlushSeqFailureRetries(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	fail := true
+	calls := 0
+	p := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		if fail {
+			return errors.New("flush failed")
+		}
+		return nil
+	}, statePath)
+
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 4}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("first attempt calls = %d want 1", calls)
+	}
+	if p.executedFlushSeq != 0 {
+		t.Fatalf("failed flush must not advance seq, got %d", p.executedFlushSeq)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("failed flush must not persist state, stat err = %v", err)
+	}
+
+	fail = false
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p.executedFlushSeq != 4 {
+		t.Fatalf("retry not executed: calls=%d seq=%d", calls, p.executedFlushSeq)
+	}
+}
+
+// TestNoFlushCallbackStillAdvancesSeq 覆盖未装配回调（旧版本装配）场景：仅推进内存
+// seq 并落盘，不重试、不死循环。
+func TestNoFlushCallbackStillAdvancesSeq(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
+	p := NewPuller(cfg, token.NewStore(cfg.Token), cli, nil, &fakeDeploy{}, logger.New(nil), nil, nil, statePath)
+	if p.onFlushBacklog != nil {
+		t.Fatal("onFlushBacklog should be nil by default")
+	}
+
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 9}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if p.executedFlushSeq != 9 {
+		t.Fatalf("missing callback should still advance seq, got %d", p.executedFlushSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil || st.ExecutedFlushBacklogSeq != 9 {
+		t.Fatalf("state = %s err=%v", b, err)
 	}
 }

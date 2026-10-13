@@ -23,4 +23,13 @@ export const edgeAgentsApi = {
   restart(id: number): Promise<ApiResponse<AgentView>> {
     return apiClient.put<AgentView>(`/api/v2/platform/edge-agents/${id}/restart`, {})
   },
+  /**
+   * 清空回传积压（F-43，破坏性操作）：递增该节点 flush_backlog_seq 并留痕，节点随
+   * 下次心跳执行「停 vmagent → 删其持久队列目录（积压数据永久丢弃）→ 重新拉起」，
+   * 换取回传通道实时性恢复——适用于积压排空时间远超时效容忍的止血场景。需 admin
+   * 权限；节点离线/退役时后端返回 400（破坏性操作仅限在线节点）。
+   */
+  flushBacklog(id: number): Promise<ApiResponse<AgentView>> {
+    return apiClient.put<AgentView>(`/api/v2/platform/edge-agents/${id}/flush-backlog`, {})
+  },
 }

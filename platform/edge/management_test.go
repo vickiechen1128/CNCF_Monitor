@@ -149,6 +149,97 @@ func TestRestartAgentEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w4.Code)
 }
 
+// ---- F-43 清空回传积压（破坏性 seq 指令） ----
+
+func TestRequestFlushBacklog(t *testing.T) {
+	db := newEdgeTestDB(t)
+	agent := seedAgent(t, db, "nd-flush", "online", tPtr(time.Now()), nil)
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+
+	// 首次触发：seq 0→1，留痕触发人与时间。
+	got, err := RequestFlushBacklog(db, agent.ID, "ops-admin", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got.FlushBacklogSeq)
+	assert.Equal(t, "ops-admin", got.FlushRequestedBy)
+	require.NotNil(t, got.FlushRequestedAt)
+	assert.True(t, got.FlushRequestedAt.Equal(now), "flush_requested_at 应为传入时间")
+
+	// 再次触发：seq 可递增（幂等指令位语义）。
+	got2, err := RequestFlushBacklog(db, agent.ID, "ops-admin-2", now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), got2.FlushBacklogSeq)
+	assert.Equal(t, "ops-admin-2", got2.FlushRequestedBy)
+
+	// 非 online 节点拒绝（offline / retired）：破坏性操作必须在线执行。
+	offline := seedAgent(t, db, "nd-flush-off", "offline", nil, nil)
+	_, err = RequestFlushBacklog(db, offline.ID, "ops-admin", now)
+	require.ErrorIs(t, err, ErrFlushNotOnline)
+
+	retired := seedAgent(t, db, "nd-flush-retired", "retired", nil, nil)
+	_, err = RequestFlushBacklog(db, retired.ID, "ops-admin", now)
+	require.ErrorIs(t, err, ErrFlushNotOnline)
+
+	// 不存在节点。
+	_, err = RequestFlushBacklog(db, 99999, "ops-admin", now)
+	require.ErrorIs(t, err, ErrFlushNotFound)
+}
+
+// TestRequestSeqCommandsOnNullColumns 回归：存量行指令位列为 NULL（AutoMigrate 加列
+// 不回填）时，seq 推进不得产生 NULL+1=NULL 静默失效——否则审计留痕已写入、指令位
+// 永远推不动，心跳透传 0，Agent 永不执行（2026-10-13 线上 flush 指令未生效根因）。
+func TestRequestSeqCommandsOnNullColumns(t *testing.T) {
+	db := newEdgeTestDB(t)
+	now := time.Date(2026, 10, 13, 2, 17, 46, 0, time.UTC)
+
+	flushAgent := seedAgent(t, db, "nd-null-flush", "online", tPtr(time.Now()), nil)
+	require.NoError(t, db.Exec("UPDATE edge_agents SET flush_backlog_seq = NULL WHERE id = ?", flushAgent.ID).Error)
+	got, err := RequestFlushBacklog(db, flushAgent.ID, "admin", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got.FlushBacklogSeq, "NULL 列应被 COALESCE 兜底推到 1 而非停留 NULL")
+
+	restartAgent := seedAgent(t, db, "nd-null-restart", "online", tPtr(time.Now()), nil)
+	require.NoError(t, db.Exec("UPDATE edge_agents SET vm_agent_restart_seq = NULL WHERE id = ?", restartAgent.ID).Error)
+	got2, err := RequestVMAgentRestart(db, restartAgent.ID, "admin", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got2.VMAgentRestartSeq, "NULL 列应被 COALESCE 兜底推到 1 而非停留 NULL")
+}
+
+func TestFlushBacklogEndpoint(t *testing.T) {
+	db := newEdgeTestDB(t)
+	agent := seedAgent(t, db, "nd-flush-http", "online", tPtr(time.Now()), nil)
+
+	// 无用户注入 → RequireAdmin 403。
+	r := newManagementRouter(db)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/flush-backlog", agent.ID), nil))
+	require.Equal(t, http.StatusForbidden, w.Code)
+
+	// admin 注入 → 200，seq+1 且留痕透出；不存在 id → 404；离线 → 400。
+	r2 := gin.New()
+	r2.Use(adminInjector())
+	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "", nil)
+
+	w2 := httptest.NewRecorder()
+	r2.ServeHTTP(w2, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/flush-backlog", agent.ID), nil))
+	require.Equal(t, http.StatusOK, w2.Code)
+	var view AgentView
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &struct {
+		Data *AgentView `json:"data"`
+	}{Data: &view}))
+	assert.Equal(t, int64(1), view.FlushBacklogSeq)
+	assert.Equal(t, "ops-admin", view.FlushRequestedBy)
+	require.NotNil(t, view.FlushRequestedAt)
+
+	w3 := httptest.NewRecorder()
+	r2.ServeHTTP(w3, httptest.NewRequest(http.MethodPut, "/api/v2/platform/edge-agents/99999/flush-backlog", nil))
+	require.Equal(t, http.StatusNotFound, w3.Code)
+
+	offline := seedAgent(t, db, "nd-flush-http-off", "offline", nil, nil)
+	w4 := httptest.NewRecorder()
+	r2.ServeHTTP(w4, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/flush-backlog", offline.ID), nil))
+	require.Equal(t, http.StatusBadRequest, w4.Code)
+}
+
 // ---- T11-06 退纳管级联清退（决策 D3） ----
 
 func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T) {

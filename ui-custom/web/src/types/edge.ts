@@ -96,6 +96,12 @@ export interface AgentView {
   restart_requested_by?: string
   /** 最近一次人工重启指令发起时间（RFC3339，留痕） */
   restart_requested_at?: string | null
+  /** 已登记的「清空回传积压」破坏性指令序号（F-43，机制同 vm_agent_restart_seq）：中心每次受理清积压请求原子递增 */
+  flush_backlog_seq?: number
+  /** 最近一次清积压指令发起人（留痕） */
+  flush_requested_by?: string
+  /** 最近一次清积压指令发起时间（RFC3339，留痕） */
+  flush_requested_at?: string | null
   components?: EdgeComponent[]
 }
 
