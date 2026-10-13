@@ -309,6 +309,15 @@ build-prometheus: ensure-go ensure-pnpm
 # exec.LookPath("promtool") 调用本二进制做 promtool check config；缺失时
 # 校验返回 pending + platform_fault（决策 42-2）。GOPROXY 走国内代理避免
 # jsondiff 等新增依赖拉取超时。
+# 说明：build-promtool / build-amtool 是强制重建入口（每次都跑 go build）；
+# run-metric-center 启动链改依赖下面的文件目标（PROMTOOL_BIN / AMTOOL_BIN），
+# 二进制已存在即跳过，避免网络慢时 GOPROXY 拉依赖挂死整个启动链
+# （2026-10-12 诊断：make run-metric-center 卡死在重复构建 promtool 约 45 分钟）。
+# 注意：文件目标必须用相对路径——PROJECT_ROOT 含空格（"03 AIopsAgent-study"），
+# 绝对路径展开后会被 Make 按空格切成「目标 + 前置」两个词导致目标失配。
+PROMTOOL_BIN := upstream/prometheus/promtool$(EXE)
+AMTOOL_BIN := upstream/alertmanager/amtool$(EXE)
+
 build-promtool: ensure-go
 	@echo ">>> Building upstream promtool"
 	@cd "$(PROJECT_ROOT)/upstream/prometheus" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o promtool$(EXE) ./cmd/promtool
@@ -318,6 +327,18 @@ build-promtool: ensure-go
 # 缺失时校验返回校验失败并提示用户启动 Alertmanager 环境。
 build-amtool: ensure-go
 	@echo ">>> Building upstream amtool"
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
+
+# 文件目标：仅当二进制缺失时才触发构建（子 make 调用 ensure-go 初始化工具链，
+# 不列为前置依赖——phony 前置会使文件目标永远视为过期）。强制重建用 build-promtool。
+$(PROMTOOL_BIN):
+	@$(MAKE) --no-print-directory ensure-go
+	@echo ">>> Building upstream promtool (missing)"
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o promtool$(EXE) ./cmd/promtool
+
+$(AMTOOL_BIN):
+	@$(MAKE) --no-print-directory ensure-go
+	@echo ">>> Building upstream amtool (missing)"
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 
 build-ui: ensure-pnpm
@@ -414,7 +435,9 @@ package-center:
 # 运行
 # -----------------------------------------------------------------------------
 
-run-metric-center: build-metric-center build-promtool build-amtool
+# 依赖文件目标 $(PROMTOOL_BIN)/$(AMTOOL_BIN) 而非 build-promtool/build-amtool：
+# 后者每次必跑 go build，GOPROXY 慢时会挂死启动链；文件目标二进制已存在即跳过。
+run-metric-center: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
 	@echo ">>> Starting metric-center"
 	@cd "$(PROJECT_ROOT)" && \
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
