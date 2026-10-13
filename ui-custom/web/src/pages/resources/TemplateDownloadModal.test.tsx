@@ -77,8 +77,78 @@ describe('TemplateDownloadModal', () => {
 
   it('renders filling tips in user vocabulary per category (F-7-③)', () => {
     renderModal()
-    expect(screen.getByText('主机名 / IP 地址 / 操作系统')).toBeInTheDocument()
+    // 原断言「主机名 / IP 地址 / 操作系统」已随 F-22 分化改写而移除：五类不再共用
+    // 「主标识列 + 同一句必填说明」的写法，host 首条现为按必填口径组织的说明。
+    expect(screen.getByText(/^必填：主机名（instance_name）、IP 地址（instance_ip，填 IPv4）、操作系统（os_type）$/)).toBeInTheDocument()
     expect(screen.getByText('运行状态填中文：运行中 / 已停止 / 维护中')).toBeInTheDocument()
+  })
+
+  it('differentiates required-field guidance per category (F-22)', () => {
+    // host：业务与应用均可留空，且给出 zone_env 兼容列不作分区依据的说明
+    const host = renderModal({ category: 'host' })
+    expect(host.getByText(/所属业务（biz_code，导入后再补）/)).toBeInTheDocument()
+    expect(host.getByText(/所属应用（app_code）/)).toBeInTheDocument()
+    expect(
+      host.getByText(/「可用区」列（zone_env）仅为兼容旧模板保留，平台不按它分区，分区依据是所属网域/),
+    ).toBeInTheDocument()
+    // 原泛化文案（五类共用）已移除
+    expect(host.queryByText('所属业务（必填）、所属应用（可选）')).toBeNull()
+    host.unmount()
+
+    // database：应用与集群必填，业务可空
+    const database = renderModal({ category: 'database' })
+    expect(database.getByText('必填：所属应用（app_code）、所属集群（cluster）')).toBeInTheDocument()
+    expect(database.getByText(/所属业务（biz_code，导入后再补）/)).toBeInTheDocument()
+    database.unmount()
+
+    // middleware：应用与集群必填，业务可空
+    const middleware = renderModal({ category: 'middleware' })
+    expect(middleware.getByText('必填：所属应用（app_code）、所属集群（cluster）')).toBeInTheDocument()
+    expect(middleware.getByText(/所属业务（biz_code，导入后再补）/)).toBeInTheDocument()
+    middleware.unmount()
+
+    // application：业务与应用都必填
+    const application = renderModal({ category: 'application' })
+    expect(application.getByText('必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）')).toBeInTheDocument()
+    expect(application.queryByText('所属业务（必填）、所属应用（可选）')).toBeNull()
+    application.unmount()
+
+    // generic_target：业务与应用二选一，至少填一个
+    const genericTarget = renderModal({ category: 'generic_target' })
+    expect(genericTarget.getByText(/^必填二选一：所属业务（biz_code）与所属应用（app_code）两个里至少填一个，两个都留空会导入失败$/)).toBeInTheDocument()
+    genericTarget.unmount()
+  })
+
+  it('differentiates business/application column scope per category (F-22)', () => {
+    // 原泛化文案「业务列必填，应用列按需填写」对 5 类中仅 application 成立，已按类分化
+    const host = renderModal({ category: 'host' })
+    expect(host.getByText(/^业务列和应用列都能留空/)).toBeInTheDocument()
+    expect(host.queryByText(/业务列必填，应用列按需填写/)).toBeNull()
+    host.unmount()
+
+    const database = renderModal({ category: 'database' })
+    expect(database.getByText(/^应用列必填，业务列能留空/)).toBeInTheDocument()
+    database.unmount()
+
+    const application = renderModal({ category: 'application' })
+    expect(application.getByText(/^业务列和应用列都必填/)).toBeInTheDocument()
+    application.unmount()
+
+    const genericTarget = renderModal({ category: 'generic_target' })
+    expect(genericTarget.getByText(/^业务列和应用列二选一，至少填一个/)).toBeInTheDocument()
+    genericTarget.unmount()
+  })
+
+  it('warns that undeclared default network domain fails import (F-22)', () => {
+    renderModal()
+    // 三件事同时说清：表单必填 / 导入留空归入 default / default 未登记则导入失败
+    expect(screen.getByText(/在页面上新增或编辑资源时网域是必填项/)).toBeInTheDocument()
+    expect(screen.getByText(/留空会自动归入默认网域 default/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/默认网域 default 必须在「系统设置 → 网域管理」里已登记，否则导入会直接失败/),
+    ).toBeInTheDocument()
+    // 原「留空即安全」表述已移除
+    expect(screen.queryByText('网域可留空——留空时平台自动归属默认网域')).toBeNull()
   })
 
   it('shows enabled business and application dict entries as selectable values, hides disabled (F-7-②)', () => {
