@@ -210,6 +210,12 @@ export interface UseRouteEditorResult {
   warnings: RouteIssue[]
   /** 已启用渠道派生的可用接收人名（取不到时为空 = 无法判定悬空） */
   knownReceivers: string[]
+  /**
+   * 平台物化 receiver 名 → 渠道中文名（如 `notify-1` → `运维告警飞书群`）。
+   * 供列表页 / 编辑抽屉把晦涩的 `notify-N` 显示成用户认识的渠道名；
+   * 不在映射内的 receiver（如手写的 `feishu`）按原样展示。
+   */
+  receiverChannelNames: Record<string, string>
   saving: boolean
   /** 保存结果提示（成功 / 失败），未保存为 null */
   saveResult: { ok: boolean; message: string } | null
@@ -274,6 +280,8 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
   // 任一来源取数失败即降级为「该来源为空」；两者都空时集合 size 为 0，
   // validateRouteReceivers 直接返回 []（不判悬空），不会误阻断。
   const [platformReceivers, setPlatformReceivers] = useState<string[]>([])
+  /** 平台物化 receiver 名 → 渠道中文名（供 UI 把 `notify-N` 显示成用户认识的渠道名） */
+  const [receiverChannelMap, setReceiverChannelMap] = useState<Record<string, string>>({})
 
   // 批量、非 admin 的 `notifyChannelsApi.list()`：响应已含各渠道物化的 AM receiver 名
   // （`receiver_name`，与 M09 生成器同源、非敏感），一次请求即可拿到全部平台物化名，
@@ -283,12 +291,18 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     const run = async () => {
       try {
         const res = await notifyChannelsApi.list()
-        const names = (res.data?.items ?? [])
-          .filter((c) => c.enabled && c.receiver_name)
-          .map((c) => c.receiver_name as string)
-        if (!cancelled) setPlatformReceivers(names)
+        const items = (res.data?.items ?? []).filter((c) => c.enabled && c.receiver_name)
+        if (!cancelled) {
+          setPlatformReceivers(items.map((c) => c.receiver_name as string))
+          const map: Record<string, string> = {}
+          for (const c of items) map[c.receiver_name as string] = c.name
+          setReceiverChannelMap(map)
+        }
       } catch {
-        if (!cancelled) setPlatformReceivers([])
+        if (!cancelled) {
+          setPlatformReceivers([])
+          setReceiverChannelMap({})
+        }
       }
     }
     void run()
@@ -325,7 +339,11 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     }
     setTree(fromRouteNodes(sourceItems))
     setImportState('imported')
-    setImportNotice(`已从当前配置导入 ${sourceItems.length} 个路由节点（名称经注释还原），请确认后再保存。`)
+    // 「当前配置」是平台术语，用户看不懂它指什么（2026-10-13 反馈）：明说是「平台当前生效的
+    // alertmanager.yml」、导到哪去、下一步点哪个按钮（保存按钮就在这条提示上方）。
+    setImportNotice(
+      `已载入平台当前生效的 alertmanager.yml 中的 ${sourceItems.length} 个路由（名称由注释还原），请核对下方列表，无误后点上方「保存并提交变更」提交。`,
+    )
   }, [parseError, sourceItems])
 
   /**
@@ -491,6 +509,7 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     blocking,
     warnings,
     knownReceivers,
+    receiverChannelNames: receiverChannelMap,
     saving,
     saveResult,
     importFromCurrent,
