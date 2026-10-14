@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Checkbox, Drawer, Form, Input, Select, Space, Spin, Tag, Typography, Upload, message } from 'antd'
-import { CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, EyeOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { monitoringRuleApi } from '../../api/monitoringRules'
 import type { JobRefIssue, PromQLCheckResult, RuleInspectResult } from '../../api/monitoringRules'
@@ -77,6 +77,8 @@ function categoryOfType(t?: string): ResourceCategory | undefined {
  * 解决拨测告警暴露的编辑期反馈缺失：用户写 `{{ $labels.instance }}` 时无从得知
  * 「这条 expr 能取到哪些标签键」「它会渲染成什么」，只能靠猜——猜错就以为取不到值。
  * 面板只陈述事实（真实匹配序列的标签 + 用真实标签渲染的注解），不替用户改写模板。
+ * 2026-10-14 提级：面板改用 Alert 呈现（与检查结果面板视觉同级），并新增常驻
+ * 「预览可用标签与注解」按钮独立触发，不再必须先点「检查」；检查通过仍自动探查一次。
  */
 function RuleInspectPanel({
   state,
@@ -104,7 +106,7 @@ function RuleInspectPanel({
         type="info"
         showIcon
         style={{ marginTop: 16 }}
-        message="标签清单暂不可用"
+        message="标签预览暂不可用"
         description={error || '查询标签失败，不影响规则检查结论与保存'}
       />
     )
@@ -123,85 +125,83 @@ function RuleInspectPanel({
   }
 
   return (
-    <div
+    <Alert
+      type="info"
+      showIcon
       data-testid="rule-inspect-panel"
-      style={{
-        marginTop: 16,
-        border: '1px solid rgba(0,0,0,0.08)',
-        borderRadius: 6,
-        padding: 12,
-      }}
-    >
-      <Text strong style={{ fontSize: 13 }}>
-        可用标签与注解预览
-      </Text>
-      <Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 10px' }}>
-        以下标签来自该表达式当前真实匹配到的序列，可直接用于 {'{{ $labels.键名 }}'}；
-        预览用其中一条序列的真实取值渲染你的注解模板。
-      </Paragraph>
-      {rules.map((r, idx) => (
-        <div
-          key={`${r.group}|${r.rule}|${idx}`}
-          style={{ borderTop: idx === 0 ? 'none' : '1px dashed rgba(0,0,0,0.08)', paddingTop: idx === 0 ? 0 : 10, marginTop: 10 }}
-        >
-          <Space size={6} wrap>
-            <Text strong style={{ fontSize: 13 }}>
-              {r.rule || '(未命名)'}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {r.group}
-              {r.kind === 'record' ? ' · 记录规则' : ''}
-            </Text>
-          </Space>
-          {r.expr && (
-            <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(0,0,0,0.55)', marginTop: 2 }}>
-              {r.expr}
-            </div>
-          )}
-          {r.error && (
-            <div style={{ color: '#cf1322', fontSize: 12, marginTop: 4 }}>查询失败：{r.error}</div>
-          )}
-          {!r.error && r.note && (
-            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, marginTop: 4 }}>{r.note}</div>
-          )}
-          {!r.error && r.labels.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
-                可用标签（{r.labels.length}）：
-              </Text>
-              <Space size={[4, 4]} wrap>
-                {r.labels.map((l) => (
-                  <Tag
-                    key={l.key}
-                    style={{ marginInlineEnd: 0, fontFamily: 'monospace', fontSize: 11 }}
-                    title={l.values.join('、')}
-                  >
-                    {l.key}={l.values[0] ?? '-'}
-                    {l.values.length > 1 ? ` 等 ${l.values.length} 个取值` : ''}
-                  </Tag>
-                ))}
+      style={{ marginTop: 16 }}
+      message="可用标签与注解预览"
+      description={
+        <div>
+          <Paragraph type="secondary" style={{ fontSize: 12, margin: '0 0 10px' }}>
+            以下标签来自该表达式当前真实匹配到的序列，可直接用于 {'{{ $labels.键名 }}'}；
+            预览用其中一条序列的真实取值渲染你的注解模板。
+          </Paragraph>
+          {rules.map((r, idx) => (
+            <div
+              key={`${r.group}|${r.rule}|${idx}`}
+              style={{ borderTop: idx === 0 ? 'none' : '1px dashed rgba(0,0,0,0.08)', paddingTop: idx === 0 ? 0 : 10, marginTop: 10 }}
+            >
+              <Space size={6} wrap>
+                <Text strong style={{ fontSize: 13 }}>
+                  {r.rule || '(未命名)'}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {r.group}
+                  {r.kind === 'record' ? ' · 记录规则' : ''}
+                </Text>
               </Space>
-            </div>
-          )}
-          {!r.error && r.summary_template && (
-            <div style={{ marginTop: 6, fontSize: 12 }}>
-              <Text type="secondary">注解模板：</Text>
-              <span style={{ fontFamily: 'monospace' }}>{r.summary_template}</span>
-              {r.summary_error ? (
-                <div style={{ color: '#cf1322', marginTop: 2 }}>模板无法渲染：{r.summary_error}</div>
-              ) : (
-                r.summary_preview && (
-                  <div style={{ marginTop: 2 }}>
-                    <Text type="secondary">渲染结果：</Text>
-                    <Text strong>{r.summary_preview}</Text>
-                  </div>
-                )
+              {r.expr && (
+                <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(0,0,0,0.55)', marginTop: 2 }}>
+                  {r.expr}
+                </div>
+              )}
+              {r.error && (
+                <div style={{ color: '#cf1322', fontSize: 12, marginTop: 4 }}>查询失败：{r.error}</div>
+              )}
+              {!r.error && r.note && (
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, marginTop: 4 }}>{r.note}</div>
+              )}
+              {!r.error && r.labels.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
+                    可用标签（{r.labels.length}）：
+                  </Text>
+                  <Space size={[4, 4]} wrap>
+                    {r.labels.map((l) => (
+                      <Tag
+                        key={l.key}
+                        style={{ marginInlineEnd: 0, fontFamily: 'monospace', fontSize: 11 }}
+                        title={l.values.join('、')}
+                      >
+                        {l.key}={l.values[0] ?? '-'}
+                        {l.values.length > 1 ? ` 等 ${l.values.length} 个取值` : ''}
+                      </Tag>
+                    ))}
+                  </Space>
+                </div>
+              )}
+              {!r.error && r.summary_template && (
+                <div style={{ marginTop: 6, fontSize: 12 }}>
+                  <Text type="secondary">注解模板：</Text>
+                  <span style={{ fontFamily: 'monospace' }}>{r.summary_template}</span>
+                  {r.summary_error ? (
+                    <div style={{ color: '#cf1322', marginTop: 2 }}>模板无法渲染：{r.summary_error}</div>
+                  ) : (
+                    r.summary_preview && (
+                      <div style={{ marginTop: 2 }}>
+                        <Text type="secondary">渲染结果：</Text>
+                        <Text strong>{r.summary_preview}</Text>
+                      </div>
+                    )
+                  )}
+                </div>
               )}
             </div>
-          )}
+          ))}
         </div>
-      ))}
-    </div>
+      }
+    />
   )
 }
 
@@ -278,6 +278,16 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       setInspectState('failed')
     }
   }, [])
+
+  /**
+   * 「预览可用标签与注解」独立入口（2026-10-14 提级）：不依赖「检查」，
+   * 用户写完规则内容即可主动预览；内容为空时仅提示必填、不发请求。
+   */
+  const handlePreview = async () => {
+    const content = form.getFieldValue('rule_content')
+    if (!content || !content.trim()) return
+    void runInspect(content)
+  }
 
   // 资源类别 → 监控对象类型两级级联（对齐 MappingDrawer/ScrapeJobFormDrawer F1-8）：
   // 已选类别时类型候选按类别收敛；未选类别时平铺全部类型（monitor_type 可空，类别仅作辅助）。
@@ -529,6 +539,16 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
               style={{ fontFamily: 'monospace', fontSize: 12 }}
             />
           </Form.Item>
+          {/* 预览独立入口（2026-10-14 提级）：常驻于文本域下方，不依赖「检查」触发 */}
+          <Button
+            data-testid="rule-preview-btn"
+            icon={<EyeOutlined />}
+            loading={inspectState === 'loading'}
+            onClick={() => void handlePreview()}
+            style={{ marginTop: 8 }}
+          >
+            预览可用标签与注解
+          </Button>
         </Form.Item>
       </Form>
 
@@ -550,7 +570,10 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           style={{ marginTop: 16 }}
           description={
             <Space direction="vertical" size={2}>
-              <span>服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用；提交时服务端仍会复核。</span>
+              <span>服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用。</span>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                提交时服务端仍会复核，检查通过不代表最终提交一定成功。
+              </Text>
               {checkOutcome?.promqlCheck?.status === 'unavailable' && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {checkOutcome.promqlCheck.message || '未执行 PromQL 语义校验'}
@@ -629,7 +652,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           }
         />
       )}
-      {/* 标签清单与注解预览：仅在「检查」通过后出现（辅助反馈，不参与门禁） */}
+      {/* 标签清单与注解预览（2026-10-14 提级）：常驻按钮独立触发，检查通过时自动探查一次 */}
       <RuleInspectPanel state={inspectState} rules={inspectRules} error={inspectError} />
       {submitError && (
         <Alert

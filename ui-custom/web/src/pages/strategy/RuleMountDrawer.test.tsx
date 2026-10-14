@@ -522,8 +522,46 @@ describe('规则可用标签清单与注解预览', () => {
     renderDrawer()
     await check()
 
-    await waitFor(() => expect(screen.getByText('标签清单暂不可用')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('标签预览暂不可用')).toBeInTheDocument())
     expect(screen.getByText('提交并进入变更确认')).toBeInTheDocument()
+  })
+
+  // 2026-10-14 提级：预览改为常驻入口，未点「检查」也可直接触发探查。
+  it('常驻「预览可用标签与注解」按钮可独立触发探查（无需先检查）', async () => {
+    inspectRuleLabelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        rules: [
+          {
+            group: 'edge_blackbox_alerts',
+            rule: 'BlackboxProbeFailed',
+            kind: 'alert',
+            expr: 'probe_success{job="bx-nginx-02"} == 0',
+            series_count: 1,
+            labels: [{ key: 'instance', values: ['10.10.1.4'] }],
+            summary_template: '业务拨测失败：{{ $labels.instance }}',
+            summary_preview: '业务拨测失败：10.10.1.4',
+          },
+        ],
+      },
+    })
+    renderDrawer()
+
+    fireEvent.change(screen.getByTestId('rule-content'), { target: { value: RULE_YAML } })
+    fireEvent.click(screen.getByTestId('rule-preview-btn'))
+
+    await waitFor(() => expect(screen.getByTestId('rule-inspect-panel')).toBeInTheDocument())
+    expect(inspectRuleLabelsMock).toHaveBeenCalledWith(RULE_YAML)
+    // 独立预览不触发检查、不出现提交按钮
+    expect(validateYamlMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('提交并进入变更确认')).toBeNull()
+  })
+
+  // 内容为空时不发探查请求（避免无谓后端查询），按钮仍可点。
+  it('规则内容为空时点击预览不发请求', async () => {
+    renderDrawer()
+    fireEvent.click(screen.getByTestId('rule-preview-btn'))
+    expect(inspectRuleLabelsMock).not.toHaveBeenCalled()
   })
 
   it('无匹配序列时明确告知，不编造标签清单', async () => {
