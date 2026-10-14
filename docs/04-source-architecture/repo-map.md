@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-13 23:03 · commit: `b7c1b4b`
+> 生成时间: 2026-10-14 11:08 · commit: `c6b7015`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -10,14 +10,19 @@
 ### `platform/admin/networkdomain/access_progress.go`
 
 - `type DomainListItemView struct`
-- `func AccessStepOf(d *models.NetworkDomain, hasOnline bool) int`
+- `func AccessStepOf(d *models.NetworkDomain, hasOnline, hasEffectiveJob bool) int`
+- `func effectiveScrapeJobDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
 - `func onlineAgentDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
 - `func DomainListView(db *gorm.DB, list []models.NetworkDomain) ([]DomainListItemView, error)`
 
 ### `platform/admin/networkdomain/access_progress_test.go`
 
 - `func TestAccessStepOf(t *testing.T)`
+- `func effectiveJobFixture(name, domainID string, mutate func(*models.ScrapeJob)) *models.ScrapeJob`
+- `func TestEffectiveScrapeJobDomainIDs_Filters(t *testing.T)`
+- `func TestEffectiveScrapeJobDomainIDs_EmptyList(t *testing.T)`
 - `func TestDomainListView_AggregatesOnlineAgents(t *testing.T)`
+- `func TestDomainListView_Step4(t *testing.T)`
 - `func TestDomainListView_EmptyList(t *testing.T)`
 
 ### `platform/admin/networkdomain/authorized_test.go`
