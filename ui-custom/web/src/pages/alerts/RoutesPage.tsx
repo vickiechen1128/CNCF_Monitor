@@ -319,6 +319,44 @@ export function RoutesPage() {
   }, [routeSetting])
 
   /**
+   * 兜底接收人「设定值 vs 已生效值」的差值状态（2026-10-14）。
+   *
+   * 背景：改兜底**不立即生效**。`PUT /route-setting` 只写库 + 补产一张 pending 变更单
+   * （后端 setting_handler.go 明确「响应不含下发状态」，决策 60 冻结），须经 M09
+   * 「配置变更确认」人工确认才物化进 alertmanager.yml 并 reload。而路由树首行读的是
+   * **产物视图**，于是改完下拉立刻看树仍是旧值——两个位置各说各话，用户只能靠推断。
+   *
+   * 判据**纯前端推导**，不查变更单：`GET /config-drafts` 只能按 network_domain_id 过滤，
+   * 无「按管理域/变更类型」过滤能力，告警兜底单与 Prometheus 采集单混列，无法可靠判定
+   * 「这张 pending 是不是我刚改兜底产生的」，靠时间戳猜不可接受。而用户真正关心的矛盾
+   * 就是「下拉的值」与「树里的值」不一致，直接比对这两个现成事实反而最精确。
+   *
+   * ⚠ 比对的是**原始值**（AM receiver 名，如 `notify-2`），不是展示值——展示值经
+   * `receiverLabel()` 映射成渠道中文名，两侧映射口径不同，比展示值必误判。
+   *
+   * 三态（缺 degraded / 加载未就绪两态：此时树未渲染或值不可信，一律不提示）：
+   *   - pending：平台接管中（enabled）但设定值 ≠ 生效值 → 已提交、待人工确认下发；
+   *   - unusable：设定值非空但平台未接管 → 目标渠道已停用/删除，**等确认也没用**，
+   *     不能引导去 M09 白跑一趟（这是与 pending 根因不同的近亲态，合并会误导）；
+   *   - null：两值一致（或平台不接管且未设定）→ 无需提示。
+   */
+  const fallbackGap = useMemo(() => {
+    if (!routeSetting || degraded || loading || !ready) return null
+    const target = routeSetting.effective_receiver_name
+    if (!target) return null
+    // 生效值取只读树首行（顶层路由 locked，receiver 恒来自产物视图，不受编辑态影响）
+    const liveReceiver = data?.items?.[0]?.receiver ?? ''
+    if (!routeSetting.enabled) {
+      // 设定过但平台未接管：渠道已停用/删除。rootReceiver 仅用于判断「压根没接管」。
+      return routeSetting.default_receiver_channel_id !== null
+        ? { state: 'unusable' as const, liveReceiver }
+        : null
+    }
+    if (liveReceiver === target) return null
+    return { state: 'pending' as const, liveReceiver, target }
+  }, [routeSetting, degraded, loading, ready, data])
+
+  /**
    * 两个开关的**关系**结论（原告警配置页 `policySummary`）。
    * 视觉隐藏：关系属"读卡要懂的关系"而非"当前状态"，与两个控件各自的结论争抢注意力。
    * 改为 screen-reader only，读屏用户与自动化测试仍能拿到这段关键事实。
@@ -484,6 +522,67 @@ export function RoutesPage() {
     setDrawerOpen(false)
   }
 
+  /**
+   * 接收人单元格渲染。抽出为具名函数以便与「设定 ≠ 已生效」的行内标注组合
+   * （原为 76 行内联 render，包在 columns 的 useMemo 里无法再加旁注）。
+   *
+   * 三类展示：渠道 receiver（中文渠道名 + 配置名）/ 未定义（红字告警）/ 手写（标注来源）。
+   */
+  const renderReceiverCell = useCallback(
+    (receiver: string): ReactNode => {
+      if (!receiver) return <Text type="secondary">-</Text>
+      // H2：引用了未定义的接收人（不在已知接收人集合内）→ 红色「未定义」显式告警，
+      // 直观提示该路由的告警将无处可发（避免默默渲染成空白 / 普通值）。
+      if (knownReceiverSet.size > 0 && !knownReceiverSet.has(receiver)) {
+        return (
+          <Tooltip title={`接收人「${receiver}」未在已启用通知渠道 / 当前配置中定义，告警将无处可发`}>
+            <Text type="danger" data-testid="route-receiver-undefined">
+              未定义
+            </Text>
+          </Tooltip>
+        )
+      }
+      // 平台物化的 receiver（notify-N）→ 显示成用户认识的渠道名 + 括号内配置名，
+      // 解决「渠道叫『运维告警飞书群』、路由里却是 notify-1」的看不懂问题：
+      // 渠道名含中文时无法直接作 AM receiver 名，平台按规则清洗后回落 `notify-N`。
+      const channelName = receiverChannelNames[receiver]
+      if (channelName) {
+        return (
+          <Tooltip
+            title={`来自平台通知渠道「${channelName}」：渠道名无法直接作配置名，平台自动生成接收人「${receiver}」`}
+          >
+            <span data-testid="route-receiver-channel">
+              {channelName}（{receiver}）
+            </span>
+          </Tooltip>
+        )
+      }
+      // 文件里手写声明、但不对应任何平台渠道的 receiver（如预置的 `feishu`）：
+      // 按「已知接收人」正常展示（保存死锁修复口径），但标注来源避免与渠道 receiver 混淆。
+      // 映射整体为空（渠道接口取数失败）时无法区分来源 → 不标注，避免把渠道 receiver 误标成手写。
+      if (Object.keys(receiverChannelNames).length === 0) {
+        return (
+          <EllipsisText code maxWidth={180}>
+            {receiver}
+          </EllipsisText>
+        )
+      }
+      return (
+        <Tooltip title={`配置文件中手写的接收人「${receiver}」，不对应平台通知渠道`}>
+          <span>
+            <EllipsisText code maxWidth={180}>
+              {receiver}
+            </EllipsisText>
+            <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>
+              手写
+            </Text>
+          </span>
+        </Tooltip>
+      )
+    },
+    [knownReceiverSet, receiverChannelNames],
+  )
+
   const columns: ColumnsType<RouteViewRow> = useMemo(() => {
     const base: ColumnsType<RouteViewRow> = [
       {
@@ -527,57 +626,25 @@ export function RoutesPage() {
       {
         title: '接收人',
         key: 'receiver',
-        render: (_: unknown, row: RouteViewRow) => {
-          if (!row.receiver) return <Text type="secondary">-</Text>
-          // H2：引用了未定义的接收人（不在已知接收人集合内）→ 红色「未定义」显式告警，
-          // 直观提示该路由的告警将无处可发（避免默默渲染成空白 / 普通值）。
-          if (knownReceiverSet.size > 0 && !knownReceiverSet.has(row.receiver)) {
-            return (
-              <Tooltip title={`接收人「${row.receiver}」未在已启用通知渠道 / 当前配置中定义，告警将无处可发`}>
-                <Text type="danger" data-testid="route-receiver-undefined">
-                  未定义
-                </Text>
-              </Tooltip>
-            )
-          }
-          // 平台物化的 receiver（notify-N）→ 显示成用户认识的渠道名 + 括号内配置名，
-          // 解决「渠道叫『运维告警飞书群』、路由里却是 notify-1」的看不懂问题：
-          // 渠道名含中文时无法直接作 AM receiver 名，平台按规则清洗后回落 `notify-N`。
-          const channelName = receiverChannelNames[row.receiver]
-          if (channelName) {
-            return (
-              <Tooltip
-                title={`来自平台通知渠道「${channelName}」：渠道名无法直接作配置名，平台自动生成接收人「${row.receiver}」`}
+        render: (_: unknown, row: RouteViewRow) => (
+          <span>
+            {renderReceiverCell(row.receiver)}
+            {/* 「设定 ≠ 已生效」的行内灰字标注（2026-10-14）：只在顶层路由行出现——只有它的
+                receiver 由平台兜底控件决定，才有落差。刻意用灰字而非醒目色：它是「当前事实」
+                的陈述，不是需要动作的告警；真正需要动作的横幅在兜底控件正下方。 */}
+            {row.locked && fallbackGap && (
+              <Text
+                type="secondary"
+                style={{ display: 'block', marginTop: 2, fontSize: 12 }}
+                data-testid="route-root-live-note"
               >
-                <span data-testid="route-receiver-channel">
-                  {channelName}（{row.receiver}）
-                </span>
-              </Tooltip>
-            )
-          }
-          // 文件里手写声明、但不对应任何平台渠道的 receiver（如预置的 `feishu`）：
-          // 按「已知接收人」正常展示（保存死锁修复口径），但标注来源避免与渠道 receiver 混淆。
-          // 映射整体为空（渠道接口取数失败）时无法区分来源 → 不标注，避免把渠道 receiver 误标成手写。
-          if (Object.keys(receiverChannelNames).length === 0) {
-            return (
-              <EllipsisText code maxWidth={180}>
-                {row.receiver}
-              </EllipsisText>
-            )
-          }
-          return (
-            <Tooltip title={`配置文件中手写的接收人「${row.receiver}」，不对应平台通知渠道`}>
-              <span>
-                <EllipsisText code maxWidth={180}>
-                  {row.receiver}
-                </EllipsisText>
-                <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>
-                  手写
-                </Text>
-              </span>
-            </Tooltip>
-          )
-        },
+                {fallbackGap.state === 'pending'
+                  ? '生效中（上方设定待确认下发）'
+                  : '生效中（平台未接管兜底）'}
+              </Text>
+            )}
+          </span>
+        ),
       },
       {
         title: '分组键',
@@ -689,7 +756,7 @@ export function RoutesPage() {
         ),
       },
     ]
-  }, [editable, editing, editor, knownReceiverSet, receiverChannelNames, openEditor, confirmDelete])
+  }, [editable, editing, editor, openEditor, confirmDelete, fallbackGap, renderReceiverCell])
 
   /** 父路由下拉：排除自身与其后代（避免成环） */
   const parentOptions = useMemo(() => {
@@ -906,6 +973,38 @@ export function RoutesPage() {
             >
               {ROUTE_SETTING_MODE_INDEPENDENCE_TIP}
             </Text>
+            {/* 「设定 ≠ 已生效」横幅（2026-10-14，判据见 fallbackGap）：
+                贴在兜底控件正下方而非页头——它只解释这一个控件的落差，离开控件就失去所指。
+                仅 pending 态给「前往确认」入口；unusable 态**不给**，因为目标渠道已停用，
+                等确认下发也换不来生效，引导过去只是白跑一趟。 */}
+            {fallbackGap?.state === 'pending' && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 8 }}
+                data-testid="route-fallback-pending"
+                message="兜底改动已提交，尚未生效"
+                description={
+                  <Space direction="vertical" size={2}>
+                    <span>
+                      改动已写入配置草稿，需在「配置变更确认」中确认后才会下发并 reload。
+                      下方路由树仍是生效中的旧版本。
+                    </span>
+                    <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
+                  </Space>
+                }
+              />
+            )}
+            {fallbackGap?.state === 'unusable' && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 8 }}
+                data-testid="route-fallback-unusable"
+                message="兜底渠道已停用，平台未接管"
+                description="你设定的兜底渠道已被停用或删除，平台不会替换顶层路由的接收人。请先到「通知渠道」启用该渠道，或改选其他渠道。"
+              />
+            )}
           </div>
 
           {/* 控件 A：路由规则由谁维护（Segmented 表达二选一模式，非 Switch 的开/关）。

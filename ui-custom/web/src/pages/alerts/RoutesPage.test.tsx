@@ -1182,4 +1182,87 @@ describe('RoutesPage 路由设置卡（T08-SPLIT-01 迁入）', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(reloadRouteSettingMock).toHaveBeenCalled()
   })
+
+  /**
+   * 三态差值提示（2026-10-14）：改兜底只写库 + 补产 pending 变更单，**不立即生效**
+   * （决策 60 冻结：`PUT /route-setting` 响应不含下发状态）。而路由树首行读的是产物视图，
+   * 于是下拉已变、树里还是旧值，两个位置各说各话。判据纯前端推导：比对
+   * `effective_receiver_name`（设定值）与 `data.items[0].receiver`（生效值）两个现成事实，
+   * 不查变更单（`GET /config-drafts` 无管理域/变更类型过滤，告警单与采集单混列，无法可靠归属）。
+   */
+  describe('兜底「设定 ≠ 已生效」三态提示', () => {
+    // 平台已接管、设定值与产物值不一致 → pending：已提交待人工确认下发
+    it('pending：已接管且设定值 ≠ 生效值 → 横幅给「前往确认」入口，树内首行加灰字标注', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'notify-2', effective_source: 'explicit' }),
+      )
+      renderPage()
+      // 树首行 receiver 为 'default'，与设定值 'notify-2' 不符 → 落差
+      const banner = screen.getByTestId('route-fallback-pending')
+      expect(banner).toHaveTextContent('尚未生效')
+      // 必须给出下一步入口，否则用户只能靠推断（这正是本次要修的缺陷）
+      const link = within(banner).getByRole('link', { name: '前往「配置变更确认」' })
+      expect(link).toHaveAttribute('href', '/config-preview')
+      // 行内灰字只陈述「当前事实」，真正需要动作的是上方横幅
+      expect(screen.getByTestId('route-root-live-note')).toHaveTextContent('生效中（上方设定待确认下发）')
+    })
+
+    // 设定过但平台未接管（渠道已停用/删除）→ unusable：等确认下发也换不来生效
+    it('unusable：设定过兜底渠道但平台未接管 → 横幅指引回「通知渠道」，不给确认入口', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: false, default_receiver_channel_id: 1, effective_receiver_name: 'notify-1', effective_source: 'none' }),
+      )
+      renderPage()
+      const banner = screen.getByTestId('route-fallback-unusable')
+      expect(banner).toHaveTextContent('兜底渠道已停用，平台未接管')
+      // 与 pending 表面症状相同但根因不同：给「前往确认」只会让用户白跑一趟
+      expect(within(banner).queryByRole('link')).toBeNull()
+      expect(screen.getByTestId('route-root-live-note')).toHaveTextContent('生效中（平台未接管兜底）')
+    })
+
+    // 两值一致 → 无需任何提示
+    it('一致态：设定值 = 生效值 → 两个横幅都不出现', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 2, effective_receiver_name: 'default', effective_source: 'explicit' }),
+      )
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+      expect(screen.queryByTestId('route-fallback-unusable')).toBeNull()
+      expect(screen.queryByTestId('route-root-live-note')).toBeNull()
+    })
+
+    // 护栏：判据必须比**原始值**（AM receiver 名），不是展示值。
+    // 展示值经 receiverChannelNames 映射成渠道中文名，两侧口径不同，比展示值必误判——
+    // 树里显示「运维飞书告警群（default）」而设定值是 'default'，原始值相同 = 无落差。
+    it('判据护栏：比对原始 receiver 名而非渠道展示值（展示名不同也不误报 pending）', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 2, effective_receiver_name: 'default', effective_source: 'explicit' }),
+      )
+      useRouteEditorMock.mockReturnValue(
+        editorResult({ knownReceivers: ['default'], receiverChannelNames: { default: '运维飞书告警群' } }),
+      )
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+      expect(screen.getByTestId('route-receiver-channel')).toHaveTextContent('运维飞书告警群（default）')
+    })
+
+    // 值不可信时一律不提示：加载未就绪 / 解析降级（此时树未渲染或值不可信）
+    it('加载未就绪或解析降级时不提示（避免拿不可信的值做判据）', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'notify-2', effective_source: 'explicit' }),
+      )
+      const { unmount } = render(
+        <MemoryRouter>
+          <App>
+            <RoutesPage />
+          </App>
+        </MemoryRouter>,
+      )
+      unmount()
+
+      useRoutesMock.mockReturnValue(result({ loading: true, ready: false }))
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+    })
+  })
 })
