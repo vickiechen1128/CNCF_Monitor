@@ -35,6 +35,15 @@ vi.mock('./useRouteSetting', () => ({
 
 const getReceiverSnippetMock = vi.fn()
 const listTemplatesMock = vi.fn()
+
+// 渠道写路径（新增/编辑/删除）需同步触发配置变更单生成（2026-10-14 用户反馈：
+// 删除后 M09 立刻可见待确认变更单，而非等 watcher 最长 30s 兜底），隔离真实请求。
+const triggerConfigDraftsMock = vi.fn()
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDrafts: (...a: unknown[]) => triggerConfigDraftsMock(...a),
+  CONFIG_PREVIEW_PATH: '/config-preview',
+}))
+
 vi.mock('../../api/alertmanager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/alertmanager')>()
   return {
@@ -132,6 +141,8 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     getReceiverSnippetMock.mockResolvedValue(snippetResponse())
     listTemplatesMock.mockReset()
     listTemplatesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
+    triggerConfigDraftsMock.mockReset()
+    triggerConfigDraftsMock.mockResolvedValue(undefined)
     // 派生接收人默认空态（无已启用渠道 / 未取到片段）；具体断言在各自用例内覆盖返回值
     useDerivedReceiversMock.mockReset()
     useDerivedReceiversMock.mockReturnValue({
@@ -240,6 +251,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         enabled: true,
       }),
     )
+    // 新增成功后同步触发配置变更单（M09 门禁）
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已创建' }),
+      ),
+    )
   })
 
   it('编辑：不回填脱敏 webhook_url，留空提交不含 webhook_url / secret', async () => {
@@ -261,6 +279,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', enabled: true, default_template_id: 0 })
     expect(payload).not.toHaveProperty('webhook_url')
     expect(payload).not.toHaveProperty('secret')
+    // 编辑成功后同步触发配置变更单（M09 门禁）
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已更新' }),
+      ),
+    )
   })
 
   // 渠道 ↔ 模板一等绑定（dev-feedback #30）：抽屉可选绑定模板，payload 带 default_template_id；
@@ -308,6 +333,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(conf.okText).toBe('删除')
     await (conf.onOk as () => Promise<void>)()
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('1'))
+    // 删除成功后同步触发配置变更单（M09 门禁），而非只等 watcher 最长 30s 兜底
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已删除' }),
+      ),
+    )
   })
 
   // B 路线（决策 74 / 安全 H-1）：抽屉展示平台派生的接收人片段供「自定义接收人」参考；

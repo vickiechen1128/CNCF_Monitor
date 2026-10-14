@@ -34,9 +34,10 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -57,6 +58,7 @@ import {
   CHANNEL_FALLBACK_SUGGESTED_TAG,
   CHANNEL_FALLBACK_TAG,
   CHANNEL_TEMPLATE_BIND_NONE_PREFIX,
+  CONFIG_PREVIEW_PATH,
   notifyChannelTypeColor,
   notifyChannelTypeLabel,
 } from './alertmanagerConstants'
@@ -71,6 +73,7 @@ function formatTime(iso?: string): string {
 
 export function NotifyChannelsPage() {
   const { message } = App.useApp()
+  const navigate = useNavigate()
   const { channels, loading, error, permissionDenied, reload, create, update, remove } = useNotifyChannels()
   // 派生接收人（平台为已启用渠道自动生成的 receiver）：原在告警配置页只读面板，
   // 2026-10-02 迁入本页作为表格列。取数含 403 降级（非管理员看不到片段内容）。
@@ -122,6 +125,17 @@ export function NotifyChannelsPage() {
     setSnippetOpen(true)
   }
 
+  /**
+   * 渠道写路径（新增 / 编辑 / 删除）保存成功后同步触发配置变更单生成。
+   * 渠道变更归属 network_domain_id=default（草稿 146/147 实测口径），与告警配置页一致。
+   * 缺此调用时只能等 watcher 最长 30s 兜底（实测删除 → 草稿延迟 15s），
+   * 体感「M09 立刻就能删、没有需要确认的配置变更单」（2026-10-14 用户反馈）。
+   * 失败不阻塞保存流程，仅 warning 提示由自动检测兜底（triggerConfigDrafts 内部约定）。
+   */
+  const triggerDraft = (prefix: string) => {
+    void triggerConfigDrafts(['default'], { prefix, onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
+  }
+
   const handleDelete = (record: NotifyChannel) => {
     Modal.confirm({
       title: `删除通知渠道「${record.name}」？`,
@@ -132,6 +146,7 @@ export function NotifyChannelsPage() {
       async onOk() {
         await remove(record.id)
         message.success('通知渠道已删除')
+        triggerDraft('通知渠道已删除')
         reload()
       },
     })
@@ -383,9 +398,11 @@ export function NotifyChannelsPage() {
           onClose={() => setDrawerOpen(false)}
           onCreate={async (payload: CreateNotifyChannelPayload) => {
             await create(payload)
+            triggerDraft('通知渠道已创建')
           }}
           onUpdate={async (id: string, payload: UpdateNotifyChannelPayload) => {
             await update(id, payload)
+            triggerDraft('通知渠道已更新')
           }}
         />
 
