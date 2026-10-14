@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-14 11:08 · commit: `c6b7015`
+> 生成时间: 2026-10-14 18:58 · commit: `9b9cecc`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -605,6 +605,11 @@
 - `func TestBridgeSuccessStructuredLog(t *testing.T)`
 - `func TestSanitizeOutboundErrorStripsURL(t *testing.T)`
 - `func TestOutboundClientDoesNotFollowRedirects(t *testing.T)`
+- `func TestFeishuSignVector(t *testing.T)`
+- `func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T)`
+- `func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T)`
+- `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
+- `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
 
 ### `platform/alertmanager/notify/channel.go`
 
@@ -655,6 +660,9 @@
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
 - `func sanitizeOutboundError(err error) error`
+- `func feishuSign(secret, timestamp string) string`
+- `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
+- `func checkOutboundBusinessError(respBody []byte) error`
 
 ### `platform/alertmanager/notify/receiver_snippet.go`
 
