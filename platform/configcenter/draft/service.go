@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
@@ -51,6 +52,21 @@ var (
 	NotifyBridgeToken string
 )
 
+// draftLocks 是按 domainID 的进程内互斥锁表：GenerateDraft 的「查活 pending → 生成新单
+// → 废弃旧单」序列非原子，前端保存后同步 POST 与 30s 轮询 watcher 同秒触发时，两路都
+// 走「无活 pending」主路径各自插库，产生多份并存 pending（2026-10-12 诊断：
+// CHG-20261012-006/007 同秒双生、CHG-20261012-003 成孤儿永不清理）。同进程内 per-domain
+// 串行化即可消除该竞态；跨进程不存在（控制面单实例部署）。
+var draftLocks sync.Map // domainID -> *sync.Mutex
+
+// lockDomain 锁住指定网域的草稿生成，返回解锁函数（defer lockDomain(id)()）。
+func lockDomain(domainID string) func() {
+	mu, _ := draftLocks.LoadOrStore(domainID, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
 // GenerateDraft 手动触发生成一条配置草稿（POST /api/v2/platform/config/drafts）。
 //
 // 约束（PRD §3.4 / 决策 42-1）：
@@ -60,6 +76,10 @@ var (
 // 产物经 generator 组装后计算联合 checksum 与变更清单，写入 ConfigDraft 并对
 // 中心内容做下发前校验（promtool 不可调用返回 pending，决策 42-2）。
 func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
+	// per-domain 互斥：把「查活 pending → 生成 → 取代」整体串行化，杜绝前端保存
+	// 同步触发与轮询 watcher 撞车产生双 pending（2026-10-12 诊断）。
+	defer lockDomain(domainID)()
+
 	dom, err := generator.LoadDomain(db, domainID)
 	if err != nil {
 		var nf generator.ErrNotFound
@@ -172,6 +192,9 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		ValidationMessage: vMsg,
 		ValidationCause:   string(cause),
 		ValidationDetails: string(detailsJSON),
+		// dev-feedback #44：记录 AM 产物来源留痕版本，确认下发时按它精确回填
+		// applied_at / source_change_no（0 = 本单无 AM 产物或来源缺失，回落旧口径）。
+		AlertmanagerSourceVersionID: artifacts.AlertmanagerSourceVersionID,
 	}
 	// 草稿创建与「失败单自动清锁」（决策 67-1）同事务：failed + user_config 时清除
 	// M01 源数据 pending 锁，避免失败单锁死源数据形成死循环。
@@ -223,11 +246,17 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	// replica 无独立数据源，MVP 不注入（external_labels 仅 network_domain_id/zone_type）。
 	// 决策 60：alertmanager.yml 仅管理域 default 范围纳入；edge 域不纳入告警配置。
 	alertmanagerYML := ""
+	// amSourceVersionID：本产物 alertmanager.yml 来源的 M08 留痕版本 ID（dev-feedback #44，
+	// 非产物字段）。与内容同一次加载获得，避免「内容取旧版、ID 取新版」的并发错配。
+	amSourceVersionID := uint(0)
 	if dom.IsManagement() {
-		if am, err := generator.LoadLatestAlertmanagerConfigContent(db); err != nil {
+		am, err := generator.LoadLatestAlertmanagerConfigVersion(db)
+		if err != nil {
 			return nil, nil, nil, err
-		} else {
-			alertmanagerYML = am
+		}
+		if am != nil {
+			alertmanagerYML = am.Content
+			amSourceVersionID = am.ID
 		}
 	}
 	// 决策 68-2 / 68-3：仅中心求值器（channel=local）生成 rule_files 与 alerting；
@@ -245,6 +274,8 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// dev-feedback #44：来源版本 ID 落到产物的非产物字段（与内容同源，见上方加载处）。
+	artifacts.AlertmanagerSourceVersionID = amSourceVersionID
 	// 决策 74 定稿：管理域存在 alertmanager.yml 时把平台启用渠道物化为 receivers
 	//（与 M07 LabelTemplate 同「配置即生效」范式），并把重名冲突写入非产物字段
 	// NotifyReceiverConflicts 供 ValidateArtifacts 转行级错误。须在 Checksum 之前完成。
@@ -446,7 +477,7 @@ func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *gen
 
 // appendRootRouteRebuiltItem 在 artifacts 标记「本次实际替换了根兜底 receiver」时追加一条
 // 显式变更项（决策 113 护栏②：复用既有变更项机制，不新增机制），供 M09 变更单明示
-//「根兜底被平台重建」——否则用户手改根 receiver 被平台覆盖只在 alertmanager.yml 整体
+// 「根兜底被平台重建」——否则用户手改根 receiver 被平台覆盖只在 alertmanager.yml 整体
 // diff 中被淹没，用户看不到「我的根兜底被改了」。追加后重排 ID，保证 ci-N 连续。
 func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChangeItem {
 	if artifacts == nil || !artifacts.RootRouteRebuilt {
@@ -595,6 +626,9 @@ func reconcileWithExistingPending(
 		ValidationMessage: vMsg,
 		ValidationCause:   string(cause),
 		ValidationDetails: string(detailsJSON),
+		// dev-feedback #44：同 GenerateDraft，记录 AM 产物来源留痕版本（取代路径的
+		// 精确回填依据 + 旧单废弃时的保护对象）。
+		AlertmanagerSourceVersionID: artifacts.AlertmanagerSourceVersionID,
 	}
 
 	// 更新旧草稿 metadata（superseded_by）并置 discarded；同时创建新草稿。
@@ -609,6 +643,25 @@ func reconcileWithExistingPending(
 			"metadata": string(updatedMetaJSON),
 		}).Error; err != nil {
 			return fmt.Errorf("mark existing draft discarded: %w", err)
+		}
+		// 孤儿清理：一并废弃该域所有其余活 pending。历史竞态（前端保存同步 POST 与
+		// 30s 轮询同秒触发生成）会留下多份并存 pending，而本函数此前只废弃 latest 一份，
+		// 孤儿（如 CHG-20261012-003）永不清理、长期占用「待确认」列表（2026-10-12 诊断）。
+		// 仅改 status，不触碰 M01 源数据；孤儿无 supersede 互记（非直接前驱）。
+		if err := tx.Model(&models.ConfigDraft{}).
+			Where("network_domain_id = ? AND status = ? AND change_no <> ?",
+				existing.NetworkDomainID, models.DraftStatusPending, newDraft.ChangeNo).
+			Updates(map[string]interface{}{"status": models.DraftStatusDiscarded}).Error; err != nil {
+			return fmt.Errorf("discard sibling pending drafts: %w", err)
+		}
+		// dev-feedback #44（废弃联动）：旧单（含孤儿单）被弃后，其来源的告警配置留痕
+		// 已无活单可确认——若不标记终态，M08 版本历史将永久显示「已提交，待确认下发」
+		// （用户实测 id=18 遗留问题）。仅管理域 default 的告警配置留痕受此影响（决策 60：
+		// alertmanager.yml 恒属管理域）；保护新单的来源版本（它仍可被确认下发）。
+		if existing.NetworkDomainID == models.DefaultDomainID {
+			if err := discardOrphanAlertmanagerVersions(tx, []uint{newDraft.AlertmanagerSourceVersionID}); err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(newDraft).Error; err != nil {
 			return fmt.Errorf("create superseding draft: %w", err)
@@ -719,6 +772,10 @@ func summaryTarget(target string) (label, unit string) {
 		return "采集 Job", "个"
 	case string(models.ChangeItemTargetMonitoringRule):
 		return "告警规则", "条"
+	case string(models.ChangeItemTargetTargetInstance):
+		// target 级变更项按 Job 聚合（一条 = 一个 Job 的一次 target 增删），
+		// 故量词用「个」，与「采集 Job N 个」保持同一口径。
+		return "采集目标", "个"
 	default:
 		return target, "项"
 	}
@@ -864,6 +921,76 @@ type DiscardImpact struct {
 	Missing         int `json:"missing"`          // 生效版本中存在但 DB 中已无记录
 }
 
+// discardOrphanAlertmanagerVersions 把「已无活 pending 单可确认」的告警配置留痕标记为
+// discarded 终态（dev-feedback #44，2026-10-13 废弃联动修复）。
+//
+// 背景（用户实测遗留问题）：M08 挂载留痕的生效信号 applied_at 只由 M09 确认下发回填；
+// 而 DiscardDraft / 取代路径此前只回写 M01 源数据（ScrapeJob / MonitoringRule），
+// **完全不处理 alertmanager_config_versions**——变更单一经废弃，对应留痕的 applied_at
+// 永为空，M08 版本历史永久显示「已提交，待确认下发」（id=18 即此形态：其变更单
+// CHG-20261013-002 生成 17 秒后即被废弃，单子仍在库中、状态 discarded，仅因 M09
+// 列表默认按 pending 过滤而「看不到」）。且无任何自动路径能救活：watcher 的
+// sourceTableScopes 不含 AlertmanagerConfigVersion（永不重产草稿），幂等 Submit 对同
+// checksum 直接返回旧版本（不走 ensurePendingDraft）。
+//
+// 判定「无可确认活单」= status=applied 且 applied_at 为空且 source_change_no 为空
+// （已生效或已关联下发单的不动）。protectedIDs 为仍可被在途活单确认的来源版本集合
+// （取代路径中新单的来源、竞态残留双活单的来源；空 = 无保护对象，如用户废弃后域内
+// 已无活单）。仅调用方判定的管理域（default）场景适用——alertmanager.yml 恒属管理域（决策 60）。
+func discardOrphanAlertmanagerVersions(tx *gorm.DB, protectedIDs []uint) error {
+	q := tx.Model(&models.AlertmanagerConfigVersion{}).
+		Where("status = ? AND applied_at IS NULL AND (source_change_no IS NULL OR source_change_no = '')",
+			models.AlertmanagerConfigStatusApplied)
+	guarded := make([]uint, 0, len(protectedIDs))
+	for _, id := range protectedIDs {
+		if id > 0 {
+			guarded = append(guarded, id)
+		}
+	}
+	if len(guarded) > 0 {
+		q = q.Where("id NOT IN ?", guarded)
+	}
+	if err := q.Update("status", models.AlertmanagerConfigStatusDiscarded).Error; err != nil {
+		return fmt.Errorf("discard orphan alertmanager config versions: %w", err)
+	}
+	return nil
+}
+
+// protectedVersionIDsFromLivePending 收集指定网域**其余**活 pending 单保护的告警配置
+// 来源版本 ID（这些单仍可确认其来源版本，不得标记 discarded）。存量单（部署本修复前
+// 生成）无来源记录时，保护「当前最新一条待确认留痕」——与旧写回口径（取最新 applied）
+// 等价，避免把仍可下发的版本标掉。无其余活单返回空切片。
+func protectedVersionIDsFromLivePending(tx *gorm.DB, domainID, excludeChangeNo string) ([]uint, error) {
+	var drafts []models.ConfigDraft
+	if err := tx.Where("network_domain_id = ? AND status = ? AND change_no <> ?",
+		domainID, models.DraftStatusPending, excludeChangeNo).Find(&drafts).Error; err != nil {
+		return nil, fmt.Errorf("load live pending drafts for protection: %w", err)
+	}
+	if len(drafts) == 0 {
+		return nil, nil
+	}
+	ids := make([]uint, 0, len(drafts))
+	for i := range drafts {
+		if drafts[i].AlertmanagerSourceVersionID > 0 {
+			ids = append(ids, drafts[i].AlertmanagerSourceVersionID)
+		}
+	}
+	if len(ids) > 0 {
+		return ids, nil
+	}
+	// 全部为存量单：回落保护最新一条待确认留痕（幂等重复提交场景下它最可能是活单来源）。
+	var v models.AlertmanagerConfigVersion
+	err := tx.Where("status = ? AND applied_at IS NULL", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&v).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load latest pending alertmanager version for protection: %w", err)
+	}
+	return []uint{v.ID}, nil
+}
+
 // DiscardDraft 废弃一张 pending 草稿（支持校验失败态 failed 草稿）；
 // 已非 pending 返回 bad_request。
 //
@@ -912,6 +1039,13 @@ func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error {
 // Job 回退 draft、删除/停用型自动恢复、已生效修改保留并清 pending），并将规则侧
 // change_status 从 pending 复位（决策 43-6「不允许 pending 残留」）。
 //
+// 2026-10-13（dev-feedback #44）追加第三条职责：管理域（default）变更单废弃时，把已无
+// 活单可确认的告警配置留痕（AlertmanagerConfigVersion）标记 discarded 终态——否则
+// 留痕 applied_at 永为空，M08 版本历史永久显示「已提交，待确认下发」（用户实测
+// id=18：其单 CHG-20261013-002 生成 17 秒即被废弃，单子在库、状态 discarded，仅因
+// M09 列表默认按 pending 过滤而「看不到」，被误判为脏数据）。恢复手段改为显式路径：
+// 重新挂载（Remount 产新版本 + 新单）或修改策略/资源触发产草稿。
+//
 // 与 unlockSourceDataOnFailed 的区别：废弃是**变更单级终态**、会按决策 43 分类回写
 // 源数据（job 表 deployed 语义 = 回到已生效基线）；失败自动清锁是**非终态**（草稿仍
 // 存活可重校），仅清锁、不撤销源数据，故目标态取 none。二者语义不同，刻意不共用常量。
@@ -923,6 +1057,9 @@ func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardIm
 	if d.Status != models.DraftStatusPending {
 		return nil, nil, ErrNotPending
 	}
+	// 与 GenerateDraft 共用 per-domain 锁：杜绝「废弃读到 pending、与此同时取代路径
+	// 生成新单」的竞态把新单来源版本误标 discarded（dev-feedback #44）。
+	defer lockDomain(d.NetworkDomainID)()
 
 	impact, err := computeDiscardImpact(db, d)
 	if err != nil {
@@ -979,6 +1116,18 @@ func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardIm
 		}
 		if err := tx.Model(d).Update("status", models.DraftStatusDiscarded).Error; err != nil {
 			return fmt.Errorf("discard config draft: %w", err)
+		}
+		// dev-feedback #44（废弃联动）：管理域变更单废弃后，已无活单可确认的告警配置
+		// 留痕标记 discarded 终态（详见 discardOrphanAlertmanagerVersions 注释）。
+		// 保护对象 = 本域其余活 pending 单的来源版本（竞态残留的双活单，理论场景）。
+		if d.NetworkDomainID == models.DefaultDomainID {
+			protected, pErr := protectedVersionIDsFromLivePending(tx, d.NetworkDomainID, d.ChangeNo)
+			if pErr != nil {
+				return pErr
+			}
+			if err := discardOrphanAlertmanagerVersions(tx, protected); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

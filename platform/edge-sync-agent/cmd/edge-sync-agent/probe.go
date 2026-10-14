@@ -97,11 +97,14 @@ func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer)
 			//   4) 环回兜底 http://127.0.0.1:9090/api/v1/write
 			// vmagent 强制要求至少一个 -remoteWrite.url，故解析结果必非空。
 			rwURL := resolveRemoteWriteURL(metadataRemoteWriteURL(versionDir), p.centerEndpoint)
+			// F-42：持久队列磁盘上限（metadata 下发 > env > 硬兜底 2GB，永不无界）。
+			maxDisk := resolveMaxDiskUsagePerURL(metadataMaxDiskUsage(versionDir))
 			return []string{
 				"-promscrape.config=" + filepath.Join(versionDir, contract.ZipEntryPrometheus),
 				"-httpListenAddr=" + vmHTTP,
 				"-remoteWrite.url=" + rwURL,
 				"-remoteWrite.tmpDataPath=" + envOr("EDGE_WAL_DIR", filepath.Join(versionDir, "vmagent-cache")),
+				"-remoteWrite.maxDiskUsagePerURL=" + maxDisk,
 			}
 		},
 		health: func(ctx context.Context) error {
@@ -231,6 +234,68 @@ func (p *ProcProbe) Reload(typ string) error {
 	return nil
 }
 
+// RestartCollector 无条件滚动重启 vmagent 采集子进程（F-42 人工重启指令）：不做
+// sameArgs 判定（人工指令必须重启生效）；未运行时 Stop 为 no-op、直接 Start 拉起。
+// 仅重启采集子进程，Agent 本体与 vmagent 持久队列（EDGE_WAL_DIR 磁盘缓存）不受影响，
+// 队列数据不丢。Start 失败交由 supervisor tick 按退避正常拉起。
+func (p *ProcProbe) RestartCollector() error {
+	c := &supervisor.Component{Type: contract.ComponentTypeCollector}
+	if err := p.Stop(c); err != nil {
+		return err
+	}
+	if err := p.Start(c); err != nil {
+		return fmt.Errorf("probe: restart collector: %w", err)
+	}
+	return nil
+}
+
+// FlushBacklog 清空 vmagent 回传持久队列（F-43 破坏性指令执行体）。时序必须是
+// 「先 Stop 再删队列目录再 Start」：vmagent 运行中持有队列文件句柄，运行中删除
+// 行为未定义，且 Stop 后不再有新数据写入队列。队列目录取 vmagent 当前启动参数的
+// -remoteWrite.tmpDataPath（EDGE_WAL_DIR 或版本目录下 vmagent-cache），与
+// RestartCollector 同源，避免两处路径推导漂移。删除使用 RemoveAll（目录已不存在
+// 视为已清空，不报错）。完成后 Start 拉起 vmagent 从零重建队列目录，立刻回传新数据；
+// Start 失败交由 supervisor tick 按退避正常拉起。
+func (p *ProcProbe) FlushBacklog() error {
+	c := &supervisor.Component{Type: contract.ComponentTypeCollector}
+	if err := p.Stop(c); err != nil {
+		return err
+	}
+	vd := p.configDir()
+	if vd == "" {
+		// 无生效配置版本时进程本就不会在跑，队列目录无从谈起：前一步 Stop 已保证
+		// 不再有回传，直接返回成功（幂等：重复指令不会误删）。
+		p.mu.Lock()
+		delete(p.lastArgs, contract.ComponentTypeCollector)
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Lock()
+	last, ok := p.lastArgs[contract.ComponentTypeCollector]
+	p.mu.Unlock()
+	// 队列目录从最近一次启动参数推导（-remoteWrite.tmpDataPath=...）；参数缺失
+	//（老版本启动过的进程）按 EDGE_WAL_DIR 兜底，与 specs 的推导保持一致。
+	var wal string
+	if ok {
+		for _, a := range last {
+			if strings.HasPrefix(a, "-remoteWrite.tmpDataPath=") {
+				wal = strings.TrimPrefix(a, "-remoteWrite.tmpDataPath=")
+				break
+			}
+		}
+	}
+	if wal == "" {
+		wal = envOr("EDGE_WAL_DIR", filepath.Join(vd, "vmagent-cache"))
+	}
+	if err := os.RemoveAll(wal); err != nil {
+		return fmt.Errorf("probe: flush backlog remove %s: %w", wal, err)
+	}
+	if err := p.Start(c); err != nil {
+		return fmt.Errorf("probe: flush backlog restart collector: %w", err)
+	}
+	return nil
+}
+
 // StopAll 优雅停止全部子进程（main 退出时调用）。
 func (p *ProcProbe) StopAll() {
 	p.mu.Lock()
@@ -296,18 +361,51 @@ func envOr(key, def string) string {
 // metadataRemoteWriteURL 读取 versionDir/metadata.json 中下发的 remote_write_url；
 // 无 metadata.json 或该字段为空时返回空串（调用方据此回落到 env/center_endpoint 推导）。
 func metadataRemoteWriteURL(versionDir string) string {
+	return readVersionMetadata(versionDir).RemoteWriteURL
+}
+
+// metadataMaxDiskUsage 读取 versionDir/metadata.json 中下发的 max_disk_usage_per_url
+// （F-42）；无 metadata.json 或该字段为空时返回空串（调用方据此回落到 env/硬兜底）。
+func metadataMaxDiskUsage(versionDir string) string {
+	return readVersionMetadata(versionDir).MaxDiskUsagePerURL
+}
+
+// readVersionMetadata 读取并解析 versionDir/metadata.json；文件缺失或解析失败时返回
+// 零值结构（各字段为空串，调用方按空值回落处理）。
+func readVersionMetadata(versionDir string) contract.Metadata {
 	if versionDir == "" {
-		return ""
+		return contract.Metadata{}
 	}
 	b, err := os.ReadFile(filepath.Join(versionDir, contract.ZipEntryMetadata))
 	if err != nil {
-		return ""
+		return contract.Metadata{}
 	}
 	var m contract.Metadata
 	if err := json.Unmarshal(b, &m); err != nil {
-		return ""
+		return contract.Metadata{}
 	}
-	return m.RemoteWriteURL
+	return m
+}
+
+// defaultMaxDiskUsagePerURL 是 F-42 硬兜底：完全未配置（metadata / env 均无）时的
+// 持久队列磁盘上限安全底线（1–2GB 级，永不无界——打爆磁盘升级为可用性事故的防线）。
+// 生产部署建议由中心网域级显式配置更大值（如 50GB，PM 拍板口径）。
+const defaultMaxDiskUsagePerURL = "2GB"
+
+// resolveMaxDiskUsagePerURL 解析 vmagent -remoteWrite.maxDiskUsagePerURL（F-42），
+// 优先级从高到低：
+//
+//  1. 配置包 metadata 下发的 max_disk_usage_per_url（中心网域级配置）
+//  2. 显式环境变量 EDGE_REMOTE_WRITE_MAX_DISK_USAGE
+//  3. 硬兜底 defaultMaxDiskUsagePerURL（安全底线，永不无界）
+func resolveMaxDiskUsagePerURL(metadataVal string) string {
+	if strings.TrimSpace(metadataVal) != "" {
+		return strings.TrimSpace(metadataVal)
+	}
+	if v := os.Getenv("EDGE_REMOTE_WRITE_MAX_DISK_USAGE"); v != "" {
+		return v
+	}
+	return defaultMaxDiskUsagePerURL
 }
 
 // resolveRemoteWriteURL 解析 vmagent -remoteWrite.url（T11-G1-02），优先级从高到低：

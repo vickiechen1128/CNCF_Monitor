@@ -12,9 +12,10 @@
 // 环境变量（必填）：NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT；
 // 可选：EDGE_CONFIG_ROOT（默认 /opt/apps/edge-sync-agent/edge-config）、
 // EDGE_AGENT_TYPE / EDGE_AGENT_VERSION、EDGE_WAL_DIR、EDGE_REMOTE_WRITE_URL、
-// EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、EDGE_COLLECTOR_ADDR /
-// EDGE_PROM_HEALTH_URL（改 EDGE_COLLECTOR_ADDR 时需同步改）、EDGE_BLACKBOX_ADDR。
-// systemd 部署见 packaging/service。
+// EDGE_REMOTE_WRITE_MAX_DISK_USAGE（F-42：持久队列磁盘上限，metadata 下发 > 本变量 >
+// 硬兜底 2GB；生产建议 50GB）、EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、
+// EDGE_COLLECTOR_ADDR / EDGE_PROM_HEALTH_URL（改 EDGE_COLLECTOR_ADDR 时需同步改）、
+// EDGE_BLACKBOX_ADDR。systemd 部署见 packaging/service。
 //
 // remote_write 上报地址解析（T11-G1-02，优先级从高到低）：配置包 metadata.json 下发
 // 的 remote_write_url（B）> EDGE_REMOTE_WRITE_URL 环境变量 > center_endpoint 推导
@@ -127,7 +128,20 @@ func run() error {
 
 	tok := token.NewStore(cfg.Token)
 	cli := client.NewClient(cfg, tok, logg)
-	pl := puller.NewPuller(cfg, tok, cli, rt, dep, logg)
+	// F-42 人工重启指令回调：先复位 supervisor 守护状态（清 crash_loop 熔断与退避，
+	// 否则 tick 永远跳过熔断组件），再无条件滚动重启 vmagent 采集子进程（Stop+Start，
+	// Agent 本体与持久队列不受影响，队列数据不丢）。已执行 seq 持久化到 configRoot，
+	// agent 重启后据此恢复，避免重复执行。
+	// F-43 清空回传积压回调（破坏性指令）：同样先复位守护状态，再执行 FlushBacklog
+	//（停 vmagent → 删其持久队列目录 → 重新拉起，积压数据有意丢弃，换取回传通道
+	// 实时性恢复）。seq 与重启指令共用 restart-state.json 持久化。
+	pl := puller.NewPuller(cfg, tok, cli, rt, dep, logg, func() error {
+		sv.Reset(contract.ComponentTypeCollector)
+		return probe.RestartCollector()
+	}, func() error {
+		sv.Reset(contract.ComponentTypeCollector)
+		return probe.FlushBacklog()
+	}, filepath.Join(configRoot, "restart-state.json"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

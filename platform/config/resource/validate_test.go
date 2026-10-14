@@ -1,6 +1,9 @@
 package resource
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
@@ -1013,20 +1016,28 @@ func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T) {
 		assert.Contains(t, err.Error(), "app-a")
 	})
 
-	t.Run("引用停用平台 ⇒ bad_request", func(t *testing.T) {
+	t.Run("引用停用平台 ⇒ bad_request（引导启用，不误报未登记）", func(t *testing.T) {
 		in := platformTestInput("app-a", "old-platform") // 已登记但 enabled=false
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。现 platform_code 已用 Lookup 区分
+		// 「已停用」与「未登记」，此处收敛为停用专属文案，且不含「未登记」字样。
+		assert.Contains(t, err.Error(), "已停用")
+		assert.Contains(t, err.Error(), "启用")
+		assert.NotContains(t, err.Error(), "未登记")
 	})
 
-	t.Run("未登记平台 ⇒ bad_request", func(t *testing.T) {
+	t.Run("未登记平台 ⇒ bad_request（同时给出登记页与平台声明 sheet 双路径）", func(t *testing.T) {
 		in := platformTestInput("app-a", "no-such-platform")
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。现未登记文案须与 biz/app/service
+		// 同构给出双路径：去『平台管理』页登记，或在本文件『平台声明』sheet 声明。
+		assert.Contains(t, err.Error(), "未登记")
+		assert.Contains(t, err.Error(), "平台管理")
+		assert.Contains(t, err.Error(), "平台声明")
 	})
 
 	t.Run("platform_code 留空 ⇒ 不校验（走应用主平台兜底）", func(t *testing.T) {
@@ -1081,12 +1092,15 @@ func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *test
 		assert.Contains(t, err.Error(), "不属于应用")
 	})
 
-	t.Run("改为新的停用平台 ⇒ 仍拒绝", func(t *testing.T) {
+	t.Run("改为新的停用平台 ⇒ 仍拒绝（引导启用）", func(t *testing.T) {
 		in := platformTestInput("app-a", "old-platform")
 		err := ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "platform-a"}, refs)
 		require.Error(t, err, "停用条目不可新选，keep 不豁免不同值")
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。此场景为已登记但停用，收敛为
+		// 停用专属文案。
+		assert.Contains(t, err.Error(), "已停用")
+		assert.Contains(t, err.Error(), "启用")
 	})
 }
 
@@ -1125,7 +1139,9 @@ func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, inDisabled,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。此场景为已登记但停用，收敛为
+		// 停用专属文案。
+		assert.Contains(t, err.Error(), "已停用")
 	})
 
 	t.Run("不带 keep 的创建态不受 keep 豁免影响", func(t *testing.T) {
@@ -1137,4 +1153,256 @@ func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs),
 			"创建态（keep=nil）不做任何豁免")
 	})
+}
+
+// TestValidatePlatformCode_GuidanceByRegistrationState 覆盖 platform_code 字典可达性
+// 失败时的**引导文案**按登记状态分流（原实现把「未登记」与「已停用」合并为一句，
+// 既是文案与能力不一致——文案未提后端事实上支持的「平台声明」sheet 通道——也会让
+// 前端 isPendingRegistrationReason（仅匹配含「未登记」的文案）把停用态误高亮为
+// 待登记）：
+//   - 未登记 → 同时给出『平台管理』页登记路径与本文件『平台声明』sheet 声明路径；
+//   - 已停用 → 只引导「启用」，且不含「未登记」字样；
+//   - 已启用 → 通过；
+//   - 已启用但不属于该 app_code 关联平台 → 仍走「不属于关联平台」文案（回归护栏：
+//     自洽校验失败不得被误判为未登记）。
+func TestValidatePlatformCode_GuidanceByRegistrationState(t *testing.T) {
+	newRefs := func(t *testing.T) *PlatformRefs {
+		t.Helper()
+		refs := platformTestRefs(t)
+		_, err := refs.AppPlatformStore.Create(models.AppPlatformRel{AppCode: "app-a", PlatformCode: "platform-a", IsPrimary: true})
+		require.NoError(t, err)
+		return refs
+	}
+	validate := func(t *testing.T, refs *PlatformRefs, appCode, platformCode string) error {
+		t.Helper()
+		return ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase,
+			platformTestInput(appCode, platformCode),
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+	}
+
+	t.Run("未登记 ⇒ 双路径引导（平台管理页 / 平台声明 sheet）", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "no-such-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 no-such-platform 未登记")
+		assert.Contains(t, err.Error(), "『平台管理』页登记")
+		assert.Contains(t, err.Error(), "『平台声明』sheet 补充后重新导入")
+		// 保留旧模板提示（字典值以最新模板为准）。
+		assert.Contains(t, err.Error(), "重新下载模板")
+		// 停用引导不应出现在未登记分支。
+		assert.NotContains(t, err.Error(), "已停用")
+	})
+
+	t.Run("已停用 ⇒ 引导启用，且不含未登记字样", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "old-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 old-platform 已停用")
+		assert.Contains(t, err.Error(), "『平台管理』页启用后重新导入")
+		// 前端 isPendingRegistrationReason 依「未登记」判定待登记，停用态不得命中。
+		assert.NotContains(t, err.Error(), "未登记")
+		assert.NotContains(t, err.Error(), "平台声明")
+	})
+
+	t.Run("已启用且属于应用关联平台 ⇒ 通过", func(t *testing.T) {
+		require.NoError(t, validate(t, newRefs(t), "app-a", "platform-a"))
+	})
+
+	t.Run("已启用但不属于关联平台 ⇒ 仍走自洽文案（回归护栏）", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "platform-b")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 platform-b 不属于应用 app-a 的关联平台")
+		assert.NotContains(t, err.Error(), "未登记")
+		assert.NotContains(t, err.Error(), "已停用")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// T01-P1：实例级采集端口 scrape_port（提案 resource-scrape-port-chain §5.2/§5.3，
+// M07 PRD §5.2 字段表：可选 int，0=未指定）
+// ---------------------------------------------------------------------------
+
+// scrapePortInput 构造某类型可通过校验的输入（scrape_port 留 0，由用例覆盖）。
+func scrapePortInput(category models.ResourceCategory) *ResourceInput {
+	switch category {
+	case models.ResourceCategoryHost:
+		return validHostInput()
+	case models.ResourceCategoryDatabase:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-db", Cluster: "pay",
+			Status: "online", Env: "prod", DatabaseType: "mysql", InstanceIP: "10.0.0.10", Port: 3306,
+		}
+	case models.ResourceCategoryMiddleware:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-mq", Cluster: "pay",
+			Status: "online", Env: "prod", MiddlewareType: "kafka", InstanceIP: "10.0.0.11", Port: 9092,
+		}
+	case models.ResourceCategoryApplication:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-service", Cluster: "pay",
+			Status: "online", Env: "prod", ServiceName: "pay-service",
+			HealthCheckURL: "http://10.0.0.20:8080/health", Protocol: "http",
+			Endpoint: "10.0.0.20", Port: 8080,
+		}
+	case models.ResourceCategoryGenericTarget:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "infra", Status: "online", Env: "prod",
+			TargetName: "snmp-switch-01", InstanceIP: "10.0.0.30", Port: 161,
+			Scheme: "http", MetricsPath: "/metrics",
+		}
+	}
+	return nil
+}
+
+// TestValidateResourceInput_ScrapePort 覆盖 validateScrapePort 口径（提案 §5.3 /
+// 任务卡验收）：0（未指定）与正常端口合法；65536/-1 越界返回 bad_request 且错误
+// 消息以 scrape_port 开头（供 excel.go 前缀映射回 §5.16.3 field），五类同口径。
+func TestValidateResourceInput_ScrapePort(t *testing.T) {
+	store := newBizStore(t)
+
+	for _, category := range allCategories() {
+		t.Run(string(category), func(t *testing.T) {
+			t.Run("scrape_port 0（未指定）合法", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 0
+				require.NoError(t, ValidateResourceInput(category, in, store, nil, nil, alwaysExists))
+			})
+			t.Run("scrape_port 正常端口合法", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 9100
+				require.NoError(t, ValidateResourceInput(category, in, store, nil, nil, alwaysExists))
+			})
+			t.Run("scrape_port 65536 越界拒绝", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 65536
+				err := ValidateResourceInput(category, in, store, nil, nil, alwaysExists)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "scrape_port")
+			})
+			t.Run("scrape_port -1 拒绝", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = -1
+				err := ValidateResourceInput(category, in, store, nil, nil, alwaysExists)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "scrape_port")
+			})
+		})
+	}
+}
+
+// TestScrapePortAutoMigrateAddsColumn 验收「只加列不加新表」：五类资源模型
+// AutoMigrate 后均含 scrape_port 列（存量库经 AutoMigrate 自动 ALTER ADD COLUMN
+// default:0，无需手写迁移，db.go AutoMigrate 清单 / change_detect 白名单零改动）。
+func TestScrapePortAutoMigrateAddsColumn(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{},
+		&models.Database{},
+		&models.Middleware{},
+		&models.Application{},
+		&models.GenericTarget{},
+	))
+	for _, m := range []any{
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	} {
+		require.True(t, db.Migrator().HasColumn(m, "scrape_port"), "%T 应含 scrape_port 列", m)
+	}
+}
+
+// TestGetResourceField_ScrapePort 断言五类模型的字段映射（LegacyFieldMap +
+// GetResourceField）均支持 scrape_port——标签模板源字段与更新链路 current 值读取
+// 依赖该映射（T01-P1 output：models/resource_fields.go）。
+func TestGetResourceField_ScrapePort(t *testing.T) {
+	modelsByCategory := map[models.ResourceCategory]any{
+		models.ResourceCategoryHost:          &models.Host{},
+		models.ResourceCategoryDatabase:      &models.Database{},
+		models.ResourceCategoryMiddleware:    &models.Middleware{},
+		models.ResourceCategoryApplication:   &models.Application{},
+		models.ResourceCategoryGenericTarget: &models.GenericTarget{},
+	}
+	for category, model := range modelsByCategory {
+		m := LegacyFieldMap(category)
+		require.Contains(t, m, "scrape_port", "%s LegacyFieldMap 应含 scrape_port", category)
+		assert.Equal(t, "scrape_port", m["scrape_port"])
+
+		v, ok := GetResourceField(model, "scrape_port")
+		require.True(t, ok, "%s 应可读取 scrape_port", category)
+		assert.Equal(t, "0", v, "缺省 0=未指定")
+	}
+}
+
+// TestScrapePort_CreateUpdateListChannels 覆盖 create/update/list 三通道读写
+// scrape_port（Excel 导入通道见 excel_test.go）与 0/NULL 等价：
+//   - 创建写入 9100 → 响应带出；
+//   - 列表读出 9100；
+//   - 更新带值可写入；
+//   - PUT 不带 scrape_port 字段与显式带 0 结果等价（Go 零值 0 = 未指定），
+//     且不误清其他列（instance_name / env 等仍按请求体落库）。
+func TestScrapePort_CreateUpdateListChannels(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+	r.GET("/api/v2/platform/resources", ListResources(db))
+
+	// 1. 创建通道：写入 scrape_port=9100，创建响应带出。
+	createBody := hostBody()
+	createBody["scrape_port"] = 9100
+	w, out := doCreate(t, r, createBody)
+	require.Equal(t, http.StatusOK, w.Code, out.Error)
+	require.Equal(t, "success", out.Status)
+	assert.Equal(t, float64(9100), out.Data["scrape_port"], "创建响应应带出 scrape_port")
+	idA, _ := out.Data["resource_id"].(string)
+	require.NotEmpty(t, idA)
+	assert.Equal(t, 9100, loadHostByResourceID(t, db, idA).ScrapePort)
+
+	// 2. 列表通道：GET 列表读出 scrape_port。
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources?resource_category=host", nil)
+	wList := httptest.NewRecorder()
+	r.ServeHTTP(wList, req)
+	require.Equal(t, http.StatusOK, wList.Code)
+	var listOut struct {
+		Status string `json:"status"`
+		Data   struct {
+			List []map[string]interface{} `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(wList.Body.Bytes(), &listOut))
+	require.Len(t, listOut.Data.List, 1)
+	assert.Equal(t, float64(9100), listOut.Data.List[0]["scrape_port"], "列表应读出 scrape_port")
+
+	// 3. 更新通道：带值改写 19100。
+	updVal := hostBody()
+	updVal["scrape_port"] = 19100
+	wUpd, outUpd := doUpdate(t, r, idA, updVal)
+	require.Equal(t, http.StatusOK, wUpd.Code, outUpd.Error)
+	assert.Equal(t, float64(19100), outUpd.Data["scrape_port"])
+	assert.Equal(t, 19100, loadHostByResourceID(t, db, idA).ScrapePort)
+
+	// 4. 0/NULL 等价：资源 B（PUT 不带字段）与资源 C（PUT 显式 0）结果一致，
+	//    且其他列不被误清。
+	_, outB := doCreate(t, r, hostBody())
+	idB, _ := outB.Data["resource_id"].(string)
+	wB, updB := doUpdate(t, r, idB, hostBody()) // 不含 scrape_port 键
+	require.Equal(t, http.StatusOK, wB.Code, updB.Error)
+	assert.Equal(t, float64(0), updB.Data["scrape_port"], "不带字段 ⇒ 0（未指定）")
+
+	_, outC := doCreate(t, r, hostBody())
+	idC, _ := outC.Data["resource_id"].(string)
+	zeroBody := hostBody()
+	zeroBody["scrape_port"] = 0
+	wC, outC2 := doUpdate(t, r, idC, zeroBody)
+	require.Equal(t, http.StatusOK, wC.Code, outC2.Error)
+	assert.Equal(t, float64(0), outC2.Data["scrape_port"], "显式 0 ⇒ 0（未指定）")
+
+	hB := loadHostByResourceID(t, db, idB)
+	hC := loadHostByResourceID(t, db, idC)
+	assert.Equal(t, hB.ScrapePort, hC.ScrapePort, "不带字段与带 0 结果等价")
+	assert.Equal(t, 0, hB.ScrapePort)
+	assert.Equal(t, 0, hC.ScrapePort)
+	// 不误清其他列（PUT 全量替换语义下请求体字段仍落库）。
+	assert.Equal(t, "web-01", hB.InstanceName)
+	assert.Equal(t, "web-01", hC.InstanceName)
+	assert.Equal(t, "prod", hB.EnvFlag)
+	assert.Equal(t, "prod", hC.EnvFlag)
+	assert.Equal(t, "Linux", hB.Image)
+	assert.Equal(t, "Linux", hC.Image)
 }

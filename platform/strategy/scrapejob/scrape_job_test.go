@@ -106,6 +106,17 @@ func seedExporter(t *testing.T, db *gorm.DB, name string) string {
 	return strconv.FormatUint(uint64(e.ID), 10)
 }
 
+// seedExporterWithTypes登记带 supported_monitor_types 声明的采集器（对齐内置模板语义）。
+func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types []string) string {
+	t.Helper()
+	e := &models.ExporterTemplate{
+		Name: name, MetricsPath: "/metrics", Scheme: "http", Source: models.ExporterSourceOfficial,
+		IsBuiltin: true, SupportedMonitorTypes: types,
+	}
+	require.NoError(t, db.Create(e).Error)
+	return strconv.FormatUint(uint64(e.ID), 10)
+}
+
 func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string) {
 	t.Helper()
 	require.NoError(t, db.Create(&models.Host{
@@ -781,6 +792,137 @@ func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T) {
 	assert.Equal(t, "unconfirmed", out.Data.Items[0].Status)
 }
 
+// instancesEnvelope 镜像 GET /scrape-jobs/:id/instances 的 data 信封。
+// missing_count 为契约增量字段（失效引用数）。
+type instancesEnvelope struct {
+	Data struct {
+		Items        []jobInstanceItem `json:"items"`
+		Total        int               `json:"total"`
+		MissingCount int               `json:"missing_count"`
+	} `json:"data"`
+}
+
+// listInstances 请求实例列表并解码信封。
+func listInstances(t *testing.T, r *gin.Engine, jobID string) instancesEnvelope {
+	t.Helper()
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/"+jobID+"/instances", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out instancesEnvelope
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	return out
+}
+
+// newInstanceListJob 建一个手工勾选 host-1/host-2 的标准采集 Job。
+func newInstanceListJob(t *testing.T, db *gorm.DB, selected []string) *models.ScrapeJob {
+	t.Helper()
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: selected, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	return job
+}
+
+// TestListInstancesSkipsSoftDeletedResources（分母口径修复）：
+// 资源被 M07 软删后 selected_instance_ids 无人回收，ListJobInstances 不得再把这些
+// 失效引用当正常实例返回（否则前端详情页出现无实例名/IP 的空白行，且
+// 「在线 x / 总数 y」的分母虚高、与 up 指标聚合的分子不同源、永不收敛）。
+// 断言：失效引用不出现在 items、total 只计有效实例、missing_count 暴露失效数。
+func TestListInstancesSkipsSoftDeletedResources(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
+	seedHost(t, db, "host-3", "default", "10.0.1.3", "online")
+	job := newInstanceListJob(t, db, []string{"host-1", "host-2", "host-3"})
+
+	// M07 软删 host-2（DeletedAt 置位，selected_instance_ids 仍保留该引用）。
+	require.NoError(t, db.Where("resource_id = ?", "host-2").Delete(&models.Host{}).Error)
+
+	out := listInstances(t, r, strconv.FormatUint(uint64(job.ID), 10))
+
+	// 失效引用不进 items：只剩两台真实存在的机器。
+	require.Len(t, out.Data.Items, 2)
+	assert.Equal(t, 2, out.Data.Total, "total 收敛为有效实例数，与前端 up 分子同源")
+	ids := []string{out.Data.Items[0].ResourceID, out.Data.Items[1].ResourceID}
+	assert.ElementsMatch(t, []string{"host-1", "host-3"}, ids)
+	// 不返回空名/空 IP 的空白行。
+	for _, it := range out.Data.Items {
+		assert.NotEmpty(t, it.InstanceName, "实例 %s 不得返回空实例名", it.ResourceID)
+		assert.NotEmpty(t, it.InstanceIP, "实例 %s 不得返回空 IP", it.ResourceID)
+	}
+	assert.Equal(t, 1, out.Data.MissingCount, "失效引用数须对外可见（M01 F-39）")
+}
+
+// TestListInstancesKeepsValidInstancesWhenOthersDeleted（正常实例不受影响）：
+// 部分实例被软删时，仍存在的实例的元信息与安装状态口径不变（不被误过滤、
+// 不被降级为 unconfirmed）。
+func TestListInstancesKeepsValidInstancesWhenOthersDeleted(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
+	job := newInstanceListJob(t, db, []string{"host-1", "host-2"})
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// host-1 已确认安装；随后 host-2 被软删。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", `{"confirmed_by":"platform_admin"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, db.Where("resource_id = ?", "host-2").Delete(&models.Host{}).Error)
+
+	out := listInstances(t, r, jobID)
+
+	require.Len(t, out.Data.Items, 1)
+	assert.Equal(t, "host-1", out.Data.Items[0].ResourceID)
+	assert.Equal(t, "host-host-1", out.Data.Items[0].InstanceName)
+	assert.Equal(t, "10.0.1.1", out.Data.Items[0].InstanceIP)
+	assert.Equal(t, "confirmed", out.Data.Items[0].Status, "存活实例的安装状态口径不受软删影响")
+	assert.Equal(t, 1, out.Data.Total)
+	assert.Equal(t, 1, out.Data.MissingCount)
+}
+
+// TestListInstancesAllSelectedDeleted（全部实例失效的边界）：
+// 所有已选实例都被软删时 items 为空、total=0，但 missing_count 保留失效数，
+// 便于前端区分「Job 没配实例」与「配的实例全被删了」。
+func TestListInstancesAllSelectedDeleted(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
+	job := newInstanceListJob(t, db, []string{"host-1", "host-2"})
+
+	require.NoError(t, db.Where("resource_id = ?", "host-1").Delete(&models.Host{}).Error)
+	require.NoError(t, db.Where("resource_id = ?", "host-2").Delete(&models.Host{}).Error)
+
+	out := listInstances(t, r, strconv.FormatUint(uint64(job.ID), 10))
+
+	assert.Empty(t, out.Data.Items)
+	assert.Equal(t, 0, out.Data.Total)
+	assert.Equal(t, 2, out.Data.MissingCount)
+}
+
+// TestListInstancesMissingCountZeroWhenAllValid（无契约回归）：
+// 全部实例有效时 missing_count 为 0（新增字段不污染既有正常路径）。
+func TestListInstancesMissingCountZeroWhenAllValid(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := newInstanceListJob(t, db, []string{"host-1"})
+
+	out := listInstances(t, r, strconv.FormatUint(uint64(job.ID), 10))
+
+	require.Len(t, out.Data.Items, 1)
+	assert.Equal(t, 1, out.Data.Total)
+	assert.Equal(t, 0, out.Data.MissingCount)
+}
+
 func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
@@ -821,4 +963,421 @@ func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	require.Len(t, out.Data.Targets, 1)
 	assert.Equal(t, "api.example.com", out.Data.Targets[0].Address)
 	assert.Equal(t, "http", out.Data.Targets[0].Protocol)
+}
+
+// 采集路径 metrics_path 归一（TrimSpace）：路径会被拼进 vmagent 抓取 URL 原样发往
+// 被采集端，首尾空白会生成 " http://ip:8081/actuator/prometheus" 这样的非法请求 →
+// 被采集应用 404 → 中心 Prometheus up=0 且无业务样本，而用户在界面上看不出差别。
+// 因此保存链路必须 trim 后落库；trim 后为空仍按"留空"处理，不得破坏 F-28 层叠默认。
+func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
+	t.Run("创建：前导空格被trim 后落库", func(t *testing.T) {
+		db := openTestDB(t)
+		r := mountRoutes(t, db)
+		seedEnabledDomain(t, db, "default")
+		require.NoError(t, db.Create(&models.Application{
+			ResourceID: "app-1", NetworkDomainID: "default", Status: "online",
+			ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081, Protocol: "http",
+		}).Error)
+
+		// 复现线上脏数据：采集路径开头多一个空格。
+		body := `{"job_name":"test-app-01","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":" /actuator/prometheus","enabled":true}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var out struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.Equal(t, "/actuator/prometheus", out.Data.MetricsPath, "接口返回即应为trim 后值")
+		// 落库复核：不能只在响应层trim。
+		var stored models.ScrapeJob
+		require.NoError(t, db.First(&stored, out.Data.ID).Error)
+		assert.Equal(t, "/actuator/prometheus", stored.MetricsPath, "数据库中应为trim 后值")
+		assert.NotContains(t, stored.MetricsPath, " ", "不应残留任何空白")
+	})
+
+	t.Run("创建：纯空白被 application_http 校验拦为 bad_request", func(t *testing.T) {
+		db := openTestDB(t)
+		r := mountRoutes(t, db)
+		seedEnabledDomain(t, db, "default")
+		require.NoError(t, db.Create(&models.Application{
+			ResourceID: "app-1", NetworkDomainID: "default", Status: "online",
+			ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081, Protocol: "http",
+		}).Error)
+
+		body := `{"job_name":"app-blank","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"   ","enabled":true}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusBadRequest, w.Code, "纯空白应报错而非存空串：%s", w.Body.String())
+		// 报错信息须明确指向 metrics_path，避免"含糊"的内部错误。
+		assert.Contains(t, w.Body.String(), "metrics_path")
+		assert.Contains(t, w.Body.String(), "必须填写采集路径")
+		// 不得落库。
+		var count int64
+		require.NoError(t, db.Model(&models.ScrapeJob{}).Where("job_name = ?", "app-blank").Count(&count).Error)
+		assert.Equal(t, int64(0), count, "校验失败不应落库")
+	})
+
+	t.Run("创建：留空仍走层叠默认（trim 不改变F-28 语义）", func(t *testing.T) {
+		db := openTestDB(t)
+		r := mountRoutes(t, db)
+		seedEnabledDomain(t, db, "default")
+		tmplID := seedExporter(t, db, "node-exporter")
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{
+			MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+			MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "30s", ScrapeTimeout: "20s",
+		}).Error)
+		seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+		// 完全留空 → 继承映射默认metrics_path。
+		body := `{"job_name":"inherit-ok","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var out struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.Equal(t, "/metrics", out.Data.MetricsPath, "留空仍继承映射默认")
+
+		// 纯空白归一后 ≡ 留空 → 同样应继承映射默认，而非被当作显式值。
+		body2 := `{"job_name":"inherit-blank","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":"  ","enabled":true}`
+		w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
+		require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+		var out2 struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out2))
+		assert.Equal(t, "/metrics", out2.Data.MetricsPath, "纯空白归一后应等同留空并继承默认")
+	})
+
+	t.Run("更新：首随空格均被trim 后落库", func(t *testing.T) {
+		db := openTestDB(t)
+		r := mountRoutes(t, db)
+		seedEnabledDomain(t, db, "default")
+		tmplID := seedExporter(t, db, "node-exporter")
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{
+			MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+			MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "30s", ScrapeTimeout: "20s",
+		}).Error)
+		job := &models.ScrapeJob{
+			JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+			MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+			ScrapeInterval: "30s", ScrapeTimeout: "20s", MetricsPath: "/metrics", Scheme: "http",
+			AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+		}
+		require.NoError(t, db.Create(job).Error)
+		jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+		w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"metrics_path":"  /custom-metrics  "}`)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var out struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.Equal(t, "/custom-metrics", out.Data.MetricsPath)
+		var stored models.ScrapeJob
+		require.NoError(t, db.First(&stored, job.ID).Error)
+		assert.Equal(t, "/custom-metrics", stored.MetricsPath, "数据库中应为trim 后值")
+
+		// 更新传纯空白 → 归一为空 = 恢复继承（沿用 F-28「清空即继承」语义）。
+		w2 := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"metrics_path":"   "}`)
+		require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+		var out2 struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out2))
+		assert.Equal(t, "/metrics", out2.Data.MetricsPath, "纯空白更新应等同清空并恢复继承")
+	})
+
+	t.Run("草稿：创建时即归一，不留待提交生效才纠正", func(t *testing.T) {
+		db := openTestDB(t)
+		r := mountRoutes(t, db)
+		seedEnabledDomain(t, db, "default")
+		seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+		body := `{"job_name":"draft-blank","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":" /metrics ","draft_status":"draft"}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var stored models.ScrapeJob
+		require.NoError(t, db.Where("job_name = ?", "draft-blank").First(&stored).Error)
+		assert.Equal(t, "/metrics", stored.MetricsPath, "草稿路径也应trim 后落库")
+	})
+}
+
+// 采集器联动校验：monitor_type 必须有可用采集器，否则保存时报错，而不是留到运行时
+// 才暴露为中心 Prometheus up=0（用户在界面上看不出是配置问题）。
+//
+// 回归基线：平台内置 6 个采集器模板覆盖 host_linux/host_windows/mysql/redis/kafka/snmp，
+// **没有 nginx 模板**，但此前 nginx + 空 exporter_template_id 能静默保存成功。
+func TestCreateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	require.NoError(t, db.Create(&models.Middleware{
+		ResourceID: "nginx-1", NetworkDomainID: "default", Status: "online",
+		MiddlewareType: "nginx", AppName: "nginx-edge", InstanceIP: "10.0.1.9", Port: 80,
+	}).Error)
+
+	// 复现线上脏数据 test-nginx-01：nginx + 空采集器模板 + 错误端口 6379。
+	body := `{"job_name":"test-nginx-01","job_type":"standard","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusBadRequest, w.Code, "nginx 无可用采集器应在保存时被拦下")
+
+	// 错误信息须可操作：说清「该类型无可用采集器」+ 当前可用类型 + 两条出路。
+	body2 := w.Body.String()
+	assert.Contains(t, body2, "nginx")
+	assert.Contains(t, body2, "无可用采集器")
+	assert.Contains(t, body2, "blackbox", "应引导改用拨测")
+	assert.Contains(t, body2, "采集器模板", "应引导登记采集器模板")
+	// 不得落库。
+	var count int64
+	require.NoError(t, db.Model(&models.ScrapeJob{}).Where("job_name = ?", "test-nginx-01").Count(&count).Error)
+	assert.Equal(t, int64(0), count, "校验失败不应落库")
+}
+
+// 防误伤（最重要的一条）：application_http 走应用自带端点直采（如 springboot
+// /actuator/prometheus），本就不需要 exporter，必须允许 exporter_template_id 为空。
+// 这是既有设计（validate.go:71-77 注释：应用指标端点没有通用默认值）。
+func TestCreateScrapeJobApplicationHTTPAllowsEmptyExporter(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-1", NetworkDomainID: "default", Status: "online",
+		ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081, Protocol: "http",
+	}).Error)
+
+	// exporter_template_id 留空 + metrics_path 显式填写 → 创建成功。
+	body := `{"job_name":"app-prod-ok","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code, "application_http 直采不应被采集器校验误伤：%s", w.Body.String())
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "/actuator/prometheus", out.Data.MetricsPath)
+	assert.Empty(t, out.Data.ExporterTemplateID, "直采场景本就无采集器")
+}
+
+// 显式选了采集器模板，但该模板声明的 supported_monitor_types 不含该 monitor_type
+// → 类型与模板不匹配，保存时报错（与 ci-exporter 的 F-27 C 校验同口径）。
+func TestCreateScrapeJobRejectsTemplateMonitorTypeMismatch(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	// node-exporter 只支持 host_linux/host_windows。
+	tmplID := seedExporterWithTypes(t, db, "node-exporter", []string{"host_linux", "host_windows"})
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	// monitor_type=redis 却选node-exporter → 不匹配。
+	body := fmt.Sprintf(`{"job_name":"redis-mismatch","job_type":"standard","monitor_type":"redis","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "supported_monitor_types")
+	assert.Contains(t, w.Body.String(), "redis")
+
+	var count int64
+	require.NoError(t, db.Model(&models.ScrapeJob{}).Where("job_name = ?", "redis-mismatch").Count(&count).Error)
+	assert.Equal(t, int64(0), count, "校验失败不应落库")
+}
+
+// 正常组合仍通过：mysql + mysqld-exporter（类型匹配）+ 留空走映射兜底（类型有内置采集器）。
+func TestCreateScrapeJobAcceptsMatchingTemplateAndInheritedMapping(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporterWithTypes(t, db, "mysqld-exporter", []string{"mysql"})
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "mysql", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9104,
+		MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "15s", ScrapeTimeout: "10s",
+	}).Error)
+
+	// 显式选模板 → 类型匹配，放行。
+	body := fmt.Sprintf(`{"job_name":"mysql-explicit","job_type":"standard","monitor_type":"mysql","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	// 留空 → 有 is_default 映射兜底 + 内置模板声明支持 mysql，放行。
+	body2 := `{"job_name":"mysql-inherited","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","enabled":true}`
+	w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
+	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out))
+	assert.Equal(t, "15s", out.Data.ScrapeInterval, "留空仍继承映射默认")
+}
+
+// 用户自行登记了支持 nginx 的采集器模板后，nginx 即变为「有可用采集器」→ 放行。
+// 这条保证新校验不是死路：平台不内置 nginx 采集器，但用户可自助补齐。
+func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporterWithTypes(t, db, "nginx-exporter", []string{"nginx"})
+	require.NoError(t, db.Create(&models.Middleware{
+		ResourceID: "nginx-1", NetworkDomainID: "default", Status: "online",
+		MiddlewareType: "nginx", AppName: "nginx-edge", InstanceIP: "10.0.1.9", Port: 80,
+	}).Error)
+
+	body := fmt.Sprintf(`{"job_name":"nginx-registered","job_type":"standard","monitor_type":"nginx","exporter_template_id":"%s","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`, tmplID)
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	// 登记后 nginx 也走「留空 = 继承 / 走全局兜底」的统一语义，不因nginx 而特殊化
+	// （与 host_linux/mysql 留空即放行保持一致）。
+	body2 := `{"job_name":"nginx-unselected","job_type":"standard","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
+	w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
+	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
+}
+
+// 更新链路同样受联动校验保护：把已有 job 改成无采集器可用的 monitor_type →拦下。
+func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"monitor_type":"nginx"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "无可用采集器")
+
+	// 原值未被改坏。
+	var stored models.ScrapeJob
+	require.NoError(t, db.First(&stored, job.ID).Error)
+	assert.Equal(t, "host_linux", stored.MonitorType, "校验失败不应改库")
+}
+
+// 批量提交生效（draft → ready）同样走完整校验，含采集器联动。
+func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T) {
+	db := newBatchTestDB(t)
+	seedBatchDomain(t, db)
+	j := seedBatchJob(t, db, "nginx-draft", "draft")
+	require.NoError(t, db.Model(j).Update("monitor_type", "nginx").Error)
+
+	_, err := BatchSubmitReady(db, []uint{j.ID})
+	require.Error(t, err, "nginx 无可用采集器时不应提交生效")
+	assert.Contains(t, err.Error(), "无可用采集器")
+
+	var stored models.ScrapeJob
+	require.NoError(t, db.First(&stored, j.ID).Error)
+	assert.Equal(t, "draft", stored.DraftStatus, "校验失败不应翻转状态")
+}
+
+// 失效实例引用不再阻断编辑（根治死锁）：资源在 CMDB 被软删后 selected_instance_ids
+// 无人回收，而实例选择器只列存活资源——用户看不到也无法取消勾选失效 ID，编辑任何
+// 参数（如 scrape_interval）都会被域校验误拦。保存时应自动回收软删引用。
+func TestUpdateScrapeJobReclaimsSoftDeletedInstanceRefs(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1", "host-2"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	// CMDB 软删 host-2：实例选择器从此看不到它，用户无法在 UI 中取消勾选。
+	require.NoError(t, db.Delete(&models.Host{}, "resource_id = ?", "host-2").Error)
+
+	// 前端编辑动线原样回传旧 ID，改采集间隔应成功（而不是被失效引用拦下）。
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
+		`{"scrape_interval":"60s","selected_instance_ids":["host-1","host-2"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var out struct {
+		Data struct {
+			ScrapeInterval      string   `json:"scrape_interval"`
+			SelectedInstanceIDs []string `json:"selected_instance_ids"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "60s", out.Data.ScrapeInterval)
+	assert.Equal(t, []string{"host-1"}, out.Data.SelectedInstanceIDs, "保存时应自动回收软删实例引用")
+
+	// 库内同样已回收，后续保存不再带失效引用。
+	var stored models.ScrapeJob
+	require.NoError(t, db.First(&stored, job.ID).Error)
+	assert.Equal(t, []string{"host-1"}, stored.SelectedInstanceIDs)
+}
+
+// 跨网域误选的报错带实例名与真实归属网域，不再只抛裸 UUID + 误导性文案
+// （旧文案把「实例已删除」也报成「不属于网域」，用户不认识资源 ID）。
+func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedEnabledDomain(t, db, "other")
+	seedHost(t, db, "r-42", "other", "10.0.9.42", "online")
+
+	body := `{"job_name":"node-prod","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["r-42"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "host-r-42", "报错应带实例名而非裸 UUID")
+	assert.Contains(t, w.Body.String(), "属于网域")
+	assert.NotContains(t, w.Body.String(), "不属于网域", "误导性旧文案不应再出现")
+}
+
+// 安装确认遇失效引用：Unscoped 复查区分「已删除」与「跨网域」，报已删除 + 实例名。
+func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	require.NoError(t, db.Delete(&models.Host{}, "resource_id = ?", "host-1").Error)
+
+	w := perform(t, r, http.MethodPost,
+		"/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/instances/host-1/confirm",
+		`{"confirmed_by":"platform_admin"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "已被删除", "应报真实原因：实例已删除")
+	assert.Contains(t, w.Body.String(), "host-host-1", "报错应带实例名")
+	assert.NotContains(t, w.Body.String(), "不属于网域", "软删不应被误报为跨网域")
+}
+
+// TestCreateScrapeJobDurationValidation 覆盖 2026-10-12 诊断：裸数字时长（如 "180"）
+// 会留到 promtool check config 才失败（not a valid duration string），必须在保存入口
+// 拦为 bad_request；空串合法（F-28 留空=继承层叠默认）。
+func TestCreateScrapeJobDurationValidation(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 裸数字 scrape_interval → bad_request。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"dur-bad","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180","metrics_path":"/metrics","scheme":"http"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_interval")
+
+	// 缺单位 scrape_timeout → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"dur-bad2","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_timeout":"10","metrics_path":"/metrics","scheme":"http"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_timeout")
+
+	// 合法带单位、留空（继承）均放行。
+	for i, body := range []string{
+		`{"job_name":"dur-ok","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`,
+		`{"job_name":"dur-empty","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"","scrape_timeout":"","metrics_path":"/metrics","scheme":"http"}`,
+	} {
+		w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, "case %d: %s", i, w.Body.String())
+	}
 }

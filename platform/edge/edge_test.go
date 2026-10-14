@@ -294,6 +294,87 @@ func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T) {
 	assert.True(t, t1.Equal(*agent.LastConfigPull), "同一失败版本重复上报不刷新")
 }
 
+// TestHeartbeatPersistsRemoteWriteLastError 覆盖 F-17「契约单向定义」缺口的中心侧：
+// Agent 上报的 remote_write_last_error 必须落库 edge_heartbeats（否则边缘 remote_write
+// 失败时中心侧完全无感——本次实测边缘 up 长期未落中心，中心零失败线索，只能外部探测）。
+// 空值（成功态）亦落库为空串，不影响其他字段。
+func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-rw-err", "agent_pull", "tok-rw", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	const rwErr = "remote_write_failed: vmagent_remotewrite_errors_total=3 vmagent_remotewrite_push_failures_total=2 （vmagent /metrics）"
+
+	// 失败态：上报的失败原因应镜像落库到edge_heartbeats。
+	_, err := svc.Handle(dom, &HeartbeatRequest{
+		NetworkDomainID:      dom.ID,
+		AgentType:            models.AgentTypeVMAgent,
+		ConfigVersion:        "20261009-100000",
+		RemoteWriteLastError: rwErr,
+	}, time.Date(2026, 10, 9, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	var hb models.EdgeHeartbeat
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).
+		Order("id DESC").First(&hb).Error) // 按自增 id 取最新一条，避免时间戳并列导致取错
+	assert.Equal(t, rwErr, hb.RemoteWriteLastError, "remote_write 失败原因应落库")
+
+	// 成功态（空值）：不得污染上一条记录，且新记录该字段为空。
+	_, err = svc.Handle(dom, &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20261009-100000",
+	}, time.Date(2026, 10, 9, 10, 6, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	// 用全新变量承载（复用已带主键的 hb 会让 GORM 追加 WHERE id=… 而查不到新记录）
+	var hb2 models.EdgeHeartbeat
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).
+		Order("id DESC").First(&hb2).Error)
+	assert.Empty(t, hb2.RemoteWriteLastError, "成功态应为空")
+	assert.Greater(t, hb2.ID, hb.ID, "确认取到的确实是更新的一条心跳记录")
+}
+
+// TestHeartbeatPersistsRemoteWriteDropAndRetryStats 覆盖 F-39 中心侧：Agent 上报的
+// remote_write_dropped_total / remote_write_retries_total 应落库 edge_heartbeats 留痕
+// 并更新 edge_agents 最新值（丢块非零即数据丢失，须在节点状态页可见）。
+func TestHeartbeatPersistsRemoteWriteDropAndRetryStats(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-rw-f39", "agent_pull", "tok-f39", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	_, err := svc.Handle(dom, &HeartbeatRequest{
+		NetworkDomainID:         dom.ID,
+		AgentType:               models.AgentTypeVMAgent,
+		ConfigVersion:           "20261010-100000",
+		QueueBacklogBytes:       555000000,
+		RemoteWriteDroppedTotal: 9,
+		RemoteWriteRetriesTotal: 20,
+	}, time.Date(2026, 10, 10, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	// 心跳留痕：丢块/重试随 EdgeHeartbeat 落库。
+	var hb models.EdgeHeartbeat
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).
+		Order("id DESC").First(&hb).Error)
+	assert.Equal(t, int64(9), hb.RemoteWriteDroppedTotal, "丢块+丢包计数应落库")
+	assert.Equal(t, int64(20), hb.RemoteWriteRetriesTotal, "重试计数应落库")
+	assert.Equal(t, int64(555000000), hb.QueueBacklogBytes, "积压应落库")
+
+	// 节点运行态最新值：EdgeAgent 同步更新（节点状态页数据源）。
+	var agent models.EdgeAgent
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.Equal(t, int64(9), agent.RemoteWriteDroppedTotal, "agent 最新丢块计数应更新")
+	assert.Equal(t, int64(20), agent.RemoteWriteRetriesTotal, "agent 最新重试计数应更新")
+}
+
 func TestHeartbeatService_NoConfigVersion(t *testing.T) {
 	db := newEdgeTestDB(t)
 	dom := seedEdgeDomain(db, "nd-empty", "agent_pull", "tok-xyz", "", "http://center:8080")
@@ -394,7 +475,7 @@ func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T) {
 	v := seedConfigVersion(db, "gov-a", promYML, rulesYML, blackboxYML, targets,
 		time.Date(2026, 7, 24, 12, 15, 0, 0, time.UTC))
 
-	zipData, checksum, err := BuildConfigZip(v, models.AgentTypeVMAgent, "")
+	zipData, checksum, err := BuildConfigZip(v, models.AgentTypeVMAgent, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, checksum)
 
@@ -438,7 +519,7 @@ func TestBuildConfigZipOptionalEntries(t *testing.T) {
 		"global:\n  scrape_interval: 15s\n", "", "",
 		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
 		time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC))
-	zipData, _, err := BuildConfigZip(v, models.AgentTypeVMAgent, "")
+	zipData, _, err := BuildConfigZip(v, models.AgentTypeVMAgent, "", "")
 	require.NoError(t, err)
 	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	require.NoError(t, err)
@@ -479,20 +560,62 @@ func TestBuildConfigZipRemoteWriteURL(t *testing.T) {
 
 	// 显式配置 RemoteWriteURL → metadata 下发该地址。
 	with := seed("gov-rw-with")
-	zipWith, _, err := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write")
+	zipWith, _, err := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write", "")
 	require.NoError(t, err)
 	assert.Equal(t, "http://10.0.0.1:8428/api/v1/write", readMeta(zipWith).RemoteWriteURL)
 
 	// 未配置（空串）→ metadata 省略该字段。
 	without := seed("gov-rw-without")
-	zipWithout, _, err := BuildConfigZip(without, models.AgentTypeVMAgent, "")
+	zipWithout, _, err := BuildConfigZip(without, models.AgentTypeVMAgent, "", "")
 	require.NoError(t, err)
 	assert.Empty(t, readMeta(zipWithout).RemoteWriteURL, "未显式配置应省略 remote_write_url")
 
 	// 下发地址不影响联合 checksum 可复算（metadata 自身不计入 checksum）。
 	recomputed := packageChecksum(with.PrometheusYml, with.RulesYml, with.BlackboxYml, targetsCarrier(map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`}))
-	_, checksum, _ := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write")
+	_, checksum, _ := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write", "")
 	assert.Equal(t, recomputed, checksum, "remote_write_url 不应影响联合 checksum")
+}
+
+// TestBuildConfigZipMaxDiskUsagePerURL 断言 metadata.json 承载 max_disk_usage_per_url
+// （F-42）：网域显式配置时下发，未配置时省略；该字段同样不计入联合 checksum。
+func TestBuildConfigZipMaxDiskUsagePerURL(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seed := func(domainID string) *models.ConfigVersion {
+		return seedConfigVersion(db, domainID, "global:\n  scrape_interval: 15s\n", "", "",
+			map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+			time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))
+	}
+
+	readMeta := func(zipData []byte) metadata {
+		zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+		require.NoError(t, err)
+		var m metadata
+		for _, f := range zr.File {
+			if f.Name == "metadata.json" {
+				rc, _ := f.Open()
+				require.NoError(t, json.NewDecoder(rc).Decode(&m))
+				_ = rc.Close()
+			}
+		}
+		return m
+	}
+
+	// 显式配置 → 下发。
+	with := seed("gov-md-with")
+	zipWith, _, err := BuildConfigZip(with, models.AgentTypeVMAgent, "", "50GB")
+	require.NoError(t, err)
+	assert.Equal(t, "50GB", readMeta(zipWith).MaxDiskUsagePerURL)
+
+	// 未配置 → 省略（omitempty）。
+	without := seed("gov-md-without")
+	zipWithout, _, err := BuildConfigZip(without, models.AgentTypeVMAgent, "", "")
+	require.NoError(t, err)
+	assert.Empty(t, readMeta(zipWithout).MaxDiskUsagePerURL, "未显式配置应省略 max_disk_usage_per_url")
+
+	// 不影响联合 checksum。
+	base, _, _ := BuildConfigZip(with, models.AgentTypeVMAgent, "", "")
+	withParam, _, _ := BuildConfigZip(with, models.AgentTypeVMAgent, "", "50GB")
+	assert.Equal(t, readMeta(base).Checksum, readMeta(withParam).Checksum, "max_disk_usage_per_url 不应影响联合 checksum")
 }
 
 // --- T11-05 config handler：zip 200 / 304 / 404 / 401 ---
@@ -894,4 +1017,120 @@ func TestResolveDownloadAuthorityEndToEnd(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	assert.Equal(t, "https://center.example.com/api/v2/platform/edge/config?network_domain=mc-edge-debug",
 		env.Data.ConfigDownloadURL, "应优先用网域登记的 center_endpoint 而非反代 Host")
+}
+
+// TestHeartbeatParamsChangedFingerprint 覆盖 F-42 参数传播：Agent 上报的 metadata
+// 回传参数指纹与网域当前配置比对——一致返回 params_changed=false 并镜像落库指纹；
+// 不一致返回 true（网域参数变更不改配置版本号，需 params_changed 驱动强制拉包）；
+// 老 Agent（指纹为空）在网域有参数配置时同样返回 true（其忽略未知响应字段，无副作用）。
+func TestHeartbeatParamsChangedFingerprint(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-params", "agent_pull", "tok-params", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC))
+	// 网域配置回传参数（F-42）。
+	require.NoError(t, db.Model(dom).Updates(map[string]interface{}{
+		"remote_write_url":       "http://center:9090/api/v1/write",
+		"max_disk_usage_per_url": "50GB",
+	}).Error)
+	// 重读 dom 拿到更新后的值。
+	require.NoError(t, db.First(dom, "id = ?", dom.ID).Error)
+
+	svc := NewHeartbeatService(db)
+
+	// ① 老 Agent（不上报指纹）+ 网域有参数 → params_changed=true（无害，拉包驱动收敛）。
+	reqOld := &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20261010-100000",
+	}
+	respOld, err := svc.Handle(dom, reqOld, time.Date(2026, 10, 10, 10, 1, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	assert.True(t, respOld.ParamsChanged, "老 agent 空指纹 vs 网域有参数应 params_changed=true")
+
+	// ② 新 Agent 上报一致指纹 → params_changed=false，且指纹镜像落库。
+	reqNew := &HeartbeatRequest{
+		NetworkDomainID:            dom.ID,
+		AgentType:                  models.AgentTypeVMAgent,
+		ConfigVersion:              "20261010-100000",
+		MetadataRemoteWriteURL:     "http://center:9090/api/v1/write",
+		MetadataMaxDiskUsagePerURL: "50GB",
+	}
+	respNew, err := svc.Handle(dom, reqNew, time.Date(2026, 10, 10, 10, 2, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	assert.False(t, respNew.ParamsChanged, "指纹与网域一致应 params_changed=false")
+	assert.False(t, respNew.ConfigChanged, "版本一致应 config_changed=false")
+
+	var agent models.EdgeAgent
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.Equal(t, "http://center:9090/api/v1/write", agent.MetadataRemoteWriteURL, "指纹应镜像落库")
+	assert.Equal(t, "50GB", agent.MetadataMaxDiskUsagePerURL, "指纹应镜像落库")
+	assert.Equal(t, models.ConfigSyncStatusInSync, agent.ConfigSyncStatus)
+
+	// ③ 网域参数变更（50GB→20GB，版本号不变）→ 新一轮心跳指纹不一致 → params_changed=true。
+	require.NoError(t, db.Model(dom).Update("max_disk_usage_per_url", "20GB").Error)
+	require.NoError(t, db.First(dom, "id = ?", dom.ID).Error)
+	resp3, err := svc.Handle(dom, reqNew, time.Date(2026, 10, 10, 10, 3, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	assert.True(t, resp3.ParamsChanged, "网域参数变更后指纹不一致应 params_changed=true")
+	assert.False(t, resp3.ConfigChanged, "版本号未变，config_changed 应为 false")
+
+	// ④ 网域参数全空 + agent 未拉过包（指纹全空）→ 天然一致 false。
+	dom2 := seedEdgeDomain(db, "nd-params-empty", "agent_pull", "tok-pe", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom2.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.11:9100"]}]`},
+		time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC))
+	reqEmpty := &HeartbeatRequest{
+		NetworkDomainID: dom2.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20261010-100000",
+	}
+	respEmpty, err := svc.Handle(dom2, reqEmpty, time.Date(2026, 10, 10, 10, 4, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	assert.False(t, respEmpty.ParamsChanged, "网域与指纹参数均空应 params_changed=false")
+}
+
+// TestHeartbeatCarriesRestartSeq 覆盖 F-42 seq 简化机制：心跳响应透传该节点当前的
+// vm_agent_restart_seq 指令位（管理端点推进后 Agent 于下一轮心跳获知并幂等执行）；
+// 且心跳全量 Save 不得覆盖既有指令位。
+func TestHeartbeatCarriesRestartSeq(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-seq", "agent_pull", "tok-seq", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.12:9100"]}]`},
+		time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC))
+	// 预置 agent 行并推进指令位到 2（模拟管理端点已触发两次）。
+	reqAt := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
+	agent := &models.EdgeAgent{
+		NetworkDomainID:    dom.ID,
+		AgentType:          models.AgentTypeVMAgent,
+		Hostname:           "edge-seq",
+		Status:             "online",
+		VMAgentRestartSeq:  2,
+		RestartRequestedBy: "ops-admin",
+		RestartRequestedAt: &reqAt,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20261010-100000",
+		Hostname:        "edge-seq",
+	}
+	resp, err := svc.Handle(dom, req, time.Date(2026, 10, 10, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.VMAgentRestartSeq, "心跳响应应透传最新指令位")
+
+	// 心跳全量 Save 不回写指令位：seq 保持 2、留痕不被清空。
+	var got models.EdgeAgent
+	require.NoError(t, db.First(&got, "id = ?", agent.ID).Error)
+	assert.Equal(t, int64(2), got.VMAgentRestartSeq)
+	assert.Equal(t, "ops-admin", got.RestartRequestedBy)
+	require.NotNil(t, got.RestartRequestedAt)
 }

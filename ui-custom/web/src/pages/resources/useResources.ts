@@ -40,6 +40,11 @@ export interface ResourceListItem {
    * `zone_type`，由后端派生下发；资源侧无写入口。网域未设分区或网域缺失时为空串。
    */
   zone_type?: string
+  /**
+   * {T01-P5} 实例级采集端口覆盖（五类均返回）：`0` / 缺省视为「未指定」——
+   * 编辑回显归一为空态，由采集端口解析链向下回落（提案 resource-scrape-port-chain §5.1）。
+   */
+  scrape_port?: number
   // host（T07-03 legacy 映射：instance_ip→private_ip、hostname→instance_name、os_type→image）
   instance_name?: string
   hostname?: string

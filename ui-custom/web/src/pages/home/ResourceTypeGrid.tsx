@@ -7,15 +7,16 @@
  * （告警信息收口 L0 告警卡 + L4 告警状态卡，本区只体现采集覆盖口径）。
  *
  * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：由 5 卡一行降为**单卡一行**——
- * 本卡比 L0 指标卡更宽（32px 已采数 + 覆盖率进度条 + 子类 chip 左右两栏），
- * 手机上两卡一行会把子类 chip 的「已采/总数 · 覆盖率」压到截断，故直接单列排布。
+ * 本卡比 L0 指标卡更宽（32px 已下发数 + 纳管率进度条 + 子类 chip 左右两栏），
+ * 手机上两卡一行会把子类 chip 的「已下发/总数 · 纳管率」压到截断，故直接单列排布。
  *
- * 卡片自上而下：单字徽标 + 类型名 → 32px 已采数 + `/ N 量词已采` → 覆盖率进度条 +
- * 「覆盖率 X%」/「未采 N」→ 细分隔线 → 子类小标题 + 子类 chip 列表（+ 卡内脚注）。
+ * 卡片自上而下：单字徽标 + 类型名 → 32px 已下发数 + `/ N 量词已下发` → 纳管率进度条 +
+ * 「纳管率 X%」/「未下发 N」→ 细分隔线 → 子类小标题 + 子类 chip 列表（+ 卡内脚注）。
  *
  * 版式要点（视觉定版 v3，决策 93）：
  * - **徽标用类型首字**而非线性图标（见 resourceTypeMeta 注释）；
- * - **量词只给主机**（「台」）；`未采 N` 不重复量词；
+ * - **量词只给主机**（「台」）；`未下发 N` 不重复量词；
+ * - 文案口径（反馈 10 §10.4 正名）：`monitored_count` 为**下发口径**，一律称「已下发」/「纳管率」，禁用「已采 / 覆盖率」；
  * - **子类封顶 3 条**：第 4 条起聚合为「更多 +N」虚线品牌青 chip（`more` 态），
  *   行高有确定性上界，同行五卡等高不再被子类数量拉爆（一行五卡布局的前提）；
  * - **应用服务不设子类**：渲染一行规则说明 + `application_http` 指标 chip，**不再**渲染采集
@@ -51,8 +52,8 @@ interface ResourceTypeGridProps {
 }
 
 /**
- * 子类明细 chip（与原型同款）：白底细边，左子类名、右「已采/总数 · 覆盖率」。
- * 覆盖率 <70% 换橙底橙边；纯说明性 chip（`muted`）用浅灰底且不渲染右侧数值；
+ * 子类明细 chip（与原型同款）：白底细边，左子类名、右「已下发/总数 · 纳管率」。
+ * 纳管率 <70% 换橙底橙边；纯说明性 chip（`muted`）用浅灰底且不渲染右侧数值；
  * 聚合 chip（`more`，决策 93）用虚线品牌青边——子类封顶后第 4 条起收进「更多 +N」。
  */
 function SubtypeChip({
@@ -164,7 +165,7 @@ function CategoryCard({
         </Typography.Text>
       </div>
 
-      {/* 已采数 / 总数（量词只给主机；非主机不写量词，故 unit 为空串时自然成 `/ 26 已采`） */}
+      {/* 已下发数 / 总数（量词只给主机；非主机不写量词，故 unit 为空串时自然成 `/ 26 已下发`） */}
       <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 4 }}>
         <span
           data-testid={`l1-monitored-${category}`}
@@ -179,11 +180,11 @@ function CategoryCard({
           {monitored}
         </span>
         <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-          / {total} {meta.unit}已采
+          / {total} {meta.unit}已下发
         </span>
       </div>
 
-      {/* 覆盖率进度条 + 覆盖率 / 未采 */}
+      {/* 纳管率进度条 + 纳管率 / 未下发 */}
       <div style={{ marginTop: 10 }}>
         <CoverageBar percent={percent} />
         <div
@@ -195,9 +196,9 @@ function CategoryCard({
             color: token.colorTextSecondary,
           }}
         >
-          <span data-testid={`l1-coverage-${category}`}>覆盖率 {coverageText(monitored, total)}</span>
+          <span data-testid={`l1-coverage-${category}`}>纳管率 {coverageText(monitored, total)}</span>
           <span data-testid={`l1-uncovered-${category}`} style={{ color: token.colorTextTertiary }}>
-            未采 {uncoveredCount(total, monitored)}
+            未下发 {uncoveredCount(total, monitored)}
           </span>
         </div>
       </div>
@@ -278,7 +279,7 @@ function CategoryCard({
   )
 }
 
-/** 覆盖率进度条：<70% 换橙色（与子类 chip 同一阈值，颜色不作为唯一语义——下方仍有百分数） */
+/** 纳管率进度条：<70% 换橙色（与子类 chip 同一阈值，颜色不作为唯一语义——下方仍有百分数） */
 function CoverageBar({ percent }: { percent: number | null }) {
   const { token } = theme.useToken()
   const value = percent ?? 0

@@ -19,6 +19,8 @@ var seedDBSeq int64
 
 // newTestDB opens an in-memory SQLite database and migrates exactly the tables
 // needed by the seed package.
+// ScrapeJob is migrated because Run includes the scrape-path backfill, which
+// reads scrape_jobs (production db.AutoMigrate always creates it before Run).
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	n := atomic.AddInt64(&seedDBSeq, 1)
@@ -35,6 +37,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ExporterMetricLibrary{},
 		&models.ApplicationDict{},
 		&models.CloudDict{},
+		&models.ScrapeJob{},
 	))
 	return db
 }

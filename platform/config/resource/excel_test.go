@@ -195,7 +195,10 @@ func TestParseExcel_HeaderErrors(t *testing.T) {
 	cols := TemplateColumns[models.ResourceCategoryHost]
 
 	t.Run("missing column", func(t *testing.T) {
-		header := cols[:len(cols)-1] // 去掉 status
+		// 去掉末两列 status 与 scrape_port：scrape_port 单独缺省是旧模板兼容
+		// （决策 D-7 P1，见 TestExcelLegacyTemplateWithoutScrapePortStillImports），
+		// 必填列 status 缺失必须报「列头缺失」。
+		header := cols[:len(cols)-2]
 		_, err := ParseExcel(buildXLSXWithHeader(t, header, nil), models.ResourceCategoryHost)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "列头缺失")
@@ -605,5 +608,225 @@ func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T) {
 		row := mustParse(t, tc.cat, [][]string{makeRow(tc.cat, baseValues(tc.cat))})[0]
 		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil))
 		assert.Equal(t, tc.want, row.DedupKey, "资源类型 %s 判重键", tc.cat)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T01-P1：scrape_port Excel 导入侧（决策 D-7：导入解析与字段映射随模型进 P0；
+// 模板列 TemplateColumns 由 T01-P7 处理，故此处直调 applyCells / 构造 ImportRow，
+// 不走 ParseExcel 固定列头校验）
+// ---------------------------------------------------------------------------
+
+// TestApplyCells_ScrapePort 覆盖 applyCells 的 scrape_port 解析：数值 → int、
+// 空 → 0（未指定）、非数字 → -1 哨兵（交由 ValidateImportRow 报行级错误）。
+func TestApplyCells_ScrapePort(t *testing.T) {
+	cases := []struct {
+		name string
+		cell string
+		want int
+	}{
+		{"数值解析", "9100", 9100},
+		{"空值→0（未指定）", "", 0},
+		{"非数字→-1 哨兵", "abc", -1},
+		{"显式 0", "0", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := ImportRow{Row: 2, Category: models.ResourceCategoryHost}
+			applyCells(&row, []string{"scrape_port"}, []string{tc.cell})
+			assert.Equal(t, tc.want, row.Input.ScrapePort)
+		})
+	}
+}
+
+// TestValidateImportRow_ScrapePort 覆盖导入行校验把越界 scrape_port 映射回
+// §5.16.3 结构（field=scrape_port、value=原文），并守护 0（未指定）合法。
+func TestValidateImportRow_ScrapePort(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+	parseHost := func(t *testing.T) ImportRow {
+		t.Helper()
+		return mustParse(t, models.ResourceCategoryHost,
+			[][]string{makeRow(models.ResourceCategoryHost, baseValues(models.ResourceCategoryHost))})[0]
+	}
+
+	t.Run("scrape_port 0（未指定）通过", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 0
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil))
+	})
+
+	t.Run("scrape_port 65536 越界映射 field/value", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 65536
+		err := ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil)
+		rerr := assertRowError(t, err, 2, "scrape_port", "65536")
+		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
+	})
+
+	t.Run("scrape_port -1（非数字哨兵）被拒绝", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = -1
+		err := ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil)
+		rerr := assertRowError(t, err, 2, "scrape_port", "-1")
+		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
+	})
+
+	t.Run("scrape_port 正常值通过", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 19100
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil))
+	})
+}
+
+// ---------------------------------------------------------------------------
+// T01-P7：下载模板列末尾追加 scrape_port 后的导入兼容性回归（决策 D-7 P1）
+// ---------------------------------------------------------------------------
+
+// withoutScrapePort 返回去掉 scrape_port 列的模板列头（构造旧模板 xlsx 用）。
+func withoutScrapePort(cols []string) []string {
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c != "scrape_port" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestExcelLegacyTemplateWithoutScrapePortStillImports 旧模板（无 scrape_port 列）
+// 兼容回归：五类旧列头文件仍解析并行级校验成功，缺列按 0（未指定）处理。
+func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+	for _, cat := range allCategories() {
+		t.Run(string(cat), func(t *testing.T) {
+			cols := TemplateColumns[cat]
+			require.Equal(t, "scrape_port", cols[len(cols)-1], "scrape_port 必须位于模板末列（T01-P7 防列序依赖断裂）")
+
+			header := withoutScrapePort(cols)
+			require.Len(t, header, len(cols)-1)
+			vals := baseValues(cat)
+			row := make([]string, len(header))
+			for i, col := range header {
+				row[i] = vals[col]
+			}
+
+			rows, err := ParseExcel(buildXLSXWithHeader(t, header, [][]string{row}), cat)
+			require.NoError(t, err, "旧模板（无 scrape_port 列）导入应成功")
+			require.Len(t, rows, 1)
+			assert.Equal(t, 0, rows[0].Input.ScrapePort, "缺 scrape_port 列按 0（未指定）处理")
+			require.NoError(t, ValidateImportRow(&rows[0], store, newAppStore(t), nil, ok, nil))
+		})
+	}
+}
+
+// TestExcelTemplateWithScrapePortColumnWritesValue 新模板（末列含 scrape_port）
+// 导入回归：单元格值写入 Input.ScrapePort，留空单元格按 0（未指定）。
+func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+	for _, cat := range allCategories() {
+		t.Run(string(cat), func(t *testing.T) {
+			vals := baseValues(cat)
+			vals["scrape_port"] = "19100"
+			rows := mustParse(t, cat, [][]string{makeRow(cat, vals)})
+			require.Len(t, rows, 1)
+			assert.Equal(t, 19100, rows[0].Input.ScrapePort, "含列导入应写入正确值")
+			require.NoError(t, ValidateImportRow(&rows[0], store, newAppStore(t), nil, ok, nil))
+		})
+	}
+
+	t.Run("留空单元格按 0", func(t *testing.T) {
+		rows := mustParse(t, models.ResourceCategoryHost, [][]string{
+			makeRow(models.ResourceCategoryHost, baseValues(models.ResourceCategoryHost)),
+		})
+		require.Len(t, rows, 1)
+		assert.Equal(t, 0, rows[0].Input.ScrapePort)
+	})
+
+	t.Run("非数字 → -1 哨兵被行级校验拒绝", func(t *testing.T) {
+		vals := baseValues(models.ResourceCategoryHost)
+		vals["scrape_port"] = "abc"
+		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
+		assert.Equal(t, -1, row.Input.ScrapePort)
+		err := ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil)
+		rerr := assertRowError(t, err, 2, "scrape_port", "-1")
+		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 决策 101 后续：zone_env 废弃后的存量模板兼容回归
+// ---------------------------------------------------------------------------
+
+// legacyHostHeaderWithZoneEnv 构造废弃前的存量 host 模板列头：在 cluster 之后
+// 插入 zone_env（原位置），共 14 列；其余列与当前 TemplateColumns[host] 一致。
+func legacyHostHeaderWithZoneEnv() []string {
+	cols := TemplateColumns[models.ResourceCategoryHost]
+	out := make([]string, 0, len(cols)+1)
+	for _, c := range cols {
+		out = append(out, c)
+		if c == "cluster" {
+			out = append(out, "zone_env")
+		}
+	}
+	return out
+}
+
+// TestExcelLegacyTemplateWithZoneEnvStillImports 存量模板（带已废弃的 zone_env 列）
+// 兼容回归：按列名剔除后仍通过严格逐列比对，行级校验不因该列报错，且该列的值
+// 不进入 ImportRow 的任何字段（静默忽略）。
+func TestExcelLegacyTemplateWithZoneEnvStillImports(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+
+	header := legacyHostHeaderWithZoneEnv()
+	require.Len(t, header, len(TemplateColumns[models.ResourceCategoryHost])+1,
+		"存量模板应比当前模板多一列 zone_env")
+	require.NotContains(t, TemplateColumns[models.ResourceCategoryHost], "zone_env",
+		"当前 host 模板不应再输出 zone_env")
+
+	vals := baseValues(models.ResourceCategoryHost)
+	vals["zone_env"] = "GOV" // 存量文件里该列填了值，必须被忽略而非报错
+	row := make([]string, len(header))
+	for i, col := range header {
+		row[i] = vals[col]
+	}
+
+	rows, err := ParseExcel(buildXLSXWithHeader(t, header, [][]string{row}), models.ResourceCategoryHost)
+	require.NoError(t, err, "存量模板（带 zone_env）导入应成功，不得因该列报错")
+	require.Len(t, rows, 1)
+	require.NoError(t, ValidateImportRow(&rows[0], store, newAppStore(t), nil, ok, nil))
+
+	// 该列的值不落到任何字段：ImportRow 已无 ZoneEnv 字段，且行内其余字段正常解析。
+	assert.Equal(t, "cluster-1", rows[0].Input.Cluster, "cluster 应正常解析（列序未被错位）")
+	assert.Equal(t, "ops", rows[0].Input.Owner, "owner 应正常解析（zone_env 之后的列不错位）")
+}
+
+// TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn 回归护栏：剔除废弃列
+// 不能放宽为「列数相同即可」，真正未定义的动态列仍须报「超出模板」。
+func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T) {
+	header := append(legacyHostHeaderWithZoneEnv(), "extra_col")
+	_, err := ParseExcel(buildXLSXWithHeader(t, header, nil), models.ResourceCategoryHost)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "超出模板")
+}
+
+// TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval 回归断言：其余四类模板
+// 本就不含 zone_env，废弃后列头与解析行为不变。
+func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T) {
+	for _, cat := range []models.ResourceCategory{
+		models.ResourceCategoryDatabase,
+		models.ResourceCategoryMiddleware,
+		models.ResourceCategoryApplication,
+		models.ResourceCategoryGenericTarget,
+	} {
+		t.Run(string(cat), func(t *testing.T) {
+			assert.NotContains(t, TemplateColumns[cat], "zone_env", "非 host 模板不应含 zone_env")
+			rows, err := ParseExcel(buildXLSXWithHeader(t, TemplateColumns[cat], nil), cat)
+			require.NoError(t, err)
+			assert.Empty(t, rows)
+		})
 	}
 }

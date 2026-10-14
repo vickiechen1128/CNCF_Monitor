@@ -27,6 +27,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"status":            "status",
 			"resource_id":       "resource_id",
 			"source_type":       "source_type",
+			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
 		}
 	case ResourceCategoryDatabase:
 		return map[string]string{
@@ -44,6 +45,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"version":           "version",
 			"resource_id":       "resource_id",
 			"source_type":       "source_type",
+			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
 		}
 	case ResourceCategoryMiddleware:
 		return map[string]string{
@@ -61,6 +63,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"version":           "version",
 			"resource_id":       "resource_id",
 			"source_type":       "source_type",
+			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
 		}
 	case ResourceCategoryApplication:
 		return map[string]string{
@@ -70,6 +73,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"protocol":          "protocol",
 			"endpoint":          "endpoint",
 			"port":              "port",
+			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
 			"app_code":          "app_name",
 			"platform_code":     "platform_code",
 			"cluster":           "cluster",
@@ -90,6 +94,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"metrics_path":      "metrics_path",
 			"scheme":            "scheme",
 			"exporter_type":     "exporter_type",
+			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
 			"app_code":          "app_name",
 			"platform_code":     "platform_code",
 			"cluster":           "cluster",
@@ -150,6 +155,8 @@ func getHostField(h *Host, field string) (string, bool) {
 		return h.Hostname(), true // legacy: InstanceName
 	case "os_type":
 		return h.OSType(), true // legacy: Image
+	case "scrape_port":
+		return strconv.Itoa(h.ScrapePort), true
 	}
 	return "", false
 }
@@ -184,6 +191,8 @@ func getDatabaseField(d *Database, field string) (string, bool) {
 		return strconv.Itoa(d.Port), true
 	case "version":
 		return d.Version, true
+	case "scrape_port":
+		return strconv.Itoa(d.ScrapePort), true
 	}
 	return "", false
 }
@@ -218,6 +227,8 @@ func getMiddlewareField(m *Middleware, field string) (string, bool) {
 		return strconv.Itoa(m.Port), true
 	case "version":
 		return m.Version, true
+	case "scrape_port":
+		return strconv.Itoa(m.ScrapePort), true
 	}
 	return "", false
 }
@@ -256,6 +267,8 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return a.Endpoint, true
 	case "port":
 		return strconv.Itoa(a.Port), true
+	case "scrape_port":
+		return strconv.Itoa(a.ScrapePort), true
 	}
 	return "", false
 }
@@ -296,6 +309,8 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return g.ExporterType, true
 	case "port":
 		return strconv.Itoa(g.Port), true
+	case "scrape_port":
+		return strconv.Itoa(g.ScrapePort), true
 	}
 	return "", false
 }

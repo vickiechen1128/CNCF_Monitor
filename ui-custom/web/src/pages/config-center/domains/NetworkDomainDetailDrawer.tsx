@@ -67,6 +67,15 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           <Descriptions.Item label="指标回传地址">
             <ConfigValue channel={domain.channel} value={domain.remote_write_url} />
           </Descriptions.Item>
+          {/* F-42：网域级回传参数（随配置包下发生效）；未配置时采集节点按 env > 内置兜底 2GB 解析 */}
+          <Descriptions.Item label="回传积压磁盘上限">
+            <ConfigValue channel={domain.channel} value={domain.max_disk_usage_per_url} />
+            {domain.channel === 'agent_pull' && !domain.max_disk_usage_per_url && (
+              <Tooltip title="未配置时采集节点按环境变量 > 内置兜底（2GB）解析">
+                <Text type="secondary" style={{ fontSize: 12 }}>（未配置，节点按默认兜底）</Text>
+              </Tooltip>
+            )}
+          </Descriptions.Item>
           <Descriptions.Item label="指标采集器类型">
             {domain.channel === 'agent_pull' && domain.agent_type ? (
               <Tag color="blue">{agentTypeLabel[domain.agent_type]}</Tag>

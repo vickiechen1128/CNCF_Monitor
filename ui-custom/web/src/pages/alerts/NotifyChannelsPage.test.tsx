@@ -6,7 +6,7 @@
  * antd 稳定模式见 src/test/antdTestUtils.tsx（Step 3.6）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
@@ -25,8 +25,25 @@ vi.mock('./useDerivedReceivers', () => ({
   useDerivedReceivers: (...a: unknown[]) => useDerivedReceiversMock(...a),
 }))
 
+// 兜底渠道标识列（T08-SPLIT-01，提案 §4.2）消费 route-setting：显式兜底看
+// `default_receiver_channel_id`，建议兜底看 `effective_receiver_name`；隔离真实请求。
+const useRouteSettingMock = vi.fn()
+vi.mock('./useRouteSetting', () => ({
+  useRouteSetting: (...a: unknown[]) => useRouteSettingMock(...a),
+  NONE_RECEIVER_VALUE: -1,
+}))
+
 const getReceiverSnippetMock = vi.fn()
 const listTemplatesMock = vi.fn()
+
+// 渠道写路径（新增/编辑/删除）需同步触发配置变更单生成（2026-10-14 用户反馈：
+// 删除后 M09 立刻可见待确认变更单，而非等 watcher 最长 30s 兜底），隔离真实请求。
+const triggerConfigDraftsMock = vi.fn()
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDrafts: (...a: unknown[]) => triggerConfigDraftsMock(...a),
+  CONFIG_PREVIEW_PATH: '/config-preview',
+}))
+
 vi.mock('../../api/alertmanager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/alertmanager')>()
   return {
@@ -124,6 +141,8 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     getReceiverSnippetMock.mockResolvedValue(snippetResponse())
     listTemplatesMock.mockReset()
     listTemplatesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
+    triggerConfigDraftsMock.mockReset()
+    triggerConfigDraftsMock.mockResolvedValue(undefined)
     // 派生接收人默认空态（无已启用渠道 / 未取到片段）；具体断言在各自用例内覆盖返回值
     useDerivedReceiversMock.mockReset()
     useDerivedReceiversMock.mockReturnValue({
@@ -133,6 +152,9 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
       permissionDenied: false,
       reload: vi.fn(),
     })
+    // route-setting 默认未取到（未接管）：「兜底渠道」列不渲染任何标识
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue({ setting: null })
   })
 
   it('页头渲染渠道名称与新增入口', () => {
@@ -229,6 +251,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         enabled: true,
       }),
     )
+    // 新增成功后同步触发配置变更单（M09 门禁）
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已创建' }),
+      ),
+    )
   })
 
   it('编辑：不回填脱敏 webhook_url，留空提交不含 webhook_url / secret', async () => {
@@ -250,6 +279,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', enabled: true, default_template_id: 0 })
     expect(payload).not.toHaveProperty('webhook_url')
     expect(payload).not.toHaveProperty('secret')
+    // 编辑成功后同步触发配置变更单（M09 门禁）
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已更新' }),
+      ),
+    )
   })
 
   // 渠道 ↔ 模板一等绑定（dev-feedback #30）：抽屉可选绑定模板，payload 带 default_template_id；
@@ -297,6 +333,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(conf.okText).toBe('删除')
     await (conf.onOk as () => Promise<void>)()
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('1'))
+    // 删除成功后同步触发配置变更单（M09 门禁），而非只等 watcher 最长 30s 兜底
+    await waitFor(() =>
+      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
+        ['default'],
+        expect.objectContaining({ prefix: '通知渠道已删除' }),
+      ),
+    )
   })
 
   // B 路线（决策 74 / 安全 H-1）：抽屉展示平台派生的接收人片段供「自定义接收人」参考；
@@ -518,5 +561,104 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     renderPage()
     expect(await screen.findByText('需管理员权限查看')).toBeInTheDocument()
     expect(screen.queryByText('暂不可见')).toBeNull()
+  })
+
+  // =====================================================================
+  // 2026-10-13（T08-SPLIT-01，提案 §4.2）：「哪个渠道是兜底」由路由规则页迁到本页「兜底渠道」列，
+  // 就地显性化。判定严格按 `effective_source` 三态，绝不把「建议值」说成「已接管」（§11.9 契约）。
+  // =====================================================================
+  const routeSettingOf = (over: Record<string, unknown>) => ({
+    enabled: true,
+    mode: 'managed',
+    effective_source: 'explicit',
+    effective_receiver_name: 'sre-feishu-qun',
+    ...over,
+  })
+
+  it('兜底渠道列：列标题就位且位于「平台接收人」列之前', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+    // antd 表头在 measure row 里会复制一份列宽文本，只认真正的 <th>，否则 getByText 撞多元素
+    await screen.findAllByText('兜底渠道')
+    const headerOf = (label: string) => {
+      const th = screen.getAllByText(label).find((el) => el.tagName === 'TH')
+      if (!th) throw new Error(`未找到表头 <th>：${label}`)
+      return th
+    }
+    const fallbackHeader = headerOf('兜底渠道')
+    const derivedHeader = headerOf('平台接收人')
+    // DOM 顺序即列顺序：兜底标识紧邻平台接收人左侧，便于左右对照
+    expect(
+      fallbackHeader.compareDocumentPosition(derivedHeader) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  // 显式兜底：ID 比对必须走字符串（NotifyChannel.id 是十进制字符串，route-setting 侧是数值）。
+  it('兜底渠道列：显式兜底（effective_source=explicit）只在选定渠道行打「兜底」Tag', async () => {
+    useNotifyChannelsMock.mockReturnValue(
+      result({ channels: [channelRow(), channelRow({ id: '2', name: '运维钉钉群', type: 'dingtalk' })] }),
+    )
+    useRouteSettingMock.mockReturnValue({
+      setting: routeSettingOf({ default_receiver_channel_id: 2, effective_receiver_name: 'ops-dingtalk-qun' }),
+    })
+    renderPage()
+    const tags = await screen.findAllByTestId('channel-fallback-tag')
+    expect(tags).toHaveLength(1)
+    expect(tags[0].textContent).toBe('兜底')
+    // 未选中的行不误挂标识
+    const opsRow = screen.getByText('运维钉钉群').closest('tr') as HTMLElement
+    expect(within(opsRow).getByTestId('channel-fallback-tag')).toBeInTheDocument()
+    const sreRow = screen.getByText('SRE 飞书群').closest('tr') as HTMLElement
+    expect(within(sreRow).queryByTestId('channel-fallback-tag')).toBeNull()
+  })
+
+  // 建议兜底：effective_source=auto_first_enabled 时平台**仅作建议**，Tag 文案必须与「已接管」区分。
+  it('兜底渠道列：建议兜底（auto_first_enabled）打「建议兜底」Tag，不与「兜底」混用', async () => {
+    useNotifyChannelsMock.mockReturnValue(
+      result({ channels: [channelRow(), channelRow({ id: '2', name: '运维钉钉群', type: 'dingtalk' })] }),
+    )
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [
+        derivedRow(),
+        derivedRow({ channelId: '2', channelName: '运维钉钉群', receiverName: 'ops-dingtalk-qun', channelType: 'dingtalk' }),
+      ],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    useRouteSettingMock.mockReturnValue({
+      // 未显式选定：ID 为 null，平台仅按「首个已启用渠道」给出建议值
+      setting: routeSettingOf({
+        default_receiver_channel_id: null,
+        effective_source: 'auto_first_enabled',
+        effective_receiver_name: 'sre-feishu-qun',
+      }),
+    })
+    renderPage()
+    const tags = await screen.findAllByTestId('channel-fallback-suggested-tag')
+    expect(tags).toHaveLength(1)
+    expect(tags[0].textContent).toBe('建议兜底')
+    // 建议态绝不出现「兜底」实色标识（否则就是把建议说成已接管）
+    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
+  })
+
+  it('兜底渠道列：未接管（effective_source=none）与未取到 route-setting 时均不渲染标识', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    useRouteSettingMock.mockReturnValue({
+      setting: routeSettingOf({ default_receiver_channel_id: null, effective_source: 'none', effective_receiver_name: '' }),
+    })
+    const { unmount } = renderPage()
+    expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
+    expect(screen.queryByTestId('channel-fallback-suggested-tag')).toBeNull()
+    unmount()
+
+    // route-setting 未取到（未接管 / 无权限）同样不渲染
+    useRouteSettingMock.mockReturnValue({ setting: null })
+    renderPage()
+    expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
+    expect(screen.queryByTestId('channel-fallback-suggested-tag')).toBeNull()
   })
 })

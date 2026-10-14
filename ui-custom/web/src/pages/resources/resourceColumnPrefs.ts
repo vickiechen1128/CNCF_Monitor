@@ -4,8 +4,8 @@ import type { ResourceCategory } from '../../types/resource'
  * F-17「列设置」列显隐配置（资源列表宽表收敛）。
  *
  * 背景：`tablePresets.ts` 规范「列数 ≤ 8，超出字段下沉详情 Drawer」，而资源列表五类 Tab
- * 实际列数为 host 14 / database 14 / middleware 14 / application 15 / generic_target 17（含操作列），
- * 全部远超规范。F-13 的列头分组已撤销（分组不减列、横向滚动后语义归零），
+ * 实际列数为 host 15 / database 15 / middleware 15 / application 16 / generic_target 18（含操作列，
+ * T01-P5 起各 Tab 追加「采集端口」列），全部远超规范。F-13 的列头分组已撤销（分组不减列、横向滚动后语义归零），
  * 本模块按规范本身的另一条出路——**列显隐**——收敛宽度。
  *
  * 三条实现口径：
@@ -50,6 +50,7 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
   host: [
     { key: 'name', label: '实例名', group: '固定列' },
     { key: 'instance_ip', label: 'IP 地址', group: '技术属性 / 位置' },
+    { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'os_type', label: '操作系统', group: '技术属性 / 位置' },
     { key: 'env', label: '环境', group: '技术属性 / 位置' },
     { key: 'cluster', label: '集群', group: '技术属性 / 位置' },
@@ -68,6 +69,7 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'database_type', label: '数据库类型', group: '技术属性 / 位置' },
     { key: 'instance_ip', label: 'IP 地址', group: '技术属性 / 位置' },
     { key: 'port', label: '端口', group: '技术属性 / 位置' },
+    { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'version', label: '版本', group: '技术属性 / 位置' },
     { key: 'network_domain_id', label: '网域', group: '技术属性 / 位置' },
     { key: 'status', label: '运行状态', group: '技术属性 / 位置' },
@@ -84,6 +86,7 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'middleware_type', label: '中间件类型', group: '技术属性 / 位置' },
     { key: 'instance_ip', label: 'IP 地址', group: '技术属性 / 位置' },
     { key: 'port', label: '端口', group: '技术属性 / 位置' },
+    { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'version', label: '版本', group: '技术属性 / 位置' },
     { key: 'network_domain_id', label: '网域', group: '技术属性 / 位置' },
     { key: 'status', label: '运行状态', group: '技术属性 / 位置' },
@@ -101,6 +104,7 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'protocol', label: '协议', group: '技术属性 / 位置' },
     { key: 'endpoint', label: '端点', group: '技术属性 / 位置' },
     { key: 'port', label: '端口', group: '技术属性 / 位置' },
+    { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'network_domain_id', label: '网域', group: '技术属性 / 位置' },
     { key: 'status', label: '运行状态', group: '技术属性 / 位置' },
     { key: 'monitor_state', label: '采集状态', group: '技术属性 / 位置' },
@@ -117,6 +121,7 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'exporter_type', label: 'Exporter 类型', group: '技术属性 / 位置' },
     { key: 'instance_ip', label: 'IP 地址', group: '技术属性 / 位置' },
     { key: 'port', label: '端口', group: '技术属性 / 位置' },
+    { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'metrics_path', label: '采集路径', group: '技术属性 / 位置' },
     { key: 'scheme', label: '协议', group: '技术属性 / 位置' },
     { key: 'custom_labels', label: '自定义标签', group: '技术属性 / 位置' },

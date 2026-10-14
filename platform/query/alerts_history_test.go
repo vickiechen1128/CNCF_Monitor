@@ -439,6 +439,95 @@ func TestAlertHistoryFilterByInstanceName(t *testing.T) {
 	assert.Empty(t, miss["data"].(map[string]interface{})["list"])
 }
 
+// TestAlertHistoryRendersSummaryTemplate 是 2026-10-13 缺陷的回归护栏：
+// 摘要列曾长期显示原始模板 `业务拨测失败：{{ $labels.instance }}`——因为实现直接回填
+// Prometheus `/api/v1/rules` 的**未渲染**注解。此处锁定「按序列 labels 渲染后回填」。
+func TestAlertHistoryRendersSummaryTemplate(t *testing.T) {
+	now := time.Now().Unix()
+	rulesTmpl := `{"status":"success","data":{"groups":[{"name":"edge_blackbox_alerts","rules":[
+		{"name":"BlackboxProbeFailed","annotations":{"summary":"业务拨测失败：{{ $labels.instance }}"}}]}]}}`
+	r := newHistoryRouter(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/api/v1/query_range":
+			body, _ := json.Marshal(map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{{
+						"metric": map[string]interface{}{
+							"__name__":          "ALERTS",
+							"alertname":         "BlackboxProbeFailed",
+							"alertstate":        "firing",
+							"instance":          "10.10.1.4",
+							"job":               "bx-nginx-02",
+							"severity":          "critical",
+							"network_domain_id": "mc-edge-debug",
+						},
+						"values": [][2]interface{}{
+							{float64(now - 90), "1"},
+							{float64(now - 60), "1"},
+							{float64(now - 30), "1"},
+						},
+					}},
+				},
+			})
+			_, _ = w.Write(body)
+		case "/api/v1/rules":
+			_, _ = w.Write([]byte(rulesTmpl))
+		}
+	}))
+
+	code, out := doHistory(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+	list := out["data"].(map[string]interface{})["list"].([]interface{})
+	require.Len(t, list, 1)
+	summary, _ := list[0].(map[string]interface{})["summary"].(string)
+	assert.Equal(t, "业务拨测失败：10.10.1.4", summary, "摘要必须是渲染后的值，不是原始模板")
+	assert.NotContains(t, summary, "{{")
+}
+
+// TestAlertHistoryUnrenderableTemplateDegradesToEmpty 锁定降级语义：模板无法渲染时摘要为空，
+// **绝不**回退模板原文（回退即缺陷复发）。
+func TestAlertHistoryUnrenderableTemplateDegradesToEmpty(t *testing.T) {
+	now := time.Now().Unix()
+	rulesTmpl := `{"status":"success","data":{"groups":[{"name":"g","rules":[
+		{"name":"BrokenTemplate","annotations":{"summary":"坏模板：{{ noSuchFunc \"x\" }}"}}]}]}}`
+	r := newHistoryRouter(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/api/v1/query_range":
+			body, _ := json.Marshal(map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{{
+						"metric": map[string]interface{}{
+							"__name__": "ALERTS", "alertname": "BrokenTemplate",
+							"alertstate": "firing", "instance": "10.0.0.1",
+						},
+						"values": [][2]interface{}{
+							{float64(now - 60), "1"},
+							{float64(now - 30), "1"},
+						},
+					}},
+				},
+			})
+			_, _ = w.Write(body)
+		case "/api/v1/rules":
+			_, _ = w.Write([]byte(rulesTmpl))
+		}
+	}))
+
+	code, out := doHistory(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+	list := out["data"].(map[string]interface{})["list"].([]interface{})
+	require.Len(t, list, 1)
+	summary, _ := list[0].(map[string]interface{})["summary"].(string)
+	assert.Equal(t, "", summary, "渲染失败应降级为空摘要（前端显示 '-'），不得回退模板原文")
+	assert.NotContains(t, summary, "{{")
+}
+
 // 注意：strconv 仅在最后一个测试用例使用；为保持简洁放在文件顶部统一 import。
 
 // ---------------------------------------------------------------------------
@@ -556,4 +645,3 @@ func TestAlertHistoryDefaultStepUnchanged(t *testing.T) {
 	assert.Equal(t, "30", *gotStep)
 	assert.Equal(t, float64(30), out["data"].(map[string]interface{})["step"])
 }
-

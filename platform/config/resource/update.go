@@ -65,27 +65,27 @@ func updatableColumns(category models.ResourceCategory) []string {
 		// 决策 110：platform_code 为五类可更新一等字段（可空）。
 		return []string{
 			"network_domain_id", "biz_code", "app_code", "platform_code", "sub_app_code", "env_flag",
-			"status", "instance_name", "private_ip", "image",
+			"status", "instance_name", "private_ip", "image", "scrape_port",
 		}
 	case models.ResourceCategoryDatabase:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"database_type", "instance_ip", "port", "version",
+			"database_type", "instance_ip", "port", "version", "scrape_port",
 		}
 	case models.ResourceCategoryMiddleware:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"middleware_type", "instance_ip", "port", "version",
+			"middleware_type", "instance_ip", "port", "version", "scrape_port",
 		}
 	case models.ResourceCategoryApplication:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"service_name", "service_code", "health_check_url", "protocol", "endpoint", "port",
+			"service_name", "service_code", "health_check_url", "protocol", "endpoint", "port", "scrape_port",
 		}
 	case models.ResourceCategoryGenericTarget:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"target_name", "service_code", "instance_ip", "port", "metrics_path", "scheme", "exporter_type", "custom_labels",
+			"target_name", "service_code", "instance_ip", "port", "metrics_path", "scheme", "exporter_type", "custom_labels", "scrape_port",
 		}
 	}
 	return nil

@@ -3,7 +3,9 @@
 // NotifyChannel（通知渠道）/ NotifyTemplate（通知模板，版本化留痕）/
 // NotifyChannelType（渠道类型枚举）/ NotifyTemplateStatus（模板状态枚举）。
 // 参见 docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md
-//   §3.3.2（数据模型）/ §3.3.8（接口契约汇总）；docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md。
+//
+//	§3.3.2（数据模型）/ §3.3.8（接口契约汇总）；docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md。
+//
 // 决策口径：模板校验失败不落库（照抄决策 59/60），status 恒 applied；checksum 复用
 // AlertmanagerConfigChecksum（sha256 十六进制小写）。
 package models

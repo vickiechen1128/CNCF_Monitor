@@ -22,24 +22,31 @@ const (
 // aligned with Module_09 §5.4.
 type ConfigDraft struct {
 	BaseModel
-	NetworkDomainID string     `gorm:"size:64;not null;index" json:"network_domain_id"`
-	ChangeNo        string     `gorm:"size:64;not null;uniqueIndex" json:"change_no"` // 如 CHG-20260803-003
-	SourceVersion   string     `gorm:"size:64" json:"source_version,omitempty"`       // 基于哪个 ConfigVersion
-	PrometheusYml   string     `gorm:"type:text" json:"prometheus_yml"`
-	RulesYml        string     `gorm:"type:text" json:"rules_yml,omitempty"`
-	BlackboxYml     string     `gorm:"type:text" json:"blackbox_yml,omitempty"`
-	AlertmanagerYml string     `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
-	TargetsFiles    string     `gorm:"type:text" json:"targets_files,omitempty"` // JSON 载体
-	Metadata        string     `gorm:"type:text" json:"metadata,omitempty"`       // JSON 载体（含 checksum）
-	Summary         string     `gorm:"size:1000" json:"summary,omitempty"`
-	ChangeItems     string     `gorm:"type:text" json:"change_items,omitempty"` // JSON 载体
-	Status          DraftStatus `gorm:"size:20;not null" json:"status"`
-	ValidationStatus string   `gorm:"size:20;not null" json:"validation_status"` // passed/failed/pending/rejected
-	ValidationMessage string  `gorm:"type:text" json:"validation_message,omitempty"` // 校验失败/待校验的具体说明
-	ValidationCause  string   `gorm:"size:20" json:"validation_cause,omitempty"`     // user_config/platform_fault（决策 45-3）
-	ValidationDetails string `gorm:"type:text" json:"validation_details,omitempty"`  // JSON 载体：[]ValidationDetail 结构化定位
-	ConfirmedBy     string     `gorm:"size:100" json:"confirmed_by,omitempty"`
-	ConfirmedAt     *time.Time `json:"confirmed_at,omitempty"`
+	NetworkDomainID   string      `gorm:"size:64;not null;index" json:"network_domain_id"`
+	ChangeNo          string      `gorm:"size:64;not null;uniqueIndex" json:"change_no"` // 如 CHG-20260803-003
+	SourceVersion     string      `gorm:"size:64" json:"source_version,omitempty"`       // 基于哪个 ConfigVersion
+	PrometheusYml     string      `gorm:"type:text" json:"prometheus_yml"`
+	RulesYml          string      `gorm:"type:text" json:"rules_yml,omitempty"`
+	BlackboxYml       string      `gorm:"type:text" json:"blackbox_yml,omitempty"`
+	AlertmanagerYml   string      `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
+	TargetsFiles      string      `gorm:"type:text" json:"targets_files,omitempty"`    // JSON 载体
+	Metadata          string      `gorm:"type:text" json:"metadata,omitempty"`         // JSON 载体（含 checksum）
+	Summary           string      `gorm:"size:1000" json:"summary,omitempty"`
+	ChangeItems       string      `gorm:"type:text" json:"change_items,omitempty"` // JSON 载体
+	Status            DraftStatus `gorm:"size:20;not null" json:"status"`
+	ValidationStatus  string      `gorm:"size:20;not null" json:"validation_status"`     // passed/failed/pending/rejected
+	ValidationMessage string      `gorm:"type:text" json:"validation_message,omitempty"` // 校验失败/待校验的具体说明
+	ValidationCause   string      `gorm:"size:20" json:"validation_cause,omitempty"`     // user_config/platform_fault（决策 45-3）
+	ValidationDetails string      `gorm:"type:text" json:"validation_details,omitempty"` // JSON 载体：[]ValidationDetail 结构化定位
+	ConfirmedBy       string      `gorm:"size:100" json:"confirmed_by,omitempty"`
+	ConfirmedAt       *time.Time  `json:"confirmed_at,omitempty"`
+	// AlertmanagerSourceVersionID 记录本单 alertmanager.yml 产物来源的 M08 留痕版本 ID
+	// （生成时最新一条 applied 的 AlertmanagerConfigVersion；无则为 0）。2026-10-13
+	// 废弃联动修复（dev-feedback #44）：M09 确认下发后按此 ID **精确**回填 applied_at /
+	// source_change_no，取代原先「取最新一条 applied 留痕」的口径——后者在「挂载新版本
+	// 后确认旧单」场景会把未随本单下发的新版本错标为已生效。存量单为 0，回填时回落
+	// 旧口径（仅补未生效的最新留痕，不覆盖已生效版本）。
+	AlertmanagerSourceVersionID uint `gorm:"column:alertmanager_source_version_id" json:"alertmanager_source_version_id,omitempty"`
 }
 
 // TableName returns the GORM table name.
@@ -72,21 +79,21 @@ func timeOfNullable(d gorm.DeletedAt) *time.Time {
 // targets_files 的形态要求，避免前端按对象访问崩溃。
 func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 	type draftView struct {
-		ID               uint             `json:"id"`
-		CreatedAt        time.Time        `json:"created_at"`
-		UpdatedAt        time.Time        `json:"updated_at"`
-		DeletedAt        *time.Time       `json:"deleted_at,omitempty"`
-		NetworkDomainID  string           `json:"network_domain_id"`
-		ChangeNo         string           `json:"change_no"`
-		SourceVersion    string           `json:"source_version,omitempty"`
-		PrometheusYml    string           `json:"prometheus_yml,omitempty"`
-		RulesYml         string           `json:"rules_yml,omitempty"`
-		BlackboxYml      string           `json:"blackbox_yml,omitempty"`
-		AlertmanagerYml  string           `json:"alertmanager_yml,omitempty"`
-		TargetsFiles     *json.RawMessage `json:"targets_files,omitempty"`
-		Metadata         *json.RawMessage `json:"metadata,omitempty"`
-		Summary          string           `json:"summary,omitempty"`
-		ChangeItems      *json.RawMessage `json:"change_items,omitempty"`
+		ID                uint             `json:"id"`
+		CreatedAt         time.Time        `json:"created_at"`
+		UpdatedAt         time.Time        `json:"updated_at"`
+		DeletedAt         *time.Time       `json:"deleted_at,omitempty"`
+		NetworkDomainID   string           `json:"network_domain_id"`
+		ChangeNo          string           `json:"change_no"`
+		SourceVersion     string           `json:"source_version,omitempty"`
+		PrometheusYml     string           `json:"prometheus_yml,omitempty"`
+		RulesYml          string           `json:"rules_yml,omitempty"`
+		BlackboxYml       string           `json:"blackbox_yml,omitempty"`
+		AlertmanagerYml   string           `json:"alertmanager_yml,omitempty"`
+		TargetsFiles      *json.RawMessage `json:"targets_files,omitempty"`
+		Metadata          *json.RawMessage `json:"metadata,omitempty"`
+		Summary           string           `json:"summary,omitempty"`
+		ChangeItems       *json.RawMessage `json:"change_items,omitempty"`
 		Status            DraftStatus      `json:"status"`
 		ValidationStatus  string           `json:"validation_status"`
 		ValidationMessage string           `json:"validation_message,omitempty"`
@@ -94,30 +101,34 @@ func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 		ValidationDetails *json.RawMessage `json:"validation_details,omitempty"`
 		ConfirmedBy       string           `json:"confirmed_by,omitempty"`
 		ConfirmedAt       *time.Time       `json:"confirmed_at,omitempty"`
+		// AlertmanagerSourceVersionID 为内部追溯字段（排障/审计用），前端不消费；
+		// 0 值省略（存量单无此记录）。
+		AlertmanagerSourceVersionID uint `json:"alertmanager_source_version_id,omitempty"`
 	}
 	return json.Marshal(draftView{
-		ID:                d.ID,
-		CreatedAt:         d.CreatedAt,
-		UpdatedAt:         d.UpdatedAt,
-		DeletedAt:         timeOfNullable(d.DeletedAt),
-		NetworkDomainID:   d.NetworkDomainID,
-		ChangeNo:          d.ChangeNo,
-		SourceVersion:     d.SourceVersion,
-		PrometheusYml:     d.PrometheusYml,
-		RulesYml:          d.RulesYml,
-		BlackboxYml:       d.BlackboxYml,
-		AlertmanagerYml:   d.AlertmanagerYml,
-		TargetsFiles:      jsonCarrier(d.TargetsFiles),
-		Metadata:          jsonCarrier(d.Metadata),
-		Summary:           d.Summary,
-		ChangeItems:       jsonCarrier(d.ChangeItems),
-		Status:            d.Status,
-		ValidationStatus:  d.ValidationStatus,
-		ValidationMessage: d.ValidationMessage,
-		ValidationCause:   d.ValidationCause,
-		ValidationDetails: jsonCarrier(d.ValidationDetails),
-		ConfirmedBy:       d.ConfirmedBy,
-		ConfirmedAt:       d.ConfirmedAt,
+		ID:                          d.ID,
+		CreatedAt:                   d.CreatedAt,
+		UpdatedAt:                   d.UpdatedAt,
+		DeletedAt:                   timeOfNullable(d.DeletedAt),
+		NetworkDomainID:             d.NetworkDomainID,
+		ChangeNo:                    d.ChangeNo,
+		SourceVersion:               d.SourceVersion,
+		PrometheusYml:               d.PrometheusYml,
+		RulesYml:                    d.RulesYml,
+		BlackboxYml:                 d.BlackboxYml,
+		AlertmanagerYml:             d.AlertmanagerYml,
+		TargetsFiles:                jsonCarrier(d.TargetsFiles),
+		Metadata:                    jsonCarrier(d.Metadata),
+		Summary:                     d.Summary,
+		ChangeItems:                 jsonCarrier(d.ChangeItems),
+		Status:                      d.Status,
+		ValidationStatus:            d.ValidationStatus,
+		ValidationMessage:           d.ValidationMessage,
+		ValidationCause:             d.ValidationCause,
+		ValidationDetails:           jsonCarrier(d.ValidationDetails),
+		ConfirmedBy:                 d.ConfirmedBy,
+		ConfirmedAt:                 d.ConfirmedAt,
+		AlertmanagerSourceVersionID: d.AlertmanagerSourceVersionID,
 	})
 }
 
@@ -132,8 +143,8 @@ type ConfigVersion struct {
 	RulesYml        string `gorm:"type:text" json:"rules_yml,omitempty"`
 	BlackboxYml     string `gorm:"type:text" json:"blackbox_yml,omitempty"`
 	AlertmanagerYml string `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
-	TargetsFiles    string `gorm:"type:text" json:"targets_files,omitempty"` // JSON 载体
-	Metadata        string `gorm:"type:text" json:"metadata,omitempty"`       // JSON 载体（含 checksum）
+	TargetsFiles    string `gorm:"type:text" json:"targets_files,omitempty"`    // JSON 载体
+	Metadata        string `gorm:"type:text" json:"metadata,omitempty"`         // JSON 载体（含 checksum）
 }
 
 // TableName returns the GORM table name.
@@ -191,19 +202,19 @@ type ConfigDeployment struct {
 	BaseModel
 	// DeploymentID 是面向 API/UI 的下发记录唯一标识，格式 deploy-YYYYMMDD-NNN。
 	// 内部自增 ID 仍作为 DB 主键，但对外以 DeploymentID 为业务 ID。
-	DeploymentID      string           `gorm:"size:64;uniqueIndex" json:"-"`
-	NetworkDomainID   string           `gorm:"size:64;not null;index" json:"network_domain_id"`
-	ConfigVersionID   string           `gorm:"size:64;not null" json:"config_version_id"`
-	SourceChangeNo    string           `gorm:"size:64;not null" json:"source_change_no"`
-	Channel           ChannelType      `gorm:"size:20;not null" json:"channel"`
-	TargetAddress     string           `gorm:"size:500" json:"target_address,omitempty"`
-	Status            DeploymentStatus `gorm:"size:20;not null" json:"status"`
-	ValidationStatus  string           `gorm:"size:20;not null" json:"validation_status"`
-	IncludesBlackbox  bool             `json:"includes_blackbox"`
-	ErrorMessage      string           `gorm:"type:text" json:"error_message,omitempty"`
-	TriggeredBy       string           `gorm:"size:100;not null" json:"triggered_by"`
-	TriggeredAt       *time.Time       `json:"triggered_at,omitempty"`
-	CompletedAt       *time.Time       `json:"completed_at,omitempty"`
+	DeploymentID     string           `gorm:"size:64;uniqueIndex" json:"-"`
+	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
+	ConfigVersionID  string           `gorm:"size:64;not null" json:"config_version_id"`
+	SourceChangeNo   string           `gorm:"size:64;not null" json:"source_change_no"`
+	Channel          ChannelType      `gorm:"size:20;not null" json:"channel"`
+	TargetAddress    string           `gorm:"size:500" json:"target_address,omitempty"`
+	Status           DeploymentStatus `gorm:"size:20;not null" json:"status"`
+	ValidationStatus string           `gorm:"size:20;not null" json:"validation_status"`
+	IncludesBlackbox bool             `json:"includes_blackbox"`
+	ErrorMessage     string           `gorm:"type:text" json:"error_message,omitempty"`
+	TriggeredBy      string           `gorm:"size:100;not null" json:"triggered_by"`
+	TriggeredAt      *time.Time       `json:"triggered_at,omitempty"`
+	CompletedAt      *time.Time       `json:"completed_at,omitempty"`
 }
 
 // TableName returns the GORM table name.

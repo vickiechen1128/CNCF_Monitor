@@ -69,19 +69,16 @@ func stubAmtoolUnavailable(t *testing.T) {
 	})
 }
 
-// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测；
-// 同时短路自动闭环工序 autoApplyManagementDomain（dev-feedback §25 方案 A），使既有
-// 用例不依赖真实草稿流水线（GenerateDraft / ConfirmDraft 需外部工具 + 大量表迁移）。
+// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测。
+// 2026-10-09（立场 1，关闭自动闭环）：原自动闭环工序 autoApplyManagementDomain 已移除，
+// 故此处不再需要短路它——提交链路本就不再自动确认下发（只产 pending 草稿）。
 func stubChangeTrigger(t *testing.T) *int32 {
 	t.Helper()
 	orig := triggerChangeDetection
-	origAuto := autoApplyManagementDomain
 	var calls int32
 	triggerChangeDetection = func(db *gorm.DB) error { atomic.AddInt32(&calls, 1); return nil }
-	autoApplyManagementDomain = func(db *gorm.DB, by string) error { return nil }
 	t.Cleanup(func() {
 		triggerChangeDetection = orig
-		autoApplyManagementDomain = origAuto
 	})
 	return &calls
 }
@@ -204,6 +201,51 @@ func TestSubmitIdempotentOnSameChecksum(t *testing.T) {
 	assert.EqualValues(t, 1, count)
 	// 幂等命中不额外触发变更检测。
 	assert.EqualValues(t, 1, atomic.LoadInt32(calls))
+}
+
+// TestSubmitAfterDiscardedVersionCreatesNewVersion（dev-feedback #44 恢复路径）：
+// 留痕被标记 discarded 终态（变更单已废弃）后，重新导入**同样内容**不得再走幂等分支——
+// 否则用户被静默返回已废弃版本、既不产新版本也不产新变更单，「重新导入」这条最自然的
+// 恢复路径被吞掉。修复：幂等查询仅认 status=applied 的留痕。
+func TestSubmitAfterDiscardedVersionCreatesNewVersion(t *testing.T) {
+	db := newMemConfigDB(t)
+	stubAmtoolAvailable(t)
+	calls := stubChangeTrigger(t)
+	ensureCalls := stubEnsurePendingDraft(t)
+
+	first, err := Submit(db, validAMConfig, "chenrt")
+	require.NoError(t, err)
+
+	// 模拟废弃联动：该留痕的变更单被废弃 → 标记 discarded 终态。
+	require.NoError(t, db.Model(first).Update("status", models.AlertmanagerConfigStatusDiscarded).Error)
+
+	// 重新导入同样内容 → 应生成**新版本**并再次触发产草稿（恢复路径成立）。
+	second, err := Submit(db, validAMConfig, "chenrt")
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID, "discarded 留痕不满足幂等，须生成新版本")
+	assert.Equal(t, models.AlertmanagerConfigStatusApplied, second.Status)
+	assert.EqualValues(t, 2, atomic.LoadInt32(calls), "新版本须再次触发 M09 变更检测")
+	assert.EqualValues(t, 2, atomic.LoadInt32(ensureCalls), "新版本须再次产出 pending 草稿")
+}
+
+// TestLatestAppliedSkipsDiscarded：LatestApplied（当前生效视图数据源）排除 discarded
+// 终态——已废弃留痕的内容不在磁盘上，不得作为「当前生效」呈现。
+func TestLatestAppliedSkipsDiscarded(t *testing.T) {
+	db := newMemConfigDB(t)
+	stubAmtoolAvailable(t)
+	stubChangeTrigger(t)
+
+	v1, err := Submit(db, validAMConfig, "chenrt")
+	require.NoError(t, err)
+	// 更晚的一条留痕被废弃（变更单废弃联动）。
+	v2, err := Submit(db, validAMConfig+"\n# 变更\n", "chenrt")
+	require.NoError(t, err)
+	require.NoError(t, db.Model(v2).Update("status", models.AlertmanagerConfigStatusDiscarded).Error)
+
+	latest, err := LatestApplied(db)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.Equal(t, v1.ID, latest.ID, "discarded 终态不得作为当前生效配置")
 }
 
 // --- LatestApplied / GetVersionByID 查询辅助 ---

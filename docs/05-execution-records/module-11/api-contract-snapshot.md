@@ -115,3 +115,76 @@
 **（T11-20 新增）** 指定版本下载，保留 `/latest/download`。响应格式同 latest；版本不存在返回 404 `not_found`。
 
 > 离线包下载接口需认证（平台用户鉴权）。下载响应 Content-Type: `application/gzip`。
+
+## 3. F-42 增量（2026-10-10：回传参数产品化 + 人工重启采集进程）
+
+> 对齐 `platform/edge/heartbeat_service.go` / `management_service.go` / `restart_handler.go` / `zipper.go` 与 `platform/edge-sync-agent/internal/contract/contract.go`。全部为**向后兼容增量**：老 Agent 忽略未知响应字段；老中心不携带新字段时 Agent 走内置兜底。
+
+### 3.1 心跳契约（POST /api/v1/heartbeat，两侧对称）
+
+**请求新增（Agent → 中心，回传参数指纹，omitempty）**：
+
+```json
+{
+  "metadata_remote_write_url": "https://center:9090/api/v1/write",
+  "metadata_max_disk_usage_per_url": "50GB"
+}
+```
+
+- 取值为当前生效配置目录 `metadata.json` 中落盘的回传参数原样上报；未拉过包 / 老 Agent 不上报（键缺失）。
+- 中心与网域当前配置（`remote_write_url` / `max_disk_usage_per_url`）比对：一致 → `params_changed=false` 并镜像落库指纹；不一致（含**空指纹 vs 网域有参数**）→ `params_changed=true`。
+
+**响应新增（中心 → Agent，omitempty）**：
+
+```json
+{
+  "config_changed": false,
+  "config_version": "20260920-120000",
+  "config_download_url": "…",
+  "params_changed": true,
+  "vm_agent_restart_seq": 3
+}
+```
+
+- `params_changed`（bool，恒发送）：网域回传参数与 Agent 上报指纹不一致。Agent 见 true 时即使 `config_changed=false` 也强制拉包（网域参数变更不改配置版本号）。
+- `vm_agent_restart_seq`（int64，0/缺失 = 无指令）：人工重启指令序号。Agent 发现响应序号 **大于本地已执行序号** 时幂等滚动重启 vmagent 采集子进程（仅采集进程，Agent 本体与持久队列不受影响），成功后本地持久化已执行序号（`<EDGE_CONFIG_ROOT>/restart-state.json` 的 `executed_vm_agent_restart_seq`）；失败不落盘，下轮心跳自动重试。
+
+### 3.2 配置包 metadata.json 新增（下发通道）
+
+`zipper.BuildConfigZip` 新增参数（F-42），metadata.json 在原有 `config_version / generated_at / agent_type / checksum / remote_write_url` 基础上新增：
+
+```json
+{ "max_disk_usage_per_url": "50GB" }
+```
+
+- 网域未显式配置时省略该键（Agent 按「metadata > `EDGE_REMOTE_WRITE_MAX_DISK_USAGE` 环境变量 > 2GB 兜底」解析）。
+- `max_disk_usage_per_url` **不参与联合 checksum**（参数变更不改变 checksum，靠 `params_changed` 驱动拉包）；Deployer 侧把它与 `remote_write_url` 共同作为网域回传参数指纹，同版本重应用。
+
+### 3.3 采集节点视图（AgentView，GET 列表/详情共用）新增字段
+
+```json
+{
+  "metadata_remote_write_url": "https://center:9090/api/v1/write",
+  "metadata_max_disk_usage_per_url": "50GB",
+  "vm_agent_restart_seq": 3,
+  "restart_requested_by": "admin-a",
+  "restart_requested_at": "2026-10-10T12:00:00Z"
+}
+```
+
+- `metadata_remote_write_url` / `metadata_max_disk_usage_per_url`：节点当前生效回传参数（心跳指纹镜像）；空 = 未下发，Agent 走内置兜底。
+- `vm_agent_restart_seq` / `restart_requested_by` / `restart_requested_at`：人工重启指令位当前值与最近一次触发人/时间（留痕），供节点详情抽屉展示「最近人工重启」。
+
+### 3.4 新增端点：PUT /api/v2/platform/edge-agents/:id/restart
+
+人工滚动重启指令（F-42 seq 简化机制），**RequireAdmin** 门禁；请求体为空对象 `{}`。
+
+- 成功（200）：`vm_agent_restart_seq` 原子 +1 并记录触发人/时间，返回重启后的节点视图（同 §3.3 AgentView，前端据此刷新）。
+- 404 `not_found`：节点不存在（或已软删）。
+- 400 `bad_request`：节点非 online（offline / unknown / retired）——指令位推进后要等节点上线心跳才会被执行，MVP 直接拒绝并提示先恢复在线。
+
+### 3.5 网域模型（NetworkDomain）新增字段
+
+- 响应与登记/更新载荷：`max_disk_usage_per_url`（string，可选，空 = Agent 内置兜底；格式校验对齐 vmagent `-remoteWrite.maxDiskUsagePerURL` 值域：数字 + 可选单位 KB/MB/GB/TB/…，大小写不敏感；非法格式 400）。
+- 登记输入（`OnboardDomainInput`）与更新载荷（`UpdateDomainPayload`）同名承载；仅非 local 通道网域有意义（中心直连域不生成回传参数）；更新暂不支持置空（空串 = 不更新）。
+- 网域参数变更**不修改配置版本号**，仅通过心跳指纹比对 → `params_changed=true` 驱动 Agent 强制拉包。

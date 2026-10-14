@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -29,6 +30,9 @@ type fakeReceiver struct {
 	bodies [][]byte
 	paths  []string
 	status int
+	// respBody 是 2xx 时写出的响应体（模拟 IM 机器人的「HTTP 200 + 业务错误码」
+	// 响应，如飞书 code=19021 拒收）；为空时仅返回 200 空体（原有行为）。
+	respBody []byte
 }
 
 func (f *fakeReceiver) record(path string, body []byte) {
@@ -68,6 +72,12 @@ func startFakeReceiver(t *testing.T, f *fakeReceiver) string {
 		f.record(r.URL.Path, body)
 		if f.status != 0 && f.status != http.StatusOK {
 			w.WriteHeader(f.status)
+			return
+		}
+		if f.respBody != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(f.respBody)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -505,4 +515,124 @@ func TestOutboundClientDoesNotFollowRedirects(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, http.StatusFound, code, "3xx 应作为最终响应返回，不跟随")
 	assert.EqualValues(t, 1, atomic.LoadInt32(&hits), "不得发生二次跳转请求")
+}
+
+// --- 飞书签名校验（防开启签名校验的自定义机器人拒收） ---
+
+// TestFeishuSignVector 用外部独立实现（python hmac-sha256）算出的向量锁定签名算法。
+// 向量取自飞书开放平台「签名校验」官方示例参数（secret=demo, timestamp=1599360473）：
+// sign = base64(HMAC-SHA256(key = timestamp + "\n" + secret, msg = ""))。
+// key/msg 顺序不可互换，顺序颠倒飞书会返回 code=19021 sign match fail。
+func TestFeishuSignVector(t *testing.T) {
+	assert.Equal(t, "l1N0gAcBjdwBvGm1xMjOF0XSyaLRpR7tuO5dHfhAYc8=",
+		feishuSign("demo", "1599360473"))
+	// 换一组参数，避免向量退化为常量通过。
+	assert.Equal(t, "QlvBOzM4cwdpjss5CYXm+N1eE0lvi+DEICmTAmd8Qso=",
+		feishuSign("feishu-test-secret", "1599360472"))
+}
+
+// TestBridgeSignsFeishuPayloadWithSecret 渠道登记了 secret → 出站体注入 timestamp +
+// sign（与 feishuSign 一致、为当前秒级时间戳），且原渲染内容不丢。
+func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	enabled := true
+	ch, err := CreateChannel(db, ChannelInput{Name: "SRE", Type: "feishu", WebhookURL: url, Secret: "s3cret", Enabled: &enabled})
+	require.NoError(t, err)
+
+	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	code, out := doBridgeJSON(t, r,
+		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		bridgeToken, amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, "success", out.Status)
+	require.Equal(t, 1, rec.calls())
+
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.lastBody(), &body))
+	ts, _ := body["timestamp"].(string)
+	require.NotEmpty(t, ts, "须注入 timestamp")
+	assert.Equal(t, feishuSign("s3cret", ts), body["sign"], "签名须与 timestamp 匹配")
+	assert.Equal(t, "interactive", body["msg_type"], "原渲染卡片内容须保留")
+	tsInt, err := strconv.ParseInt(ts, 10, 64)
+	require.NoError(t, err)
+	assert.InDelta(t, time.Now().Unix(), tsInt, 300, "timestamp 须为当前秒级时间戳（飞书要求偏差在一小时内）")
+}
+
+// TestBridgeSkipsFeishuSignatureWithoutSecret 未登记 secret（未开启签校验的机器人）
+// → 原样转发，不注入任何签名字段。
+func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+
+	code, _ := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
+		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		bridgeToken, amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.lastBody(), &body))
+	assert.NotContains(t, body, "sign", "未登记 secret 不得注入签名")
+	assert.NotContains(t, body, "timestamp", "未登记 secret 不得注入时间戳")
+}
+
+// --- 防静默丢失：IM「HTTP 200 + 业务错误码」判失败 ---
+
+// TestSendOutboundTreatsBusinessErrorAsFailure 飞书（code）/ 钉钉企微（errcode）式的
+// 200 + 业务码响应判为失败；成功码 / 非 JSON / 无业务码字段的响应不误判。
+func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T) {
+	cases := []struct {
+		name    string
+		resp    string
+		wantErr bool
+	}{
+		{"飞书签名校验失败", `{"code":19021,"msg":"sign match fail or timestamp is not within one hour"}`, true},
+		{"钉钉业务错误", `{"errcode":310000,"errmsg":"sign not match"}`, true},
+		{"飞书成功", `{"code":0,"msg":"success"}`, false},
+		{"非 JSON 200", `<html>ok</html>`, false},
+		{"无业务码字段", `{"success":true}`, false},
+		{"空响应体", ``, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.resp))
+			}))
+			t.Cleanup(srv.Close)
+			_, err := sendOutbound(context.Background(), srv.URL, []byte("{}"))
+			if tc.wantErr {
+				assert.Error(t, err, "200 + 业务错误码须判失败")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestBridgeReturns502WhenFeishuReturnsBusinessError 渠道机器人返回 200 + code!=0
+// （如签名校验失败）→ 桥返回 502 交由 AM 重试并记失败日志——消除「HTTP 200 即成功」
+// 的静默丢失。
+func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{respBody: []byte(`{"code":19021,"msg":"sign match fail or timestamp is not within one hour from current time"}`)}
+	url := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	logs := captureBridgeLogs(t)
+
+	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
+		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		bridgeToken, amBridgePayload("firing"))
+	assert.Equal(t, http.StatusBadGateway, code, "业务错误须令 AM 视为投递失败并重试")
+	assert.Equal(t, "bad_gateway", out.ErrorType)
+	require.Equal(t, 1, rec.calls())
+	logged := strings.Join(*logs, "\n")
+	assert.Contains(t, logged, "[notify-bridge] send failed channel=")
+	assert.Contains(t, logged, "http_status=200")
+	assert.Contains(t, logged, "code=19021", "失败日志须带上业务错误码便于定位")
 }

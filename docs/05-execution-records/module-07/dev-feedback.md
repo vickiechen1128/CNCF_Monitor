@@ -549,3 +549,220 @@
 - **状态**：~~open~~ → **2026-10-03 已落地**，`ResourceDetailDrawer.test.tsx` 28/28、`ResourcesPage.test.tsx` 50/50 通过，eslint 该文件无告警，**测试文件未改**（契约文本均未变动）。
 - **⚠️ 误判与恢复记录**：2026-10-03 复核时曾因该块不在四项裁定内、且注释含「保证文本仍可被 getByText 命中」字样，被误判为「为让测试通过而改产品 UI」的越界改造并 `git checkout` 回退；**PM 已指出该判断有误**——它是 F-20 这个正当需求的实现。已全量恢复（125+ / 53- 完整还原），并改写 F-13 下的错误留痕为「非越界，勿误判」。
   - **纪律**：判断「越界」的判据应是**改动是否有人提出过的正当需求**，而非**改动量是否超出本轮任务清单**；本工作区常并存多会话未提交改动，回退前**必须先向 PM 确认来源**。
+
+---
+
+## 15. 新增登记（2026-10-09，资源删除「引用保护」B 方案决策）
+
+### F-21. 资源删除：从 PRD §6.6.1 的 403 拦截改为「静默放行 + 知情确认」（② 决策已拍板，待 PRD 回写）
+
+- **类别**：② 实现/产品已决策（**B 方案**）；PRD §6.6.1 文字与代码现状冲突，待产品侧收割回写。
+- **背景 / 触发**：M07 资源软删（DELETE `/resources/:resource_id`）修复变更检测失明期间，复盘「被采集 Job 引用的资源能否删除」——
+  - **现状冲突**：`delete.go` 的 `TODO(M01)`（L29-32、L43-45）写明「被 ScrapeJob 引用时 **403** data 返回引用 Job 名单」，但 **M01 从未实现该 403 拦截**，代码实际**静默放行**（直接软删、不反向查 ScrapeJob）；而 PRD §6.6.1（L1353）与 M07 契约快照 §3 DELETE 行仍写 `forbidden`：被引用时禁止删除 + 回传引用名单 + 「查看引用 Job」跳转。属「代码与契约文字冲突」类问题（同构已在前序轮次修过的模式）。
+  - **同类口径割裂**：生成侧 `generator/targets.go:282` 已实现 `if rt.Status=="offline"` → 静默排除 target（`SkipReasonOffline`），即「资源下线」已是**静默自愈**；而「资源删除」在 PRD 文字上仍是 403 拦截，两者自相矛盾。
+- **三方案对比（Orchestrator 提供）**：
+  | 方案 | 行为 | 评价 |
+  | --- | --- | --- |
+  | A：按 PRD 落地 403 | 删除被引用资源 → 403 拦截，data 回传引用 Job 名单，前端「查看引用 Job」跳转 | 制造「孤儿陷阱」：删除是高频管理动作、引用关系常滞后；硬拦阻断合法清理/重排，且与 offline 静默口径割裂 |
+  | **B（采用）：静默放行 + 知情确认** | 删除仍成功（软删）；删除二次确认弹窗**回显**「该资源正被 N 个采集 Job 引用，删除后这些 Job 将停止采集该实例」+「查看引用 Job」跳转（由只读反查接口支撑） | 与 offline 一致（同属「这台不再采集」意图，静默自愈 + 知情）；软删可恢复，误删有退路 |
+  | C：纯静默不提示 | 删除成功，无任何引用提示 | 背离 PRD「告知」初衷，用户无感知地让 Job 失去实例 |
+- **一致性原则（B 方案根基）**：`delete`（软删，可恢复）与 `offline`（status 置 offline）都表达「这台资源不再被采集」的意图，应统一为「**静默自愈 + 知情确认**」：
+  - 生成侧 `targets.go:282` 已对 offline 静默排除 target；
+  - 删除侧改为：删除成功（软删），但前端确认弹窗经只读接口预检引用关系并回显，让用户知情。
+  - **推论**：后续若「资源状态从运行中改为未上线/已下线」（`status` 枚举仅 `online/offline/maintenance`，无独立「未上线」，通常归 `offline`），逻辑与 offline 同构——同为「不再采集」意图，也应静默、不做 403 拦截。
+- **⚠️ 边界提醒（务必保留）**：若未来改为**硬 purge**（`db.Unscoped().Delete`，真删而非软删），则「删了就找不回」成立、403 论据重立，B 方案须回退为 403 或增加二次硬性确认。当前实现为软删（BaseModel.DeletedAt 置位），B 方案论据成立。
+- **落地动作（本轮已做）**：
+  - 后端（`platform/`，依 backend-developer.md）：新增只读反查接口 `GET /api/v2/platform/resources/:resource_id/referenced-by` → `{jobs:[{job_name,network_domain_id,enabled}],total}`（查 `scrape_jobs.selected_instance_ids` 含该 resource_id 且未软删的 Job；停用 Job 同样计入引用、软删 Job 不计——与 M07 标签模板引用保护 §6.6.3.1 同口径）；`delete.go` 的 `TODO(M01)` 注释改写为 B 方案静默放行口径（不再 403）；M07 契约快照 §3 同步：DELETE 行去掉 `forbidden`、新增 GET `referenced-by` 行。
+  - 前端（`ui-custom/web/`，依 frontend-developer.md）：`resourceApi` 新增 `referencedBy(id)`；资源列表删除由 `Popconfirm` 改为「先调 `referencedBy` 预检 → 二次确认弹窗回显引用数 + 引用 Job 名单 + 『查看引用 Job』跳转（`/scrape-jobs`）」。
+  - **PRD §6.6.1（L1353）文字修订由产品侧收割**：`forbidden` → 「允许删除；删除二次确认弹窗回显引用该资源的采集 Job 数（含『查看引用 Job』跳转）后放行」，与 offline 静默口径对齐。本分支不修改 PRD（红线）。
+- **影响模块**：backend `platform/config/resource`、frontend `ui-custom/web/src/pages/resources`、契约 `module-07/api-contract-snapshot.md`；PRD §6.6.1 待用户统一修改。
+- **状态**：后端 + 前端已落地 + 单测通过；PRD 文字待用户回写。
+
+---
+
+## 16. 新增登记（2026-10-13，四层模型落地后模板填写引导全面失准）
+
+> 触发：chenrt 用户实测反馈——「m07 模块变成平台应用服务业务四层模型后，当前下载模板时候的提示、Excel 的填写示例均和实际情况没有对上；现在加入网域管理后，是否抽屉中的网域字段变成了必填项而不是选填项」。
+> 本节定性：本次问题属 **F-7（2026-09-19 模板「字典值告知」治本工程）的遗留欠账**——F-7 治的是「字典值陈旧」，本轮暴露的是「**必填口径与字段语义失准**」，两者不同源。
+> 用户已拍板边界：**Excel 表内填写示例不做实时同步**（格式限制，代价过高），本轮只做「下载时静态生成的示例行 + 必填标记 + 口径文案对齐」。
+
+### 关键事实校正：四层模型的层级顺序与「网域」的真实定位
+
+实施前必须先纠正一处认知，否则修复方向会错：
+
+| 项 | 代码权威事实 | 依据 |
+| --- | --- | --- |
+| 四层顺序 | **`platform(1) → app(N) → service(M) → instance(K)`** | 决策 104，`platform/models/platform_dict.go:5-8` |
+| 「网域」是否在四层内 | **不在**。网域是 M06 的独立实体，`ID string`（业务字符串主键），与四层是**平行的归属维度**而非层级节点 | `platform/models/network_domain.go:61-104` |
+| 四层如何关联 | **用字符串编码字段，不用外键**：`platform_code` / `app_code` / `service_code` / `resource_id` | 全仓不存在 `parent_id` / `platform_id` / `app_id` / `service_id` / `domain_id` 任一命名；网域字段是**唯一** ID 型引用 `network_domain_id` |
+| 云（cloud） | 由所属网域派生，资源侧**只读**，无写入口 | 决策 103 scheme-B |
+
+**结论**：设计本身自洽，问题不在模型，而在**引导层没跟上模型**。
+
+### F-22. 模板填写提示与后端真实必填口径全面失准（③ 实现/优化缺口，P0）
+
+- **类别**：③ 实现/优化缺口（前端硬编码文案 vs 后端按 category 分化的真口径）
+- **位置**：
+  - 前端 [TemplateDownloadModal.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx#L24-L39) `FILLING_TIPS`
+  - 后端真口径：[excel.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/excel.go#L267-L279)（决策 93/95）+ [validate.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/validate.go#L357-L476)（分类型校验）
+- **根因**：`FILLING_TIPS` 的类型是 `Record<ResourceCategory, string[]>`（看似按类分化），但**五类填的是同一句**「所属业务（必填）、所属应用（可选）」；而后端口径**按 category 分化**，故该句对 **database / middleware / application / generic_target 四类全是错的**。
+
+- **五类真值对照表（修复的唯一权威依据，勿凭印象改）**：
+
+  | 类别 | `biz_code` 业务 | `app_code` 应用 | `platform_code` 平台 | `cluster` 集群 | 依据 |
+  | --- | --- | --- | --- | --- | --- |
+  | host | 可空后补 | 可空 | 可空（留空按所属应用主平台兜底） | 无要求 | `excel.go:270` 无 case 命中 |
+  | database | 可空后补 | **必填** | 可空 | **必填** | `validate.go:387-392` |
+  | middleware | 可空后补 | **必填** | 可空 | **必填** | `validate.go:403-408` |
+  | application | **必填** | **必填** | 可空 | **必填** | `excel.go:272-275` + `validate.go:433-444` |
+  | generic_target | **二选一必填**（与 app_code 至少填一个） | **二选一必填** | 可空 | 无要求 | `excel.go:276-279`（决策 95）+ `validate.go:470-476` |
+
+- **附带失准 1：网域必填性存在两条动线相反的口径**（直接回答用户提问）
+  - **表单侧：网域已变为无条件必填**——`ResourceFormDrawer.tsx:503` 为 `rules={[{ required: true, message: '请选择网域' }]}`，后端 `validate.go:186` `validateCommon` 亦要求 `network_domain_id` 必填。
+  - **导入侧：网域可空**——`excel.go:251-253` 留空时自动填 `models.DefaultDomainID`（= `"default"`，见 `network_domain.go:45`）。
+  - **隐藏坑**：若 `default` 网域未在 M06「系统设置 → 网域管理」登记，留空导入会**直接失败**——`excel.go:254-257` 的 `networkDomainExists` 校验报「网域 default 未登记，请先到『系统设置 → 网域管理』登记后重新导入」。而前端提示 L180-182 恰恰在教用户「网域可留空——留空时平台自动归属默认网域」，**把一个可能直接报错的操作教成安全操作**。
+  - **判定**：不是「网域从选填变必填」的模型变更，而是**同一字段两条动线必填性相反**的认知分裂。
+  - **修法**：提示改为「网域**强烈建议填写**（决定云归属与隔离）；留空将自动归入默认网域 `default`，**该网域未登记时导入会直接失败**」。
+
+- **附带失准 2：`zone_env` 是幽灵列**
+  - `template.go:34-62` 的 `TemplateColumns` 中 host 含 `zone_env` 列，`buildValueSheet` L146 也为其写了取值说明（INT/GOV）；
+  - 但前端五类 Tab 与 `resourceColumnPrefs.ts` 均**无该列**，用户看不到任何 `zone_env` 概念；L146 说明本身已写「**不进标签、不作分区权威（权威值为所属网域 zone_type）**」。
+  - 即：模板要求用户填一个平台自己都不用、UI 也不展示的列。属 F-7 之后新增的失准。
+
+- **附带失准 3：`cluster` 前后端必填性矛盾（既存缺陷，本轮仅登记不改）**
+  - 后端 `validateDatabase` / `validateMiddleware` / `validateApplication` 均要求 `cluster` 必填（`validate.go:390-392 / 406-408 / 442-444`）；
+  - 前端 `ResourceFormDrawer.tsx:603` `cluster` **无 rules**（选填），提交空值 → 后端 400。
+  - **口径需设计裁定**（属 PRD 契约问题，非纯实现缺口）：要么 `cluster` 降为选填（后端三处放宽），要么前端补必填。**本轮不动，留待设计侧裁定**。
+- **建议**：
+  1. **`FILLING_TIPS` 按五类分化重写**：每类给出该类真实的「必填 / 选填」字段清单，用用户语言（`IP 地址` 而非 `instance_ip`），必填项前置并加「必填」标记；
+  2. **网域提示按附带失准 1 改写**，去掉「可留空即安全」的误导表述；
+  3. **`zone_env` 处理**：本轮先在提示中标明「仅主机兼容列，平台不据此分区，权威值为所属网域」；是否从模板移除待设计裁定；
+  4. **`cluster` 必填性矛盾上报设计侧裁定**，本轮不改代码。
+- **PRD 影响**：需回写 §5.2（`cluster` 必填口径）+ §5.6/§5.8 等 excel 章节的必填标注，属设计侧收割项。
+- **状态**：open（本轮修 1、2；3、4 待设计裁定）
+
+### F-23. Excel 填写示例缺位 + 同步能力边界澄清（③ 实现缺口 + 用户已拍板边界）
+
+- **类别**：③ 实现/优化缺口
+- **位置**：后端 [template.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/template.go#L229-L268) `buildTemplateXLSX`
+- **实测事实**：
+  1. **`buildTemplateXLSX` 只写 sheet1 第 1 行列头，无任何示例数据行**（全仓无静态 `.xlsx`，模板由后端 excelize 实时生成）。故「示例和实际对不上」的准确表述是「**示例根本不存在**」，而非「示例过时」；
+  2. **模板字典值不陈旧**：`buildValueSheet`（L116-215）实时读运行时字典（`bizStore.EnabledList()` L149 / `appStore.EnabledList()` L161 / `platformStore.EnabledList()` L178 / `svcStore.EnabledList()` L196），即 F-7 治本部分仍然有效。**问题全在「口径说明」与「示例」两处**；
+  3. **列名为英文码**（`instance_ip` / `biz_code` / `os_type`…），与页面中文列名（「IP 地址」/「业务名称」/「操作系统」）对不上号，用户需二次翻译。
+- **同步能力边界（回答用户「会不会随填写变化、能否同步」）**：
+
+  | 能力 | 现状 | 结论 |
+  | --- | --- | --- |
+  | 抽屉内「平台 → 应用 → 服务」三级级联下拉 | ✅ 已实现（`ResourceFormDrawer.tsx:360-401`，`Form.useWatch` + 本地过滤，无网络请求） | 已同步 |
+  | 列表筛选的平台/应用级联 | ✅ 已实现（F-18，2026-10-07 落地） | 已同步 |
+  | 模板 sheet2 字典值 | ✅ 已实时（读运行时字典） | 已同步（但非「随本次填写」同步） |
+  | 导入逐行错误反馈 | ✅ 已实现（后端 `fieldErr` 逐行定位） | 已同步（事后） |
+  | **Excel 表内填写示例随填写变化** | ❌ 做不到 | **格式天花板** |
+
+- **为什么做不到（三条硬约束，非实现取舍）**：
+  1. xlsx 是**下载时刻的静态快照**，文件落到用户磁盘后与平台再无连接；
+  2. Excel 数据验证（DataValidation）**只支持单列独立枚举，不支持跨列级联联动**——而四层模型恰恰是级联关系；
+  3. 前端**无 Excel 解析通道**（`ImportModal.tsx:103-121` 仅取 `originFileObj` 直接 POST multipart，不解析字段），要「读用户填写内容再回写提示」需引入解析库 + 重写导入文件，远超收益。
+- **用户拍板（2026-10-13）**：「Excel 表里面的填写示例**不用实时同步**，这个代价太高了」→ 本轮**只做下载时静态生成的示例行**。
+- **建议**：
+  1. **`buildTemplateXLSX` 在列头下补 1 行示例数据行**（示例值取字典首项或占位值，必填列有值、选填列留空），并在行尾或 sheet2 说明「示例行请删除后再填」；
+  2. **列名加中文释义**：sheet2 每行补「列名（中文含义）」，如 `instance_ip（IP 地址）`，解决英文码对不上号；
+  3. **② sheet2 按 category 过滤 + 行序与 sheet1 对齐 → 下一轮**（见 F-24，工作量较大不在本轮）；
+  4. 长期可选（**非本轮**）：导入前在前端做「模板版本/必填列自检」，属事前可自检能力的补齐，代价远低于实时同步。
+- **状态**：open（本轮修 1、2；3 下一轮；4 不做）
+
+### F-24. sheet2「取值说明」与 sheet1 按类列表头不对应（③ 实现缺口，P1）
+
+- **类别**：③ 实现/优化缺口
+- **位置**：后端 [template.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/template.go#L116-L215) `buildValueSheet`
+- **现状**：
+  - sheet1 的列按 category 定义（host 14 列 / application 16 列 / generic_target 17 列，各不相同）；
+  - sheet2「取值说明」**五类共用同一批行**，且行序（L138 起 `network_domain` → `zone_env` → `biz_code` → `app_code` → `platform_code` → `service_code` → `env` → `status` → `custom_labels`）与 sheet1 列序**不一致**。
+  - 后果：用户需在两张表之间人工比对，且会看到**本类根本不存在的列**（如 host 表里出现「服务」`service_code`、database 表里出现「自定义标签」`custom_labels`）。
+- **建议**：`buildValueSheet` 接收 `category` 参数，**只输出该类 sheet1 实际存在的列**，且**行序与 sheet1 完全一致**（便于逐列对读）。
+- **状态**：open（本轮一并修复）
+
+### 本节汇总：本轮派发修复范围
+
+| 编号 | 问题 | 落点 | 本轮是否修 |
+| --- | --- | --- | --- |
+| F-22-① | `FILLING_TIPS` 五类共用一句必填说明，四类失准 | 前端 `TemplateDownloadModal.tsx` | ✅ 修 |
+| F-22-② | 网域提示把「留空即安全」教成安全操作（`default` 未登记会直接失败） | 前端 `TemplateDownloadModal.tsx` | ✅ 修 |
+| F-22-③ | `cluster` 前后端必填性矛盾 | 前端 `ResourceFormDrawer.tsx` + 后端 `validate.go` | ❌ 待设计裁定 |
+| F-22-④ | `zone_env` 幽灵列（UI 不展示、平台不用） | 后端 `template.go` 提示 + 前端提示 | ⚠️ 仅补说明，是否移除待裁定 |
+| F-23-① | 模板无任何示例数据行 | 后端 `template.go` `buildTemplateXLSX` | ✅ 修 |
+| F-23-② | 列名英文码与页面中文列名对不上号 | 后端 `template.go` `buildValueSheet` | ✅ 修（补中文释义） |
+| F-23-③ | sheet2 按类过滤 + 行序对齐 | 后端 `template.go` | ✅ 修（与 F-24 同批落地） |
+| F-24 | sheet2 与 sheet1 列不对应 | 后端 `template.go` | ✅ 修 |
+
+- **影响模块**：backend `platform/config/resource`（`template.go`）、frontend `ui-custom/web/src/pages/resources`（`TemplateDownloadModal.tsx`）。
+- **契约影响**：`api-contract-snapshot.md` 的模板下载接口**签名与响应不变**（仍返回 xlsx blob），sheet 内容属实现细节，**无需改契约**。
+- **PRD 影响**：F-22-③ `cluster` 必填口径、F-22-④ `zone_env` 列存废，需设计侧在下一轮 PRD 迭代收割。
+
+---
+
+## 17. 新增登记（2026-10-13，导入「未登记编码」引导闭环修复）
+
+> 触发：chenrt 用户追问——「用户在模板里填了平台、应用、服务、网域等，如果未在平台侧创建就擅自填了内容，导入时校验要做到位，**要引导用户先在平台侧登记，用户补录后再上传就能成功**，代码中是否考虑到了？」
+> 核查结论：**后端校验与引导文案基本闭环，前端呈现层有 3 处缺口**。本节登记并已全部修复。
+> 附带查明并向设计侧澄清一项事实：**「声明 sheet」= 用户在下载的模板里自行新增的一个工作表页**（sheet 名固定为「业务声明」「应用声明」「平台声明」「服务声明」，列头 `code | name | 说明?`），用户**不必离开 Excel**，可在同一文件内声明新编码；后端在同一 SQLite 事务内先建字典再落资源，一次导入成功（`excel_declare.go` + `import.go` L105-L138）。
+
+### 核查基线：五维校验已闭环（无需修复的部分）
+
+| 维度 | 校验位置 | 未登记时的引导文案 | 已停用时是否区分 |
+| --- | --- | --- | --- |
+| 网域 | `excel.go` L290-L292 | 网域 X 未登记，请先到『系统设置 → 网域管理』登记后重新导入 | 不区分（M06 无停用态） |
+| 业务 `biz_code` | `excel.go` L305-L329 | 引导『业务管理』登记 **或** 附『业务声明』sheet | ✅ 用 `Lookup` 区分 |
+| 应用 `app_code` | `excel.go` L335-L358 | 引导『应用管理』登记 **或** 附『应用声明』sheet | ✅ 用 `Lookup` 区分 |
+| 服务 `service_code` | `excel.go` L364-L385 | 引导『服务管理』登记 **或** 附『服务声明』sheet | ✅ 用 `Lookup` 区分 |
+| 平台 `platform_code` | `validate.go` `validatePlatformCode` | **修复前**：仅引导『平台管理』登记 | ❌ 修复前混成一句 |
+
+- 「补录后再上传即可成功」成立：五维错误均为**行级错误**（`fieldErr`），不阻断其余行；字典补录后重传，原失败行即可通过。
+- 声明 sheet 自身出错为**整批拒绝**（bad_request，资源一行不落），与行级错误是两套语义，勿混。
+- 声明 sheet 四条安全红线：声明内重码硬拒绝 / 与存量字典同名不一致绝不覆盖 / 停用条目不接受声明激活 / 编码规范校验。
+
+### F-25. 平台 `platform_code` 报错文案未提「平台声明」sheet —— 文案与能力不一致（③ 实现缺口，P1，已修）
+
+- **类别**：③ 实现/优化缺口
+- **位置**：[validate.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/validate.go) `validatePlatformCode`
+- **实测事实**：后端**事实上支持**在导入文件里加「平台声明」sheet 声明新平台（`excel_declare.go` 的 `platformDeclareSheet` 常量 + `applyDeclaredDicts` 与资源同事务落库），但 `validatePlatformCode` 的报错只叫用户去『平台管理』页，**完全没提这个可用通道**。业务/应用/服务三处的文案都提了。
+- **影响**：用户被引导去平台侧多走一趟，浪费一次导入往返；文案与真实能力不一致，属信任损耗。
+- **修法**：未登记文案对齐 biz/app/service 双路径口径——去『平台管理』页登记，**或**在本文件「平台声明」sheet 补充后重新导入，并保留「旧模板可能缺最新字典值，请重新下载模板」提示。
+- **状态**：✅ 已修（commit `73b4593`）
+
+### F-26. 平台 `platform_code` 把「未登记」与「已停用」混成一句（③ 实现缺口，P2，已修）
+
+- **类别**：③ 实现/优化缺口
+- **位置**：同上 `validatePlatformCode`
+- **实测事实**：原文案为「平台 %s 未登记或已停用，请在『平台管理』页登记或启用后重试」，用户无法判断该「登记」还是「启用」。biz/app/service 三处均已用 `Lookup()` 做区分，平台未跟进 → 五维口径不统一。
+- **修法**：对 `platform_code` 做同样的 `Lookup` 区分——已停用 → 引导「已停用，请在『平台管理』页启用后重新导入」（**不含「未登记」字样**，以免被前端 F-27 误标为待登记）；未登记 → 引导登记（并提声明 sheet）。平台 store 的 `Lookup` 已存在（`platform.go` L66，签名与 app/svc store 同构），**无需新增 store 方法**。
+- **不变式**：末尾「平台须属于 app_code 关联平台」的自洽校验逻辑与文案**未动**，并加 `NotContains("未登记")` / `NotContains("已停用")` 作回归护栏，防止自洽校验被误判成未登记。
+- **状态**：✅ 已修（commit `73b4593`）
+
+### F-27. 前端「待登记清单」高亮只覆盖业务和应用，服务/平台/网域拿不到引导信号（③ 实现缺口，P0，已修）
+
+- **类别**：③ 实现/优化缺口（**本节中唯一直接阻断用户诉求闭环的一项**）
+- **位置**：[ImportModal.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/resources/ImportModal.tsx) `isPendingRegistrationReason`
+- **实测事实**：原判定为 `reason.includes('未登记') && /业务|应用/.test(reason)`，正则只含「业务」「应用」二字，因此**服务、平台、网域的未登记错误全部不命中**，只按普通错误行灰显，**没有 warning 高亮 + 图标 + 可执行指引**。后端明明已给出正确文案，用户却拿不到「请先到平台侧登记」的视觉信号 → chenrt 需求在 UI 层断链。
+- **修法**：判定改为 `isPendingRegistrationError(error)` 两段式——
+  1. reason 必须含「未登记」（**总闸**：「已停用」「不属于关联平台」两类文案均不含此字样，天然排除）；
+  2. 显式排除「已停用」（加固不变量，防后端将来合并文案后误标）；
+  3. **field 优先**：命中 `biz_code` / `app_code` / `service_code` / `platform_code` / `network_domain_id` 五维集合即判定；field 存在但不在集合内直接判否；
+  4. **reason 兜底**：field 为空时退到 `/业务|应用|服务|平台|网域/` 语义判定（`ImportErrorDetail.Field` 有 `json:"field"` 标签但可能为空，故兜底不可省）。
+  渲染沿用文件既有分支（`WarningOutlined` + `EllipsisText type="warning"`），未另起样式。
+- **破坏验证**：临时改回旧正则后，服务/平台/网域 3 例确实变红（`Unable to find an accessible element with the role "img" and name "warning"`），其余 21 例新旧均绿 —— 证明改动**只扩大命中面，未破坏原有行为**。
+- **状态**：✅ 已修（commit `d4d1c13`）
+
+### 本节汇总
+
+| 编号 | 问题 | 落点 | 状态 |
+| --- | --- | --- | --- |
+| F-25 | 平台文案未提「平台声明」sheet | 后端 `validate.go` | ✅ commit `73b4593` |
+| F-26 | 平台未登记/已停用混成一句 | 后端 `validate.go` | ✅ commit `73b4593` |
+| F-27 | 前端待登记高亮只覆盖业务和应用 | 前端 `ImportModal.tsx` | ✅ commit `d4d1c13` |
+
+- **契约影响**：无。错误响应结构 `models.ImportErrorDetail` 未变，仅 `platform_code` 的 reason 文案内容变化（前端已适配）；模板下载接口亦不变。
+- **遗留待设计裁定**：
+  1. `app_platform_rel.go` L201 的「平台 %s 未登记或已停用，请到『平台字典』登记或启用后重试」仍与 F-25/F-26 新文案不同构。该入口属「应用↔平台关联」写入路径（非导入），**是否也支持声明通道需 PRD 确认**，本轮未动。
+  2. **网域无声明 sheet 通道**（`excel_declare.go` 只有业务/应用/平台/服务四个）。网域只能去 M06 登记 —— 符合 chenrt「引导去平台侧登记」的诉求，但需在 PRD 中明示，避免用户误以为网域也能在 Excel 内声明。
+  3. F-22-③ `cluster` 前后端必填性矛盾、F-22-④ `zone_env` 列存废，仍待设计裁定。

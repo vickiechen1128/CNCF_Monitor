@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -360,4 +361,178 @@ func TestDeleteExporterTemplateBuiltinAndReferencedForbidden(t *testing.T) {
 	// 未命中 not_found。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/exporter-templates/999999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// 采集器模板 supported_monitor_types 登记值校验（create/update 两条路径）：
+// 非法 monitor_type 在登记时即报错，避免"入库成功但对所有类型都不可用"的静默失真。
+// 依据：scrapejob.validateExporterForMonitorType 的可用类型并集按 ValidMonitorTypes()
+// 遍历，非法值不会进入并集 → 模板对所有 monitor_type 都不可用，用户无从追溯。
+
+func TestCreateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"nginxx-exporter","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","supported_monitor_types":["nginxx"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 错误信息须含非法值本身与合法取值清单（用户可据此自查，不必翻文档）。
+	body := w.Body.String()
+	assert.Contains(t, body, "nginxx", "错误信息应回显非法取值")
+	assert.Contains(t, body, "supported_monitor_types", "错误信息应指明出错字段")
+	for _, mt := range models.ValidMonitorTypes() {
+		assert.Contains(t, body, mt, "错误信息应列出合法取值 %s", mt)
+	}
+
+	// 关键：未落库。
+	var cnt int64
+	require.NoError(t, db.Model(&models.ExporterTemplate{}).Where("name = ?", "nginxx-exporter").Count(&cnt).Error)
+	assert.Zero(t, cnt, "校验失败不得落库")
+
+	// 合法值与非法值混合时同样整体拒绝（不做部分保存）。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"mixed-exporter","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","supported_monitor_types":["nginx","nginxx"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, db.Model(&models.ExporterTemplate{}).Where("name = ?", "mixed-exporter").Count(&cnt).Error)
+	assert.Zero(t, cnt, "混合数组含非法值时整体拒绝，不得部分落库")
+}
+
+// 防误伤回归基线（第一优先级）：空声明（未标注）必须继续放行。
+// 下游 exporterTemplateSupportsType / ensureExporterSupportsType 把空声明视为通配，
+// 若此处收紧，存量未标注模板将集体失效。
+func TestCreateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 完全不传该字段（JSON 缺省 → nil）。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"untyped-a","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`)
+	require.Equal(t, http.StatusOK, w.Code, "未标注 supported_monitor_types 应放行（存量兼容）")
+
+	// 显式空数组。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"untyped-b","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","supported_monitor_types":[]}`)
+	require.Equal(t, http.StatusOK, w.Code, "空数组声明应放行（存量兼容）")
+
+	// 落库确认：两种形态都存为空声明，而非被拒。
+	var list []models.ExporterTemplate
+	require.NoError(t, db.Find(&list).Error)
+	require.Len(t, list, 2)
+	for _, e := range list {
+		assert.Empty(t, e.SupportedMonitorTypes, "空声明应原样落库 %s", e.Name)
+	}
+}
+
+func TestCreateExporterTemplateAllowsAllValidSupportedMonitorTypes(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 全合法取值（覆盖 ValidMonitorTypes() 全集）应放行且原样落库。
+	body := fmt.Sprintf(`{"name":"all-types","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","supported_monitor_types":[%s]}`,
+		quotedJoin(models.ValidMonitorTypes()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got models.ExporterTemplate
+	require.NoError(t, db.Where("name = ?", "all-types").First(&got).Error)
+	assert.Equal(t, models.ValidMonitorTypes(), got.SupportedMonitorTypes, "全合法取值应原样落库且保持顺序")
+}
+
+// 重复值处理口径：去重并保留首次出现顺序，使同一份声明反复保存得到同一序列
+// （幂等，不产生无谓 diff）。见 normalizeSupportedMonitorTypes 口径 3。
+func TestCreateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"dup-exporter","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","supported_monitor_types":["nginx","mysql","nginx"]}`)
+	require.Equal(t, http.StatusOK, w.Code, "重复值不属非法，应去重放行")
+
+	var got models.ExporterTemplate
+	require.NoError(t, db.Where("name = ?", "dup-exporter").First(&got).Error)
+	assert.Equal(t, []string{"nginx", "mysql"}, got.SupportedMonitorTypes, "重复值去重且保留首次出现顺序")
+}
+
+func TestUpdateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	id := seedExporter(t, db, &models.ExporterTemplate{
+		Name: "custom-agent", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http",
+		SupportedMonitorTypes: []string{"nginx"}, Version: "1.0.0", Source: models.ExporterSourceInternal,
+	})
+	p := "/api/v2/platform/exporter-templates/" + strconv.FormatUint(uint64(id), 10)
+
+	// 改成非法值 → bad_request。
+	w := perform(t, r, http.MethodPut, p, `{"supported_monitor_types":["nginxx"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "nginxx", "错误信息应回显非法取值")
+
+	// 库中原值未被污染。
+	var got models.ExporterTemplate
+	require.NoError(t, db.First(&got, id).Error)
+	assert.Equal(t, []string{"nginx"}, got.SupportedMonitorTypes, "校验失败不得改动库中原值")
+	assert.Equal(t, "1.0.0", got.Version, "同一请求内的其他字段也不得落库")
+
+	// 改回合法值 → 放行。
+	w = perform(t, r, http.MethodPut, p, `{"supported_monitor_types":["mysql","redis"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, db.First(&got, id).Error)
+	assert.Equal(t, []string{"mysql", "redis"}, got.SupportedMonitorTypes)
+}
+
+// 更新路径的防误伤基线：显式传空数组 / 传 null 均应放行，
+// 不因本次收紧把存量"未标注"模板改成不可用。
+func TestUpdateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	id := seedExporter(t, db, &models.ExporterTemplate{
+		Name: "untyped-agent", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http",
+		SupportedMonitorTypes: []string{"nginx"}, Source: models.ExporterSourceInternal,
+	})
+	p := "/api/v2/platform/exporter-templates/" + strconv.FormatUint(uint64(id), 10)
+
+	// 显式清空为未标注 → 放行（下游视为通配，是合法的"取消声明"动作）。
+	w := perform(t, r, http.MethodPut, p, `{"supported_monitor_types":[]}`)
+	require.Equal(t, http.StatusOK, w.Code, "清空声明应放行")
+	var got models.ExporterTemplate
+	require.NoError(t, db.First(&got, id).Error)
+	assert.Empty(t, got.SupportedMonitorTypes)
+
+	// 不带该字段 → 不改动既有声明。
+	seeded := seedExporter(t, db, &models.ExporterTemplate{
+		Name: "keep-types", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http",
+		SupportedMonitorTypes: []string{"nginx"}, Source: models.ExporterSourceInternal,
+	})
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/exporter-templates/"+strconv.FormatUint(uint64(seeded), 10), `{"version":"2.0.0"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var kept models.ExporterTemplate
+	require.NoError(t, db.First(&kept, seeded).Error)
+	assert.Equal(t, []string{"nginx"}, kept.SupportedMonitorTypes, "未提交该字段时不应改动声明")
+}
+
+// 更新路径的重复值去重口径，与 create 保持一致（同一 helper 保证）。
+func TestUpdateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	id := seedExporter(t, db, &models.ExporterTemplate{
+		Name: "custom-agent", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http",
+		Source: models.ExporterSourceInternal,
+	})
+
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/exporter-templates/"+strconv.FormatUint(uint64(id), 10),
+		`{"supported_monitor_types":["redis","redis","nginx"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got models.ExporterTemplate
+	require.NoError(t, db.First(&got, id).Error)
+	assert.Equal(t, []string{"redis", "nginx"}, got.SupportedMonitorTypes, "重复值去重且保留首次出现顺序")
+}
+
+// quotedJoin 把 monitor_type 列表拼成 JSON 数组字面量片段（测试辅助）。
+func quotedJoin(items []string) string {
+	quoted := make([]string, 0, len(items))
+	for _, it := range items {
+		quoted = append(quoted, fmt.Sprintf("%q", it))
+	}
+	return strings.Join(quoted, ",")
 }

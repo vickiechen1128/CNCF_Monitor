@@ -41,6 +41,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 		resources.POST("", CreateResource(db, bizStore, appStore, svcStore, platformStore, appPlatformStore))
 		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore, svcStore, platformStore, appPlatformStore))
 		resources.DELETE("/:resource_id", DeleteResource(db))
+		// B 方案知情确认（dev-feedback §15 F-21）：删除仍静默放行（软删可恢复），
+		// 引用信息由本只读接口在删除二次确认弹窗中预检回显，不再 403 拦截。
+		resources.GET("/:resource_id/referenced-by", ListResourceReferences(db))
 		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, appStore, platformStore, svcStore, listDomainOptions(db))))
 		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore, platformStore, svcStore, appPlatformStore)))
 

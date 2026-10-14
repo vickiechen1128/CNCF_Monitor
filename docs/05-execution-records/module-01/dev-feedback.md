@@ -837,3 +837,86 @@
 - **发现场景**：M08 实例列对齐实施期逐 Tab 核对 M01 资源列表。
 - **状态**：closed（前端 + 后端已落地；第 3 项的键序修订为 M08 v1.15 三期增量的前置依赖）
 
+
+---
+
+## 2026-10-10（删除资源后 Job 列表「在线 29 / 总数 32」：分子分母不同源）
+
+### F-39：Job「实例采集状态」分母取原始选中数组、未剔除已删资源 → 分子分母不同源（② 实现偏差，2026-10-10）
+
+- **类别**：② 实现偏差（前端分母口径与分子不同源 + 后端选中关系未回收）
+- **PRD 章节 / 文件位置**：Module_01 §5.4（采集 Job 列表 / 实例采集状态列）；源码
+  `ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx:318`（分母）、
+  `ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts:66-77`（分子）、
+  `platform/strategy/scrapejob/installation.go:95-103`（Job 实例列表遍历原始数组）
+- **现象（用户 2026-10-10 实测）**：软删 3 台主机后，采集 Job 列表 `tengxunyun-ceshi-host` 行显示
+  **「在线 29 / 总数 32」** 且为红色异常 Tag；点进详情可见 **3 条无实例名/IP 的空行**。用户判断「会造成数据指标统计偏差」——**成立**。
+- **根因（分子分母不同源）**：
+  - **分母**（`ScrapeJobListPage.tsx:318`）：`total = r.selected_instance_ids.length` = **32**，
+    取的是 `ScrapeJob.SelectedInstanceIDs` **原始 JSON 数组长度**——该数组在 M07 软删资源时**无人回收**，
+    仍含 3 个已失效 `resource_id`。
+  - **分子**（`useScrapeJobStatus.ts:66-77`）：`online` 由 M02 `up{job="<job_name>"}` 聚合得出 = **29**
+    （已删资源不可能有 up 样本）。
+  - → 同一 Tag 内**分子来自 Prometheus 实际采集、分母来自 DB 历史意图**，两者不同源，
+    删除资源后分母永不收敛，**偏差恒存在**（本次 3 台）。
+- **生成侧并非元凶（澄清）**：`generator/targets.go:272-281` 的 `resolveResource` 查不到即 skip，
+  已下发产物 `tengxunyun-ceshi-host.json` 实为 **29 targets**（草稿 #117 confirmed，deployment #76 success）——
+  **采集面是对的**，问题纯在 DB 选中关系残留 + 前端口径。
+- **修复方向（本轮派发，三处同源收敛）**：
+  1. **后端回收选中关系**：M07 删除资源时，从所有引用该 `resource_id` 的 `ScrapeJob.SelectedInstanceIDs` 中剔除
+     （`platform/config/resource/delete.go` 当前只清 `ResourceLabel`，对 ScrapeJob 无反向操作——
+     注意 `delete.go:29-32` 有 `TODO(M01): ScrapeJob 引用校验` 预留契约，本次须一并厘清：
+     是「删除时静默剔除」还是「删除时 403 拦截+ 列出引用 Job」，**属契约决策，见下**）。
+  2. **后端实例列表过滤**：`installation.go:95-103` 遍历时跳过查不到的 `resource_id`，
+     或显式标记 `resource_missing` 状态而非留空白行（避免"无名实例"）。
+  3. **前端分母口径**：分母改用「可解析的选中实例数」而非原始数组长度，使分子分母同源。
+- **影响模块**：M01（Job 列表 / 实例列表 / 前端状态列）；M07（删除资源写点）；M09（回收动作会改动
+  `ScrapeJob.updated_at` → 触发源数据版本推进 → 关联 M09 F-38）。
+- **关联**：M09 dev-feedback **F-38**（软删不推进源数据版本 → 变更检测失明，本条的后端回收修完后
+  会**顺带**推进 `ScrapeJob.updated_at`，是 F-38 根因的一部分）；M07 `api-contract-snapshot.md` §6.6.1
+  「删除被引用资源时 403 + 引用 Job 名单」的**预留契约**（`delete.go` 至今 `TODO(M01)` 未实现）。
+- **发现场景**：用户 2026-10-10 删除 3 台主机后追问「29/32 是否有偏差」，核对 DB 四表 + 前端渲染代码后定位。
+- **是否需设计侧确认**：**是**——「删除被 Job 引用的资源」是静默剔除还是 403 拦截，属 PRD §6.6.1 已写但未实现的
+  契约分支，须设计侧拍板后实现（静默剔除体验顺但可能让用户不知 Job 少了几台；403 拦截更安全但会打断删除动线）。
+- **状态**：**open**——前端口径 + 后端实例列表过滤已派发修复；删除写点的**契约分支待设计侧拍板**。
+
+---
+
+## 2026-10-10（nginx 实例端口被填成 6379：端口字段认知混淆，用户反馈）
+
+### F-40：资源 `port`（业务端口）与采集端口字段认知混淆 → 6379 型静默错采（① 类认知空白 + ② 类兜底不可见，补偿控制已落地，PRD 表述回填归设计侧）
+
+- **类别**：① 类（字段分工未在表单/PRD 讲清，用户把业务服务端口当采集端口填）+ ② 类（「无映射 + 无模板 → 回落业务 port」兜底静默、无来源可见性）
+- **PRD 章节 / 文件位置**：M01 PRD §5.1.1「端口一致性」（第 3 层原标 {v0.2}）、§5.4「端口不在 Job 层」；M07 PRD §5.2 字段表 `scrape_port`（:1633）、:654；源码 `platform/configcenter/generator/targets.go`（`exporterPortOr` 业务 port 兜底）、`platform/configcenter/generator/data_source.go`（`LoadExporterPort`）；设计裁决 `docs/05-execution-records/module-01/design-proposals/resource-scrape-port-chain.md` §1/§5.1/§7/§10
+- **现状（用户 2026-10-10 排障实测）**：新建 nginx 中间件资源时 `middlewares.port` 被填成 **6379**（Redis 端口，nginx 应为 80/443），且未选采集器模板、`ci_type_exporter_mappings` 无 `monitor_type=nginx` 默认行 → 生成器 `LoadExporterPort=0` → `exporterPortOr(0, Port)` 回落**业务 port**，拼出 `172.16.1.2:6379` → 边缘 vmagent 对 6379 拉 nginx 指标 → `up=0`，中心无任何 `nginx*` 指标。**根因是端口字段认知混淆**：`port`（业务服务端口）与 exporter 监听端口是两个字段，但登记表单与 PRD 未讲清分工，且兜底链路把错误静默消化（用户看不到「当前用的是业务端口」）。
+- **建议 / 已落地补偿控制**（提案 §10 拍板 Q1）：
+  1. **字段分离**：五类资源新增可选 `scrape_port`（0=未指定），业务 `port` 与采集端口彻底解耦（T01-P1 `9d1c29e`；Excel/下载模板列 T01-P7 `498e026`）；
+  2. **单一解析链**：共享包 `platform/configcenter/portchain` 四级链 `scrape_port → mapping.default_port(is_default=true) → template.default_port → 业务 port`，业务 port 仅 db/mw 最后兜底、host 永不兜底（T01-P3 `53128d8`；T01-P2 `b8fc824` 修 `is_default` 口径）；
+  3. **兜底显性化（把静默错误变可见可疑）**：M01 采集 Job 实例列表/预览回显 `port` + `port_source`，来源为 `business` 时展示「⚠️ 业务端口兜底，请确认 exporter 是否监听该端口」+「前往 M07 修改」引导（T01-P4 `98e7c3f` 后端、T01-P6 `f60bdc0` 前端；决策 D-4：仅警示不阻断）。
+- **影响模块**：M01（采集 Job 抽屉/实例列表/预览 targets 回显）、M07（资源表单「采集端口（选填）」、Excel 导入与下载模板列）、M09（生成器四级链消费）。
+- **关联**：F-20（决策 46，Host target 落 80 端口——同一根因的早期暴露）；提案 `resource-scrape-port-chain.md`（§1 事故链、§5.1 权威四级链、§10 已决问题）。
+- **发现场景**：用户 2026-10-10 排障「nginx 实例采不到数据」，定位到生成地址 `172.16.1.2:6379` 后反馈「中间件端口字段被当成采集端口填、字段分工不清」。
+- **状态**：补偿控制 **closed**（T01-P1~P6 全部落地并契约回写，T01-P8 回填验收）；**PRD 字段分工表述修订为设计侧待办**（提案 §8 #1/#3/#4/#8，prototype-designer 执行，开发侧不改 `docs/02-product-requirements/`）。
+
+---
+
+## 2026-10-14（规则编辑「可用标签与注解预览」提级：可发现性 + 视觉对齐，用户反馈）
+
+### F-41：规则编辑「可用标签与注解预览」提级——常驻独立入口 + Alert 视觉对齐 + 检查通过文案分层（① 类交互空白 + ③ 交互优化，已落地）
+
+- **类别**：① 类（PRD 未把预览定位为独立功能，仅描述为「检查通过后附加信息」，导致可发现性差）+ ③ 交互优化（面板视觉权重与检查结果不匹配、绿色 Alert 单句信息过载）
+- **PRD 章节 / 文件位置**：M01 PRD §11.1（检查结果面板三类互斥描述，:704「结果面板位于表单下方」、:1177 验收清单「检查面板布局」与「预览面板仅在检查后出现」相关表述）；源码 `ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`（`RuleInspectPanel`、`handleCheck` / `runInspect` / `handlePreview`、检查结果 Alert）
+- **现状（用户 2026-10-14 评审反馈）**：
+  1. **可发现性差**：「可用标签与注解预览」是检查通过后的附属产物，无独立入口——用户写完规则必须先点「检查」才能看到预览，不点检查则该重要能力永远不可见，容易被忽略；
+  2. **视觉不匹配**：预览面板是自制灰边框 `div`，视觉权重低于检查结果的 `Alert type="success"`，两个同级信息面板风格不一致；
+  3. **文案过载**：绿色 Alert 描述「服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用；提交时服务端仍会复核。」单句承载「已校验范围」与「提交边界」两层信息。
+- **已落地改动（用户批准方案，2026-10-14）**：
+  1. **常驻独立入口**：YAML 文本域下方新增常驻按钮「预览可用标签与注解」（`data-testid="rule-preview-btn"`，`EyeOutlined`），点击 `handlePreview()` 直接取当前 `rule_content` 调 `runInspect`，**不依赖「检查」**；内容为空时仅提示必填、不发请求。「检查」通过后仍自动探查一次（原有行为保留）；
+  2. **视觉对齐**：`RuleInspectPanel` 由自制灰边框 `div` 改为 `Alert type="info" showIcon`，与检查结果面板同级视觉；失败态文案「标签清单暂不可用」→「标签预览暂不可用」；
+  3. **文案分层**：绿色 Alert 描述拆分为「服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用。」（结论）+ 灰色 12px 次要行「提交时服务端仍会复核，检查通过不代表最终提交一定成功。」（免责边界）；
+  4. 面板顺序不变（结果面板位于表单下方、操作按钮上方），独立预览**不触发检查、不出现提交按钮**（`canSubmit` 仍依赖检查通过 + 逃生门勾选，决策 69-2 两段式状态机不受影响）。
+- **影响模块**：M01 规则编辑前端（`RuleMountDrawer.tsx` 及其测试 `RuleMountDrawer.test.tsx`，新增 2 用例：常驻按钮独立触发探查、内容为空不发请求）。
+- **验证**：`pnpm vitest run src/pages/strategy/RuleMountDrawer.test.tsx` 24/24 通过；`tsc --noEmit`、`eslint` 通过。
+- **关联**：决策 69-2（两段式状态机）/决策 69-3（结果面板三类互斥）；`runInspect` 标签探查为 2026-10-13 新增能力（失败一律降级不阻断检查结论）。
+- **发现场景**：用户 2026-10-14 评审规则编辑功能，指出预览「必须点检查才能看见、容易被忽略」且与检查通过 Alert 样式不匹配，要求先提修改意见、批准后落地。
+- **状态**：前端 **closed**（常驻入口 + 视觉对齐 + 文案分层已落地并测试通过）；**PRD §11.1 面板布局描述（「预览面板仅在检查后出现」等）与原型同步更新为设计侧待办**（prototype-designer 在 design 分支执行，开发侧不改 `docs/02-product-requirements/`）。

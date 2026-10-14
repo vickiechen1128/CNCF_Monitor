@@ -2,9 +2,12 @@ package generator
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/portchain"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -299,6 +302,126 @@ func TestResolveTargetsExporterPort(t *testing.T) {
 	})
 }
 
+// TestExporterPortOrEquivalenceToPortchain 显式证明决策 D-1 的等价性：改动前
+// exporterPortOr(exporterPort, businessPort)（db/mw 分支唯一端口语义）与接入后
+// portchain.Resolve(0, exporterPort, 0, businessPort) 的端口值逐例相等——
+// scrape_port 留空时生成地址零回归（提案 §9 回归断言）。参照实现留在测试内，
+// 生产代码中的 exporterPortOr 已删除（D-1 方案 a，不留死代码）。
+func TestExporterPortOrEquivalenceToPortchain(t *testing.T) {
+	legacy := func(exporterPort, fallback int) int {
+		if exporterPort > 0 {
+			return exporterPort
+		}
+		return fallback
+	}
+	cases := []struct{ exporter, business int }{
+		{9104, 3306}, // 映射/模板命中，业务兜底不生效（现网常态）
+		{0, 3306},    // 策略层缺省 → 业务兜底（6379/3306 型事故链路）
+		{0, 0},       // 全缺 → 0（裸 IP 失败态）
+		{9104, 0},    // 策略层命中且无业务端口
+		{9104, 6379}, // 两层都有值，业务端口永不越级
+	}
+	for _, c := range cases {
+		got, _ := portchain.Resolve(0, c.exporter, 0, c.business)
+		assert.Equal(t, legacy(c.exporter, c.business), got,
+			"等价性: legacy exporterPortOr(exporter=%d, business=%d)", c.exporter, c.business)
+	}
+}
+
+// TestResolveTargetsScrapePortChain 四级解析链接入回归（T01-P3，提案 §5.1/§9）：
+// db/mw 不填 scrape_port 时生成地址与改动前逐字节一致；填了实例覆盖优先；host 无
+// 业务 port 兜底（到模板层为止，全缺=裸 IP）；0 与 NULL 等价；app/gt 分支零改动
+// （D3a/D3b 守护）——target 字符串逐字节断言。
+func TestResolveTargetsScrapePortChain(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	))
+
+	// db0：不带 scrape_port 字段（default 0 = 未指定）
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db0", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.1", Port: 3306}).Error)
+	// db1：显式实例覆盖 19100
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db1", NetworkDomainID: "d", Status: "online", ScrapePort: 19100,
+	}, InstanceIP: "10.0.2.2", Port: 3306}).Error)
+	// db-null：手工置 NULL，验证 0/NULL 等价
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db-null", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.3", Port: 3306}).Error)
+	require.NoError(t, db.Exec("UPDATE databases SET scrape_port = NULL WHERE resource_id = ?", "chain-db-null").Error)
+	// mw0：不填 scrape_port
+	require.NoError(t, db.Create(&models.Middleware{
+		ResourceID: "chain-mw0", NetworkDomainID: "d", Status: "online",
+		InstanceIP: "10.0.2.4", Port: 6379,
+	}).Error)
+	// host0 不填 / host1 填 19100（server_id 唯一索引，须区分）
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "chain-h0", NetworkDomainID: "d", Status: "online", PrivateIP: "10.0.2.5",
+		ServerID: "chain-srv-h0",
+	}).Error)
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "chain-h1", NetworkDomainID: "d", Status: "online", PrivateIP: "10.0.2.6", ScrapePort: 19100,
+		ServerID: "chain-srv-h1",
+	}).Error)
+	// app/gt：守护对象（端口语义不进链）
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "chain-app", NetworkDomainID: "d", Status: "online", Endpoint: "10.0.2.7", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-gt", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.8", Port: 161}).Error)
+
+	target := func(t *testing.T, rid string, exporterPort int) string {
+		t.Helper()
+		groups, _, err := ResolveJobTargets(db,
+			models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{rid}}, nil, exporterPort)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		require.Len(t, groups[0].Targets, 1)
+		return groups[0].Targets[0]
+	}
+
+	t.Run("db 不填 scrape_port：策略层命中，与改动前逐字节一致", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.1:9104", target(t, "chain-db0", 9104))
+	})
+	t.Run("db 不填 scrape_port 且策略层缺省：业务端口兜底（等价 exporterPortOr(0,3306)）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.1:3306", target(t, "chain-db0", 0))
+	})
+	t.Run("db 填 scrape_port：实例覆盖优先于映射/业务", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.2:19100", target(t, "chain-db1", 9104))
+		assert.Equal(t, "10.0.2.2:19100", target(t, "chain-db1", 0))
+	})
+	t.Run("0 与 NULL 等价：NULL 行与 0 行解析端口逐字节相同", func(t *testing.T) {
+		portOf := func(addr string) string {
+			if i := strings.LastIndex(addr, ":"); i >= 0 {
+				return addr[i:]
+			}
+			return addr
+		}
+		// db0（0）与 db-null（NULL）仅 IP 不同，端口解析结果须完全一致
+		assert.Equal(t, portOf(target(t, "chain-db0", 9104)), portOf(target(t, "chain-db-null", 9104)))
+		assert.Equal(t, portOf(target(t, "chain-db0", 0)), portOf(target(t, "chain-db-null", 0)))
+		assert.Equal(t, "10.0.2.3:9104", target(t, "chain-db-null", 9104))
+		assert.Equal(t, "10.0.2.3:3306", target(t, "chain-db-null", 0))
+	})
+	t.Run("mw 同口径：留空=策略层/业务兜底，填了=实例覆盖", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.4:9121", target(t, "chain-mw0", 9121))
+		assert.Equal(t, "10.0.2.4:6379", target(t, "chain-mw0", 0))
+	})
+	t.Run("host 无业务 port 兜底：留空且策略层缺省=裸 IP（unresolved 不展示 0）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.5", target(t, "chain-h0", 0))
+		assert.Equal(t, "10.0.2.5:9100", target(t, "chain-h0", 9100))
+		assert.Equal(t, "10.0.2.6:19100", target(t, "chain-h1", 9100), "host 实例覆盖优先")
+	})
+	t.Run("app/gt 分支零改动：exporterPort 存在也不进链（D3a/D3b 守护）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.7:8080", target(t, "chain-app", 9100))
+		assert.Equal(t, "10.0.2.8:161", target(t, "chain-gt", 9100))
+	})
+}
+
 func TestLoadExporterPortPriority(t *testing.T) {
 	db := newMemDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CITypeExporterMapping{}, &models.ExporterTemplate{}))
@@ -320,6 +443,40 @@ func TestLoadExporterPortPriority(t *testing.T) {
 		port, err := LoadExporterPort(db, models.ScrapeJob{})
 		require.NoError(t, err)
 		assert.Equal(t, 0, port)
+	})
+}
+
+// TestLoadExporterPortIsDefaultFilter 缺陷 D2（提案 resource-scrape-port-chain §7）：
+// LoadExporterPort 此前仅按 monitor_type 取行（Order is_default desc），is_default=false
+// 的映射行也会被选中参与端口解析；须与 strategy/scrapejob resolveJobScrapeParams 的
+// `monitor_type = ? AND is_default = true` 口径严格一致——非默认行不算命中。
+func TestLoadExporterPortIsDefaultFilter(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.CITypeExporterMapping{}, &models.ExporterTemplate{}))
+
+	tmpl := &models.ExporterTemplate{Name: "d2-node-exporter", DefaultPort: 9100}
+	require.NoError(t, db.Create(tmpl).Error)
+	tmplID := strconv.FormatUint(uint64(tmpl.ID), 10)
+
+	t.Run("仅非默认映射时跳过映射层回落模板", func(t *testing.T) {
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_only_false", IsDefault: false, DefaultPort: 9999}).Error)
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_only_false", ExporterTemplateID: tmplID})
+		require.NoError(t, err)
+		assert.Equal(t, 9100, port, "is_default=false 的映射不得参与端口解析，应回落采集器模板")
+	})
+
+	t.Run("仅非默认映射且无模板时返回 0", func(t *testing.T) {
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_only_false"})
+		require.NoError(t, err)
+		assert.Equal(t, 0, port, "非默认映射不算命中，映射/模板皆缺返回 0")
+	})
+
+	t.Run("混合行只取 is_default=true", func(t *testing.T) {
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_mixed", IsDefault: false, DefaultPort: 9999}).Error)
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_mixed", IsDefault: true, DefaultPort: 9100}).Error)
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_mixed"})
+		require.NoError(t, err)
+		assert.Equal(t, 9100, port, "false=9999 / true=9100 混合行必须取默认行")
 	})
 }
 
@@ -578,6 +735,218 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	assert.NotEmpty(t, v)
 	assert.True(t, NeedsRegeneration("", v), "版本推进应触发重算")
 	assert.False(t, NeedsRegeneration(v, v), "版本未变化跳过")
+}
+
+// ---- 源数据版本必须感知软删：GORM 软删只写 deleted_at、不更新 updated_at ----
+
+// newSourceVersionDB 建按测试名隔离的内存库并迁移全部源表。
+// 不用 newMemDB：其 DSN 为 file::memory:?cache=shared 全进程共享，版本聚合横跨
+// 所有源表、要求精确可控的起点，共享库会让他例用例的残留行污染聚合结果。
+func newSourceVersionDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:srcver_"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	// 源数据版本聚合横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
+		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
+		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.NotifyChannel{},
+		&models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
+	return db
+}
+
+// hostVersionSeedAt 是测试基准时刻（远早于「现在」），使「删除只推进 deleted_at」
+// 可被确定性断言，不依赖墙钟先后与执行速度。
+var hostVersionSeedAt = time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+
+// seedVersionHost 造一条 updated_at 钉在 hostVersionSeedAt 的 host。
+func seedVersionHost(t *testing.T, db *gorm.DB, domainID, serverID, resourceID string) *models.Host {
+	t.Helper()
+	h := &models.Host{
+		BaseModel:       models.BaseModel{UpdatedAt: hostVersionSeedAt},
+		ServerID:        serverID,
+		ResourceID:      resourceID,
+		NetworkDomainID: domainID,
+		PrivateIP:       "10.0.1.1",
+		Status:          "online",
+	}
+	require.NoError(t, db.Create(h).Error)
+	return h
+}
+
+// softDeleteHost 走 GORM 软删（只写 deleted_at，与 platform/config/resource/delete.go 同一路径）。
+func softDeleteHost(t *testing.T, db *gorm.DB, h *models.Host) {
+	t.Helper()
+	require.NoError(t, db.Delete(&models.Host{BaseModel: models.BaseModel{ID: h.ID}}).Error)
+}
+
+// hostMaxUpdatedAt / hostMaxDeletedAt 取 hosts 表的 MAX(updated_at) / MAX(deleted_at) 原始字符串。
+// 均显式 Unscoped，否则 GORM 的 deleted_at IS NULL 会把软删行整体滤掉、看不到删除时刻。
+func hostMaxUpdatedAt(t *testing.T, db *gorm.DB, domainID string) *string {
+	t.Helper()
+	var s *string
+	require.NoError(t, db.Unscoped().Model(&models.Host{}).Select("MAX(updated_at)").
+		Where("network_domain_id = ?", domainID).Scan(&s).Error)
+	return s
+}
+
+func hostMaxDeletedAt(t *testing.T, db *gorm.DB, domainID string) *string {
+	t.Helper()
+	var s *string
+	require.NoError(t, db.Unscoped().Model(&models.Host{}).Select("MAX(deleted_at)").
+		Where("network_domain_id = ?", domainID).Scan(&s).Error)
+	return s
+}
+
+// TestSourceDataVersionStableWithoutChange 未发生任何变更时版本必须逐字节稳定：
+// 纳入 deleted_at 不得凭空制造版本抖动，否则 watcher 每轮都重算、退避机制失效。
+func TestSourceDataVersionStableWithoutChange(t *testing.T) {
+	db := newSourceVersionDB(t)
+	seedVersionHost(t, db, "d", "srv-keep", "res-keep")
+	seedVersionHost(t, db, "d", "srv-keep2", "res-keep2")
+
+	first, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	require.NotEmpty(t, first)
+
+	// 反复取值应完全一致（含删除发生之后——删除推进一次，随后再次稳定）。
+	second, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	assert.Equal(t, first, second, "无变更时版本必须稳定")
+	assert.False(t, NeedsRegeneration(first, second), "版本未变化须跳过本轮")
+
+	softDeleteHost(t, db, &models.Host{BaseModel: models.BaseModel{ID: 1}})
+	afterDelete, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	require.NotEqual(t, first, afterDelete, "删除推进一次")
+
+	stable, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	assert.Equal(t, afterDelete, stable, "删除后再次取值须稳定")
+	assert.False(t, NeedsRegeneration(afterDelete, stable), "删除后稳定轮次须跳过")
+}
+
+// TestSourceDataVersionAdvancesOnSoftDelete 是本缺陷的核心锁定断言：
+// 软删资源后源数据版本必须推进。否则 NeedsRegeneration 恒 false，watcher 永远走
+// 「源数据未变化」退避分支，永不产出配置草稿、用户零提醒。
+func TestSourceDataVersionAdvancesOnSoftDelete(t *testing.T) {
+	db := newSourceVersionDB(t)
+	h := seedVersionHost(t, db, "d", "srv-del", "res-del")
+
+	before, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	require.NotEmpty(t, before)
+
+	softDeleteHost(t, db, h)
+
+	after, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after, "软删必须推进源数据版本，否则删除动作永远不进版本流、变更检测不产草稿")
+	assert.Greater(t, after, before, "版本应单调推进（字符串字典序）")
+	assert.True(t, NeedsRegeneration(before, after), "版本推进须触发重算")
+}
+
+// TestSourceDataVersionAdvancesOnDeletedAtOnly 精确锁定根因：
+// 删除前后 MAX(updated_at) 逐字节不变、仅 deleted_at 推进，版本仍须变化。
+func TestSourceDataVersionAdvancesOnDeletedAtOnly(t *testing.T) {
+	db := newSourceVersionDB(t)
+	h := seedVersionHost(t, db, "d", "srv-only", "res-only")
+
+	updatedBefore := hostMaxUpdatedAt(t, db, "d")
+	require.NotNil(t, updatedBefore)
+	require.Nil(t, hostMaxDeletedAt(t, db, "d"), "初始无删除行，deleted_at 聚合应为 NULL")
+
+	vBefore, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+
+	softDeleteHost(t, db, h)
+
+	updatedAfter := hostMaxUpdatedAt(t, db, "d")
+	require.NotNil(t, updatedAfter)
+	assert.Equal(t, *updatedBefore, *updatedAfter, "GORM 软删不更新 updated_at（本缺陷前提）")
+
+	deletedAfter := hostMaxDeletedAt(t, db, "d")
+	require.NotNil(t, deletedAfter, "软删后 deleted_at 应有值")
+
+	vAfter, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	assert.Equal(t, *deletedAfter, vAfter, "版本应由 deleted_at 推进")
+	assert.True(t, NeedsRegeneration(vBefore, vAfter), "仅 deleted_at 变化也须触发重算")
+}
+
+// TestSourceDataVersionPureNullDeletedAt 从未删除过任何行时，全部源表的 deleted_at 聚合为 NULL，
+// 版本计算不得被 NULL 破坏：不 panic、不塌成空串、不误判。
+func TestSourceDataVersionPureNullDeletedAt(t *testing.T) {
+	db := newSourceVersionDB(t)
+	seedVersionHost(t, db, "d", "srv-null", "res-null")
+
+	require.Nil(t, hostMaxDeletedAt(t, db, "d"), "从未删除时 deleted_at 恒 NULL")
+
+	v, err := SourceDataVersion(db, "d")
+	require.NoError(t, err)
+	require.NotEmpty(t, v, "纯 NULL deleted_at 不得把版本压成空串")
+
+	updated := hostMaxUpdatedAt(t, db, "d")
+	require.NotNil(t, updated)
+	assert.Equal(t, *updated, v, "无删除时版本等于纯 updated_at 聚合结果")
+	assert.True(t, NeedsRegeneration("", v), "首次见到版本应触发重算")
+}
+
+// TestSourceDataVersionEmptyDB 全部源表皆空（updated_at / deleted_at 双双为 NULL）时
+// 版本返回空串且不触发重算，与既有空数据语义一致。
+func TestSourceDataVersionEmptyDB(t *testing.T) {
+	empty, err := SourceDataVersion(newSourceVersionDB(t), "d")
+	require.NoError(t, err)
+	assert.Equal(t, "", empty, "无任何数据时版本为空串")
+	assert.False(t, NeedsRegeneration("v1", empty), "空版本不触发重算")
+}
+
+// TestSourceDataVersionDomainScopedDeleteIsolation domainScoped 过滤须对 deleted_at 聚合
+// 同样生效：删除 A 域资源只推进 A 域版本，不得向 B 域广播噪声变更。
+func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T) {
+	db := newSourceVersionDB(t)
+	hostA := seedVersionHost(t, db, "domain-a", "srv-a", "res-a")
+	seedVersionHost(t, db, "domain-b", "srv-b", "res-b")
+
+	aBefore, err := SourceDataVersion(db, "domain-a")
+	require.NoError(t, err)
+	bBefore, err := SourceDataVersion(db, "domain-b")
+	require.NoError(t, err)
+	require.Equal(t, aBefore, bBefore, "两域起点相同，便于归因")
+
+	softDeleteHost(t, db, hostA)
+
+	aAfter, err := SourceDataVersion(db, "domain-a")
+	require.NoError(t, err)
+	bAfter, err := SourceDataVersion(db, "domain-b")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, aBefore, aAfter, "A 域自身删除须推进 A 域版本")
+	assert.Equal(t, bBefore, bAfter, "A 域删除不得推进 B 域版本")
+	assert.False(t, NeedsRegeneration(bBefore, bAfter), "B 域不应因他域删除触发重算")
+}
+
+// TestSourceDataVersionRouteSettingDomainScoped AlertmanagerRouteSetting 亦为 domainScoped=true
+// （决策 113：alertmanager.yml 恒属 default），删除须只推进所属域版本。
+func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T) {
+	db := newSourceVersionDB(t)
+	setting := &models.AlertmanagerRouteSetting{
+		NetworkDomainID: "default",
+		Mode:            models.RouteModeManaged,
+	}
+	require.NoError(t, db.Create(setting).Error)
+
+	// 造一个更早的版本起点，便于观察删除是否推进。
+	seedVersionHost(t, db, "other-domain", "srv-o", "res-o")
+
+	before, err := SourceDataVersion(db, "default")
+	require.NoError(t, err)
+	require.NotEmpty(t, before)
+
+	require.NoError(t, db.Delete(&models.AlertmanagerRouteSetting{BaseModel: models.BaseModel{ID: setting.ID}}).Error)
+
+	after, err := SourceDataVersion(db, "default")
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after, "删除管理域单例设定须推进 default 域版本")
 }
 
 // ---- helper clones string for composite label expansion ----

@@ -63,6 +63,39 @@ type HeartbeatRequest struct {
 	// （omitempty 不产出键），保证向后兼容。
 	ConfigApplyError         string `json:"config_apply_error,omitempty"`          // 最近一次配置应用失败原因（成功时为空）
 	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
+
+	// RemoteWriteLastError 是本机 vmagent remote_write 最近一次失败原因（读 vmagent
+	// /metrics 的 vmagent_remotewrite_errors_total / push_failures_total /
+	// retries_count_total 推导；无失败时为空，omitempty 不产出键）。
+	//
+	// F-17 登记的「契约单向定义」缺口修复：中心 HeartbeatRequest 早已定义
+	// remote_write_last_error 并落库 edge_heartbeats，但 Agent 侧此前从未定义/发送，
+	// 导致该字段恒空——边缘 remote_write 失败时中心侧完全无感，只能靠外部探测猜测
+	// （本次实测即如此：边缘 up 长期未落中心，中心无任何失败线索）。接通后，remote_write
+	// 失败原因可随心跳直达中心，节点状态页/心跳记录可展示，F-17 的可观测性缺口闭合。
+	//
+	// 取值是**摘要**而非全量日志：仅在有失败时非空，形如
+	// "remote_write_failed: vmagent_remotewrite_errors_total=3 …（vmagent /metrics）"。
+	RemoteWriteLastError string `json:"remote_write_last_error,omitempty"`
+
+	// RemoteWriteDroppedTotal 是本机 vmagent remote_write 的累计丢块+丢包总数（F-39，
+	// 读 /metrics 的 vm_persistentqueue_blocks_dropped_total +
+	// vmagent_remotewrite_packets_dropped_total 跨分片求和）。非零即发生过数据丢失；
+	// 为 0 / 缺失时表示无丢失或指标不可读，向后兼容。
+	RemoteWriteDroppedTotal int64 `json:"remote_write_dropped_total,omitempty"`
+	// RemoteWriteRetriesTotal 是累计发送重试次数（F-39，读
+	// vmagent_remotewrite_retries_count_total 跨分片求和）；中心可按相邻心跳增速判
+	// 「回传链路不稳」。
+	RemoteWriteRetriesTotal int64 `json:"remote_write_retries_total,omitempty"`
+
+	// MetadataRemoteWriteURL / MetadataMaxDiskUsagePerURL 是当前生效配置目录
+	// metadata.json 的回传参数指纹（F-42）：Agent 把落盘参数原样上报，中心与网域
+	// 当前配置比对，不一致时在心跳响应返回 params_changed=true 强制拉包（网域参数
+	// 变更不改配置版本号，仅靠 config_changed 不会触发拉包）。未拉过包 / 老 Agent
+	// 不上报（omitempty 不产出键），中心对空指纹按「参数不一致」处理返回
+	// params_changed=true，对老 Agent 无副作用（其忽略未知响应字段）。
+	MetadataRemoteWriteURL     string `json:"metadata_remote_write_url,omitempty"`
+	MetadataMaxDiskUsagePerURL string `json:"metadata_max_disk_usage_per_url,omitempty"`
 }
 
 // HeartbeatResponse 是心跳接口的响应体（PRD §6.2）。
@@ -70,6 +103,22 @@ type HeartbeatResponse struct {
 	ConfigChanged     bool   `json:"config_changed"`
 	ConfigVersion     string `json:"config_version"`
 	ConfigDownloadURL string `json:"config_download_url"`
+	// ParamsChanged 表示网域回传参数（remote_write_url / max_disk_usage_per_url）
+	// 与 Agent 上报的 metadata 指纹不一致（F-42）。新 Agent 见 true 时即使
+	// config_changed=false 也强制拉包以落盘新参数；老 Agent 忽略该未知字段，
+	// 混合版本部署不会产生循环拉包。
+	ParamsChanged bool `json:"params_changed"`
+	// VMAgentRestartSeq 是中心侧已登记的人工重启指令序号（F-42）：中心每次受理
+	// 「重启采集进程」请求时原子递增并留痕，Agent 发现响应序号大于本地已执行序号时
+	// 幂等滚动重启 vmagent 采集子进程（仅采集进程，Agent 本体与持久队列不受影响），
+	// 执行成功后本地持久化已执行序号；失败不落盘，下轮心跳自动重试。0/缺失表示无指令。
+	VMAgentRestartSeq int64 `json:"vm_agent_restart_seq,omitempty"`
+	// FlushBacklogSeq 是中心侧已登记的「清空回传积压」破坏性指令序号（F-43，机制同
+	// VMAgentRestartSeq）：Agent 发现响应序号大于本地已执行序号时执行——停 vmagent
+	// 采集子进程、删除其持久队列目录（积压数据有意丢弃）、重新拉起。执行成功后本地
+	// 持久化已执行序号；失败不落盘，下轮心跳自动重试。0/缺失表示无指令。老版本
+	// Agent 忽略该未知字段，天然向后兼容。
+	FlushBacklogSeq int64 `json:"flush_backlog_seq,omitempty"`
 }
 
 // Metadata 是配置包内 metadata.json 的内容（PRD §6.3），与中心 zipper.go 对齐：
@@ -83,6 +132,11 @@ type Metadata struct {
 	// 仅在中心显式配置时才下发，omitempty）。Agent 优先采用它作为 vmagent
 	// -remoteWrite.url（T11-G1-02 方案 B），避免真实部署回落到 127.0.0.1 环回。
 	RemoteWriteURL string `json:"remote_write_url,omitempty"`
+	// MaxDiskUsagePerURL 是中心下发的 vmagent 持久队列磁盘上限（F-42，网域级，
+	// 仅在中心显式配置时下发，omitempty）。Agent 优先采用它作为
+	// -remoteWrite.maxDiskUsagePerURL；老版本中心不携带该字段时 Agent 按
+	// env > 硬兜底回落（向后兼容）。
+	MaxDiskUsagePerURL string `json:"max_disk_usage_per_url,omitempty"`
 }
 
 // 配置包 zip 内部条目名（PRD §6.3）。

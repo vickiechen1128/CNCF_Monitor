@@ -14,6 +14,8 @@ const { Text } = Typography
 export interface OnboardInput {
   agent_type?: NetworkDomain['agent_type']
   remote_write_url?: string
+  /** vmagent 持久队列磁盘上限（F-42，网域级回传参数） */
+  max_disk_usage_per_url?: string
   description?: string
 }
 
@@ -29,6 +31,7 @@ interface OnboardDomainDrawerProps {
 interface FormValues {
   agent_type: NetworkDomain['agent_type']
   remote_write_url?: string
+  max_disk_usage_per_url?: string
   description?: string
 }
 
@@ -52,6 +55,7 @@ export function OnboardDomainDrawer({ open, domain, submitting, onSubmit, onClos
         remote_write_url: isLocal
           ? undefined
           : (values.remote_write_url?.trim() || deriveRemoteWriteUrl(domain.id)),
+        max_disk_usage_per_url: isLocal ? undefined : (values.max_disk_usage_per_url?.trim() || undefined),
         description: values.description?.trim() || undefined,
       })
       form.resetFields()
@@ -125,6 +129,15 @@ export function OnboardDomainDrawer({ open, domain, submitting, onSubmit, onClos
             label={<FieldLabel label="指标回传地址" tip={DOMAIN_FIELD_TIP.remoteWriteUrl} />}
           >
             <Input placeholder="留空则自动生成，例如 https://metriccenter.example.com/api/v2/ingest/<domain-id>/prometheus" />
+          </Form.Item>
+        )}
+
+        {!isLocal && (
+          <Form.Item
+            name="max_disk_usage_per_url"
+            label={<FieldLabel label="回传积压磁盘上限" tip={DOMAIN_FIELD_TIP.maxDiskUsagePerUrl} />}
+          >
+            <Input placeholder="留空按采集节点默认兜底（2GB）；生产环境建议 50GB" />
           </Form.Item>
         )}
 

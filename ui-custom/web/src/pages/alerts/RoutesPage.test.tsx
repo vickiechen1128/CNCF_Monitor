@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { MainLayout } from '../../layouts/MainLayout'
+import { ApiError } from '../../api/client'
 import { RoutesPage } from './RoutesPage'
 import { buildEditRows, buildRouteRows, type UseRouteEditorResult } from './useRoutes'
 import { blankRouteNode, type RouteEditNode } from './routeTree'
@@ -20,6 +21,45 @@ vi.mock('./useRoutes', async (importOriginal) => {
     useRouteEditor: (...a: unknown[]) => useRouteEditorMock(...a),
   }
 })
+
+// 路由设定 Hook mock（T08-SPLIT-01，2026-10-13）：「路由与收敛策略」卡连同两个控件
+// （兜底渠道 Select + 路由模式 Segmented）由告警配置页迁入本页常驻「路由设置」卡，
+// 故本页开始消费 route-setting / notify-channels，需隔离真实请求。
+const useRouteSettingMock = vi.fn()
+const saveRouteSettingMock = vi.fn()
+const reloadRouteSettingMock = vi.fn()
+vi.mock('./useRouteSetting', () => ({
+  useRouteSetting: (...a: unknown[]) => useRouteSettingMock(...a),
+  NONE_RECEIVER_VALUE: -1,
+  ROUTE_SETTING_NONE_LABEL: '不接管（保留配置文件里已有的值）',
+}))
+
+/**
+ * 路由设定 Hook 返回（T08-SPLIT-01）：默认「未设定 + 有已启用渠道」的自动建议态
+ * （`enabled=false` + `effective_source=auto_first_enabled`，契约 §11.9：建议值仅供预填、
+ * 平台并未接管、产物字节不变）。选项标签为**纯渠道名**（2026-10-08 已摘除接收人后缀）。
+ */
+function routeSettingResult(over: Record<string, unknown> = {}) {
+  return {
+    setting: {
+      enabled: false,
+      default_receiver_channel_id: null,
+      effective_receiver_name: 'auto-default-recv',
+      effective_source: 'auto_first_enabled',
+      mode: 'handwritten',
+    },
+    options: [
+      { value: -1, label: '不接管（保留配置文件里已有的值）' },
+      { value: 1, label: 'SRE 飞书群' },
+    ],
+    loading: false,
+    error: null,
+    saving: false,
+    reload: reloadRouteSettingMock,
+    save: saveRouteSettingMock,
+    ...over,
+  }
+}
 
 // MainLayout 顶部栏依赖 api/client.getStoredUser（jsdom localStorage 行为不可靠），
 // 导航用例走 MainLayout，故用内存 Map 替换 window.localStorage（与 MainLayout.test 一致）。
@@ -91,6 +131,7 @@ function result(over: Partial<{
   rows: ReturnType<typeof buildRouteRows>
   loading: boolean
   error: string | null
+  ready: boolean
   reload: () => void
 }> = {}) {
   const data = over.data ?? { mode: 'handwritten', items: [rootNode], dead_receivers: [] }
@@ -100,6 +141,9 @@ function result(over: Partial<{
     rows: over.rows ?? (data?.items ? buildRouteRows(data.items) : []),
     loading: over.loading ?? false,
     error: over.error ?? null,
+    // 真实 Hook = !loading。默认 true：绝大多数用例关心的是「已加载完成」这一常态，
+    // loading 专项用例显式覆盖。页面把它传给 useRouteEditor 作首屏自动导入门控。
+    ready: over.ready ?? ((over.loading ?? false) === false),
     reload: over.reload ?? vi.fn(),
   }
 }
@@ -122,6 +166,7 @@ function editorResult(over: Partial<UseRouteEditorResult> = {}): UseRouteEditorR
     blocking: over.blocking ?? [],
     warnings: over.warnings ?? [],
     knownReceivers: over.knownReceivers ?? [],
+    receiverChannelNames: over.receiverChannelNames ?? {},
     saving: over.saving ?? false,
     saveResult: over.saveResult ?? null,
     importFromCurrent: over.importFromCurrent ?? vi.fn(),
@@ -152,43 +197,81 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     useRoutesMock.mockReturnValue(result())
     useRouteEditorMock.mockReset()
     useRouteEditorMock.mockReturnValue(editorResult())
+    // 路由设置（T08-SPLIT-01 迁入本页）：默认未接管 + 建议值
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue(routeSettingResult())
+    saveRouteSettingMock.mockReset()
+    saveRouteSettingMock.mockResolvedValue(routeSettingResult().setting)
+    reloadRouteSettingMock.mockReset()
   })
 
-  // 契约①：常驻状态区「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（按 mode 渲染）
-  // 2026-10-02 四页说明区统一：页头改用 PageIntro（标题 + 一行副标 + 折叠说明区）；
-  // 「顺序即优先级 + 模式徽标」随 mode 变化，属状态信息，仍留在页头下方常驻（不进折叠区）。
-  it('常驻状态区含「路由顺序 = 生效顺序」与手写模式徽标，并给出去「告警配置」的只读引导', () => {
+  // 契约①：「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（按 mode 渲染）
+  // 2026-10-02 四页说明区统一：页头改用 PageIntro（标题 + 一行副标 + 折叠说明区）。
+  //
+  // 2026-10-14 布局优化：常驻 info Alert **整块删除**，「模式」这个事实原先在三处重复。
+  // 三件事各自迁到更贴近的落位：
+  //   - 模式徽标 → 路由设置卡的模式行右端（route-mode-badge）
+  //   - 可编辑性指引 → ROUTE_MODE_TIP（模式控件下方一行）
+  //   - 顺序提示 → 路由树卡标题行（顺序只约束这张表）
+  it('模式徽标在「路由设置」卡模式行内；顺序提示随路由树卡标题；只读说明并入模式提示行', () => {
     useRoutesMock.mockReturnValue(result())
     renderPage()
     expect(screen.getByText('路由顺序 = 生效顺序：先匹配到的先生效')).toBeInTheDocument()
-    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('手写接管')
-    expect(screen.getByText(/本页为只读展示：不提供新建 \/ 编辑 \/ 拖拽入口/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '前往告警配置' })).toHaveAttribute('href', '/alert-config')
+    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('我来编辑')
+    // 门禁：handwritten=本页只读（isRouteEditable），模式提示据此明说无编辑入口 + 就地切换指引
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('只读视图')
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('不提供新建')
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('切换为「平台生成」')
+    // A5：反向链接已删，改为指向本卡控件 A 的就地指引（指引直接点名控件 label，
+    // 不再依赖常驻 Alert 里那块「「路由设置」」的粗体字——Alert 已整块删除）
+    expect(screen.queryByRole('link', { name: '前往告警配置' })).toBeNull()
+    expect(screen.getByLabelText('路由规则由谁维护')).toBeInTheDocument()
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('「路由规则由谁维护」')
+    // 「模式」全页只说一次：常驻 Alert 里的重复徽标已随该 Alert 一并删除
+    expect(screen.getAllByTestId('route-mode-badge')).toHaveLength(1)
   })
 
-  it('PageIntro：页头副标一行定位，机制说明收进默认收起的说明区', () => {
+  it('PageIntro：页头副标一行定位，机制说明收进默认收起的说明区（与常驻区不重复）', () => {
     useRoutesMock.mockReturnValue(result())
     renderPage()
     expect(screen.getByTestId('routes-intro')).toBeInTheDocument()
-    expect(screen.getByTestId('routes-intro-subtitle').textContent ?? '').toContain('哪条告警发给谁')
+    // 2026-10-13（提案 §2.2）：副标改为同时兜住本页两件事——谁产出路由规则 + 没匹配到规则的告警发给谁
+    expect(screen.getByTestId('routes-intro-subtitle').textContent ?? '').toContain('谁产出路由规则')
+    expect(screen.getByTestId('routes-intro-subtitle').textContent ?? '').toContain('没匹配到规则的告警发给谁')
     // 说明区默认收起：要点不在 DOM
     expect(screen.getByTestId('routes-intro-guide-label')).toBeInTheDocument()
     expect(screen.queryByTestId('routes-intro-guide-points')).toBeNull()
-    // 展开后含「当前由你手写维护 → 本页只读」的模式说明
+    // 展开后只含**不随状态变化、且不约束某一具体区块**的机制说明：
+    // 「顺序提示」已迁到路由树卡标题行、「顶层路由是总入口」已下沉到表格正上方
+    // （2026-10-14 布局优化：约束具体表格的说明不该藏在默认收起的折叠区里）
     fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
     const points = screen.getByTestId('routes-intro-guide-points')
-    expect(points.textContent ?? '').toContain('当前由你手写维护')
+    expect(points.textContent ?? '').toContain('一条规则包含')
+    expect(points.textContent ?? '').not.toContain('顶层路由')
+    // 下沉后的落位：读表须知常驻在路由树表格正上方
+    expect(screen.getByText(/顶层路由是所有告警的总入口/)).toBeInTheDocument()
   })
 
-  it('平台管理模式：模式徽标渲染为「平台管理」', () => {
+  it('平台生成模式：模式徽标渲染为「平台生成」，模式提示说明本页可直接编辑', () => {
     useRoutesMock.mockReturnValue(result({ data: { mode: 'managed', items: [rootNode], dead_receivers: [] } }))
+    // 模式以 useRouteSetting 为准（保存后即刻生效，无需等只读树重新拉取），故同步 mock 为 managed
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false,
+          default_receiver_channel_id: null,
+          effective_receiver_name: 'auto-default-recv',
+          effective_source: 'auto_first_enabled',
+          mode: 'managed',
+        },
+      }),
+    )
     renderPage()
-    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('平台管理')
-    // 平台模式下说明区给出「可新建 / 编辑 / 拖拽」而非手写只读引导
-    fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
-    const points = screen.getByTestId('routes-intro-guide-points')
-    expect(points.textContent ?? '').toContain('当前由平台管理')
-    expect(points.textContent ?? '').not.toContain('当前由你手写维护')
+    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('平台生成')
+    // 门禁（isRouteEditable）：managed=本页可写（PRD §11.7「平台管理模式可写」），
+    // 模式提示据此给出编辑引导，而非此前写反的「只读视图」提示（2026-10-14：原在常驻 Alert，
+    // Alert 删除后并入 ROUTE_MODE_TIP）
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('直接增删改路由')
   })
 
   // 契约②：树形缩进展示层级（按 parent_id / order 建树）；根路由置顶锁定
@@ -241,8 +324,50 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     expect(screen.getAllByText('default').length).toBeGreaterThan(0)
   })
 
+  // 接收人命名可读性：平台物化的 `notify-1` 显示成「渠道名（notify-1）」，
+  // 手写 receiver（如预置 feishu）标注「手写」来源，避免用户看不懂两个名字的关系
+  it('接收人列：平台 receiver 显示渠道名，手写 receiver 标注来源', () => {
+    const childChannel = node({
+      id: 'root/0',
+      parent_id: 'root',
+      order: 0,
+      name: '严重告警',
+      receiver: 'notify-1',
+    })
+    const childFeishu = node({
+      id: 'root/1',
+      parent_id: 'root',
+      order: 1,
+      name: '备份通道',
+      receiver: 'feishu',
+    })
+    useRoutesMock.mockReturnValue(
+      result({
+        data: { mode: 'managed', items: [rootNode, childChannel, childFeishu], dead_receivers: [] },
+      }),
+    )
+    useRouteEditorMock.mockReturnValue(
+      editorResult({
+        knownReceivers: ['default', 'notify-1', 'feishu'],
+        receiverChannelNames: { 'notify-1': '运维告警飞书群' },
+      }),
+    )
+    renderPage()
+    // 平台 receiver → 「运维告警飞书群（notify-1）」+ data-testid
+    const channelCell = screen.getByTestId('route-receiver-channel')
+    expect(channelCell).toHaveTextContent('运维告警飞书群（notify-1）')
+    // 手写 receiver → 原样 + 「手写」来源标注（根路由 default 与 feishu 均属文件声明），且不标红「未定义」
+    expect(screen.getByText('feishu')).toBeInTheDocument()
+    expect(screen.getAllByText('手写').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('route-receiver-undefined')).not.toBeInTheDocument()
+  })
+
   // 契约③：dead_receivers 显性标出「平台已生成但没有任何路由指向」，点击跳「通知渠道」页
-  it('孤立接收人区：显性标出无路由指向的接收人，点击跳「通知渠道」页', () => {
+  // 2026-10-08 文案修订 + 消解路径补全：旧标题「孤立接收人（平台已生成但没有任何路由指向）」
+  // 主语是「平台」，易被读成「平台内置了路由规则却没指向它」；而真实情况是**用户的路由全指向了
+  // 别的接收人**（本例中多为手写 `feishu`），平台那条通道空着。同时旧文案只说"去通知渠道页处理"，
+  // 而"去渠道页停用渠道"只是两种消解方式之一 —— 用户若想用这个接收人，得新建/编辑一条路由。
+  it('有接收人没有路由指向它：说明真实原因并给出两种消解方式', () => {
     useRoutesMock.mockReturnValue(
       result({
         data: {
@@ -253,10 +378,15 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
       }),
     )
     renderPage()
-    expect(screen.getByText(/孤立接收人（平台已生成但没有任何路由指向）/)).toBeInTheDocument()
-    expect(screen.getByText(/告警永远不会发往它们/)).toBeInTheDocument()
-    const link = screen.getByTestId('dead-receiver-alpha')
+    // 标题与正文讲清「该渠道收不到告警」，而非「平台没指向它」
+    expect(screen.getByText(/有接收人没有路由指向它/)).toBeInTheDocument()
+    expect(screen.getByText(/所属的渠道收不到告警/)).toBeInTheDocument()
+    // 消解方式①：想用它 → 新建/编辑路由时把接收人选成它
+    expect(screen.getByText(/新建或编辑一条规则/)).toBeInTheDocument()
+    // 消解方式②：暂不用 → 去渠道页停用/删除
+    const link = screen.getByTestId('dead-receiver-channels-link')
     expect(link).toHaveAttribute('href', '/notify-channels')
+    expect(screen.getByText(/停用或删除对应渠道/)).toBeInTheDocument()
     expect(screen.getByText(/https:\/\/open\.feishu\.cn/)).toBeInTheDocument()
   })
 
@@ -363,6 +493,24 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     )
     useRouteEditorMock.mockReset()
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    // 路由设置（T08-SPLIT-01 迁入本页）：默认未接管 + 建议值。
+    // ⚠ 模式以 `useRouteSetting` 为准（保存后即刻生效，无需等只读树重新拉取），
+    // 故本组用例默认 mode='managed'，与上面 useRoutesMock 的 data.mode 保持一致。
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false,
+          default_receiver_channel_id: null,
+          effective_receiver_name: 'auto-default-recv',
+          effective_source: 'auto_first_enabled',
+          mode: 'managed',
+        },
+      }),
+    )
+    saveRouteSettingMock.mockReset()
+    saveRouteSettingMock.mockResolvedValue(routeSettingResult().setting)
+    reloadRouteSettingMock.mockReset()
   })
 
   // 验收 2：平台管理模式提供「新建 / 从当前配置导入 / 保存并提交变更」，点击导入触发 Hook
@@ -379,6 +527,17 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
   // 验收 6：手写模式下本页整体只读——无导入 / 保存 / 新建入口
   it('手写模式：本页整体只读，不提供导入 / 保存 / 新建入口', () => {
     useRoutesMock.mockReturnValue(result({ data: { mode: 'handwritten', items: [rootNode], dead_receivers: [] } }))
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false,
+          default_receiver_channel_id: null,
+          effective_receiver_name: 'auto-default-recv',
+          effective_source: 'auto_first_enabled',
+          mode: 'handwritten',
+        },
+      }),
+    )
     renderPage()
     expect(screen.queryByTestId('route-import-btn')).toBeNull()
     expect(screen.queryByTestId('route-save-btn')).toBeNull()
@@ -411,6 +570,26 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     // 手动校正通道：编辑树仍在，且带删除 / 排序入口
     expect(screen.getByText('严重告警 → SRE')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '编辑 root/0' })).toBeInTheDocument()
+  })
+
+  // 2026-10-13 问题① 修复接线：导入成功提示不再用卡片外的整条绿色 Alert（会把「保存并提交变更」
+  // 挤出首要视线，且 message 与 description 重复「已从当前配置导入」），改为操作区内单行小字，
+  // 并明说「当前配置」= 平台当前生效的 alertmanager.yml、下一步点上方保存按钮。
+  it('导入成功提示：收进操作区内单行呈现，文案讲清来源与下一步（指路上方保存按钮）', () => {
+    useRouteEditorMock.mockReturnValue(
+      editorResult({
+        tree: editTree,
+        importState: 'imported',
+        importNotice:
+          '已载入平台当前生效的 alertmanager.yml 中的 4 个路由（名称由注释还原），请核对下方列表，无误后点上方「保存并提交变更」提交。',
+      }),
+    )
+    renderPage()
+    const notice = screen.getByTestId('route-import-notice')
+    expect(notice).toHaveTextContent('alertmanager.yml')
+    expect(notice).toHaveTextContent('保存并提交变更')
+    // 与保存按钮同在操作区那张卡片内，不再单独占一条全宽 Alert
+    expect(screen.getByTestId('route-save-btn').closest('.ant-card')).toContainElement(notice)
   })
 
   // 验收 3：顺序用上移 / 下移表达（根路由锁定不可移动）
@@ -465,29 +644,36 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(remove).toHaveBeenCalledWith('root/1')
   })
 
-  // 验收 1：保存 = 生成整份配置 → 复用既有挂载端点 → M09 变更单（不即时生效）
-  it('保存：点击「保存并提交变更」触发保存链路，并明示不即时生效', async () => {
+  // 验收 1：保存 = 生成整份配置 → 复用既有挂载端点 → 产 M09 pending 变更单（需人工确认才生效）
+  // 2026-10-09（立场 1，关闭自动闭环）：文案口径随之修订——提交**不再**自动生效，
+  // 必须由用户在 M09「配置变更确认」人工确认。
+  it('保存：点击「保存并提交变更」触发保存链路，并明示需在「配置变更确认」人工确认', async () => {
     const save = vi.fn(async () => true)
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported', save }))
     renderPage()
-    expect(screen.getByText(/进入变更单人工确认后下发生效，不即时生效/)).toBeInTheDocument()
+    expect(screen.getByText(/需在「配置变更确认」中人工确认后才会写入并 reload/)).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('route-save-btn'))
     await waitFor(() => expect(save).toHaveBeenCalled())
   })
 
-  it('保存结果：成功后展示「已提交，待变更单确认下发」', () => {
+  it('保存结果：成功后明示等待人工确认，并给出「配置变更确认」跳转入口', () => {
     useRouteEditorMock.mockReturnValue(
       editorResult({
         tree: editTree,
         importState: 'imported',
         saveResult: {
           ok: true,
-          message: '已生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后下发生效（不即时生效）。',
+          message: '已生成整份 alertmanager.yml 并提交挂载。改动不会自动生效——请前往「配置变更确认」人工确认，确认后才会写入并 reload Alertmanager。',
         },
       }),
     )
     renderPage()
-    expect(screen.getByTestId('route-save-result')).toHaveTextContent('已提交，待变更单确认下发')
+    const result = screen.getByTestId('route-save-result')
+    expect(result).toHaveTextContent('已提交，等待你在「配置变更确认」中确认下发')
+    // 护栏：成功后的唯一下一步是去 M09 确认，必须有可点入口（否则用户无路可走，
+    // 会重现「提示要去确认、却找不到入口」的断链）。
+    const link = within(result).getByRole('link', { name: '前往「配置变更确认」' })
+    expect(link).toHaveAttribute('href', '/config-preview')
   })
 
   // 验收 5：接收人悬空 → 红字阻断
@@ -545,6 +731,60 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(screen.getByTestId('route-save-btn')).toBeEnabled()
   })
 
+  // 2026-10-14 布局优化：条件提示四合一。
+  // 原先 blocking / warnings / partial / saveResult 各占一条满宽 Alert，最坏情况四条同屏——
+  // 同样醒目、同样占宽的色块把「真正阻断保存的那条」淹没了。现收敛为一张「需要处理」卡，
+  // 条目按 severity 从高到低排列。
+  it('需要处理卡：多条提示收敛进同一张卡，且 error 级排在最前', () => {
+    useRouteEditorMock.mockReturnValue(
+      editorResult({
+        tree: editTree,
+        importState: 'partial',
+        importNotice: '有 2 条规则无法被平台完整解析，请手动校正后再保存',
+        issues: [],
+        blocking: [
+          {
+            level: 'error',
+            code: 'receiver_dangling',
+            node_id: 'root/0',
+            field: 'receiver',
+            message: '接收人「sre-critical」未定义（对应通知渠道未启用或已删除），告警将无处可发',
+          },
+        ],
+        warnings: [
+          {
+            level: 'warning',
+            code: 'repeat_interval_not_multiple_of_group_interval',
+            node_id: 'root/0',
+            field: 'repeat_interval',
+            message: '重复间隔 7m 不是分组间隔 5m 的整数倍，Alertmanager 会向上取整（可保存）',
+          },
+        ],
+      }),
+    )
+    renderPage()
+    const card = screen.getByTestId('route-notices')
+    expect(within(card).getByText('需要处理')).toBeInTheDocument()
+    // 三条提示同在卡内
+    expect(within(card).getByTestId('route-precheck-blocking')).toHaveTextContent('必须修正后才能保存')
+    expect(within(card).getByTestId('route-precheck-warning')).toHaveTextContent('有 1 项建议确认')
+    expect(within(card).getByTestId('route-import-notice')).toHaveTextContent('部分导入：不可无损导入')
+    // 排序护栏：阻断项必须排在警告/建议之前，否则「先看哪条」失去意义
+    const alertOrder = Array.from(card.querySelectorAll('[data-testid]')).map((el) =>
+      el.getAttribute('data-testid'),
+    )
+    expect(alertOrder.indexOf('route-precheck-blocking')).toBeLessThan(
+      alertOrder.indexOf('route-import-notice'),
+    )
+  })
+
+  // 收敛后的反向护栏：没有任何待处理项时不该留空壳卡。
+  it('需要处理卡：无待处理项时不渲染', () => {
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+    expect(screen.queryByTestId('route-notices')).toBeNull()
+  })
+
   // 编辑抽屉：点「编辑」打开三段式抽屉（标题 = 编辑路由规则）
   it('编辑入口：点击行内「编辑」打开三段式抽屉', async () => {
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
@@ -555,11 +795,474 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
   })
 
   // 未导入时：新建 / 保存禁用（先导入或新建才有可保存的树）
-  it('未导入时：新建与保存禁用，仅「从当前配置导入」可用', () => {
+  //
+  // 2026-10-08 语义变更：编辑态改为**首屏自动导入**（只读树加载完成即灌入），故正常路径下
+  // 页面加载完就已经是 imported 态、按钮可点；「未导入」只在**解析失败降级**时出现
+  // （自动导入对 parse_error 场景刻意不生效，见 useRouteEditor 的 autoImportedRef 注释）。
+  it('未导入态（解析失败降级）：新建与保存禁用，导入按钮可用并说明如何进入编辑', () => {
     useRouteEditorMock.mockReturnValue(editorResult())
     renderPage()
     expect(screen.getByTestId('route-new-btn')).toBeDisabled()
     expect(screen.getByTestId('route-save-btn')).toBeDisabled()
     expect(screen.getByTestId('route-import-btn')).toBeEnabled()
+    // 按钮文案：未进入编辑态时说「从当前配置导入」，并解释它能干什么
+    expect(screen.getByTestId('route-import-btn').textContent ?? '').toContain('从当前配置导入')
+  })
+
+  it('已导入态：新建与保存可点，导入按钮改称「重新载入」', () => {
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+    expect(screen.getByTestId('route-new-btn')).toBeEnabled()
+    expect(screen.getByTestId('route-save-btn')).toBeEnabled()
+    expect(screen.getByTestId('route-import-btn').textContent ?? '').toContain('重新载入')
+  })
+
+  /**
+   * 2026-10-08 两个阻断修复的**接线护栏**（页面层）：
+   *   - `ready`（只读树加载完成）必须传给 useRouteEditor —— 否则首屏自动导入不触发，
+   *     「新建 / 保存」按钮会退回恒灰的老症状；
+   *   - `declaredReceivers`（文件 receivers: 段已声明名，含手写）必须传下去 ——
+   *     否则 knownReceivers 只有平台物化名，手写 receiver 被判悬空、预检整片阻断。
+   * 这两条只靠 useRouteEditor 的 Hook 单测覆盖不到（mock 掉了 Hook），故在页面层断言。
+   */
+  it('接线：ready 与 declaredReceivers 透传给 useRouteEditor', () => {
+    useRoutesMock.mockReturnValue(
+      result({
+        data: {
+          mode: 'handwritten',
+          items: [rootNode, childA],
+          dead_receivers: [],
+          declared_receivers: ['feishu', 'notify-1'],
+        },
+      }),
+    )
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.ready).toBe(true)
+    expect(opts.declaredReceivers).toEqual(['feishu', 'notify-1'])
+    // 源数据与解析状态同样透传（自动导入依赖二者）
+    expect(opts.sourceItems).toHaveLength(2)
+  })
+
+  it('接线：加载中（ready=false）不得触发自动导入', () => {
+    useRoutesMock.mockReturnValue(result({ loading: true, ready: false }))
+    useRouteEditorMock.mockReturnValue(editorResult())
+    renderPage()
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.ready).toBe(false)
+  })
+
+  it('接线：解析失败时把 parseError 传下去（自动导入据此不触发）', () => {
+    useRoutesMock.mockReturnValue(
+      result({
+        data: {
+          mode: 'handwritten',
+          parse_error: 'route.routes 不是列表，无法解析子路由',
+          raw_yaml: 'route:\n  receiver: default\n',
+        },
+      }),
+    )
+    useRouteEditorMock.mockReturnValue(editorResult())
+    renderPage()
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.parseError).toContain('不是列表')
+  })
+})
+
+// =====================================================================
+// T08-SPLIT-01（2026-10-13）：「路由与收敛策略」卡由**告警配置页迁入本页**常驻「路由设置」卡。
+//
+// 迁移动因：兜底控件（顶层路由接收人）与顶层路由行分处两页，用户改一处、另一处会被后端
+// `materializeRootRouteReceiver`（**不判 mode**，决策 113 口径 C）静默覆盖。现两控件与顶层路由同屏。
+//
+// 本组用例由 AlertConfigPage.test.tsx **整体迁入**（覆盖点一一对应，无删减）：
+//   · T08-F8 兜底渠道下拉：建议值诚实口径 / 二次确认（护栏①）/ 选「不接管」（护栏③）/
+//     保存 400 错误文案 / 结论 Tag 只说状态不复述渠道名 / 未接管不得写「发往」
+//   · T08-F12 模式 Segmented：二选一 + 二次确认透传 mode / **决策二+三**切手写自动置「不接管」
+//     且合并为同一次 PUT / **决策四**切回「平台生成」不自动接管 / 后果说明随 mode 切换 /
+//     二次确认明说页面可编辑性 / §6.3 手写模式下平台仍接管兜底
+//   · 决策五原句常驻落位、顶层路由行内兜底结论 Tag
+// =====================================================================
+describe('RoutesPage 路由设置卡（T08-SPLIT-01 迁入）', () => {
+  setupAntdTest()
+
+  const openFallbackSelect = () =>
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' }))
+  const pickFallbackOption = async (text: string | RegExp) => {
+    const opts = await screen.findAllByText(text)
+    // 下拉项挂在 body 末尾的 portal 中；已选中值也在选择器内展示，故取最后一个（下拉项）
+    fireEvent.click(opts[opts.length - 1])
+  }
+  const modeSegment = (label: '我来编辑' | '平台生成') => screen.getByRole('radio', { name: label })
+  const clickModeSegment = (label: '我来编辑' | '平台生成') => fireEvent.click(modeSegment(label))
+
+  /** 构造 route-setting 返回值（setting 局部覆盖） */
+  const settingOf = (over: Record<string, unknown>) =>
+    routeSettingResult({
+      setting: {
+        enabled: false,
+        default_receiver_channel_id: null,
+        effective_receiver_name: 'auto-default-recv',
+        effective_source: 'auto_first_enabled',
+        mode: 'handwritten',
+        ...over,
+      },
+    })
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    useRoutesMock.mockReset()
+    useRoutesMock.mockReturnValue(result({ data: { mode: 'handwritten', items: [rootNode], dead_receivers: [] } }))
+    useRouteEditorMock.mockReset()
+    useRouteEditorMock.mockReturnValue(editorResult())
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue(routeSettingResult())
+    saveRouteSettingMock.mockReset()
+    saveRouteSettingMock.mockResolvedValue(routeSettingResult().setting)
+    reloadRouteSettingMock.mockReset()
+  })
+
+  // 迁入后的基本形态：一张**常驻**「路由设置」卡，两个控件同屏（不再藏在告警配置页）
+  it('迁入形态：常驻「路由设置」卡同时承载兜底渠道下拉与模式 Segmented', () => {
+    renderPage()
+    const card = screen.getByTestId('route-setting-card')
+    expect(card).toBeInTheDocument()
+    expect(screen.getByText('路由设置')).toBeInTheDocument()
+    expect(card).toContainElement(screen.getByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' }))
+    expect(card).toContainElement(screen.getByLabelText('路由规则由谁维护'))
+    // 两个控件均为常驻，无需任何展开动作
+    expect(card.querySelector('.ant-segmented')).not.toBeNull()
+  })
+
+  // 决策五（原句落位，不得改写）：手写整份文件 ≠ 交出兜底。后端 materializeRootRouteReceiver
+  // 不判 mode，手写模式下平台仍会替换顶层路由接收人——不明写会被理解成「交出全部控制权」。
+  it('决策五：兜底控件旁常驻「手写整份文件 ≠ 交出兜底」原句', () => {
+    renderPage()
+    const tip = screen.getByTestId('route-setting-independence-tip')
+    expect(tip.textContent ?? '').toContain('即使你选择自己手写整份配置')
+    expect(tip.textContent ?? '').toContain('想完全自己控制，请选『不接管』')
+  })
+
+  // 顶层路由行内明写「接收人由上方路由设置决定」，避免用户盯着这一行反复找接收人下拉
+  it('顶层路由行内展示兜底结论 Tag（仅平台生成模式，本页可编辑时才需要提示改入口在哪）', () => {
+    // handwritten：整页只读，用户改不了，无提示必要
+    renderPage()
+    expect(screen.queryByTestId('route-root-fallback-tag')).toBeNull()
+
+    // managed：行内出现指向「路由设置」的 Tag
+    useRoutesMock.mockReturnValue(result({ data: { mode: 'managed', items: [rootNode], dead_receivers: [] } }))
+    useRouteSettingMock.mockReturnValue(settingOf({ mode: 'managed' }))
+    renderPage()
+    expect(screen.getByTestId('route-root-fallback-tag')).toHaveTextContent('兜底接收人由上方「路由设置」决定')
+  })
+
+  // T08-F8-①：未设定（auto_first_enabled）时**平台不接管**，effective_receiver_name 仅为建议值。
+  // 旧实现渲染成「发往 X」，与下拉框显示的「不接管」自相矛盾，用户实测判为界面不可信。
+  it('T08-F8：未设定时展示自动建议来源，下拉首项为「不接管」，结论不得写「发往」', () => {
+    renderPage()
+    // 下拉首项 = 「不接管」且为当前选中值（NONE_RECEIVER_VALUE = -1）
+    expect(screen.getByText('不接管（保留配置文件里已有的值）')).toBeInTheDocument()
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('未接管')
+    expect(conclusion).toContain('建议值')
+    expect(conclusion).not.toContain('发往')
+    // 不展示平台内部 receiver 名（对"我选了哪个渠道"无帮助）
+    expect(conclusion).not.toContain('auto-default-recv')
+    expect(conclusion).toContain('已启用渠道')
+  })
+
+  // T08-F8-②：护栏①——选定渠道 = 授权平台接管，必须先经二次确认，且文案不得暴露实现字段名
+  it('T08-F8：选定渠道触发二次确认（护栏①），文案不含实现字段名，确认后写入该渠道', async () => {
+    const modal = mockAntdModal()
+    renderPage()
+    openFallbackSelect()
+    await pickFallbackOption('SRE 飞书群')
+    expect(modal.confirm).toHaveBeenCalled()
+    const cfg = modal.confirm.mock.calls[0][0]
+    expect(String(cfg.title)).toContain('确认由平台接管这类告警')
+    // 术语去技术化护栏：确认弹窗不得暴露 route 段字段名
+    expect(String(cfg.content)).not.toContain('route.receiver')
+    expect(String(cfg.content)).not.toContain('route.routes[]')
+    // 仍需明示「只替换一个值」这一关键语义（决策 113 口径 C）
+    expect(String(cfg.content)).toContain('不受影响')
+    expect(String(cfg.content)).toContain('不触碰 group_by')
+    // 未确认前不写入
+    expect(saveRouteSettingMock).not.toHaveBeenCalled()
+    await (cfg.onOk as () => Promise<void>)()
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(1)
+  })
+
+  // T08-F8-③：护栏③——选「不接管」= 停止替换、不删最后写入的值；无阻断交互，保存后明示结果
+  it('T08-F8：选「不接管」以 null 关闭接管，并提示已停止替换、最后写入值保留（护栏③）', async () => {
+    useRouteSettingMock.mockReturnValue(
+      settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'sre-feishu-qun', effective_source: 'explicit' }),
+    )
+    renderPage()
+    openFallbackSelect()
+    await pickFallbackOption('不接管（保留配置文件里已有的值）')
+    await waitFor(() => expect(saveRouteSettingMock).toHaveBeenCalledWith(null))
+    expect(await screen.findByText(/已停止由平台指定这条兜底接收人/)).toBeInTheDocument()
+    expect(await screen.findByText(/最后写入的值保留在配置文件中/)).toBeInTheDocument()
+  })
+
+  it('T08-F8：保存返回 400（渠道不存在 / 未启用）时提示后端错误文案', async () => {
+    saveRouteSettingMock.mockRejectedValue(new ApiError('指定的通知渠道不存在或未启用', 400, 'bad_request'))
+    const modal = mockAntdModal()
+    renderPage()
+    openFallbackSelect()
+    await pickFallbackOption('SRE 飞书群')
+    await (modal.confirm.mock.calls[0][0].onOk as () => Promise<void>)()
+    expect(await screen.findByText('指定的通知渠道不存在或未启用')).toBeInTheDocument()
+  })
+
+  // T08-F8-④：已接管（explicit + enabled）时结论才可说「发往」；且**不复述渠道名 / 接收人名**
+  // —— 结论 Tag 与下拉框是并列的两个独立元素，复述渠道名会让用户做一道连线题（2026-10-08 用户实测）。
+  it('T08-F8：已接管时展示「已接管」结论，且不复述渠道名（消除左右对应关系歧义）', () => {
+    useRouteSettingMock.mockReturnValue(
+      settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'notify-1', effective_source: 'explicit' }),
+    )
+    renderPage()
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('已接管')
+    expect(conclusion).toContain('发往')
+    // 用「你选中的渠道」回指控件，明确左右是同一个
+    expect(conclusion).toContain('你选中的渠道')
+    // 不得复述平台内部接收人标识
+    expect(conclusion).not.toContain('notify-1')
+  })
+
+  // §6.3 的非直觉事实必须有回归护栏：「我来编辑」模式下平台**仍**接管根兜底接收人单键。
+  // 若未来有人给 MaterializeRootRouteReceiver 补上 mode 门禁，本用例会失败并提示同步更新口径。
+  it('§6.3：「我来编辑」模式下平台仍接管兜底接收人，关系结论不得谎报「平台不接管」', () => {
+    useRouteSettingMock.mockReturnValue(
+      settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'sre-feishu-qun', effective_source: 'explicit' }),
+    )
+    renderPage()
+    const summary = screen.getByTestId('route-setting-summary').textContent ?? ''
+    expect(summary).toContain('路由规则由你来编辑')
+    expect(summary).toContain('未匹配任何规则的告警发往 sre-feishu-qun')
+    expect(summary).toContain('平台已接管')
+  })
+
+  // T08-F12-①：Segmented 二选一切换即二次确认，确认后透传 mode=managed
+  it('T08-F12：「路由规则由谁维护」以 Segmented 二选一呈现，我来编辑→平台生成 触发二次确认并透传 mode=managed', async () => {
+    const modal = mockAntdModal()
+    renderPage()
+    // 二选一语义：两个 radio 而非一个开关
+    expect(screen.getByLabelText('路由规则由谁维护')).toBeInTheDocument()
+    expect(modeSegment('我来编辑')).toBeChecked()
+    expect(modeSegment('平台生成')).not.toBeChecked()
+    // 初始态关系结论点明「由你来编辑」
+    expect(screen.getByTestId('route-setting-summary').textContent ?? '').toContain('路由规则由你来编辑')
+    // 切到「平台生成」→ 二次确认
+    clickModeSegment('平台生成')
+    expect(modal.confirm).toHaveBeenCalled()
+    const cfg = modal.confirm.mock.calls[0][0]
+    expect(String(cfg.title)).toContain('切换为「平台生成」')
+    // 术语去技术化护栏：确认弹窗不得暴露「route 段」这类实现术语
+    expect(String(cfg.title)).not.toContain('route 段')
+    expect(String(cfg.content)).not.toContain('route 段')
+    // 未确认前不写入
+    expect(saveRouteSettingMock).not.toHaveBeenCalled()
+    await (cfg.onOk as () => Promise<void>)()
+    // 当前未选定兜底渠道 → channelId=null，连同 mode='managed' 一并写入
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(null, 'managed')
+  })
+
+  /**
+   * 决策二 + 决策三（2026-10-13）：切到「我来编辑」时兜底**自动置「不接管」**。
+   *
+   * - 决策二为何选「不接管」而非「禁用渠道」：渠道一旦停用，根路由里已写入的
+   *   `receiver: notify-N` 会变成悬空引用，`amtool check-config` 失败 / AM 拒绝加载。
+   * - 决策三为何合并提交：拆成两次 `PUT route-setting` 会产生**用户未主动发起**的独立变更单，
+   *   违反决策 42-1（抑制空变更单 / 每条变更项须自解释）。
+   */
+  it('决策二+三：平台生成→我来编辑 自动把兜底置「不接管」，并与 mode 合并进**同一次**保存', async () => {
+    useRouteSettingMock.mockReturnValue(
+      settingOf({ enabled: true, default_receiver_channel_id: 3, effective_receiver_name: 'sre-qun', effective_source: 'explicit', mode: 'managed' }),
+    )
+    const modal = mockAntdModal()
+    renderPage()
+    expect(modeSegment('平台生成')).toBeChecked()
+    clickModeSegment('我来编辑')
+    const cfg = modal.confirm.mock.calls[0][0]
+    expect(String(cfg.title)).toContain('切换为「我来编辑」')
+    // 护栏§11.6：切到「我来编辑」明示「不删除已生成的路由内容」
+    expect(String(cfg.content)).toContain('已生成')
+    // 决策二：弹窗须明说兜底将由「当前渠道」变为「不接管」（含当前渠道名，便于用户核对）
+    expect(String(cfg.content)).toContain('平台将不再接管顶层路由的兜底接收人')
+    expect(String(cfg.content)).toContain('不接管')
+    await (cfg.onOk as () => Promise<void>)()
+    // 决策三：**一次**调用同时携带 null（不接管）与 mode（handwritten），不发第二个请求
+    expect(saveRouteSettingMock).toHaveBeenCalledTimes(1)
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(null, 'handwritten')
+  })
+
+  // 决策四：切回「平台生成」**不自动接管**——兜底保持「不接管」等用户显式选择，
+  // 否则用户会莫名其妙多出一个变更项（他只点了模式开关）。
+  it('决策四：切回「平台生成」不自动接管兜底（保持当前「不接管」值）', async () => {
+    useRouteSettingMock.mockReturnValue(settingOf({ mode: 'handwritten' }))
+    const modal = mockAntdModal()
+    renderPage()
+    clickModeSegment('平台生成')
+    const cfg = modal.confirm.mock.calls[0][0]
+    // 切回走「平台产出」分支：文案只讲路由由谁产出 + 手写内容会被覆盖
+    expect(String(cfg.content)).toContain('路由规则由平台产出')
+    expect(String(cfg.content)).toContain('会被平台生成内容覆盖')
+    // 决策四：当前未接管 → 弹窗不得出现「将不再接管」这类释放话术
+    expect(String(cfg.content)).not.toContain('平台将不再接管顶层路由的兜底接收人')
+    await (cfg.onOk as () => Promise<void>)()
+    expect(saveRouteSettingMock).toHaveBeenCalledTimes(1)
+    // 核心判据：兜底仍传 null（不接管），**没有**被自动接管
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(null, 'managed')
+    expect(await screen.findByText(/已切换为「平台生成」：可在路由规则页直接编辑/)).toBeInTheDocument()
+  })
+
+  // 已在接管某渠道时切回「平台生成」：**保留**当前渠道 ID（不释放），仅改 mode
+  it('决策四（续）：切回「平台生成」时保留已接管的兜底渠道，不释放', async () => {
+    useRouteSettingMock.mockReturnValue(
+      settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'sre-feishu-qun', effective_source: 'explicit', mode: 'handwritten' }),
+    )
+    const modal = mockAntdModal()
+    renderPage()
+    clickModeSegment('平台生成')
+    await (modal.confirm.mock.calls[0][0].onOk as () => Promise<void>)()
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(1, 'managed')
+  })
+
+  // 2026-10-08：Segmented 只有两个短词，承载不了「选了之后路由规则页会怎样」——
+  // 而这正是实测中被误解的点（选「我来编辑」→ 页面变只读 → 判为故障）。
+  // 故控件下方必须常驻一行后果说明，且**随 mode 切换**（方向以门禁 isRouteEditable 为准）。
+  it('模式控件下方常驻一行后果说明，且随 mode 切换措辞（handwritten=只读 / managed=可编辑）', () => {
+    const { unmount } = renderPage()
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('只读视图')
+    unmount()
+
+    useRouteSettingMock.mockReturnValue(settingOf({ mode: 'managed' }))
+    renderPage()
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('直接增删改路由')
+  })
+
+  // 二次确认弹窗必须**明说页面可编辑性**，而不只讲产物归属——旧文案只说"平台停止生成 /
+  // 平台接管"，用户无法据此判断路由页还能不能编辑。
+  it('模式切换二次确认明说页面可编辑性后果', () => {
+    const modal = mockAntdModal()
+    const { unmount } = renderPage()
+
+    // 切到「平台生成」→ 弹窗须说「可直接编辑」
+    clickModeSegment('平台生成')
+    const cfgManaged = modal.confirm.mock.calls[0][0]
+    expect(String(cfgManaged.content)).toContain('直接增删改')
+    unmount()
+
+    // 切到「我来编辑」→ 弹窗须说页面只读 + 保留已生成内容
+    useRouteSettingMock.mockReturnValue(settingOf({ mode: 'managed' }))
+    renderPage()
+    clickModeSegment('我来编辑')
+    const cfgHandwritten = modal.confirm.mock.calls[1][0]
+    expect(String(cfgHandwritten.content)).toContain('路由规则页')
+    expect(String(cfgHandwritten.content)).toContain('只读')
+    expect(String(cfgHandwritten.content)).toContain('已生成')
+  })
+
+  // 「不即时生效 / 需经变更单确认」口径不因迁移而丢失
+  it('口径保持：路由改动仍需经「配置变更确认」，不即时生效', () => {
+    useRoutesMock.mockReturnValue(result({ data: { mode: 'managed', items: [rootNode], dead_receivers: [] } }))
+    useRouteSettingMock.mockReturnValue(settingOf({ mode: 'managed' }))
+    renderPage()
+    expect(screen.getByText(/不即时生效/)).toBeInTheDocument()
+  })
+
+  it('route-setting 加载失败：卡内展示错误与「重试」，点击触发 reload', () => {
+    useRouteSettingMock.mockReturnValue(routeSettingResult({ error: 'boom' }))
+    renderPage()
+    expect(screen.getByText(/设定加载失败：boom/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(reloadRouteSettingMock).toHaveBeenCalled()
+  })
+
+  /**
+   * 三态差值提示（2026-10-14）：改兜底只写库 + 补产 pending 变更单，**不立即生效**
+   * （决策 60 冻结：`PUT /route-setting` 响应不含下发状态）。而路由树首行读的是产物视图，
+   * 于是下拉已变、树里还是旧值，两个位置各说各话。判据纯前端推导：比对
+   * `effective_receiver_name`（设定值）与 `data.items[0].receiver`（生效值）两个现成事实，
+   * 不查变更单（`GET /config-drafts` 无管理域/变更类型过滤，告警单与采集单混列，无法可靠归属）。
+   */
+  describe('兜底「设定 ≠ 已生效」三态提示', () => {
+    // 平台已接管、设定值与产物值不一致 → pending：已提交待人工确认下发
+    it('pending：已接管且设定值 ≠ 生效值 → 横幅给「前往确认」入口，树内首行加灰字标注', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'notify-2', effective_source: 'explicit' }),
+      )
+      renderPage()
+      // 树首行 receiver 为 'default'，与设定值 'notify-2' 不符 → 落差
+      const banner = screen.getByTestId('route-fallback-pending')
+      expect(banner).toHaveTextContent('尚未生效')
+      // 必须给出下一步入口，否则用户只能靠推断（这正是本次要修的缺陷）
+      const link = within(banner).getByRole('link', { name: '前往「配置变更确认」' })
+      expect(link).toHaveAttribute('href', '/config-preview')
+      // 行内灰字只陈述「当前事实」，真正需要动作的是上方横幅
+      expect(screen.getByTestId('route-root-live-note')).toHaveTextContent('生效中（上方设定待确认下发）')
+    })
+
+    // 设定过但平台未接管（渠道已停用/删除）→ unusable：等确认下发也换不来生效
+    it('unusable：设定过兜底渠道但平台未接管 → 横幅指引回「通知渠道」，不给确认入口', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: false, default_receiver_channel_id: 1, effective_receiver_name: 'notify-1', effective_source: 'none' }),
+      )
+      renderPage()
+      const banner = screen.getByTestId('route-fallback-unusable')
+      expect(banner).toHaveTextContent('兜底渠道已停用，平台未接管')
+      // 与 pending 表面症状相同但根因不同：给「前往确认」只会让用户白跑一趟
+      expect(within(banner).queryByRole('link')).toBeNull()
+      expect(screen.getByTestId('route-root-live-note')).toHaveTextContent('生效中（平台未接管兜底）')
+    })
+
+    // 两值一致 → 无需任何提示
+    it('一致态：设定值 = 生效值 → 两个横幅都不出现', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 2, effective_receiver_name: 'default', effective_source: 'explicit' }),
+      )
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+      expect(screen.queryByTestId('route-fallback-unusable')).toBeNull()
+      expect(screen.queryByTestId('route-root-live-note')).toBeNull()
+    })
+
+    // 护栏：判据必须比**原始值**（AM receiver 名），不是展示值。
+    // 展示值经 receiverChannelNames 映射成渠道中文名，两侧口径不同，比展示值必误判——
+    // 树里显示「运维飞书告警群（default）」而设定值是 'default'，原始值相同 = 无落差。
+    it('判据护栏：比对原始 receiver 名而非渠道展示值（展示名不同也不误报 pending）', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 2, effective_receiver_name: 'default', effective_source: 'explicit' }),
+      )
+      useRouteEditorMock.mockReturnValue(
+        editorResult({ knownReceivers: ['default'], receiverChannelNames: { default: '运维飞书告警群' } }),
+      )
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+      expect(screen.getByTestId('route-receiver-channel')).toHaveTextContent('运维飞书告警群（default）')
+    })
+
+    // 值不可信时一律不提示：加载未就绪 / 解析降级（此时树未渲染或值不可信）
+    it('加载未就绪或解析降级时不提示（避免拿不可信的值做判据）', () => {
+      useRouteSettingMock.mockReturnValue(
+        settingOf({ enabled: true, default_receiver_channel_id: 1, effective_receiver_name: 'notify-2', effective_source: 'explicit' }),
+      )
+      const { unmount } = render(
+        <MemoryRouter>
+          <App>
+            <RoutesPage />
+          </App>
+        </MemoryRouter>,
+      )
+      unmount()
+
+      useRoutesMock.mockReturnValue(result({ loading: true, ready: false }))
+      renderPage()
+      expect(screen.queryByTestId('route-fallback-pending')).toBeNull()
+    })
   })
 })

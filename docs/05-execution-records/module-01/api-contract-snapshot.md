@@ -12,10 +12,10 @@
 | 模块 | module-01-strategy |
 | 分支 | feat/module-01-strategy |
 | 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v3.35） |
-| 生成方式 | planner Phase 2 派生（code-sequence-planner）；v2026-09-05 重派生覆盖 v3.27~v3.31 契约变更（决策 47-1/47-2 安装确认拆闸门 + 实例采集状态回显、决策 53/54 filter 与网域扇出挪移口径、v3.29 coverage 边界、F-32 三来源登记），v3.32~v3.35 为 §0 叙事层、无契约影响 |
+| 生成方式 | planner Phase 2 派生（code-sequence-planner）；v2026-09-05 重派生覆盖 v3.27~v3.31 契约变更（决策 47-1/47-2 安装确认拆闸门 + 实例采集状态回显、决策 53/54 filter 与网域扇出挪移口径、v3.29 coverage 边界、F-32 三来源登记），v3.32~v3.35 为 §0 叙事层、无契约影响；**v2026-10-10 增量**（T01-P1~P8 端口链回填）：资源 DTO `scrape_port` 四通道（§10/§11）、Job 响应 `port`/`port_source` 生效端口回显（§6）、`port_source` 五值枚举（§9） |
 | 来源 | PRD `Module_01_Metric_Collection_Center.md` v3.35 §3/§5/§6/§8/§9/§10/§11；`03_API_Standard.md` §3/§7；`task-sequence.yaml` |
 
-> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）；**v0.2 能力**（快照不展开，契约见 `05_Code_Implementation_Plan.md` Phase 6.5 与 M07/M09 快照）：filter 实例筛选（决策 53）、Job 多网域绑定 + M09 按域扇出（决策 54）、网域级覆盖表 `CITypeExporterMappingOverride`、实例级端口覆盖（M07 `Resource.scrape_port`）、cAdvisor 容器资源监控；**v0.3+**：草稿保存 + 批量提交生效交互（字段已落库，仅 UI 交互挪移）、克隆 Job（v0.3+ 待评估）、业务健康度看板、`service_discovery`（docker_sd / kubernetes_sd 预留）。
+> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）；**v0.2 能力**（快照不展开，契约见 `05_Code_Implementation_Plan.md` Phase 6.5 与 M07/M09 快照）：filter 实例筛选（决策 53）、Job 多网域绑定 + M09 按域扇出（决策 54）、网域级覆盖表 `CITypeExporterMappingOverride`、cAdvisor 容器资源监控（**实例级端口覆盖 `Resource.scrape_port` 已提前于 v0.1 落地**——T01-P1，见 §6 生效端口回显与 §10 字段口径）；**v0.3+**：草稿保存 + 批量提交生效交互（字段已落库，仅 UI 交互挪移）、克隆 Job（v0.3+ 待评估）、业务健康度看板、`service_discovery`（docker_sd / kubernetes_sd 预留）。
 
 ## 1. 通用契约
 
@@ -83,10 +83,10 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/scrape-jobs/instance-candidates` | `monitor_type`(必填)、`network_domain_id`(必填)、`keyword`、`page`、`page_size` | `{list,...}`；item=InstanceCandidate{resource_id, instance_name, instance_ip, status, disabled}（status=offline 时 disabled=true 置灰） | — | §5.4/决策29 |
-| GET | `/scrape-jobs/:id/instances` | — | `{items,total}`：已选实例 + 安装状态（unconfirmed/confirmed） | `not_found` | §6.2.5 |
+| GET | `/scrape-jobs/:id/instances` | — | `{items,total,missing_count}`：已选实例 + 安装状态（unconfirmed/confirmed）；`items[]` 每项含只读 `port`(int)/`port_source`(string) 生效端口回显（T01-P4，口径见下方「生效端口与来源回显」）；`total` = 有效实例数（`items.length`，后端已过滤软删/失效引用），`missing_count` = 选中集引用、但资源已被软删/不存在的失效引用数（F-39：分母与分子同源，缺失引用不虚高分母） | `not_found` | §6.2.5 |
 | POST | `/scrape-jobs/:id/instances/:resource_id/confirm` | `{confirmed_by(必填), actual_port?, notes?}` | 确认记录 | `bad_request`：资源不在选中集/非同域；`not_found` | §6.2.5 |
 | DELETE | `/scrape-jobs/:id/instances/:resource_id/confirm` | — | `{resource_id, job_id}` | `not_found` | §6.2.5 |
-| POST | `/scrape-jobs/:id/preview-targets` | — | 解析后的目标清单（standard→实例地址；blackbox→targets） | `not_found` | L2 接口预览 |
+| POST | `/scrape-jobs/:id/preview-targets` | — | 解析后的目标清单（standard→实例地址；blackbox→targets）；`data.targets[]` 每项含只读 `port`(int)/`port_source`(string)（与 instances 同口径，见下方「生效端口与来源回显」） | `not_found` | L2 接口预览 |
 
 **安装确认维度（用户决策）**：ExporterInstallationConfirmation 的 **PK = (resource_id, scrape_job_id)**，FK scrape_job_id→ScrapeJob.id；`exporter_template_id` 为冗余缓存（来自 ScrapeJob，不参与唯一性）；status∈{unconfirmed, confirmed, not_applicable}（blackbox/application_http 用 not_applicable，不落确认记录）。PRD §5.6/§8 ④ 主键维度已于 v3.27（决策 47-1）修订一致，实施以本行 + §6.2.5/§8④ 为准。
 
@@ -100,6 +100,14 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 > - **实例级「采集状态」列**（四态，枚举值见 §9）：`pending`（待采集：已入选 `selected_instance_ids` 但 target 未在 Prometheus 生效——新勾选/新保存实例默认进入）/ `up`（正常：M02 targets 返回 `health=up`，低饱和展示）/ `down`（异常：`health=down`，高饱和 + 附 `lastError` 摘要，提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」）/ `unknown`（已生效但暂无抓取结果，展示 `-` 附最后抓取时间）。
 > - 前端定时刷新（建议 15~30s）或手动刷新，只读不阻断编辑保存；blackbox 拨测目标同口径（up/down 对应 `probe_success`），不涉及安装登记；本模块不直连 Prometheus、不落持久状态。
 > - **与 coverage 三态的边界（决策 47-3 + PRD v3.29 口径）**：M02 `/api/v1/health/coverage` 与 M07 三态 badge **不区分「待采集」**——选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」；「待采集 vs 已下发未采到」细分**仅由本模块回显承担**（本模块持有 `change_status`，可对「变更未确认下发」单独标识）。
+
+> **生效端口与来源回显（T01-P4，v2026-10-10 增量）**：`GET /scrape-jobs/:id/instances` 的 `items[]` 与 `POST /scrape-jobs/:id/preview-targets` 的 `data.targets[]` 每项新增两个只读字段：
+> - `port`(int)：生效采集端口；未解析（unresolved）时为 `0`，前端展示 `-`（不展示 `0`，失败态口径见提案 §9）。
+> - `port_source`(string)：来源枚举五值 `instance` / `mapping` / `template` / `business` / `unresolved`（§9）。由共享包 `platform/configcenter/portchain` 的 `Resolve` 纯函数按**四级链**判定（权威链定义见提案 `resource-scrape-port-chain.md` §5.1）：实例 `scrape_port` → 类型映射 `CITypeExporterMapping.default_port`（`is_default=true` 行）→ 采集器模板 `ExporterTemplate.default_port`（**仅按 `job.exporter_template_id` 取**，与生成器 `LoadExporterPort` 同口径，保证回显端口 = 下发 target 端口）→ 业务 `port` 兜底；全 0 → `unresolved`。
+> - **`business` 仅 db/mw 可产生（Q1 硬约束）**：host 无业务端口概念、第 4 参恒 0，永不产生 `business`；application / generic_target 的端口为资源自身属性、**不进层级链**——直传 `Resolve(资源行 port, 0, 0, 0)`，`port_source` 归一 `instance`（`port=0` 时 `unresolved`）。
+> - **D-4：`business` 来源后端不阻断**——照常 HTTP 200 + `status=success`、无 `errorType`/warning，仅前端展示「⚠️ 业务端口兜底，请确认 exporter 是否监听该端口」警示。
+> - **blackbox 项不进链**：`port=0`、`port_source=""`（拨测目标为完整地址，无端口解析概念）。
+> - 后端无第二套解析实现：`platform/strategy/scrapejob/` 仅 import `portchain`，mapping/template 层数据为独立入参传入（层加载与判定分离）。
 
 ## 7. MonitoringRule（MVP 文件挂载）API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
@@ -149,10 +157,12 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | `ExporterInstallation.status` | `unconfirmed`/`confirmed`/`not_applicable` | 安装确认状态（§8 统一枚举；`unconfirmed` 不阻断 target 生成，决策 47-1） |
 | 实例采集状态（派生，§5.10） | `pending`(待采集)/`up`(正常)/`down`(异常)/`unknown`(未知) | Job 实例区只读回显枚举，非落库字段（决策 47-2）；`down` 附 lastError 摘要 |
 | `confirmed_by` | 固定 `platform_admin` | MVP 无鉴权 |
+| `port_source`（生效端口来源） | `instance`(实例覆盖)/`mapping`(类型默认)/`template`(采集器默认)/`business`(业务端口兜底 ⚠️，仅 db/mw)/`unresolved`(未解析) | instances `items[]` 与 preview-targets `targets[]` 只读派生字段，`portchain.Resolve` 四级链判定（T01-P4），非落库字段；blackbox 项为空串 |
 | `content_mode` | `yaml_passthrough`(MVP)/`structured`(v0.3+) | 规则内容形态 |
 | `scope` | `central`(固定)/`edge`/`both`(v0.4+) | 求值范围 |
 
 ## 10. 字段必填口径
+- **资源 DTO（五类 host/database/middleware/application/generic_target）`scrape_port`（T01-P1，v2026-10-10）**：`int` 可选，**0=未指定**（与 NULL 等价，向下回落），填值须 `1~65535`（越界 `bad_request`：`scrape_port 必须为 0（未指定）或 1~65535`）。四通道均可写读——**create**（POST 请求体，留空=0）、**update**（PUT `updatableColumns` 白名单，PATCH 不带字段与带 0 结果等价）、**list**（item 恒返回 int，0 照常回不省略）、**Excel**（导入 `applyCells` 解析：空→0、非数字→行级报错；下载模板五类列头末尾追加该列，T01-P7）。字段权威与 M07 契约快照 §5A/§11 枚举行一致；消费方为 M09 四级解析链（生成器）与本模块 §6 生效端口回显。
 - **ExporterTemplate 创建**：name/default_port/metrics_path/scheme 必填（任何来源）；source∈{official, third_party, internal} 均可由用户登记（F-29 D 拍板放开，与预置 seed 同名返回 conflict；用户登记行恒非内置、可编辑可删除）。
 - **CITypeExporterMapping 创建**：monitor_type/exporter_template_id 必填；default_port/metrics_path/scheme/scrape_interval/scrape_timeout 均可留空（F-28 稀疏覆盖：留空=继承采集器模板/全局默认，填写=覆盖）；label_template_id 可选；每类型至多一个 is_default。
 - **ScrapeJob 创建**：job_name/monitor_type/network_domain_id(已纳管非冻结)/instance_selection_mode 必填；**scrape_interval/scrape_timeout/metrics_path/scheme 可留空（F-28：留空=继承，保存时按 映射→采集器模板→全局兜底 解析为生效快照落库；清空字段再保存=恢复继承）**；auth_type 默认 none；basic→username+password 必填、bearer→token 必填；job_type=blackbox→blackbox_module+blackbox_targets 必填、monitor_type/exporter 置空；selected_instance_ids 可选（manual 校验同域）。
@@ -183,6 +193,8 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | `is_default` | 默认采集实现 | 每类型至多一个 |
 | `has_label_template`/`label_template_id` | 标签模板 | M07 只读引用；待配置 badge |
 | `is_referenced` | 未被引用 | 采集器池「未被引用」标记 |
+| `scrape_port` | 采集端口（选填） | 五类资源表单/详情/列表；0=未指定留空，见 §10 |
+| `port` / `port_source` | 生效端口 / 端口来源 | 采集 Job 抽屉与预览只读回显（T01-P4/T01-P6）；`business` 来源附「业务端口兜底 ⚠️」警示与「前往 M07 修改」引导 |
 
 ## 12. 来源对照表
 - PRD：`docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md` §3/§5/§6/§8/§9/§10/§11

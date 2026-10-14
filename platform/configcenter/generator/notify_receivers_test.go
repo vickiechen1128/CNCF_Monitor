@@ -251,3 +251,58 @@ receivers:
 	assert.Equal(t, base, out, "存在真重名冲突时不得做任何写入（避免半合并）")
 	assert.NotContains(t, out, "/api/v1/webhooks/notify")
 }
+
+// TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace 覆盖 2026-10-10 回归：外部测试
+// 提交（test-reorder）残留的 name-only 残缺基座（receiver 仅含 name 键、无任何通知配置）
+// 被当作 M09 生成基座时，不得误判为「用户手写 squat」重名冲突——应按平台槽位原地补齐
+// webhook_configs（http_config 令牌同步写入），且不重复追加同名 receiver。
+func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T) {
+	// 模拟污染基座 v15 形态：纯 route 段 + name-only receiver（无 webhook_configs）。
+	base := `route:
+  receiver: notify-1
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: notify-1
+receivers:
+  - name: notify-1
+  - name: feishu
+`
+	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
+		BridgeURL:   "http://127.0.0.1:8080",
+		BridgeToken: "tok",
+		Channels:    []models.NotifyChannel{chWithID(1, "腾讯云边缘域-飞书")}, // → notify-1
+	})
+	require.NoError(t, err)
+	assert.Empty(t, conflicts, "name-only 残壳不得判为手写重名冲突")
+	assert.Equal(t, 1, strings.Count(out, "name: notify-1"), "原地补齐，不得重复追加")
+	assert.Contains(t, out, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=1")
+	assert.Contains(t, out, "credentials: tok", "补齐的平台 receiver 须带 http_config 令牌")
+	assert.Contains(t, out, "send_resolved: true")
+	// 手写 name-only receiver（feishu 不在平台命名空间）原样保留，不被动。
+	assert.Contains(t, out, "name: feishu")
+	// route 段透传保留。
+	assert.Contains(t, out, "severity=\"critical\"")
+}
+
+// TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts 反例：同名 receiver 虽无
+// webhook_configs，但带其它手写通知配置（email_configs）→ 仍是用户手写，必须保持冲突
+// （补齐判据是「除 name 外无任何键」，不能误伤真实手写 receiver）。
+func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T) {
+	base := `route:
+  receiver: notify-1
+receivers:
+  - name: notify-1
+    email_configs:
+      - to: sre@example.com
+`
+	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
+		BridgeURL:   "http://127.0.0.1:8080",
+		BridgeToken: "tok",
+		Channels:    []models.NotifyChannel{chWithID(1, "腾讯云边缘域-飞书")}, // → notify-1
+	})
+	require.NoError(t, err)
+	require.Len(t, conflicts, 1)
+	assert.Equal(t, "notify-1", conflicts[0].Name)
+	assert.Equal(t, base, out, "存在真重名冲突时不得做任何写入")
+}

@@ -58,8 +58,16 @@ import { useSkin } from '../../../skinContext'
 
 const { Text } = Typography
 
-/** 废弃变更单对源数据的分类影响说明（决策 43-7）。 */
-function DiscardImpactSummary({ impact }: { impact: DiscardImpact }) {
+/**
+ * 废弃变更单对源数据的分类影响说明（决策 43-7）。
+ *
+ * hasAlertmanager（dev-feedback #44）：本单含告警收敛配置（alertmanager.yml）时，追加一条
+ * 告警配置侧影响——修复前废弃只告知 ScrapeJob 影响，用户不知道「已挂载未确认的
+ * alertmanager.yml 将保持待确认状态」（id=18 遗留问题：版本永久显示「已提交，待确认下发」，
+ * 被误判为脏数据）。现后端会在废弃时把无活单可确认的留痕标记「已废弃」，此处同步告知
+ * 终态与恢复路径（重新挂载 / 改策略资源重新生成变更单）。
+ */
+function DiscardImpactSummary({ impact, hasAlertmanager }: { impact: DiscardImpact; hasAlertmanager?: boolean }) {
   const items: string[] = []
   if (impact.new_reverted > 0) {
     items.push(`${impact.new_reverted} 个新建未生效 Job 将回退为草稿`)
@@ -72,6 +80,9 @@ function DiscardImpactSummary({ impact }: { impact: DiscardImpact }) {
   }
   if (impact.missing > 0) {
     items.push(`${impact.missing} 个已生效 Job 在系统中已不存在，无法自动恢复`)
+  }
+  if (hasAlertmanager) {
+    items.push('已挂载但未确认下发的 alertmanager.yml 将标记为「已废弃」，不会写入 Alertmanager；如需生效请重新挂载，或修改策略/资源后重新生成变更单')
   }
   if (items.length === 0) {
     return <Text type="secondary">废弃后保持当前生效配置不变，源数据无额外影响。</Text>
@@ -220,9 +231,12 @@ export function ConfigPreviewPage() {
     try {
       const res = await configDraftApi.discardImpact(detail.change_no)
       const impact = res.data
+      // dev-feedback #44：含告警配置（alertmanager.yml）的变更单，废弃影响须同步告知
+      // 告警配置侧终态（后端废弃联动把无活单可确认的留痕标记「已废弃」）。
+      const hasAlertmanager = affectedFileSet(detail).has('alertmanager')
       Modal.confirm({
         title: `废弃变更单 ${detail.change_no}？`,
-        content: <DiscardImpactSummary impact={impact} />,
+        content: <DiscardImpactSummary impact={impact} hasAlertmanager={hasAlertmanager} />,
         okText: '废弃变更',
         okButtonProps: { danger: true },
         cancelText: '取消',

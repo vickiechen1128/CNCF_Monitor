@@ -344,6 +344,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now edge-sync-agent
 | 边缘写不进 `/opt/apps/.../edge-config` | 程序目录只读，配置落点错误 | `EDGE_CONFIG_ROOT`/`EDGE_WAL_DIR` 指 `/opt/data/edge-sync-agent/`（可写） |
 | `/opt/...` 三目录不存在、install 报错 | 运维未预建目录 | 预建 + SGID 2750 + 属组（package-center-guide §2.4） |
 | mac 交叉打包后本地 `make run-*` 失败 | `CROSS` 把本机二进制覆盖为 ELF | 重跑原生 `make build-center` 恢复 |
+| 换包 `cp: cannot stat 'edge-new/bin/...'` | §4.2 解压漏 `--strip-components=1`，tar 顶层带时间戳目录，二进制实际落在 `edge-new/edge-sync-agent-v0.2.0-linux-amd64-<ts>/bin/` | 解压用 `tar -xzf ... -C edge-new --strip-components=1`（剥顶层目录），再 `ls edge-new/bin/` 确认三件套存在后再 cp |
+| 换包后新功能（如「回传积压 / remote_write 失败摘要」）仍为空 | 部署的二进制是**旧构建**：`scripts/package-edge-agent.sh` 只打包 dist/ 现成二进制、不重编译，若改源码后没先 `make build-edge-agent`，包里仍是旧二进制 | 本机先 `make build-edge-package` 重编译进 dist/ 再 scp；部署后用 `strings <二进制> \| grep vmagent_remotewrite_pending_data_bytes` 确认新逻辑已编入 |
 | 启动报 `Permission denied` | mac tar 丢了可执行位 | `sudo chmod -R a+x /opt/apps/edge-sync-agent/bin/` |
 | unit 日志 `Unknown key 'Environment' in section 'Install'`、进程仍 root | `cat >>` 追加键落进 `[Install]` | 用 drop-in `*.service.d/site.conf`，勿改原 unit |
 | `sudo useradd` 报 `unknown item 'umask'` | 腾讯云 libuser 配置项不被识别 | 注释 `/etc/libuser.conf` 的 `umask` 行后重试 |
@@ -486,23 +488,47 @@ make build-edge-package
 # 产物：dist/edge-package/edge-sync-agent-v0.2.0-linux-amd64-<ts>.tar.gz
 ```
 
+> ⚠️ **致命陷阱（2026-10-09 实测）**：`scripts/package-edge-agent.sh` **只打包 `platform/edge-sync-agent/dist/` 里现成的二进制，不重新编译**。若你只跑了 `bash scripts/package-edge-agent.sh`（没先 `make build-edge-agent`/`make build-edge-package`），打出来的包会是 dist/ 里的**旧构建**——哪怕源码已改，包里仍是老二进制。本次即因此：dist/ 三件套是 9/25 构建，而 agent 源码改动在 10/9 16:31，导致部署后「回传积压 / remote_write 失败摘要」两个新字段始终为空（agent 跑的是 9/25 不带该逻辑的旧二进制）。
+> **正确动线**：改了 agent 源码后，务必先 `make build-edge-package`（它会 `build-edge-agent` 重编译进 dist/），再 scp 新包。部署后可用 `strings <二进制> | grep vmagent_remotewrite_pending_data_bytes` 确认新逻辑已编入。
+
 **上传 + 替换 + 重启（腾讯云）** ：
 ```bash
 # ── 1) 本机 scp 上传（<HOST>/<ns> 填你的腾讯云地址/网段；系统账户 yunwei-chenrt）──
 scp "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature/dist/edge-package/edge-sync-agent-v0.2.0-linux-amd64-<ts>.tar.gz" \
     yunwei-chenrt@<TENCENT_HOST>:~/
 
-# ── 2) 云端：停服务 → 解压覆盖（保留 /opt/data 数据与 site.conf 不动；二进制在 bin/ 子目录）──
-systemctl stop edge-sync-agent
-cd /tmp && sudo rm -rf edge-new && sudo mkdir -p edge-new
-sudo tar -xzf ~/edge-sync-agent-v0.2.0-linux-amd64-<ts>.tar.gz -C edge-new
+# ── 2) 云端：解压 → 替换 → 校验（保留 /opt/data 数据与 site.conf 不动；二进制在 bin/ 子目录）──
+# ⚠️ 2026-10-13 实测两坑：① 多行命令被整体粘贴成一行时，其余命令会被 tar 当解压参数吞掉（tar: sudo: Not found in archive），
+#     结果 cp 根本没执行、bin/ 仍是旧二进制）；② 缺 md5 终检时「部署完成」是假象（重启的仍是旧文件）。
+# 对策：关键路径合并为一行 && 链（任一步失败立即中断）；md5 作为硬性校验，不一致绝不 start。
+# ⚠️ 必须加 --strip-components=1：tar 包顶层是带时间戳的 edge-sync-agent-v0.2.0-linux-amd64-<ts>/ 目录，
+#    不加会把 bin/ 解到 edge-new/edge-sync-agent-v0.2.0-linux-amd64-<ts>/bin/，导致后续 cp edge-new/bin/ 报
+#    「No such file or directory」。加 --strip-components=1 后 bin/ 直接落在 edge-new/bin/。
+# <TS> 填你实际包的时间戳；<AGENT_MD5> 填本机 dist/edge-sync-agent-linux-amd64 的 md5（做了什么逻辑改动
+# md5 必然变化，必须以当次构建实测值为准——本例 2026-10-13 包为 8ec38cbb89a883e6f8cf8adffb454b61）。
+cd /tmp && sudo rm -rf edge-new && sudo mkdir -p edge-new && \
+  sudo tar -xzf ~/edge-sync-agent-v0.2.0-linux-amd64-<TS>.tar.gz -C edge-new --strip-components=1 && \
+  md5=$(sudo md5sum edge-new/bin/edge-sync-agent-linux-amd64 | cut -d' ' -f1) && echo "解压产物 md5=$md5" && \
+  [ "$md5" = "<AGENT_MD5>" ] || { echo "❌ 解压出来的不是预期新包，终止（检查 scp 是否传错/传了旧包）"; exit 1; }
 # 只替换程序区 bin/ 子目录三件套；symlink（ExecStart=/opt/apps/edge-sync-agent/edge-sync-agent
 # → bin/edge-sync-agent-linux-amd64）自动指向新文件，勿动
-sudo cp edge-new/bin/edge-sync-agent-linux-amd64 /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64
-sudo cp edge-new/bin/vmagent-linux-amd64            /opt/apps/edge-sync-agent/bin/vmagent-linux-amd64
+sudo cp edge-new/bin/edge-sync-agent-linux-amd64 /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 && \
+sudo cp edge-new/bin/vmagent-linux-amd64            /opt/apps/edge-sync-agent/bin/vmagent-linux-amd64 && \
 sudo cp edge-new/bin/blackbox_exporter-linux-amd64 /opt/apps/edge-sync-agent/bin/blackbox_exporter-linux-amd64
-sudo chmod 755 /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64
-# 若顶层 symlink 尚不存在，执行：sudo ln -sf bin/edge-sync-agent-linux-amd64 /opt/apps/edge-sync-agent/edge-sync-agent
+# mac 打的包会丢可执行位，三件套统一补位（仅 chmod edge-sync-agent 会让 vmagent/blackbox 缺执行位）。
+# ⚠️ 用显式文件名而非 *-linux-amd64 通配：目标 bin/ 目录是 2750（root:app-group，其他人无读权限），
+# 非 root 用户的 shell 在 sudo 前无法展开通配符，会报「cannot access .../*-linux-amd64: No such file or directory」（假错）。
+sudo chmod 755 /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 \
+               /opt/apps/edge-sync-agent/bin/vmagent-linux-amd64 \
+               /opt/apps/edge-sync-agent/bin/blackbox_exporter-linux-amd64
+# 替换后终检（硬卡点）：run 目标与 bin/ 内 md5 都必须等于 <AGENT_MD5>，否则禁止 start
+md5b=$(sudo md5sum /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 | cut -d' ' -f1)
+md5r=$(sudo md5sum /opt/apps/edge-sync-agent/edge-sync-agent | cut -d' ' -f1)
+echo "bin=$md5b run=$md5r"
+[ "$md5b" = "$md5r" ] && [ "$md5b" = "<AGENT_MD5>" ] || { echo "❌ 替换失败或根部是旧实体文件，先执行 ln -sf / 或 install 覆盖根部"; exit 1; }
+# 若顶层 symlink 尚不存在（根部 md5 与 bin 不一致即信号），执行：
+#   sudo ln -sf /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 /opt/apps/edge-sync-agent/edge-sync-agent
+# （若根部是实体旧文件而非 symlink，用 sudo install -m 755 edge-new/bin/edge-sync-agent-linux-amd64 /opt/apps/edge-sync-agent/edge-sync-agent 直接覆盖）
 
 # ── 3) (可选) 立即强制走 9090 数据隧道：drop-in 注入 EDGE_REMOTE_WRITE_URL（档位②，高于推导）──
 # sudo tee /etc/systemd/system/edge-sync-agent.service.d/site.conf 追加一行：

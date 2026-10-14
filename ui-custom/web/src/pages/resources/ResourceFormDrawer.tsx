@@ -175,6 +175,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         hostname: values.hostname ? String(values.hostname) : undefined,
         instance_ip: String(values.instance_ip),
         os_type: values.os_type ? String(values.os_type) : undefined,
+        // {T01-P5} 采集端口：留空 → 提交 0（= 未指定，与 NULL 等价；编辑清空时以 0 回退解析链，提案 §5.1）
+        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'database':
       return {
@@ -182,6 +184,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         instance_ip: String(values.instance_ip),
         port: Number(values.port),
         version: values.version ? String(values.version) : undefined,
+        // {T01-P5} 采集端口语义同 host：留空/0 = 未指定
+        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'middleware':
       return {
@@ -189,6 +193,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         instance_ip: String(values.instance_ip),
         port: Number(values.port),
         version: values.version ? String(values.version) : undefined,
+        // {T01-P5} 采集端口语义同 host：留空/0 = 未指定
+        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'application':
       // 采集地址拆分（M07 字段治理）：endpoint（主机）+ port（采集端口）必填且共同构成采集目标；
@@ -253,6 +259,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     database_type: record.database_type,
     middleware_type: record.middleware_type,
     port: record.port,
+    // {T01-P5} 采集端口回显：后端 0 = 未指定 → 归一为空态（与「留空提交 0」对称）
+    scrape_port: record.scrape_port || undefined,
     version: record.version,
     service_name: record.service_name,
     health_check_url: record.health_check_url,
@@ -353,6 +361,11 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
   const appCodeRequired =
     displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
+  // 决策 F（§5.2）：cluster 必填规则同 app_code —— application / database / middleware 必填，
+  // host / generic_target 放开为可空（SNMP 交换机等设备类无集群归属，强制必填会逼填假数据污染
+  // cluster 标签；空值不注入标签，见 5.15 规则 4）。与后端 validate.go 的三处 cluster 必填校验同口径，
+  // 否则用户在必填类提交空 cluster 会撞后端 400 且前端无任何提示（静默失败）。
+  const clusterRequired = appCodeRequired
 
   /**
    * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**。
@@ -592,8 +605,14 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster">
-            <Input placeholder="集群名（可选）" maxLength={64} />
+          <Form.Item
+            label="集群"
+            name="cluster"
+            rules={clusterRequired ? [{ required: true, message: '请填写集群' }] : []}
+          >
+            {/* 决策 F（§5.2）：placeholder 与必填口径同步分化——可空类才标「可选」，
+                必填类标「可选」会与 rules 自相矛盾 */}
+            <Input placeholder={clusterRequired ? '请填写集群' : '集群名（可选）'} maxLength={64} />
           </Form.Item>
         </Col>
         {/* 决策 103 scheme-B：表单不再提供「云」录入项——
@@ -603,6 +622,28 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
         <Input placeholder="负责人（可选）" maxLength={32} />
       </Form.Item>
     </>
+  )
+
+  /**
+   * {T01-P5} host / database / middleware 三类表单共用的「采集端口（选填）」
+   * （提案 resource-scrape-port-chain §5.3 录入动线；留空合法，由解析链回落默认端口）。
+   *
+   * D3a/D3b 守护：application / generic_target **不渲染**该项——application 的
+   * 「端口（采集端口）」即采集目标本身（必填直用）、generic_target 的「端口」是端点
+   * 自身属性，再展示一个「采集端口」会造成误填暗示。
+   *
+   * 刻意不设 InputNumber min/max：失焦钳制会把 70000 静默改写成 65535 而无从报错，
+   * 放开控件层边界、仅由 rules 在提交时以「端口范围为 1-65535」阻断，保证越界必报错。
+   */
+  const scrapePortField = (
+    <Form.Item
+      label="采集端口（选填）"
+      name="scrape_port"
+      extra="留空时由采集端口解析链取默认（类型映射 → 采集器模板 → 业务端口）"
+      rules={optionalPortRules}
+    >
+      <InputNumber style={{ width: '100%' }} placeholder="例如：9100（可选）" data-testid="scrape-port-input" />
+    </Form.Item>
   )
 
   /** 各资源类别差异化字段（与 §5.6~§5.9 字段表一致，标签用 PRD「UI 展示名」） */
@@ -650,6 +691,9 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
             </Row>
+            <Row gutter={16}>
+              <Col span={12}>{scrapePortField}</Col>
+            </Row>
           </>
         )
       case 'database':
@@ -689,6 +733,9 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
             </Row>
+            <Row gutter={16}>
+              <Col span={12}>{scrapePortField}</Col>
+            </Row>
           </>
         )
       case 'middleware':
@@ -723,10 +770,22 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
               <Col span={12}>
+                {/* 端口是中间件实例身份的一部分（与 instance_ip 共同构成采集目标 `ip:port`），
+                    data-testid 供测试精确定位——label 文案「端口」在 host 表单不渲染，
+                    但跨类别断言时按testid 定位更稳（antd label 会被 requiredMark 注入额外文本）。 */}
                 <Form.Item label="端口" name="port" rules={portRules}>
-                  <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：9092" />
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={1}
+                    max={65535}
+                    placeholder="例如：9092"
+                    data-testid="middleware-port-input"
+                  />
                 </Form.Item>
               </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>{scrapePortField}</Col>
             </Row>
           </>
         )

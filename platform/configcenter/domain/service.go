@@ -17,6 +17,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
@@ -36,13 +39,16 @@ var (
 	ErrResetNotAgentPull = errors.New("reset token requires an agent_pull domain")
 	// ErrResetRequiresMonitored 表示仅已纳管的 agent_pull 网域可重置 token。
 	ErrResetRequiresMonitored = errors.New("reset token requires a monitored agent_pull domain")
+	// ErrInvalidMaxDiskUsage 表示 max_disk_usage_per_url 格式非法（F-42）。
+	ErrInvalidMaxDiskUsage = errors.New("invalid max_disk_usage_per_url format")
 )
 
 // MonitorParams 是 POST /monitor 的入参（契约 §6.1）。
 type MonitorParams struct {
-	AgentType      string `json:"agent_type"`        // MVP 仅 vmagent
-	RemoteWriteURL string `json:"remote_write_url"`  // 可选；agent_pull 域登记即写
-	Description    string `json:"description,omitempty"`
+	AgentType          string `json:"agent_type"`                 // MVP 仅 vmagent
+	RemoteWriteURL     string `json:"remote_write_url"`           // 可选；agent_pull 域登记即写
+	MaxDiskUsagePerURL string `json:"max_disk_usage_per_url"`     // 可选；vmagent 持久队列磁盘上限（F-42），空=agent 内置兜底
+	Description        string `json:"description,omitempty"`
 }
 
 // MonitorOutcome 描述纳管结果。
@@ -53,10 +59,11 @@ type MonitorOutcome struct {
 
 // UpdateParams 是 PUT /monitor 的入参（契约 §6.1）。
 type UpdateParams struct {
-	AgentType      string `json:"agent_type,omitempty"`
-	RemoteWriteURL string `json:"remote_write_url,omitempty"`
-	Description    string `json:"description,omitempty"`
-	IsMonitored    *bool  `json:"is_monitored,omitempty"` // nil 表示不修改；false=unmonitor
+	AgentType          string `json:"agent_type,omitempty"`
+	RemoteWriteURL     string `json:"remote_write_url,omitempty"`
+	MaxDiskUsagePerURL string `json:"max_disk_usage_per_url,omitempty"` // 非空才更新（F-42）；不支持置空（置空语义 = 清空下发值，暂不开放）
+	Description        string `json:"description,omitempty"`
+	IsMonitored        *bool  `json:"is_monitored,omitempty"` // nil 表示不修改；false=unmonitor
 }
 
 // TokenResult 是 reset-token 的一次性明文 + 脱敏结果。
@@ -85,14 +92,19 @@ func MonitorDomain(db *gorm.DB, id string, p MonitorParams) (MonitorOutcome, err
 	if p.AgentType != "" && models.AgentType(p.AgentType) != models.AgentTypeVMAgent {
 		return MonitorOutcome{}, ErrInvalidAgentType
 	}
+	// F-42：回传参数格式门禁（空合法）。
+	if err := validateMaxDiskUsage(p.MaxDiskUsagePerURL); err != nil {
+		return MonitorOutcome{}, err
+	}
 
 	if dom.IsManagement() {
 		// 管理域固定 local：无需 Agent 与 Token。
 		dom.Channel = models.ChannelForDomainType(models.DomainTypeManagement)
 		dom.AgentType = ""
 		dom.RemoteWriteURL = ""
+		dom.MaxDiskUsagePerURL = ""
 		dom.IsMonitored = true
-		if err := db.Model(&dom).Select("channel", "agent_type", "remote_write_url", "is_monitored").Updates(dom).Error; err != nil {
+		if err := db.Model(&dom).Select("channel", "agent_type", "remote_write_url", "max_disk_usage_per_url", "is_monitored").Updates(dom).Error; err != nil {
 			return MonitorOutcome{}, fmt.Errorf("persist management domain monitor: %w", err)
 		}
 		return MonitorOutcome{Domain: &dom}, nil
@@ -106,12 +118,13 @@ func MonitorDomain(db *gorm.DB, id string, p MonitorParams) (MonitorOutcome, err
 	dom.Channel = models.ChannelForDomainType(models.DomainTypeEdge)
 	dom.AgentType = models.AgentTypeVMAgent
 	dom.RemoteWriteURL = p.RemoteWriteURL
+	dom.MaxDiskUsagePerURL = strings.TrimSpace(p.MaxDiskUsagePerURL)
 	dom.Token = token
 	dom.IsMonitored = true
 	if p.Description != "" {
 		dom.Description = p.Description
 	}
-	if err := db.Model(&dom).Select("channel", "agent_type", "token", "remote_write_url", "description", "is_monitored").
+	if err := db.Model(&dom).Select("channel", "agent_type", "token", "remote_write_url", "max_disk_usage_per_url", "description", "is_monitored").
 		Updates(dom).Error; err != nil {
 		return MonitorOutcome{}, fmt.Errorf("persist domain monitor: %w", err)
 	}
@@ -132,6 +145,10 @@ func UpdateDomainMonitoring(db *gorm.DB, id string, p UpdateParams) (*models.Net
 	if !dom.IsMonitored {
 		return nil, ErrNotMonitored
 	}
+	// F-42：回传参数格式门禁（空 = 不修改）。
+	if err := validateMaxDiskUsage(p.MaxDiskUsagePerURL); err != nil {
+		return nil, err
+	}
 
 	updates := map[string]interface{}{}
 	if p.AgentType != "" {
@@ -142,6 +159,9 @@ func UpdateDomainMonitoring(db *gorm.DB, id string, p UpdateParams) (*models.Net
 	}
 	if p.RemoteWriteURL != "" {
 		updates["remote_write_url"] = p.RemoteWriteURL
+	}
+	if p.MaxDiskUsagePerURL != "" {
+		updates["max_disk_usage_per_url"] = strings.TrimSpace(p.MaxDiskUsagePerURL)
 	}
 	if p.Description != "" {
 		updates["description"] = p.Description
@@ -195,4 +215,27 @@ func newToken() (string, error) {
 		return "", fmt.Errorf("generate token: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// maxDiskUsageRe 校验 maxDiskUsagePerURL 格式：数字 + 可选单位（KB/MB/GB/TB/KiB/…，
+// 大小写不敏感），对齐 vmagent -remoteWrite.maxDiskUsagePerURL 接受的值域。
+var maxDiskUsageRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*([kmgt]i?b?)?$`)
+
+// validateMaxDiskUsage 校验 F-42 回传参数 maxDiskUsagePerURL：空串合法（= agent 内置
+// 兜底）；非空时须为 vmagent 可解析的大小格式且 > 0（"2GB"、"512MiB"、"1073741824"）。
+// 仅做格式与量纲门禁，不预设业务下限（建议值口径由前端提示文案承载）。
+func validateMaxDiskUsage(v string) error {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	m := maxDiskUsageRe.FindStringSubmatch(strings.ToLower(v))
+	if m == nil {
+		return fmt.Errorf("%w: %q（期望如 2GB / 512MiB / 1073741824）", ErrInvalidMaxDiskUsage, v)
+	}
+	f, err := strconv.ParseFloat(m[1], 64)
+	if err != nil || f <= 0 {
+		return fmt.Errorf("%w: %q 数值须为正", ErrInvalidMaxDiskUsage, v)
+	}
+	return nil
 }

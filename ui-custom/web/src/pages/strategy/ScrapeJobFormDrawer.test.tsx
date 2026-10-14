@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
@@ -7,6 +7,7 @@ import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const instancesMock = vi.fn()
 const domainListMock = vi.fn()
 const mappingListMock = vi.fn()
 const labelListMock = vi.fn()
@@ -24,6 +25,8 @@ vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+    // {T01-P6} 编辑态生效端口回显数据源（GET /instances 携带 port/port_source）
+    instances: (...args: unknown[]) => instancesMock(...args),
   },
 }))
 
@@ -51,10 +54,13 @@ vi.mock('./ExporterInstallationPanel', () => ({
 beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
+  instancesMock.mockReset()
   domainListMock.mockReset()
   mappingListMock.mockReset()
   labelListMock.mockReset()
   exporterCreateMock.mockReset()
+  // {T01-P6} 编辑态回显默认空列表（防止未设置时编辑态 fetch 抛错；各用例按需覆盖）
+  instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
   labelListMock.mockResolvedValue({
     status: 'success',
     data: { list: [], total: 0, page: 1, page_size: 100 },
@@ -70,7 +76,7 @@ beforeEach(() => {
   })
 })
 
-/** 渲染抽屉：MemoryRouter + Routes 供网域空态「前往网域管理」跳转断言（O3/T01-F16） */
+/** 渲染抽屉：MemoryRouter + Routes 供网域空态「前往网域管理」与端口来源「前往 M07 修改」跳转断言 */
 function renderDrawer(record?: unknown) {
   render(
     <MemoryRouter initialEntries={['/scrape-jobs']}>
@@ -80,9 +86,25 @@ function renderDrawer(record?: unknown) {
           element={<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />}
         />
         <Route path="/admin/domains" element={<div>domains-page</div>} />
+        <Route path="/resources" element={<div>resources-page</div>} />
       </Routes>
     </MemoryRouter>,
   )
+}
+
+/** {T01-P6} 编辑态标准 Job 记录（回显用例共用基线） */
+const EDIT_RECORD = {
+  id: 1,
+  job_name: 'job-mysql-1',
+  job_type: 'standard',
+  monitor_type: 'mysql',
+  network_domain_id: 'mc-a',
+  scrape_interval: '15s',
+  scrape_timeout: '10s',
+  metrics_path: '/metrics',
+  scheme: 'http',
+  auth_type: 'none',
+  tls_skip_verify: false,
 }
 
 // F1-8 两级级联：先选资源类别，再选监控对象类型
@@ -469,5 +491,94 @@ describe('ScrapeJobFormDrawer', () => {
     // 可点击引导跳转 /admin/domains（系统与平台管理 → 网域管理）
     fireEvent.click(guideLink)
     expect(await screen.findByText('domains-page')).toBeInTheDocument()
+  })
+
+  // {T01-P6} 生效端口回显：四种来源中文标注；instance 来源无警示、非 instance 来源给 M07 引导
+  it('edit mode echoes effective port with four source labels (T01-P6)', async () => {
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'a', instance_name: 'srv-a', instance_ip: '10.0.0.1', status: 'confirmed', port: 3306, port_source: 'instance' },
+          { resource_id: 'b', instance_name: 'srv-b', instance_ip: '10.0.0.2', status: 'confirmed', port: 9100, port_source: 'mapping' },
+          { resource_id: 'c', instance_name: 'srv-c', instance_ip: '10.0.0.3', status: 'confirmed', port: 9104, port_source: 'template' },
+          { resource_id: 'd', instance_name: 'srv-d', instance_ip: '10.0.0.4', status: 'confirmed', port: 8080, port_source: 'business' },
+        ],
+        total: 4,
+      },
+    })
+    renderDrawer(EDIT_RECORD)
+
+    expect(await screen.findByText('生效端口回显')).toBeInTheDocument()
+    expect(screen.getByText('实例覆盖')).toBeInTheDocument()
+    expect(screen.getByText('类型默认')).toBeInTheDocument()
+    expect(screen.getByText('采集器默认')).toBeInTheDocument()
+    expect(screen.getByText(/业务端口兜底/)).toBeInTheDocument()
+    // 四行中仅 instance 来源不出现「前往 M07 修改」引导（其余三行各有）
+    expect(screen.getAllByText('前往 M07 修改')).toHaveLength(3)
+    // instance 来源行内无 ⚠️ 警示
+    const rowA = screen.getByText('srv-a').closest('.ant-list-item') as HTMLElement
+    expect(within(rowA).queryByText(/⚠️/)).toBeNull()
+  })
+
+  // {T01-P6} business 兜底：警示 Tooltip 文案可见，且不阻断保存（D-4：后端恒 200）
+  it('business port source shows warning tooltip and does not block save (T01-P6)', async () => {
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'a', instance_name: 'srv-a', instance_ip: '10.0.0.1', status: 'confirmed', port: 8080, port_source: 'business' },
+        ],
+        total: 1,
+      },
+    })
+    updateMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    renderDrawer(EDIT_RECORD)
+
+    const bizTag = await screen.findByText(/业务端口兜底/)
+    fireEvent.mouseEnter(bizTag)
+    expect(
+      await screen.findByText('采集端口未配置，当前以业务端口兜底，请确认 exporter 是否监听该端口'),
+    ).toBeInTheDocument()
+
+    // 不阻断：保存按钮可用，点击后正常调用 update（警示不影响任何操作）
+    const saveBtn = screen.getByRole('button', { name: /保\s*存/ })
+    expect(saveBtn).toBeEnabled()
+    fireEvent.click(saveBtn)
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+  })
+
+  // {T01-P6} unresolved：端口展示 '-'（非 0，§9 失败态口径）+ 「前往 M07 修改」引导
+  it('unresolved port echoes "-" and guides to M07 (T01-P6)', async () => {
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'a', instance_name: 'srv-a', instance_ip: '10.0.0.1', status: 'confirmed', port: 0, port_source: 'unresolved' },
+        ],
+        total: 1,
+      },
+    })
+    renderDrawer(EDIT_RECORD)
+
+    expect(await screen.findByText('生效端口回显')).toBeInTheDocument()
+    const rowA = screen.getByText('srv-a').closest('.ant-list-item') as HTMLElement
+    expect(within(rowA).getByText('-')).toBeInTheDocument()
+    expect(within(rowA).queryByText('0')).toBeNull()
+    fireEvent.click(within(rowA).getByText('前往 M07 修改'))
+    expect(await screen.findByText('resources-page')).toBeInTheDocument()
+  })
+
+  // {T01-P6} blackbox 编辑态：不拉取 instances、不渲染生效端口回显
+  it('blackbox edit mode does not fetch or render port echo (T01-P6)', async () => {
+    renderDrawer({
+      ...EDIT_RECORD,
+      job_type: 'blackbox',
+      blackbox_module: 'http_2xx',
+      blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }],
+    })
+    expect(await screen.findByText('拨测模块')).toBeInTheDocument()
+    expect(instancesMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('生效端口回显')).toBeNull()
   })
 })

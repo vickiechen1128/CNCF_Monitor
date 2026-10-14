@@ -94,7 +94,9 @@ func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 
 // validateCreateExporterTemplate 校验登记请求：source 为三枚举之一
 // （official/third_party/internal，均允许用户登记；与 seed 同名由 name 唯一索引防重合）；
-// name/default_port/metrics_path/scheme 必填；is_builtin 显式 true 拒绝。
+// name/default_port/metrics_path/scheme 必填；is_builtin 显式 true 拒绝；
+// supported_monitor_types 逐元素须为合法 monitor_type（空声明放行）。
+// 副作用：supported_monitor_types 校验通过后被就地归一（去空白、去重保序）。
 func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return fmt.Errorf("name 不能为空")
@@ -124,5 +126,12 @@ func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error {
 	if err := validateHTTPURL("homepage", req.Homepage); err != nil {
 		return err
 	}
+	// supported_monitor_types 逐元素须为合法 monitor_type（空声明放行，见
+	// normalizeSupportedMonitorTypes）；校验通过后写回归一化结果（去重保序）。
+	types, err := normalizeSupportedMonitorTypes(req.SupportedMonitorTypes)
+	if err != nil {
+		return err
+	}
+	req.SupportedMonitorTypes = types
 	return nil
 }

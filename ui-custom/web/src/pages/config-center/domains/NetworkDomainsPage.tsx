@@ -164,13 +164,20 @@ export function NetworkDomainsPage() {
     }
   }
 
-  const handleEditSubmit = async (values: { description?: string; agent_type?: string; remote_write_url?: string }) => {
+  const handleEditSubmit = async (values: {
+    description?: string
+    agent_type?: string
+    remote_write_url?: string
+    max_disk_usage_per_url?: string
+  }) => {
     if (!editingDomain) return
     setSubmitting(true)
     try {
       await networkDomainMonitorApi.update(editingDomain.id, {
         agent_type: editingDomain.channel === 'local' ? undefined : (values.agent_type as NetworkDomain['agent_type']),
         remote_write_url: editingDomain.channel === 'local' ? undefined : values.remote_write_url,
+        max_disk_usage_per_url:
+          editingDomain.channel === 'local' ? undefined : (values.max_disk_usage_per_url?.trim() || undefined),
         description: values.description,
       })
       message.success('网域监控参数已更新')
@@ -580,14 +587,25 @@ function EditDomainForm({
 }: {
   domain: NetworkDomain
   submitting: boolean
-  onSubmit: (values: { description?: string; agent_type?: string; remote_write_url?: string }) => Promise<void>
+  onSubmit: (values: {
+    description?: string
+    agent_type?: string
+    remote_write_url?: string
+    max_disk_usage_per_url?: string
+  }) => Promise<void>
 }) {
-  const [form] = Form.useForm<{ description?: string; agent_type?: string; remote_write_url?: string }>()
+  const [form] = Form.useForm<{
+    description?: string
+    agent_type?: string
+    remote_write_url?: string
+    max_disk_usage_per_url?: string
+  }>()
   useEffect(() => {
     form.setFieldsValue({
       description: domain.description,
       agent_type: domain.agent_type ?? 'vmagent',
       remote_write_url: domain.remote_write_url,
+      max_disk_usage_per_url: domain.max_disk_usage_per_url,
     })
   }, [domain, form])
 
@@ -623,6 +641,14 @@ function EditDomainForm({
           label={<FieldLabel label="指标回传地址" tip={DOMAIN_FIELD_TIP.remoteWriteUrl} />}
         >
           <Input placeholder="留空则自动推导；经网闸 / 代理转发时填采集节点侧实际可达的地址" />
+        </Form.Item>
+      )}
+      {!isLocal && (
+        <Form.Item
+          name="max_disk_usage_per_url"
+          label={<FieldLabel label="回传积压磁盘上限" tip={DOMAIN_FIELD_TIP.maxDiskUsagePerUrl} />}
+        >
+          <Input placeholder="留空按采集节点默认兜底（2GB）；生产环境建议 50GB" />
         </Form.Item>
       )}
       <Form.Item name="description" label={<FieldLabel label="描述" tip={DOMAIN_FIELD_TIP.description} />}>

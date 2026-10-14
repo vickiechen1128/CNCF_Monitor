@@ -220,6 +220,46 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
 
+  // dev-feedback #44（2026-10-13 废弃联动）：含告警收敛配置（alertmanager.yml）的变更单，
+  // 废弃二次确认须同步告知告警配置侧终态——修复前只讲 ScrapeJob 影响，用户不知道
+  // 「已挂载未确认的 alertmanager.yml 将保持待确认」（id=18 遗留问题被误判为脏数据）。
+  it('含告警配置的变更单废弃：影响说明追加 alertmanager 终态与恢复路径', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    const amDraft = draftRow({
+      affected_files: ['alertmanager'],
+      change_items: [
+        { id: 'c1', type: 'update', target: 'alertmanager_config', description: '变更告警收敛配置 alertmanager.yml', affected_files: ['alertmanager'], risk: 'high' },
+      ],
+    })
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: amDraft })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
+    expect(modal.confirm).toHaveBeenCalled()
+    const content = modal.confirm.mock.calls[0][0].content as React.ReactElement
+    render(content)
+    expect(screen.getByText(/已挂载但未确认下发的 alertmanager\.yml 将标记为「已废弃」/)).toBeInTheDocument()
+    expect(screen.getByText(/如需生效请重新挂载/)).toBeInTheDocument()
+  })
+
+  it('不含告警配置的变更单废弃：影响说明不出现 alertmanager 终态条目', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 1, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
+    const content = modal.confirm.mock.calls[0][0].content as React.ReactElement
+    render(content)
+    expect(screen.queryByText(/alertmanager\.yml 将标记为「已废弃」/)).toBeNull()
+    expect(screen.getByText(/1 个新建未生效 Job 将回退为草稿/)).toBeInTheDocument()
+  })
+
   it('校验失败态草稿仍可废弃：使用相同 change_no 调用 discardImpact + discard', async () => {
     useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
     draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ validation_status: 'failed' }) })

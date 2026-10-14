@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { App } from 'antd'
 import { ResourcesPage } from './ResourcesPage'
 import { RESOURCE_COLUMN_META } from './resourceColumnPrefs'
 
 const listMock = vi.fn()
 const removeMock = vi.fn()
+const referencedByMock = vi.fn()
 const templateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
@@ -21,6 +23,8 @@ vi.mock('../../api/resources', () => ({
   resourceApi: {
     list: (...args: unknown[]) => listMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
+    // B 方案知情确认（dev-feedback §15 F-21）：删除前预检引用关系
+    referencedBy: (...args: unknown[]) => referencedByMock(...args),
     // F-4：模板下载弹窗（TemplateDownloadModal）依赖 resourceApi.template
     template: (...args: unknown[]) => templateMock(...args),
   },
@@ -131,7 +135,11 @@ function dbItem(resource_id: string, instance_ip: string, extra: Record<string, 
 function renderPage() {
   return render(
     <MemoryRouter>
-      <ResourcesPage />
+      {/* antd App 上下文：页面经 App.useApp().modal.confirm 弹出删除二次确认，
+          须由 <App> 提供 modal 实例，否则 modal 为 undefined（dev-feedback §15 F-21）。 */}
+      <App>
+        <ResourcesPage />
+      </App>
     </MemoryRouter>,
   )
 }
@@ -377,6 +385,7 @@ describe('ResourcesPage', () => {
   })
 
   it('deletes resource after confirm and reloads', async () => {
+    referencedByMock.mockResolvedValue({ status: 'success', data: { jobs: [], total: 0 } })
     listMock.mockResolvedValue({
       status: 'success',
       data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
@@ -387,6 +396,28 @@ describe('ResourcesPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('res-1'))
     await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+  })
+
+  // B 方案知情确认（dev-feedback §15 F-21）：被采集 Job 引用时，删除确认弹窗回显
+  // 引用数 + 引用 Job 名单 + 「查看引用 Job」跳转，确认后仍能删除。
+  it('shows referenced jobs warning in delete confirm when resource is referenced', async () => {
+    referencedByMock.mockResolvedValue({
+      status: 'success',
+      data: { jobs: [{ job_name: 'job-a', network_domain_id: 'default', enabled: true }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    fireEvent.click(screen.getByRole('button', { name: /删除/ }))
+    expect(await screen.findByText(/该资源正被 1 个采集 Job 引用/)).toBeInTheDocument()
+    expect(screen.getByText(/job-a/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看引用 Job' })).toBeInTheDocument()
+    // 确认删除仍触发删除接口
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(removeMock).toHaveBeenCalledWith('res-1'))
   })
 
   // 决策 47-3：资源列表「采集状态」三态 badge / 三态筛选（数据源 M02 coverage，Map by resource_id）
@@ -1395,11 +1426,11 @@ describe('ResourcesPage', () => {
 
   /** F-17：五类 Tab 的全量可配置列（下拉里应能看到的全部勾选项） */
   const F17_ALL_COLUMNS: Record<string, string[]> = {
-    主机: ['实例名', 'IP 地址', '操作系统', '环境', '集群', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    数据库: ['实例名', '数据库类型', 'IP 地址', '端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    中间件: ['实例名', '中间件类型', 'IP 地址', '端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
-    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
+    主机: ['实例名', 'IP 地址', '采集端口', '操作系统', '环境', '集群', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    数据库: ['实例名', '数据库类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    中间件: ['实例名', '中间件类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '采集端口', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
+    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
   }
 
   it('F-17：工具栏提供「列设置」入口，可展开列出当前 Tab 的全部数据列', async () => {
@@ -1408,11 +1439,11 @@ describe('ResourcesPage', () => {
     await screen.findByRole('tab', { name: '主机' })
     // 入口在 FilterBar 区（非表格浮层），按钮文案带当前已选 / 总数
     // 用正则匹配：antd 图标 span 会把aria-label 计入按钮可访问名（F-16 起各按钮均如此）
-    expect(screen.getByRole('button', { name: /列设置（6\/14）/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /列设置（6\/15）/ })).toBeInTheDocument()
     // 初始未展开
     expect(screen.queryByRole('checkbox', { name: '环境' })).toBeNull()
     await openColumnSettings()
-    // host 的 14 列全部可配置
+    // host 的 15 列全部可配置
     for (const label of F17_ALL_COLUMNS['主机']) {
       expect(screen.getByRole('checkbox', { name: label }), `host 下拉应含「${label}」`).toBeInTheDocument()
     }
@@ -1420,7 +1451,8 @@ describe('ResourcesPage', () => {
     closeColumnSettings()
     fireEvent.click(screen.getByRole('tab', { name: '应用服务' }))
     await waitFor(() => expect(screen.getByRole('tab', { name: '应用服务' }).getAttribute('aria-selected')).toBe('true'))
-    expect(screen.getByRole('button', { name: /列设置（6\/15）/ })).toBeInTheDocument()
+    // application 的 16 列（含 T01-P5 采集端口）
+    expect(screen.getByRole('button', { name: /列设置（6\/16）/ })).toBeInTheDocument()
     await openColumnSettings()
     expect(screen.getByRole('checkbox', { name: '健康检查 URL' })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '集群' })).toBeNull()

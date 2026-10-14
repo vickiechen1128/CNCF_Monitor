@@ -1,8 +1,10 @@
 package edge
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -87,13 +89,49 @@ type AgentView struct {
 	ConfigSyncStatus models.ConfigSyncStatus `json:"config_sync_status,omitempty"`
 	OutOfSyncCause   models.OutOfSyncCause   `json:"out_of_sync_cause,omitempty"`
 	// 配置应用失败诊断（M11 设计提案 D-2，字段与心跳契约同名同义）。
-	ConfigApplyError         string                 `json:"config_apply_error,omitempty"`
-	ConfigApplyFailedVersion string                 `json:"config_apply_failed_version,omitempty"`
-	QueueBacklogBytes        int64                  `json:"queue_backlog_bytes,omitempty"`
-	CollectorStatus          string                 `json:"collector_status,omitempty"`
-	CollectorVersion         string                 `json:"collector_version,omitempty"`
-	LastError                string                 `json:"last_error,omitempty"`
-	Components               []models.EdgeComponent `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
+	ConfigApplyError         string `json:"config_apply_error,omitempty"`
+	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"`
+	QueueBacklogBytes        int64  `json:"queue_backlog_bytes,omitempty"`
+	// RemoteWriteDroppedTotal / RemoteWriteRetriesTotal 是 vmagent remote_write 累计
+	// 丢块+丢包总数 / 累计重试次数（F-39）。丢块非零即数据丢失，须醒目展示；离线时同样
+	// 保留透出（累计事实不随心跳超时失效，便于排障）。
+	RemoteWriteDroppedTotal int64  `json:"remote_write_dropped_total,omitempty"`
+	RemoteWriteRetriesTotal int64  `json:"remote_write_retries_total,omitempty"`
+	RemoteWriteLastError    string `json:"remote_write_last_error,omitempty"`
+	// RemoteWriteLagSeconds 是中心视角该网域 up 样本距今秒数的 p95 分位（F-40 口径
+	// 延展：quantile by (network_domain_id) (0.95, time() - ts_of_last_over_time(up[24h]))）。
+	// nil 表示无数据（24h 内无样本 / 中心 Prom 不可用 / 未配置查询器 / 中心 Prom 未开
+	// promql-experimental-functions），与 0（新鲜）严格区分。
+	RemoteWriteLagSeconds *int64 `json:"remote_write_lag_seconds,omitempty"`
+	// BacklogAgeSeconds 是「积压数据龄」估算（F-40 延展①）：当前积压字节 ÷ 近期积压
+	// 增速（相邻心跳差分），即按近期速率攒出当前积压所需时长。nil 表示无数据
+	//（30min 窗口内心跳不足 / 积压未上涨 / 心跳过期），与 0 严格区分。网域级派生值，
+	// 同域节点相同。
+	BacklogAgeSeconds *int64 `json:"backlog_age_seconds,omitempty"`
+	// BacklogGrowthBytesPerSec 是近期积压增速（字节/秒，负值表示积压在消化），
+	// 对应「展示心跳中的积压增长趋势」口径（F-40 延展①）。
+	BacklogGrowthBytesPerSec *int64 `json:"backlog_growth_bytes_per_sec,omitempty"`
+	// ChannelStatus 是回传通道态（F-40 延展③，联动 F-39 指标）：abnormal 表示
+	//「积压持续上涨 且 远端持续报错」——最新心跳 last_error 非空，且窗口内错误持续
+	//（≥2 条心跳报错）或 retries 仍在增长。空/缺省 = 未见异常。
+	ChannelStatus    string                 `json:"channel_status,omitempty"`
+	CollectorStatus  string                 `json:"collector_status,omitempty"`
+	CollectorVersion string                 `json:"collector_version,omitempty"`
+	LastError        string                 `json:"last_error,omitempty"`
+	Components       []models.EdgeComponent `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
+	// MetadataRemoteWriteURL / MetadataMaxDiskUsagePerURL 是节点当前生效的回传参数
+	//（F-42，Agent 心跳上报的 metadata 指纹镜像）：空 = 未下发，Agent 走内置兜底。
+	MetadataRemoteWriteURL     string `json:"metadata_remote_write_url,omitempty"`
+	MetadataMaxDiskUsagePerURL string `json:"metadata_max_disk_usage_per_url,omitempty"`
+	// 人工滚动重启留痕（F-42 seq 简化机制）：指令位当前值 + 最近一次触发人/时间，
+	// 供节点详情抽屉展示「最近一次人工重启」。
+	VMAgentRestartSeq  int64   `json:"vm_agent_restart_seq,omitempty"`
+	RestartRequestedBy string  `json:"restart_requested_by,omitempty"`
+	RestartRequestedAt *string `json:"restart_requested_at,omitempty"`
+	// 清空回传积压留痕（F-43，机制同上）：指令位当前值 + 最近一次触发人/时间。
+	FlushBacklogSeq  int64   `json:"flush_backlog_seq,omitempty"`
+	FlushRequestedBy string  `json:"flush_requested_by,omitempty"`
+	FlushRequestedAt *string `json:"flush_requested_at,omitempty"`
 }
 
 func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView {
@@ -114,10 +152,29 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		ConfigApplyError:         a.ConfigApplyError,
 		ConfigApplyFailedVersion: a.ConfigApplyFailedVersion,
 		QueueBacklogBytes:        a.QueueBacklogBytes,
+		RemoteWriteDroppedTotal:  a.RemoteWriteDroppedTotal,
+		RemoteWriteRetriesTotal:  a.RemoteWriteRetriesTotal,
+		RemoteWriteLastError:     a.RemoteWriteLastError,
 		CollectorStatus:          a.CollectorStatus,
 		CollectorVersion:         a.CollectorVersion,
 		LastError:                a.LastError,
 		Components:               a.Components,
+		// F-42：生效回传参数与人工重启留痕透出（不做离线降级——生效参数与指令位是
+		// 已发生的事实，离线后仍可用于排障）。
+		MetadataRemoteWriteURL:     a.MetadataRemoteWriteURL,
+		MetadataMaxDiskUsagePerURL: a.MetadataMaxDiskUsagePerURL,
+		VMAgentRestartSeq:          a.VMAgentRestartSeq,
+		RestartRequestedBy:         a.RestartRequestedBy,
+		FlushBacklogSeq:            a.FlushBacklogSeq,
+		FlushRequestedBy:           a.FlushRequestedBy,
+	}
+	if a.RestartRequestedAt != nil {
+		s := a.RestartRequestedAt.UTC().Format(time.RFC3339)
+		v.RestartRequestedAt = &s
+	}
+	if a.FlushRequestedAt != nil {
+		s := a.FlushRequestedAt.UTC().Format(time.RFC3339)
+		v.FlushRequestedAt = &s
 	}
 	// F-15 症状层：心跳超时（离线）或已退纳管（retired）时，节点已失去可信的实时状态，展示层统一降级：
 	//   - 组件状态（CollectorStatus / Components[].status）覆写为 unknown——retired 节点可能残留孤儿
@@ -261,4 +318,128 @@ func normThreshold(t time.Duration) time.Duration {
 		return DefaultOfflineThreshold
 	}
 	return t
+}
+
+// fillSampleLags 把网域级「中心视角样本滞后秒数」就地写入各 AgentView（F-40 延展）。
+// lag 富化是显式组合步骤而非 ListAgents 内置逻辑：querier 为 nil（未接线/单测）或查询
+// 失败（中心 Prom 不可用）时整体跳过，视图保持 nil（前端显示「无数据」），不阻塞列表。
+// 一个网域可有多个采集节点，remote_write 走同一网域通道，网域级 max 滞后对同域节点相同。
+func fillSampleLags(views []AgentView, q SampleLagQuerier) {
+	if q == nil || len(views) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	lags, err := q.QueryDomainLags(ctx)
+	if err != nil {
+		return // 降级为无数据：观测增强不应拖垮节点列表
+	}
+	for i := range views {
+		if secs, ok := lags[views[i].NetworkDomainID]; ok {
+			v := secs
+			views[i].RemoteWriteLagSeconds = &v
+		}
+	}
+}
+
+// 回传通道洞察（F-40 延展①③）：从 edge_heartbeats 相邻心跳差分估算积压增速与
+// 「积压数据龄」，并联动 F-39 的 remote_write_last_error / remote_write_retries_total
+// 判定通道异常态——回应「回传延迟显示『刚刚』但积压持续上涨」的口径盲区：延迟 p95
+// 只看样本时间戳，看不出积压在攒；数据龄与通道态把「积压还要涨多久」直接摆出来。
+const (
+	// backlogInsightLookback 是差分取样的回看窗口：窗口内无心跳即视为数据过期，
+	// 字段保持缺省（离线节点不展示陈旧推算）。
+	backlogInsightLookback = 30 * time.Minute
+	// backlogInsightSamples 是单网域最多加载的心跳条数（30s 心跳 →约 5 分钟历史，
+	// 足够覆盖增速差分与「持续错误」观察窗口）。
+	backlogInsightSamples = 10
+	// backlogInsightMinGap 是差分的最小时间间隔，避免同刻重复上报导致除零/速率失真。
+	backlogInsightMinGap = 15 * time.Second
+	// backlogInsightPersistWindow 是「持续错误」观察的心跳条数。
+	backlogInsightPersistWindow = 3
+)
+
+// ChannelStatusAbnormal 是 AgentView.ChannelStatus 的异常档：积压持续上涨且远端
+// 持续报错。空值（字段缺省）表示未见异常；后续如需加档（如 warning）再扩展。
+const ChannelStatusAbnormal = "abnormal"
+
+// fillBacklogInsights 就地写入积压数据龄 / 增速 / 通道异常态（F-40 延展①③）。
+// 与 fillSampleLags 同为显式组合步骤：db 为 nil、查询失败或窗口内无心跳时保持缺省
+// （前端显示「-」），不阻塞节点列表。
+func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time) {
+	if db == nil || len(views) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(views))
+	for i := range views {
+		dom := views[i].NetworkDomainID
+		if _, ok := seen[dom]; ok {
+			continue
+		}
+		seen[dom] = struct{}{}
+		var hbs []models.EdgeHeartbeat
+		err := db.Where("network_domain_id = ? AND timestamp >= ?", dom, now.Add(-backlogInsightLookback)).
+			Order("timestamp DESC").Limit(backlogInsightSamples).Find(&hbs).Error
+		if err != nil || len(hbs) == 0 {
+			continue
+		}
+		age, growth, channel := backlogInsight(hbs)
+		for j := range views {
+			if views[j].NetworkDomainID != dom {
+				continue
+			}
+			if age != nil {
+				v := *age
+				views[j].BacklogAgeSeconds = &v
+			}
+			if growth != nil {
+				v := *growth
+				views[j].BacklogGrowthBytesPerSec = &v
+			}
+			views[j].ChannelStatus = channel
+		}
+	}
+}
+
+// backlogInsight 从一条网域的近期心跳（按 timestamp 倒序）推算数据龄、增速与通道态：
+//   - 增速 = (最新积压 - 较早积压) ÷ 时间差，取第一条间隔 ≥ backlogInsightMinGap 的
+//     心跳做差分；负值表示积压在消化。
+//   - 数据龄 = 最新积压 ÷ 增速（仅增速 > 0 时有义），即按近期速率攒出当前积压的时长
+//     ——「积压字节 ÷ 近期生产速率」的可测近似（增速≈生产-消费，消费停滞时即生产侧积压速率）。
+//   - 通道异常态 = 积压上涨 且 最新心跳仍在报错（last_error 非空）且 错误持续
+//     （窗口内 ≥2 条心跳报错）或窗口内 retries 仍在增长；单次瞬时错误不触发。
+func backlogInsight(hbs []models.EdgeHeartbeat) (age, growth *int64, channel string) {
+	if len(hbs) == 0 {
+		return nil, nil, ""
+	}
+	h0 := hbs[0]
+	for i := 1; i < len(hbs); i++ {
+		gap := h0.Timestamp.Sub(hbs[i].Timestamp)
+		if gap < backlogInsightMinGap {
+			continue
+		}
+		rate := float64(h0.QueueBacklogBytes-hbs[i].QueueBacklogBytes) / gap.Seconds()
+		g := int64(math.Round(rate))
+		growth = &g
+		if rate > 0 && h0.QueueBacklogBytes > 0 {
+			a := int64(float64(h0.QueueBacklogBytes) / rate)
+			age = &a
+		}
+		break
+	}
+	if growth == nil || *growth <= 0 || h0.RemoteWriteLastError == "" {
+		return age, growth, channel
+	}
+	n := min(len(hbs), backlogInsightPersistWindow)
+	errCount := 0
+	for i := 0; i < n; i++ {
+		if hbs[i].RemoteWriteLastError != "" {
+			errCount++
+		}
+	}
+	retriesDelta := h0.RemoteWriteRetriesTotal - hbs[n-1].RemoteWriteRetriesTotal
+	if errCount >= 2 || retriesDelta > 0 {
+		channel = ChannelStatusAbnormal
+	}
+	return age, growth, channel
 }

@@ -52,14 +52,38 @@ type EdgeAgent struct {
 	OutOfSyncCause   OutOfSyncCause   `gorm:"size:30" json:"out_of_sync_cause,omitempty"`  // pending_draft/pull_pending/local_reset/apply_failed
 	// ConfigApplyError 是最近一次配置应用失败原因（Agent 随心跳上报，应用成功后清空）。
 	// 决策 3：新增专用字段而非复用语义过泛的 LastError（M11 设计提案 D-2）。
-	ConfigApplyError         string          `gorm:"type:text" json:"config_apply_error,omitempty"`
-	ConfigApplyFailedVersion string          `gorm:"size:64" json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
-	CollectorStatus          string          `gorm:"size:30" json:"collector_status,omitempty"`
-	CollectorVersion         string          `gorm:"size:50" json:"collector_version,omitempty"`
-	QueueBacklogBytes        int64           `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"`
-	RemoteWriteURL           string          `gorm:"size:500" json:"remote_write_url,omitempty"`
-	Components               []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"` // 组件清单（JSON 载体）
-	LastError                string          `gorm:"type:text" json:"last_error,omitempty"`
+	ConfigApplyError         string `gorm:"type:text" json:"config_apply_error,omitempty"`
+	ConfigApplyFailedVersion string `gorm:"size:64" json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
+	CollectorStatus          string `gorm:"size:30" json:"collector_status,omitempty"`
+	CollectorVersion         string `gorm:"size:50" json:"collector_version,omitempty"`
+	QueueBacklogBytes        int64  `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"`
+	// RemoteWriteDroppedTotal / RemoteWriteRetriesTotal 是 vmagent remote_write 累计
+	// 丢块+丢包总数 / 累计重试次数（F-39，Agent 随心跳上报并在此持久化最新值）。
+	RemoteWriteDroppedTotal int64  `json:"remote_write_dropped_total,omitempty"`
+	RemoteWriteRetriesTotal int64  `json:"remote_write_retries_total,omitempty"`
+	RemoteWriteLastError    string `gorm:"type:text" json:"remote_write_last_error,omitempty"`
+	RemoteWriteURL          string `gorm:"size:500" json:"remote_write_url,omitempty"`
+	// MetadataRemoteWriteURL / MetadataMaxDiskUsagePerURL 是 Agent 心跳上报的当前
+	// 生效配置目录 metadata.json 回传参数指纹（F-42）：镜像落盘供节点详情展示
+	// 「节点当前生效回传参数」，并与网域配置比对驱动 params_changed 强制拉包。
+	// 空 = Agent 未拉过包或版本较旧未上报。
+	MetadataRemoteWriteURL     string `gorm:"size:500" json:"metadata_remote_write_url,omitempty"`
+	MetadataMaxDiskUsagePerURL string `gorm:"size:32" json:"metadata_max_disk_usage_per_url,omitempty"`
+	// VMAgentRestartSeq 是人工滚动重启 vmagent 采集子进程的幂等指令位（F-42 seq
+	// 简化机制）：管理端点每次触发 +1，心跳响应透传最新值，Agent 本地持久化已执行
+	// seq、发现更大值时幂等执行（重复心跳不重复重启）。无 pending/回报状态机，
+	// 重启效果靠组件状态/积压/回传延迟列自然反映。
+	// FlushBacklogSeq 是「清空回传积压」破坏性指令位（F-43，机制同上）：Agent 执行
+	// 前必须先停 vmagent 再删持久队列目录（进程持有队列文件句柄，运行中删除行为未
+	// 定义），队列内积压数据**有意丢弃**换取回传通道实时性恢复。
+	VMAgentRestartSeq  int64           `json:"vm_agent_restart_seq,omitempty"`
+	RestartRequestedBy string          `gorm:"size:64" json:"restart_requested_by,omitempty"` // 最近的触发人（审计留痕）
+	RestartRequestedAt *time.Time      `json:"restart_requested_at,omitempty"`                // 最近的触发时间
+	FlushBacklogSeq    int64           `json:"flush_backlog_seq,omitempty"`                   // 清空回传积压指令位（F-43）
+	FlushRequestedBy   string          `gorm:"size:64" json:"flush_requested_by,omitempty"`   // 最近的清积压触发人（审计留痕）
+	FlushRequestedAt   *time.Time      `json:"flush_requested_at,omitempty"`                  // 最近的清积压触发时间
+	Components         []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"`   // 组件清单（JSON 载体）
+	LastError          string          `gorm:"type:text" json:"last_error,omitempty"`
 }
 
 // TableName returns the GORM table name.

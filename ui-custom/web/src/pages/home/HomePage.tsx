@@ -3,7 +3,8 @@
  *
  * 页面结构（自上而下）：页头行（引导语 + 系统状态）→ **L0 全局态势区**（5 张 KPI 卡，
  * 含「拨测」）→ **L1 采集覆盖区**（5 张资源类型卡一行，子类封顶 3 + 更多）→ **L2 应用覆盖表**
- * （覆盖率升序，未归类行置底）→ **L3 拨测态势面板** → **L4 告警状态卡 + L5 使用指引
+ * （纳管率升序，未归类行置底）→ 「按云分布」整宽区块 → **L3 拨测态势面板** → **「采集健康」
+ * 独立面板**（反馈 10 路线 B，工程师视角，固定位于**告警状态之前**）→ **L4 告警状态卡 + L5 使用指引
  * （同排等高：左告警 1.6 : 右指引 1）**。
  *
  * 与 v1.7 的差异（决策 93）：L0 由 4 卡扩为 5 卡（新增「拨测」）；删「按应用查看」入口卡与
@@ -58,6 +59,7 @@ import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { AppDetailTable } from './AppDetailTable'
 import { CloudDistributionPanel } from './CloudDistributionPanel'
 import { ProbePanel } from './ProbePanel'
+import { CollectionHealthPanel } from './CollectionHealthPanel'
 import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
 import { useNarrowLayout } from './homeResponsive'
 
@@ -173,6 +175,16 @@ const DASHBOARD_MOCK: DashboardSummary = {
     { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
     { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
   ],
+  // 「采集健康」静态预览样例（反馈 10 路线 B）。分母 `dispatched_count` 恒等于
+  // `monitored_count`=96（已下发资源数），四态计数之和 = 96；后端查询失败 / 未实现时字段缺失，
+  // 面板渲染「不可用」（本样例仅用于静态预览 / 缺失回退，不改变口径）。
+  collection_health: {
+    dispatched_count: 96,
+    collecting_count: 88,
+    stale_count: 4,
+    down_count: 2,
+    pending_count: 2,
+  },
 }
 
 const ALERT_MOCK: AlertCounts = {
@@ -572,7 +584,7 @@ interface MetricItem {
   tip?: string
   /** 副行说明（11px 灰字） */
   sub?: string
-  /** 传入时以**进度条**替代副行文字（目前仅「整体覆盖率」） */
+  /** 传入时以**进度条**替代副行文字（目前仅「纳管覆盖率」） */
   progress?: number
   /** 告警卡：浅红底 + 浅红边，与三张资产卡视觉分离 */
   danger?: boolean
@@ -585,8 +597,8 @@ interface MetricItem {
  * 标签 12px 在上 → 30px/800 数字 → 11px 副行说明，**卡内不放图标容器**——
  * 数字已经是卡内唯一视觉主体，图标只会与它争视觉权重、让扫读变慢。
  *
- * - 「整体覆盖率」用**进度条**替代副行文字：百分数需要一段横向长度才有「进度感」，
- *   口径文字（「已纳入监控 ÷ 资源总数」）收进 ⓘ，不重复占版面；
+ * - 「纳管覆盖率」用**进度条**替代副行文字：百分数需要一段横向长度才有「进度感」，
+ *   口径文字（「已下发 ÷ 资源总数」，且明确「不代表已采到」）收进 ⓘ，不重复占版面；
  * - 第 4 卡（告警）用浅红底 + 浅红边：它表达的是「异常数」而不是「资产数」，
  *   与前 3 张分开，扫读时才不会被当成第四种资产。
  * - 卡高由内容决定，不锁死视口相关高度。
@@ -644,7 +656,7 @@ function MetricCard({ item }: { item: MetricItem }) {
           aria-valuenow={percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`整体覆盖率 ${percent}%`}
+          aria-label={`纳管覆盖率 ${percent}%`}
           style={{
             marginTop: 12,
             height: 6,
@@ -761,8 +773,8 @@ export function HomePage() {
     typeof value === 'number' && !Number.isNaN(value) ? value : undefined
   const metricValue = (value?: number): ReactNode => metricNumber(value) ?? '-'
 
-  // 整体覆盖率：已纳入监控 ÷ 资源总数，取整百分数；任一字段缺失或资源数为 0 时显示 '-'
-  // （不渲染 0% / NaN%），前端派生无需新字段（口径按 PRD §「L0 关键指标卡口径」）
+  // 纳管覆盖率：已下发（被启用的采集任务覆盖）÷ 资源总数，取整百分数；任一字段缺失或资源数为 0 时显示 '-'
+  // （不渲染 0% / NaN%），前端派生无需新字段（口径按 PRD §「L0关键指标卡口径」）。
   const resourceTotal = metricNumber(dashboard?.resource_count)
   const monitoredTotal = metricNumber(dashboard?.monitored_count)
   // 覆盖率数值（进度条用；无数据时 undefined → 卡片显示 '-'，进度条按 0 渲染）
@@ -792,20 +804,20 @@ export function HomePage() {
     },
     {
       key: 'monitored_count',
-      label: '已纳入监控',
+      label: '已下发监控',
       value: metricValue(dashboard?.monitored_count),
       // 副行给「未纳管 N」——比重复口径文字更有信息量（口径收进 ⓘ）
       sub:
         resourceTotal !== undefined && monitoredTotal !== undefined
-          ? `未纳管 ${Math.max(0, resourceTotal - monitoredTotal)}`
+          ? `未下发 ${Math.max(0, resourceTotal - monitoredTotal)}`
           : undefined,
-      tip: '至少被一个已启用的采集任务覆盖到的资源数；其余为尚未纳管的资源。',
+      tip: '至少被一个已启用的采集任务【下发覆盖】到的资源数（含尚未采到的）；其余为尚未下发监控任务的资源。本卡统计下发口径，不代表已采到数据。',
     },
     {
       key: 'coverage',
-      label: '整体覆盖率',
+      label: '纳管覆盖率',
       value: coverage,
-      tip: '已纳入监控资源数 ÷ 资源总数，反映当前纳管进度；拨测目标不参与计算。',
+      tip: '已下发（被启用的采集任务覆盖）的资源数 ÷ 资源总数，反映【纳管/下发进度】，不代表数据已采到。实际采集健康见「资源管理中心」采集状态。拨测目标不参与计算。',
       valueColor: token.colorPrimary,
       progress: coveragePercent ?? 0,
     },
@@ -934,6 +946,12 @@ export function HomePage() {
         {/* L3 拨测态势面板：整宽卡（决策 93）。数据源为 dashboard.probe_targets[]（受控注入，
             空库/字段缺失时空数组 → ProbePanel 显示空态 + 去配置深链）。 */ }
         <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
+
+        {/* 「采集健康」独立面板（反馈 10 路线 B）：工程师视角「已下发的这批数据采到了吗」，
+            与领导视角的 L0「纳管覆盖率」（下发进度）分开展示。位置固定在**告警状态之前**
+            （即「采集覆盖」区之后，不与领导视角指标相邻）；数据源 = dashboard.collection_health
+            （后端一次聚合四态，前端零逻辑；缺失时面板显示「不可用」，绝不误报 0）。 */ }
+        <CollectionHealthPanel health={dashboard?.collection_health} />
 
         {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）；
             窄屏（≤767px）改为纵向堆叠（告警卡在上、使用指引在下），两卡各自整宽。

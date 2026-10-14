@@ -952,15 +952,17 @@ func TestEdgeHeartbeatComponentsPersistence(t *testing.T) {
 
 	ts := time.Date(2026, 9, 17, 8, 0, 0, 0, time.UTC)
 	hb := &EdgeHeartbeat{
-		NetworkDomainID:      "gov-cloud-a",
-		AgentType:            AgentTypeVMAgent,
-		Version:              "v1.2.0",
-		ConfigVersion:        "20260724-120000",
-		QueueBacklogBytes:    1048576,
-		RemoteWriteQueueSize: 120,
-		Hostname:             "edge01",
-		Ip:                   "10.0.2.15",
-		Timestamp:            ts,
+		NetworkDomainID:         "gov-cloud-a",
+		AgentType:               AgentTypeVMAgent,
+		Version:                 "v1.2.0",
+		ConfigVersion:           "20260724-120000",
+		QueueBacklogBytes:       1048576,
+		RemoteWriteQueueSize:    120,
+		RemoteWriteDroppedTotal: 9,
+		RemoteWriteRetriesTotal: 20,
+		Hostname:                "edge01",
+		Ip:                      "10.0.2.15",
+		Timestamp:               ts,
 		Components: []EdgeComponent{
 			{Type: ComponentTypeCollector, Name: "vmagent", Status: ComponentStatusRunning},
 		},
@@ -974,6 +976,9 @@ func TestEdgeHeartbeatComponentsPersistence(t *testing.T) {
 	assert.Equal(t, "10.0.2.15", got.Ip)
 	assert.Equal(t, int64(1048576), got.QueueBacklogBytes)
 	assert.Equal(t, 120, got.RemoteWriteQueueSize)
+	// F-39：丢块/重试计数随心跳留痕持久化。
+	assert.Equal(t, int64(9), got.RemoteWriteDroppedTotal)
+	assert.Equal(t, int64(20), got.RemoteWriteRetriesTotal)
 	assert.Len(t, got.Components, 1)
 	assert.Equal(t, ComponentStatusRunning, got.Components[0].Status)
 	assert.True(t, ts.Equal(got.Timestamp))

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { setupAntdTest } from '../../../test/antdTestUtils'
 import { EdgeAgentsPage } from './EdgeAgentsPage'
 import type { AgentView, EdgeAgentsSummary } from '../../../types/edge'
@@ -16,6 +16,20 @@ vi.mock('./useEdgeAgents', () => ({
 vi.mock('./EdgeAgentDrawer', () => ({
   EdgeAgentDrawer: ({ open, agent }: { open: boolean; agent: AgentView | null }) =>
     open && agent ? <div>mock-agent-drawer-{agent.hostname}</div> : null,
+}))
+
+// F-42：getStoredUser 控制重启入口可见性（admin-only）；edgeAgentsApi.restart 控制下发断言
+const getStoredUserMock = vi.fn()
+vi.mock('../../../api/client', () => ({
+  getStoredUser: (...a: unknown[]) => getStoredUserMock(...a),
+}))
+const restartMock = vi.fn()
+const flushBacklogMock = vi.fn()
+vi.mock('../../../api/edgeAgents', () => ({
+  edgeAgentsApi: {
+    restart: (...a: unknown[]) => restartMock(...a),
+    flushBacklog: (...a: unknown[]) => flushBacklogMock(...a),
+  },
 }))
 
 const navigateMock = vi.fn()
@@ -89,6 +103,8 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
   beforeEach(() => {
     useEdgeAgentsMock.mockReset()
     navigateMock.mockReset()
+    getStoredUserMock.mockReset()
+    restartMock.mockReset()
     mockSearchParams(new URLSearchParams())
   })
 
@@ -120,6 +136,58 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(screen.getByText('1.0 MB')).toBeInTheDocument()
     // 配置同步 in_sync 文案
     expect(screen.getAllByText('已同步').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('回传延迟列：正常/warning/danger/无数据 四档渲染（F-40 延展）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', { remote_write_lag_seconds: 42 }), // <60s → 刚刚
+      agentRow(2, 'edge02', { remote_write_lag_seconds: 21 * 60 }), // 21 分钟前 → warning
+      agentRow(3, 'edge03', { remote_write_lag_seconds: 2 * 3600 + 5 * 60 }), // 2 小时 5 分钟前 → danger
+      agentRow(4, 'edge04', {}), // 无数据 → '-'
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 4, online: 4, partial: 0, offline: 0 } }))
+    renderPage()
+
+    expect(await screen.findByText('edge01')).toBeInTheDocument()
+    expect(screen.getByText('刚刚')).toBeInTheDocument()
+    expect(screen.getByText('21 分钟前')).toBeInTheDocument()
+    expect(screen.getByText('2 小时 5 分钟前')).toBeInTheDocument()
+    // 无数据档显示占位符（其余列也可能有 '-'，放宽断言）
+    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('积压数据龄列：有差分依据展示时长+增速 Tooltip，无数据展示占位（F-40 延展①）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', { backlog_age_seconds: 90 * 60, backlog_growth_bytes_per_sec: 2048 }),
+      agentRow(2, 'edge02', { backlog_age_seconds: 45, backlog_growth_bytes_per_sec: -100 }),
+      agentRow(3, 'edge03', {}), // 无差分依据 → '-'
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 3, online: 3, partial: 0, offline: 0 } }))
+    renderPage()
+
+    expect(await screen.findByText('edge01')).toBeInTheDocument()
+    expect(screen.getByText('1 小时 30 分钟')).toBeInTheDocument()
+    expect(screen.getByText('<1 分钟')).toBeInTheDocument()
+    // 无数据档（其余列也可能有 '-'，放宽断言）
+    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
+    // 增速经 Tooltip 呈现（正增长 +2.0 KB/s）
+    fireEvent.mouseEnter(screen.getByText('1 小时 30 分钟'))
+    expect(await screen.findByText(/近期积压增速：\+2\.0 KB\/s/)).toBeInTheDocument()
+  })
+
+  it('积压上涨且错误持续时回传积压列展示「通道异常」error Badge（F-40 延展③）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', { channel_status: 'abnormal' }),
+      agentRow(2, 'edge02', {}), // 无通道态 → 不渲染 Badge
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 2, online: 2, partial: 0, offline: 0 } }))
+    renderPage()
+
+    const badge = await screen.findByText('通道异常')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-error')).not.toBeNull()
+    // 瞬时/正常态不渲染通道异常文案
+    expect(screen.getAllByText('通道异常')).toHaveLength(1)
   })
 
   it('out_of_sync + pending_draft 成因给出「前往配置确认」引导按钮（跳转 /config-preview）', async () => {
@@ -267,5 +335,100 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
 
     await screen.findByText('暂无 agent_pull 网域（中心直连域）')
     expect(useEdgeAgentsMock).toHaveBeenCalledWith('gov-cloud-a')
+  })
+
+  it('F-42：admin 经「更多 → 重启采集进程」二次确认后下发重启指令', async () => {
+    const agents: AgentView[] = [agentRow(1, 'edge01')]
+    const reload = vi.fn()
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 }, reload }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    restartMock.mockResolvedValue({})
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    fireEvent.click(await screen.findByText('重启采集进程'))
+    // 二次确认弹窗：明确告知仅重启 vmagent 子进程、队列数据不丢、约 30s 生效
+    expect(await screen.findByText(/确定要重启节点「edge01」的采集进程/)).toBeInTheDocument()
+    expect(await screen.findByText(/仅滚动重启 vmagent 采集子进程/)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /确认重启/ }))
+    await waitFor(() => expect(restartMock).toHaveBeenCalledWith(1))
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('F-42：离线节点重启菜单项禁用，点击不下发指令', async () => {
+    const agents: AgentView[] = [agentRow(1, 'edge01', { status: 'offline' })]
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 0, offline: 1 } }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    // 注意：前置测试的 Modal.confirm 标题可能异步残留在 body，按 li 内菜单项过滤
+    const items = await screen.findAllByText('重启采集进程')
+    const item = items.find((el) => el.closest('li'))!
+    expect(item.closest('li')?.className).toContain('ant-dropdown-menu-item-disabled')
+    // 计数断言（而非 toBeNull）：前置测试的 Modal.confirm Portal 可能异步残留在 body
+    const modalCountBefore = screen.queryAllByText(/确定要重启节点/).length
+    fireEvent.click(item)
+    expect(screen.queryAllByText(/确定要重启节点/).length).toBe(modalCountBefore)
+    expect(restartMock).not.toHaveBeenCalled()
+  })
+
+  it('F-42：非 admin 不展示「更多」重启入口（后端 RequireAdmin 兜底）', async () => {
+    const agents: AgentView[] = [agentRow(1, 'edge01')]
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 } }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'user' })
+    renderPage()
+
+    expect(await screen.findByText('edge01')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /更多/ })).toBeNull()
+  })
+
+  it('F-43：admin 经「更多 → 清空回传积压」二次确认（红色破坏性警示）后下发清空指令', async () => {
+    const agents: AgentView[] = [agentRow(2, 'edge02', { queue_backlog_bytes: 3637 * 1024 * 1024 })]
+    const reload = vi.fn()
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 }, reload }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    flushBacklogMock.mockResolvedValue({})
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    fireEvent.click(await screen.findByText('清空回传积压'))
+    // 二次确认弹窗：红色「永久丢弃」警示 + 展示当前积压量（GB）+ 危险按钮
+    expect(await screen.findByText(/确定要清空节点「edge02」的回传积压/)).toBeInTheDocument()
+    expect(await screen.findByText(/队列内全部积压数据将被永久丢弃/)).toBeInTheDocument()
+    const okBtn = await screen.findByRole('button', { name: /确认清空（数据丢弃）/ })
+    expect(okBtn.className).toContain('danger')
+    fireEvent.click(okBtn)
+    await waitFor(() => expect(flushBacklogMock).toHaveBeenCalledWith(2))
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(restartMock).not.toHaveBeenCalled()
+  })
+
+  it('F-43：离线节点清空积压菜单项禁用（破坏性操作仅限在线节点）', async () => {
+    const agents: AgentView[] = [agentRow(3, 'edge03', { status: 'offline' })]
+    useEdgeAgentsMock.mockReturnValue(
+      result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 0, offline: 1 } }),
+    )
+    getStoredUserMock.mockReturnValue({ role: 'admin' })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /更多/ }))
+    // 注意：前置测试的 Modal.confirm 标题可能异步残留在 body，按 li 内菜单项过滤
+    const items = await screen.findAllByText('清空回传积压')
+    const item = items.find((el) => el.closest('li'))!
+    expect(item.closest('li')?.className).toContain('ant-dropdown-menu-item-disabled')
+    // 计数断言（而非 toBeNull）：前置测试的 Modal.confirm Portal 可能异步残留在 body
+    const modalCountBeforeFlush = screen.queryAllByText(/确定要清空节点/).length
+    fireEvent.click(item)
+    expect(screen.queryAllByText(/确定要清空节点/).length).toBe(modalCountBeforeFlush)
+    expect(flushBacklogMock).not.toHaveBeenCalled()
   })
 })

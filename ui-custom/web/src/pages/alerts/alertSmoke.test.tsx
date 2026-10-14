@@ -69,7 +69,7 @@ function derivedEmpty() {
 function routeSettingEmpty() {
   return {
     setting: null,
-    options: [{ value: -1, label: '不接管（保留我手写的兜底配置）' }],
+    options: [{ value: -1, label: '不接管（保留配置文件里已有的值）' }],
     loading: false,
     error: null,
     saving: false,
@@ -176,14 +176,18 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     expect(screen.getByRole('button', { name: /重新加载/ })).toBeInTheDocument()
   })
 
-  // T08-F8：骨架布缆开关就在策略卡首屏。2026-10-02 #38 术语去技术化：
-  // 「默认接收人（根兜底）」→ 「未匹配规则的告警发给谁」（§7.5 对照表）。
-  it('T08-F8：告警配置页策略卡「未匹配规则的告警发给谁」控件就位', async () => {
+  // T08-SPLIT-01（提案 §2.2 卡③ + §7.6 C3）：导入整份配置文件由高级 Collapse **提为常驻卡**，
+  // 手写逃生门任何模式下都可达（验收 A11），且旧策略卡与其上两个控件已整块迁出本页（A1/A2）。
+  it('T08-SPLIT-01：导入入口提为常驻卡，原策略卡与「没匹配到具体规则的告警，发给哪个渠道」控件已迁出本页', async () => {
     renderM08('/alert-config')
-    expect(await screen.findByRole('combobox', { name: '未匹配规则的告警发给谁' })).toBeInTheDocument()
-    expect(screen.getByTestId('alert-policy-card')).toBeInTheDocument()
-    // 首项「不接管」= null 且为默认选中值
-    expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
+    // 导入卡常驻可达，无需展开任何折叠区
+    expect(await screen.findByTestId('alert-import-card')).toBeInTheDocument()
+    expect(screen.getByTestId('import-config-button')).toBeInTheDocument()
+    // 迁出反向护栏：策略卡与兜底控件在本页均已不存在（覆盖已迁至 RoutesPage.test.tsx）
+    expect(screen.queryByTestId('alert-policy-card')).toBeNull()
+    expect(screen.queryByTestId('alert-guide-card')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' })).toBeNull()
+    expect(document.body.textContent ?? '').not.toContain('不接管（保留配置文件里已有的值）')
     // 旧术语不再出现在用户视图
     expect(document.body.textContent ?? '').not.toContain('默认兜底接收人')
   })

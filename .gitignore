@@ -69,4 +69,8 @@ __pycache__/
 
 # M09 local 下发产物与 Prometheus TSDB 运行时数据（make run-prometheus 生成）
 config-output/
+# 中心 Prometheus TSDB 目录。Makefile run-prometheus 显式指定绝对路径
+# $(PROJECT_ROOT)/data/prometheus，**刻意放在 upstream/ 子模块之外**——
+# 早前未指定 --storage.tsdb.path 时 Prometheus 按 CWD 解析到
+# upstream/prometheus/data/（子模块内），清理上游目录 / 子模块重置会连带丢历史。
 data/

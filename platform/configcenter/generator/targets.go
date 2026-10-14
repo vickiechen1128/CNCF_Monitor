@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/portchain"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -41,17 +42,6 @@ func addressEmptyDetail(category string) string {
 	return "实例 IP 为空"
 }
 
-// exporterPortOr 返回采集策略层端口；为 0（未配置映射/采集器）时回落资源业务端口。
-// PRD M07 §5.12C：target/instance 端口取自 CITypeExporterMapping.default_port
-// （如 node_exporter 9100），而非资源业务端口（M07 §5.6 host 无 port 字段；
-// database/middleware 的 port 是服务端口，不是 exporter 监听端口）。
-func exporterPortOr(exporterPort, fallback int) int {
-	if exporterPort > 0 {
-		return exporterPort
-	}
-	return fallback
-}
-
 // resolveResource 按 resource_id 在五类资源表中解析目标实例
 // （address / 标签模板字段视图 / status / category）。
 //
@@ -67,18 +57,22 @@ func exporterPortOr(exporterPort, fallback int) int {
 // 需在资源表冗余 category（或 resource_id 编码 category），属 schema 变更（中风险，
 // 超出本 LOW 修复范围），届时再统一改造。
 //
-// exporterPort 为采集策略层端口（见 LoadExporterPort）：host/database/middleware
-// 的抓取地址一律拼接 exporter 端口（exporter 进程监听端口），避免 Prometheus 默认
-// 落到 80 端口（target 缺端口修复，决策 42-4）；application 用实例自己登记的
-// endpoint（主机）+ port（采集端口）拼接、generic_target 用用户登记的服务端口
-// （M07 §5.9），均不走 exporter 端口。
+// exporterPort 为采集策略层端口（见 LoadExporterPort，已合并映射/模板两层）：
+// host/database/middleware 一律经 portchain 四级链解析抓取端口
+// （scrape_port → exporterPort → 业务 port 兜底，提案 resource-scrape-port-chain
+// §5.1；host 无业务端口概念，不传兜底层），避免 Prometheus 默认落到 80 端口
+// （target 缺端口修复，决策 42-4）；application 用实例自己登记的 endpoint
+// （主机）+ port（采集端口）拼接、generic_target 用用户登记的服务端口
+// （M07 §5.9），均不走 exporter 端口、不进解析链。
 func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error) {
 	var host models.Host
 	if err := db.Where("resource_id = ?", resourceID).First(&host).Error; err == nil {
+		// host 无业务端口兜底层（businessPort 恒 0，四级链止于模板层）。
+		port, _ := portchain.Resolve(host.ScrapePort, exporterPort, 0, 0)
 		return &resourceTarget{
 			ResourceID:      host.GetResourceID(),
 			NetworkDomainID: host.NetworkDomainID,
-			Address:         instanceAddress(host.PrivateIP, exporterPort),
+			Address:         instanceAddress(host.PrivateIP, port),
 			Status:          host.Status,
 			Category:        models.ResourceCategoryHost,
 			AppCode:         host.GetAppCode(),
@@ -96,10 +90,12 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	}
 	var database models.Database
 	if err := db.Where("resource_id = ?", resourceID).First(&database).Error; err == nil {
+		// db 保留业务 port 最后兜底（拍板 Q1）：scrape_port 留空时与历史行为逐字节一致。
+		port, _ := portchain.Resolve(database.ScrapePort, exporterPort, 0, database.Port)
 		return &resourceTarget{
 			ResourceID:      database.GetResourceID(),
 			NetworkDomainID: database.NetworkDomainID,
-			Address:         instanceAddress(database.InstanceIP, exporterPortOr(exporterPort, database.Port)),
+			Address:         instanceAddress(database.InstanceIP, port),
 			Status:          database.Status,
 			Category:        models.ResourceCategoryDatabase,
 			AppCode:         database.GetAppCode(),
@@ -115,10 +111,12 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	}
 	var middleware models.Middleware
 	if err := db.Where("resource_id = ?", resourceID).First(&middleware).Error; err == nil {
+		// mw 同 db：业务 port 最后兜底（拍板 Q1）。
+		port, _ := portchain.Resolve(middleware.ScrapePort, exporterPort, 0, middleware.Port)
 		return &resourceTarget{
 			ResourceID:      middleware.GetResourceID(),
 			NetworkDomainID: middleware.NetworkDomainID,
-			Address:         instanceAddress(middleware.InstanceIP, exporterPortOr(exporterPort, middleware.Port)),
+			Address:         instanceAddress(middleware.InstanceIP, port),
 			Status:          middleware.Status,
 			Category:        models.ResourceCategoryMiddleware,
 			AppCode:         middleware.GetAppCode(),

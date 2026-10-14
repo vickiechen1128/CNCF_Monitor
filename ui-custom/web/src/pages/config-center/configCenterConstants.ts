@@ -88,6 +88,9 @@ export const DOMAIN_FIELD_TIP = {
   /** 指标回传地址（remote_write_url） */
   remoteWriteUrl:
     '采集节点把监控数据回传到平台的入口地址（即 Prometheus 的 Remote Write URL）。留空由平台自动生成；若该网域经网闸 / 代理转发，请填写采集节点侧实际可达的地址。',
+  /** 回传积压磁盘上限（max_disk_usage_per_url，F-42） */
+  maxDiskUsagePerUrl:
+    '采集节点回传中断时，本地磁盘持久队列的最大占用量（如 1GB / 50GB），防止打爆磁盘。留空时采集节点按环境变量 > 内置兜底（2GB）解析；生产环境建议 50GB。修改后随下次配置包自动下发生效。',
   /** 描述 */
   description: '该网域的用途与网络特征，便于后续识别与交接；不影响采集行为。',
 } as const

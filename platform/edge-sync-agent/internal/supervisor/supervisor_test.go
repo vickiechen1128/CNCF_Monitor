@@ -30,7 +30,11 @@ func newFakeProbe() *fakeProbe {
 		healthyCalls: map[string]int{},
 	}
 }
-func (f *fakeProbe) Alive(c *Component) bool { f.mu.Lock(); defer f.mu.Unlock(); return f.alive[c.Type] }
+func (f *fakeProbe) Alive(c *Component) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.alive[c.Type]
+}
 func (f *fakeProbe) Healthy(c *Component) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -61,7 +65,12 @@ func (f *fakeProbe) CountStart(typ string) int {
 	}
 	return n
 }
-func (f *fakeProbe) ListStarts() []string { f.mu.Lock(); defer f.mu.Unlock(); s := append([]string(nil), f.starts...); return s }
+func (f *fakeProbe) ListStarts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := append([]string(nil), f.starts...)
+	return s
+}
 
 func newTestSupervisor(t *testing.T, probe Probe) (*Supervisor, func() time.Time, *time.Time) {
 	t.Helper()
@@ -208,4 +217,50 @@ func TestSnapshotReportsContractView(t *testing.T) {
 	if s.RestartCount != 0 {
 		t.Fatalf("snapshot restart_count = %d (component started healthy)", s.RestartCount)
 	}
+}
+
+// TestResetClearsCrashLoopAndRetainsGuard（F-42）：组件进入 crash_loop 后，Reset 清空
+// 熔断判定/退避/LastError，tick 恢复正常守护（探针恢复后回到 running）；未注册组件
+// Reset 为 no-op 不 panic。
+func TestResetClearsCrashLoopAndRetainsGuard(t *testing.T) {
+	f := newFakeProbe()
+	f.alive["agent"] = false
+	f.healthy["agent"] = false
+	f.startFails["agent"] = 999 // 永远失败 → 熔断
+	sv, _, tm := newTestSupervisor(t, f)
+	sv.Reconcile([]contract.Component{{Type: contract.ComponentTypeAgent, Name: "agent"}})
+
+	ctx := context.Background()
+	for i := 0; i < 6; i++ {
+		sv.StepOnce(ctx)
+		*tm = tm.Add(time.Second)
+	}
+	c := sv.Get(contract.ComponentTypeAgent)
+	if c.Status != contract.ComponentStatusCrashLoop {
+		t.Fatalf("precondition: status = %s want crash_loop", c.Status)
+	}
+
+	// 模拟人工重启完成后的状态复位：探针恢复健康 + Reset。
+	f.startFails["agent"] = 0
+	f.alive["agent"] = true
+	f.healthy["agent"] = true
+	sv.Reset(contract.ComponentTypeAgent)
+	if c.Status != contract.ComponentStatusNotDeployed {
+		t.Fatalf("after reset status = %s want not_deployed", c.Status)
+	}
+	if c.backoff != sv.params.BackoffMin {
+		t.Fatalf("after reset backoff = %v want BackoffMin", c.backoff)
+	}
+
+	// 复位后 tick 恢复守护：探针健康 → running。
+	sv.StepOnce(ctx)
+	if c.Status != contract.ComponentStatusRunning {
+		t.Fatalf("post-reset status = %s want running", c.Status)
+	}
+	if c.LastError != "" {
+		t.Fatalf("post-reset LastError = %q want empty", c.LastError)
+	}
+
+	// 未注册组件 Reset 为 no-op。
+	sv.Reset("not-exist")
 }

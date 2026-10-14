@@ -21,12 +21,12 @@ const (
 
 // WAL / remote_write 参数默认值（PRD §6.4.1）。
 const (
-	DefaultWalMaxSize             = "20GB"
-	DefaultWalMinBackfillAge      = "1h"
+	DefaultWalMaxSize               = "20GB"
+	DefaultWalMinBackfillAge        = "1h"
 	DefaultRWQueueMaxSamplesPerSend = 2000
-	DefaultRWQueueMaxShards       = 50
-	DefaultRWRetryOnRateLimit     = true
-	DefaultRWCompression          = "snappy"
+	DefaultRWQueueMaxShards         = 50
+	DefaultRWRetryOnRateLimit       = true
+	DefaultRWCompression            = "snappy"
 )
 
 // Config 是 Edge Sync Agent 运行配置。
@@ -61,19 +61,19 @@ type Config struct {
 // Defaults 返回一份使用全部默认参数、身份待填的配置。
 func Defaults() *Config {
 	return &Config{
-		HeartbeatInterval:     DefaultHeartbeatInterval,
-		HealthCheckInterval:   DefaultHealthCheckInterval,
-		HTTPTimeout:           DefaultHTTPTimeout,
-		BackoffMin:            DefaultBackoffMin,
-		BackoffMax:            DefaultBackoffMax,
-		AuthDowngradeAfter:    DefaultAuthDowngradeAfter,
-		AuthDowngradeInterval: DefaultAuthDowngradeInterval,
-		WalMaxSize:            DefaultWalMaxSize,
-		WalMinBackfillAge:     DefaultWalMinBackfillAge,
+		HeartbeatInterval:        DefaultHeartbeatInterval,
+		HealthCheckInterval:      DefaultHealthCheckInterval,
+		HTTPTimeout:              DefaultHTTPTimeout,
+		BackoffMin:               DefaultBackoffMin,
+		BackoffMax:               DefaultBackoffMax,
+		AuthDowngradeAfter:       DefaultAuthDowngradeAfter,
+		AuthDowngradeInterval:    DefaultAuthDowngradeInterval,
+		WalMaxSize:               DefaultWalMaxSize,
+		WalMinBackfillAge:        DefaultWalMinBackfillAge,
 		RWQueueMaxSamplesPerSend: DefaultRWQueueMaxSamplesPerSend,
-		RWQueueMaxShards:      DefaultRWQueueMaxShards,
-		RWRetryOnRateLimit:    DefaultRWRetryOnRateLimit,
-		RWCompression:         DefaultRWCompression,
+		RWQueueMaxShards:         DefaultRWQueueMaxShards,
+		RWRetryOnRateLimit:       DefaultRWRetryOnRateLimit,
+		RWCompression:            DefaultRWCompression,
 	}
 }
 

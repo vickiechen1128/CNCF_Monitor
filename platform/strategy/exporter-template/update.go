@@ -30,7 +30,8 @@ type UpdateExporterTemplateRequest struct {
 
 // UpdateExporterTemplate 是 PUT /api/v2/platform/exporter-templates/:id 的
 // handler：内部模板可改字段；内置（is_builtin）只读返回 forbidden；未命中 not_found
-// （api-contract-snapshot §3 §10）。
+// （api-contract-snapshot §3 §10）。supported_monitor_types 改动时逐元素校验
+// monitor_type 合法性（空声明放行），非法值 bad_request 且不落库。
 func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseTemplateID(c)
@@ -84,9 +85,16 @@ func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 		if req.Scheme != nil {
 			tmpl.Scheme = *req.Scheme
 		}
-		if req.SupportedMonitorTypes != nil {
-			tmpl.SupportedMonitorTypes = req.SupportedMonitorTypes
+if req.SupportedMonitorTypes != nil {
+		// 逐元素须为合法 monitor_type（空声明放行，见 normalizeSupportedMonitorTypes）；
+		// 校验先于任何赋值，非法值直接 bad_request 返回，原库记录不受污染。
+		types, err := normalizeSupportedMonitorTypes(req.SupportedMonitorTypes)
+		if err != nil {
+			response.BadRequest(c, err)
+			return
 		}
+		tmpl.SupportedMonitorTypes = types
+	}
 		if req.OS != nil {
 			tmpl.OS = *req.OS
 		}

@@ -159,4 +159,82 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
 
     await waitFor(() => expect(screen.queryByText('可升级')).toBeNull())
   })
+
+  it('积压数据龄行：有差分依据展示时长与增速（F-40 延展①）', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({ backlog_age_seconds: 90 * 60, backlog_growth_bytes_per_sec: 2048 }))
+
+    expect(screen.getByText('积压数据龄').closest('tr')?.textContent).toContain('1 小时 30 分钟')
+    expect(screen.getByText(/近期增速 \+2\.0 KB\/s/)).toBeInTheDocument()
+  })
+
+  it('积压数据龄无差分依据时展示无数据说明', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({}))
+
+    expect(screen.getByText(/无数据（30 分钟内心跳不足、积压未上涨或心跳过期）/)).toBeInTheDocument()
+  })
+
+  it('回传积压行在 channel_status=abnormal 时展示「通道异常」error Badge（F-40 延展③）', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({ channel_status: 'abnormal' }))
+
+    const badge = screen.getByText('通道异常')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-error')).not.toBeNull()
+  })
+
+  it('回传积压行无通道态时不渲染通道异常 Badge', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({}))
+
+    expect(screen.queryByText('通道异常')).toBeNull()
+  })
+
+  it('F-42：展示生效回传参数与最近人工重启留痕', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(
+      baseAgent({
+        metadata_remote_write_url: 'http://center:9090/api/v1/write',
+        metadata_max_disk_usage_per_url: '50GB',
+        vm_agent_restart_seq: 2,
+        restart_requested_by: 'admin-a',
+        restart_requested_at: '2026-10-10T10:00:00Z',
+      }),
+    )
+
+    expect(screen.getByText('http://center:9090/api/v1/write')).toBeInTheDocument()
+    expect(screen.getByText('50GB')).toBeInTheDocument()
+    const row = screen.getByText('最近人工重启').closest('tr')
+    expect(row?.textContent).toContain('admin-a')
+  })
+
+  it('F-42：生效参数未下发时展示兜底说明，且无人工重启留痕行', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({}))
+
+    expect(screen.getByText('未下发（agent 按 env / center_endpoint 推导）')).toBeInTheDocument()
+    expect(screen.getByText('未下发（agent 内置兜底 2GB）')).toBeInTheDocument()
+    expect(screen.queryByText('最近人工重启')).toBeNull()
+  })
+
+  it('F-43：展示最近清空回传积压留痕（发起人+时间），无记录不展示留痕行', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    const { unmount } = renderDrawer(
+      baseAgent({
+        flush_backlog_seq: 3,
+        flush_requested_by: 'ops-admin',
+        flush_requested_at: '2026-10-12T04:00:00Z',
+      }),
+    )
+
+    const row = screen.getByText('最近清空回传积压').closest('tr')
+    expect(row?.textContent).toContain('ops-admin')
+    expect(row?.textContent).toContain('队列数据已丢弃')
+    unmount()
+
+    // 无清积压留痕 → 不渲染噪声行
+    renderDrawer(baseAgent({}))
+    expect(screen.queryByText('最近清空回传积压')).toBeNull()
+  })
 })

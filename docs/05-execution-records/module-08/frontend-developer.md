@@ -424,3 +424,28 @@
 - **逻辑零改动**：hooks、`openMount` / `handleSubmit` / `openVersionDetail` / `handleRemount` / `columns` / 两个 Drawer 的 props 与 `permissionDenied` 早返回逐字保留。
 - **测试同步**（`AlertConfigPage.test.tsx`）：按 `AlertStatusPage.test.tsx` 既有模式新增 `expandGuidance()` helper；`PL-2`、`B 路线：接收人 / 渠道必写块`、`B 路线：骨架占位符` 三条改为「先点击展开折叠栏再断言」；新增「折叠栏默认收起、点击后展开」回归用例。
 - **验证结果**：`vitest run src/pages/alerts/AlertConfigPage.test.tsx` **17 / 17 通过**；`vitest run src/pages/alerts` 11 文件 120 用例中 118 通过，2 例失败经复跑核实为**既有加载抖动**（`CreateSilenceDrawer` / `NotifyChannelsPage`，两次运行失败用例不同、与本次改动文件无关）；`tsc --noEmit` 干净、`eslint --max-warnings 0` 0 告警；`make check-repo-map` OK；dev server `/alert-config` 与后端 `/api/v1/health` 均 200。
+
+## T08-SPLIT-01：告警配置页「路由与收敛策略」拆散迁移（2026-10-13）
+
+- **执行依据**：`design-proposals/alert-config-policy-split-migration.md`（决策一~六、§4 交互细节、§5 A1~A12、§7.1 文件清单）；`alert-config-three-layer-model.md` §6.3 / §7.1 / §7.6 仅只读参照，未改。
+- **提交**：`fb835d4` feat(module-08): 迁移路由与收敛策略到路由规则/通知渠道页（T08-SPLIT-01)（15 files, +1742 / -1140）。
+- **改动文件**：
+  - `AlertConfigPage.tsx`：PageIntro 重写；**删除**策略卡（`alert-policy-card`）与动线卡（`alert-guide-card`，4 个 GuideLink）；导入入口由高级 Collapse **提为常驻卡** `alert-import-card`（手写逃生门任何模式下都可达，A11）；高级 Collapse 由两层嵌套**展平为单层**（`key: 'guide'`、label 改 `ALERT_ADVANCED_GUIDE_TITLE`、删 `stopHeaderClick`——嵌套防冒泡理由已不成立）；`App.useApp()` 只取 `message`。
+  - `RoutesPage.tsx`：新增常驻「路由设置」卡 `route-setting-card`——控件 A 模式 Segmented（切模式走二次确认 Modal，声明覆盖范围）、控件 B 兜底 Select（含 `NONE_RECEIVER_VALUE`）；两控件间常驻决策五那句话 `route-setting-independence-tip`；模式切换与兜底变更**合并为同一次 PUT**（决策三）；顶层路由行内展示兜底结论 Tag `route-root-fallback-tag`；「不即时生效 / 需经变更单确认」提示保持不变。模式取值优先级 `routeSetting?.mode ?? data?.mode ?? 'handwritten'`。
+  - `RouteEditorDrawer.tsx`：`isRoot = node?.parent_id === ''` 时顶层路由 receiver `Select` 置 `disabled` + `route-editor-receiver-readonly-tip` 指向唯一可改入口（决策一 / A6），**`forceRender` 保留**（Step 3.7 强制）。
+  - `NotifyChannelsPage.tsx`：新增「兜底渠道」列（位于「平台接收人」列**之前**），按 `effective_source` 三态判定——`explicit` 看 `default_receiver_channel_id` 打「兜底」、`auto_first_enabled` 按 `effective_receiver_name` 匹配派生行打「建议兜底」、`none` 不渲染（A10）。
+  - `alertmanagerConstants.ts`：`ALERT_POLICY_*` 迁移重写为 `ROUTE_SETTING_*` / `ROUTE_MODE_*` 系列，新增 `ROUTE_SETTING_MODE_INDEPENDENCE_TIP`、`ROUTE_ROOT_FALLBACK_TAG`、`ROUTE_ROOT_RECEIVER_READONLY_TIP`、`CHANNEL_FALLBACK_COLUMN_TITLE` / `CHANNEL_FALLBACK_TAG` / `CHANNEL_FALLBACK_SUGGESTED_TAG`。
+  - `useRouteSetting.ts`：`save(channelId, mode?)` 支持模式 + 兜底合并提交；`RouteSettingOption` 去掉 `receiverName`。
+- **关键取舍 / 与提案的偏差（3 处，均已在汇报中说明）**：
+  1. **AlertConfigPage 仍保留 `useRouteSetting`**（仅读 `mode` 供手写说明条件化）。任务卡 3.1 第 6 条要求移除，但提案 §7.4 明确「手写配置说明按 mode 条件化」——删掉会丢失 §7.4 口径与对应测试用例，故按提案优先。
+  2. **通知渠道页「建议兜底」按 receiver 名比对而非 ID**：`effective_source=auto_first_enabled` 时 route-setting 侧只给 `effective_receiver_name`（无 ID），故走派生行的 `receiverName` 比对；且 `NotifyChannel.id` 是十进制字符串，比对须 `String(fallbackId) === record.id`。
+  3. **高级 Collapse 展平为单层**：原双层嵌套的第二层 label 折叠区与外层语义重叠，展平后删 `stopHeaderClick`（防冒泡仅对嵌套必要）。
+- **文案方向防呆（提案 §4.3，最高优先级踩坑点）**：`isRouteEditable(mode)` 只在 `mode === 'managed'` 为 true（`useRoutes.ts:526-527`）。本次所有文案按**代码事实**而非语感书写——commit 86331a0 曾把两个分支文案整体写反。
+- **测试同步**：`AlertConfigPage.test.tsx`（978 → 551 行，旧策略卡/兜底控件 14 个 T08-F8/T08-F12 用例**整体迁出**到 `RoutesPage.test.tsx`，映射说明留注释块，本页保留 A1/A2「已迁出」反向断言）；`RoutesPage.test.tsx`（711 → 1117 行，新增 `useRouteSetting` mock + 17 个用例覆盖决策一~六）；`NotifyChannelsPage.test.tsx`（新增 4 例 A10）；`RouteEditorDrawer.test.tsx`（新增 2 例 A6）；`useRouteSetting.test.ts`（新增决策三单次 PUT、决策四 2 例）；`alertSmoke.test.tsx`（改写为 A1/A2 反向护栏）。另修 3 处基线类型错误（`RouteEditorDrawer.test.tsx` 4 处 `.mock` TS2339、`AlertConfigPage.pagination.test.tsx` `.at` TS2550、`AlertConfigPage.test.tsx` 未用 import TS6133）与 `useRoutes.test.ts` 3 处 `effectiveYaml` 参数删除（TS2353）。
+- **验证结果**：
+  - `pnpm run typecheck:test`：**EXIT=0**（`tsc -p tsconfig.test.json --noEmit`）。
+  - `pnpm vitest run src/pages/alerts`：**16 文件 / 259 用例全通过**，Duration 34.08s。**未跑全量 `pnpm test`**（8 GB 机型实测约 17 min，调高并发会被 SIGKILL）。
+  - `pnpm lint`：本次改动 14 个文件**定向 eslint 全清（0 问题）**。全量 `pnpm lint` 仍报 1 个 `react-hooks/set-state-in-effect`（`useRoutes.ts:369` `doImport()`）——经 `git show HEAD:` 取基线版复跑确认为**存量问题**（HEAD 版同位置 `:351` 同样命中），且该文件属他人未提交 WIP，不在本任务改动范围，故未动。
+  - `make repo-map` + `make check-repo-map`：**OK: repo-map 与当前业务代码一致**（pre-commit hook 亦自动复验通过）。
+- **A1~A12 自检**：A1/A2 迁出（策略卡/动线卡 + 两个控件从告警配置页消失，反向断言在 `alertSmoke` 与 `AlertConfigPage.test.tsx`）；A3~A5 路由规则页常驻路由设置卡、模式/兜底两控件 + 决策五提示句常驻、切手写自动置「不接管」且**不停用渠道**；A6 顶层路由 receiver 只读 + 指向唯一可改入口；A7 切换与兜底合并单次 PUT（决策三）；A8 切回「平台生成」不自动接管（决策四）；A9 兜底结论 Tag 行内展示、不复述渠道名/接收人名；A10 渠道页「兜底渠道」列三态判定、「建议兜底」与「兜底」不混用；A11 导入入口常驻卡；A12 「不即时生效 / 需经变更单确认」提示保持不变。全部通过。
+- **遗留 / 待 design 侧回写 PRD（提案 §6 D1~D6）**：D1 告警配置页 IA 收敛为「当前生效 + 版本历史 + 导入整份配置文件」；D2 路由规则页新增常驻「路由设置」卡；D3 通知渠道页新增「兜底渠道」列；D4 顶层路由 receiver 改只读；D5 模式切换与兜底变更合并为单次变更单；D6 决策五独立性提示句落位到路由规则页兜底控件旁。PRD 版本 +1 回写由 prototype-designer / chenrt 在 design 分支完成（本任务未改 `docs/02-product-requirements/` 与 `docs/prototypes/`）。

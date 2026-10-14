@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1194,4 +1195,68 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 	rd, rerr := RevalidateDraft(db, d.ChangeNo)
 	require.ErrorIs(t, rerr, ErrValidationStillFailed)
 	assert.Equal(t, string(models.ValidationStatusFailed), rd.ValidationStatus)
+}
+// TestGenerateDraftDiscardsOrphanPendings 覆盖 2026-10-12 诊断：历史竞态遗留多份并存
+// pending（孤儿）时，取代生成新单须把全域其余活 pending 一并废弃，使「同域至多一张活
+// pending」约束可自愈收敛。
+func TestGenerateDraftDiscardsOrphanPendings(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-g-orphan", true)
+	seedHost(t, db, "edge-g-orphan", "res-1")
+	seedJob(t, db, "edge-g-orphan", "job1")
+
+	// 模拟竞态遗留的两份并存 pending（孤儿 + latest）。
+	seedDraftWithStatus(t, db, "CHG-99990101-090", "edge-g-orphan", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
+	seedDraftWithStatus(t, db, "CHG-99990101-091", "edge-g-orphan", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
+
+	d, err := GenerateDraft(db, "edge-g-orphan")
+	require.NoError(t, err)
+	require.Equal(t, models.DraftStatusPending, d.Status)
+
+	var cnt int64
+	require.NoError(t, db.Model(&models.ConfigDraft{}).
+		Where("network_domain_id = ? AND status = ?", "edge-g-orphan", models.DraftStatusPending).
+		Count(&cnt).Error)
+	assert.Equal(t, int64(1), cnt, "全域应仅剩新单一张活 pending")
+
+	for _, no := range []string{"CHG-99990101-090", "CHG-99990101-091"} {
+		var g models.ConfigDraft
+		require.NoError(t, db.Where("change_no = ?", no).First(&g).Error)
+		assert.Equal(t, models.DraftStatusDiscarded, g.Status, "遗留 pending %s 应被清理", no)
+	}
+}
+
+// TestGenerateDraftConcurrentSameDomain 覆盖 per-domain 互斥锁：前端保存同步 POST 与
+// 30s 轮询同秒触发生成时，不得产生双 pending（2026-10-12 诊断 CHG-006/007 同秒双生）。
+func TestGenerateDraftConcurrentSameDomain(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-g-race", true)
+	seedHost(t, db, "edge-g-race", "res-1")
+	seedJob(t, db, "edge-g-race", "job1")
+
+	const n = 4
+	var wg sync.WaitGroup
+	changeNos := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			d, err := GenerateDraft(db, "edge-g-race")
+			if d != nil {
+				changeNos[i] = d.ChangeNo
+			}
+			errs[i] = err
+		}(i)
+	}
+	wg.Wait()
+	for i := 0; i < n; i++ {
+		require.NoError(t, errs[i])
+	}
+	var pendings []models.ConfigDraft
+	require.NoError(t, db.Where("network_domain_id = ? AND status = ?", "edge-g-race", models.DraftStatusPending).Find(&pendings).Error)
+	require.Len(t, pendings, 1, "并发后同域至多一张活 pending")
+	for _, no := range changeNos {
+		assert.Equal(t, pendings[0].ChangeNo, no, "所有并发调用应收敛到同一张活单")
+	}
 }

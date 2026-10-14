@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/admin/storagelog"
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
 	"github.com/metriccenter/metriccenter/platform/alertmanager"
@@ -331,6 +332,11 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
 	strategy.RegisterRoutes(platform, db.DB)
 
+	// M01 规则编辑期只读探查（2026-10-13）：规则表达式可用标签清单 + 注解预览。
+	// 实现与 M02 查询代理同源（需实查中心 Prometheus），故注册在 query 包；
+	// 路径独立于 /monitoring-rules* 以避开 Gin 同层通配冲突（见 RegisterRuleInspectRoutes 注释）。
+	query.RegisterRuleInspectRoutes(platform, promURL)
+
 	// Module 09 (T09-07 收口): 网域与边缘配置中心——网域监控纳管、配置草稿、
 	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
@@ -344,7 +350,7 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
 	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
 	// T11-08：edge-packages 读 *edgePackageDir 下的 release_meta.json 并流式下发真实 tar.gz。
-	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir)
+	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir, edge.NewPromSampleLagQuerier(promURL, nil))
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
@@ -354,10 +360,20 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。
+	// 反馈 10：注入采集健康 up 样本查询器，为「采集健康」面板提供 collection_health 四态聚合。
 	platform.GET("/dashboard/summary", dashboard.SummaryHandler(
 		db.DB,
 		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
+		dashboard.WithUpHealthQuerier(dashboard.NewPromUpHealthQuerier(promURL, nil)),
 	))
+
+	// Module 06 (F-41): 存储与日志管理——TSDB 保留策略读写（写 config.dir 下
+	// prom-retention.env，重启 Prometheus 生效）+ 磁盘占用 / 日志轮转只读展示。
+	// 越权重启 Prometheus 刻意不做（决策 64 职责分离）。挂 admin 组（RequireAdmin）。
+	storagelog.RegisterRoutes(admin, storagelog.Options{
+		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
+		PromURL: promURL,
+	})
 	return nil
 }
 

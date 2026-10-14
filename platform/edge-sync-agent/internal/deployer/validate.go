@@ -69,17 +69,19 @@ func hasLineKey(content, key string) bool {
 // （8080 控制面地址），样本无法经 9090 数据隧道送达中心，前端监控目标为空。
 func marshalMetadata(m *contract.Metadata) ([]byte, error) {
 	b, err := json.Marshal(&struct {
-		ConfigVersion  string `json:"config_version"`
-		GeneratedAt    string `json:"generated_at"`
-		AgentType      string `json:"agent_type"`
-		Checksum       string `json:"checksum"`
-		RemoteWriteURL string `json:"remote_write_url,omitempty"`
+		ConfigVersion      string `json:"config_version"`
+		GeneratedAt        string `json:"generated_at"`
+		AgentType          string `json:"agent_type"`
+		Checksum           string `json:"checksum"`
+		RemoteWriteURL     string `json:"remote_write_url,omitempty"`
+		MaxDiskUsagePerURL string `json:"max_disk_usage_per_url,omitempty"`
 	}{
-		ConfigVersion:  m.ConfigVersion,
-		GeneratedAt:    m.GeneratedAt,
-		AgentType:      m.AgentType,
-		Checksum:       m.Checksum,
-		RemoteWriteURL: m.RemoteWriteURL,
+		ConfigVersion:      m.ConfigVersion,
+		GeneratedAt:        m.GeneratedAt,
+		AgentType:          m.AgentType,
+		Checksum:           m.Checksum,
+		RemoteWriteURL:     m.RemoteWriteURL,
+		MaxDiskUsagePerURL: m.MaxDiskUsagePerURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deployer: marshal metadata: %w", err)

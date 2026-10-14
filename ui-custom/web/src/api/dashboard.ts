@@ -92,6 +92,31 @@ export interface CloudSummary {
 }
 
 /**
+ * 「采集健康」四态聚合（M05 反馈 10，路线 B）。
+ * 分母 = **已下发资源数**（= `monitored_count`），**不含未下发**——未下发进度归 L0「纳管覆盖率」，
+ * 本面板只回答「已下发的这批数据采到了吗」。**拨测目标不参与**。
+ *
+ * 口径沿用 F-40（与 `pages/strategy/upStatus.ts` 一致，后端一次聚合，前端零逻辑）：
+ * `collecting` 5min 内有 `up==1` 样本；`down` 5min 内有 `up==0` 样本；
+ * `stale` 5min 无样本但 1h 内有（回传延迟中，独立一态）；`pending` 1h 内亦无样本。
+ *
+ * 不变量：`dispatched_count === collecting_count + stale_count + down_count + pending_count`。
+ * 后端查询失败 / 未实现时字段缺失（`undefined`），前端按「不可用」呈现，绝不误报 0。
+ */
+export interface CollectionHealth {
+  /** 已下发资源数（本面板分母） */
+  dispatched_count: number
+  /** 采集中 */
+  collecting_count: number
+  /** 回传延迟中（F-40 独立一态） */
+  stale_count: number
+  /** 已下发未采到 */
+  down_count: number
+  /** 待采集 */
+  pending_count: number
+}
+
+/**
  * Dashboard 聚合概览。
  * 决策 72-3（M05 首页内容重构，design-proposals/homepage-mvp-content-restructure.md §4.2）
  * 新增 monitored_count / scrape_job_count / scrape_job_enabled_count 三个计数字段。
@@ -135,6 +160,11 @@ export interface DashboardSummary {
    * 兼容尚未实现该聚合的后端：缺失时前端回落静态样例（空数组则渲染空态）。
    */
   by_cloud?: CloudSummary[]
+  /**
+   * 「采集健康」四态聚合（M05 反馈 10，路线 B）。后端未实现 / 查询失败时字段缺失，
+   * 前端据此渲染「不可用」而非 0。详见 `CollectionHealth`。
+   */
+  collection_health?: CollectionHealth
 }
 
 export const dashboardApi = {

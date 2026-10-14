@@ -113,6 +113,9 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 
 		if draftStatus == "draft" {
 			// 保存草稿：仅基础校验（字段类型 / 名称唯一性），不参与 M09 配置生成。
+			// 草稿不走 resolveJobScrapeParams，故此处单独归一采集路径，避免带空格的
+			// 路径先落库、再由批量提交生效（batch.BatchSubmitReady）时才被动纠正。
+			normalizeScrapePath(job)
 			job.ChangeStatus = models.ChangeStatusNone
 			if err := validateBasicJobRequest(job); err != nil {
 				response.BadRequest(c, err)

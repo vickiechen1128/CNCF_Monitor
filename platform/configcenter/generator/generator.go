@@ -2,7 +2,8 @@
 // prometheus.yml / rules.yml / blackbox.yml 与 targets/*.json 配置产物，
 // 并配合校验（validate.go）与变更检测（change_detect.go）产出配置草稿。
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
-//   §3.3 配置生成服务 / §3.3.1 external_labels / §3.3.3 变更检测 / §3.5.1 下发前校验。
+//
+//	§3.3 配置生成服务 / §3.3.1 external_labels / §3.3.3 变更检测 / §3.5.1 下发前校验。
 package generator
 
 import (
@@ -56,6 +57,14 @@ type ConfigArtifacts struct {
 	// RoutePresetDiagnostics 是预置示例注入的跳过 / 异常归因（**非产物字段**：不参与 Checksum()、
 	// 不落盘、不 JSON 序列化）。异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
 	RoutePresetDiagnostics []RoutePresetDiagnostic
+	// AlertmanagerSourceVersionID 记录本产物 alertmanager.yml 来源的 M08 留痕版本 ID
+	// （buildArtifacts 加载时最新一条 applied 的 AlertmanagerConfigVersion；无则为 0）。
+	// **非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化。用途（dev-feedback #44）：
+	//   ① draft 生成时回填 ConfigDraft.AlertmanagerSourceVersionID，使 M09 确认下发后
+	//      按来源精确回填 applied_at（取代「取最新一条 applied」的错链口径）；
+	//   ② 取代旧 pending 单时保护新单来源版本不被误标 discarded。
+	// 与产物内容同一次加载获得，避免「内容取旧版、ID 取新版」的竞态错配。
+	AlertmanagerSourceVersionID uint
 }
 
 // TargetDiagnostics 是单个 Job 在生成期的目标解析归因（非产物内容）。

@@ -216,6 +216,31 @@ async function fillHostRequiredFields() {
 }
 
 /**
+ * 填中间件必填字段（网域 / 业务 / 环境 / 运行状态 / 应用 / 中间件类型 / IP / 集群）。
+ * §5.2：middleware 的 app_code 必填，故与host 一致需选应用；决策 F：cluster 必填规则同 app_code，
+ * middleware 亦必填，故本助手补录集群（原特征：本助手只覆盖 app_code 与差异化字段，
+ * cluster 当时前端无必填 rules，缺集群也能提交成功；本次按决策 F 补齐）。
+ * 端口由各用例单独填写（边界/正常值差异）。
+ */
+async function fillMiddlewareRequiredFields() {
+  openSelect('请选择网域')
+  fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+  openSelect('请选择业务')
+  fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+  openSelect('请选择环境')
+  fireEvent.click(await screen.findByText('prod'))
+  openSelect('请选择运行状态')
+  fireEvent.click(await screen.findByText('在线'))
+  openSelect('请选择应用')
+  fireEvent.click(await screen.findByText('订单应用 (order)'))
+  openSelect('请选择中间件类型')
+  fireEvent.click(await screen.findByText('nginx'))
+  fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.31'), { target: { value: '10.0.1.31' } })
+  // 决策 F：middleware 的 cluster 必填，留空会被前端拦截
+  fireEvent.change(screen.getByPlaceholderText('请填写集群'), { target: { value: 'bj-01' } })
+}
+
+/**
  * 操作系统字段为 antd AutoComplete（内部渲染成 Select combobox 模式）：
  * placeholder 渲染为 div.ant-select-selection-placeholder 文本，输入框不带
  * placeholder 属性，故不能按 getByPlaceholderText 定位；AutoComplete 根节点
@@ -520,6 +545,101 @@ describe('ResourceFormDrawer', () => {
     expect(screen.queryByText('数据库类型')).toBeNull()
   })
 
+  // ---- 中间件「端口」字段（实例身份的一部分，与 instance_ip 共同构成采集目标 `ip:port`）----
+
+  it('中间件表单渲染「端口」字段且限定 1-65535',async () => {
+    renderDrawer({ category: 'middleware' })
+    const portInput = screen.getByTestId('middleware-port-input')
+    expect(portInput).toBeInTheDocument()
+    expect(portInput).toHaveAttribute('placeholder', '例如：9092')
+    // InputNumber 不把 min/max 渲染成 HTML 属性，而是经 spinbutton 语义暴露为
+    // aria-valuemin/aria-valuemax（antd5 实测），故按aria 断言范围约束。
+    expect(portInput).toHaveAttribute('aria-valuemin', '1')
+    expect(portInput).toHaveAttribute('aria-valuemax', '65535')
+  })
+
+  it('中间件端口为空时必填校验拦截提交', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    // 端口必填（§5.16：database / middleware / application 的采集端口一律必填）
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(await screen.findByText('请输入端口', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('中间件端口越界时钳制到边界而非报错', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    // 上界：输入 70000，InputNumber 在失焦时钳制到 max=65535（antd5 实测行为），
+    // 因此不会触发 rules 的越界文案——边界由控件层收敛，rules 只兜控件未覆盖的路径。
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '70000' } })
+    fireEvent.blur(screen.getByTestId('middleware-port-input'))
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('65535'))
+
+    // 下界：输入 0 同样被钳制到 min=1，不会产生 0 或负端口
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '0' } })
+    fireEvent.blur(screen.getByTestId('middleware-port-input'))
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('1'))
+
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    // 落库端口恒为合法值，杜绝 port=0 进入采集目标拼接
+    expect(createMock.mock.calls[0][0]).toMatchObject({ port: 1 })
+  })
+
+  it('中间件提交时携带端口值（与 IP 共同构成采集目标 ip:port）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    // nginx 业务端口 80（此前误录 6379 导致采集 up=0）
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '80' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      resource_category: 'middleware',
+      middleware_type: 'nginx',
+      instance_ip: '10.0.1.31',
+      port: 80,
+    })
+    expect(successMock).toHaveBeenCalled()
+    expect(cancelMock).toHaveBeenCalled()
+  })
+
+  it('中间件编辑态回显端口并随保存带回', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({
+      mode: 'edit',
+      category: 'middleware',
+      record: {
+        ...hostRecord(),
+        resource_id: 'mc-mw-1',
+        resource_category: 'middleware',
+        middleware_type: 'nginx',
+        instance_name: undefined,
+        hostname: undefined,
+        os_type: undefined,
+        instance_ip: '172.16.1.2',
+        port: 80,
+      } as ResourceListItem,
+    })
+    // 编辑回显：端口输入框带出资源行既有值
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('80'))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>
+    expect(payload).toMatchObject({
+      middleware_type: 'nginx',
+      instance_ip: '172.16.1.2',
+      port: 80,
+    })
+    // §6.1：编辑请求体不带 resource_category（不可改字段不随请求体下发）
+    expect(payload.resource_category).toBeUndefined()
+  })
+
   it('renders application and generic target differentiated fields', async () => {
     renderDrawer({ category: 'application' })
     expect(screen.getByText('服务名')).toBeInTheDocument()
@@ -571,6 +691,9 @@ describe('ResourceFormDrawer', () => {
     fireEvent.change(screen.getByPlaceholderText('例如：order-service'), { target: { value: 'pay-service' } })
     fireEvent.change(screen.getByPlaceholderText('例如：10.10.1.4'), { target: { value: '10.10.1.4' } })
     fireEvent.change(screen.getByPlaceholderText('例如：8081'), { target: { value: '8081' } })
+    // 决策 F：application 的 cluster 必填（原特征：本用例只断言 endpoint/port/health_check_url，
+    // 当时前端 cluster 无必填 rules；补录集群后提交才可通过前端校验）
+    fireEvent.change(screen.getByPlaceholderText('请填写集群'), { target: { value: 'bj-01' } })
     // health_check_url 留空 → 可提交，且不写入请求体
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     await waitFor(() => expect(createMock).toHaveBeenCalled())
@@ -758,5 +881,299 @@ describe('ResourceFormDrawer', () => {
     expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
     expect(screen.getByDisplayValue('prod-web-01.volc')).toBeInTheDocument()
     expect(screen.getByDisplayValue('10.0.1.11')).toBeInTheDocument()
+  })
+
+  // ==== {T01-P5} 实例级采集端口 scrape_port（提案 resource-scrape-port-chain §5.3）====
+
+  it('{T01-P5} host / database / middleware 三类表单渲染「采集端口（选填）」', async () => {
+    for (const category of ['host', 'database', 'middleware'] as const) {
+      const { unmount } = renderDrawer({ category })
+      // label 与输入框均存在，且共享同一 name（scrape_port）挂载在对应表单树下
+      expect(screen.getByText('采集端口（选填）'), `${category} 应渲染采集端口 label`).toBeInTheDocument()
+      expect(screen.getByTestId('scrape-port-input'), `${category} 应渲染采集端口输入框`).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('{T01-P5} application / generic_target 不渲染采集端口项（D3a/D3b 守护）', async () => {
+    const appRender = renderDrawer({ category: 'application' })
+    expect(screen.queryByTestId('scrape-port-input')).toBeNull()
+    expect(screen.queryByText('采集端口（选填）')).toBeNull()
+    // application 自有必填「端口（采集端口）」是采集目标本身，保持不动
+    expect(screen.getByText('端口（采集端口）')).toBeInTheDocument()
+    appRender.unmount()
+
+    renderDrawer({ category: 'generic_target' })
+    expect(screen.queryByTestId('scrape-port-input')).toBeNull()
+    expect(screen.queryByText('采集端口（选填）')).toBeNull()
+    // generic_target 自有「端口」（端点属性）保持不动
+    expect(screen.getByText('端口')).toBeInTheDocument()
+  })
+
+  it('{T01-P5} host 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} database 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'database' })
+    await waitForDicts()
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    // database 的 app_code / database_type 必填（§5.2 / §5.7.1）
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择数据库类型')
+    // antd 下拉会在虚拟列表外渲染一个无点击处理的 aria 镜像 option（role=option、id *_list_0、
+    // 无 class），与真实 option 文案重复；用 selector 限定到真实 option content（其父节点挂 onClick）
+    fireEvent.click(await screen.findByText('mysql', { selector: '.ant-select-item-option-content' }))
+    await waitFor(() => expect(selectedItemTexts()).toContain('mysql'))
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.21'), { target: { value: '10.0.1.21' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：3306'), { target: { value: '3306' } })
+    // 决策 F：database 的 cluster 必填（原特征：本用例只覆盖 scrape_port 断言，
+    // 当时前端 cluster 无必填 rules；补录集群后提交才可通过前端校验）
+    fireEvent.change(screen.getByPlaceholderText('请填写集群'), { target: { value: 'bj-01' } })
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} middleware 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '80' } })
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100, port: 80 })
+  })
+
+  it('{T01-P5} 采集端口留空提交 → payload 为 0（= 未指定，与 NULL 等价）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    // 不填采集端口直接提交：留空合法，落 0（解析链按未指定回落）
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0].scrape_port).toBe(0)
+  })
+
+  it('{T01-P5} 采集端口 70000 超界被阻断并报错（不钳制、不提交）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    // 输入 70000 后直接提交（不触发失焦）：InputNumber 未设 min/max，不做静默钳制，
+    // 由 rules 在提交时以「端口范围为 1-65535」阻断。
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '70000' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(
+      await screen.findByText('端口范围为 1-65535', { selector: '.ant-form-item-explain-error' }),
+    ).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('{T01-P5} 编辑态回显 scrape_port 并随保存带回', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ mode: 'edit', category: 'host', record: { ...hostRecord(), scrape_port: 9100 } })
+    // 回显：0 之外的既有值直接带出
+    await waitFor(() => expect(screen.getByTestId('scrape-port-input')).toHaveValue('9100'))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} 后端 0 = 未指定：编辑回显为空态，保存仍提交 0', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ mode: 'edit', category: 'host', record: { ...hostRecord(), scrape_port: 0 } })
+    // 以实例名回显完成作为「编辑态字段已装载」的信号
+    expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
+    // 0 归一为空态（与「留空提交 0」对称）
+    expect(screen.getByTestId('scrape-port-input')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ scrape_port: 0 })
+  })
+
+  it('{T01-P5} 关闭→打开切换后 scrape_port 正确回显（forceRender 回归）', async () => {
+    const record = { ...hostRecord(), scrape_port: 9100 }
+    const { rerender } = render(
+      <ResourceFormDrawer
+        open={false}
+        mode="edit"
+        category="host"
+        record={record}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    rerender(
+      <ResourceFormDrawer
+        open
+        mode="edit"
+        category="host"
+        record={record}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    // forceRender 保证字段注册先于 setFieldsValue：关闭→打开即回显而非空值
+    expect(await screen.findByDisplayValue('9100')).toBeInTheDocument()
+    expect(screen.getByTestId('scrape-port-input')).toHaveValue('9100')
+  })
+
+  // ---- 决策 F（§5.2）：cluster 必填性按类分化（口径同 app_code）----
+  //
+  // application / database / middleware 必填（与后端 validate.go 三处 `cluster 必填` 校验同口径）；
+  // host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）。
+
+  /** 填五类共享必填字段（网域 / 业务 / 环境 / 运行状态）——cluster 有意留空由各用例控制 */
+  async function fillSharedRequiredFields() {
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+  }
+
+  /** database 除 cluster 外的全部必填项（§5.7.1：database_type / instance_ip / port / app_code） */
+  async function fillDatabaseRequiredFieldsExceptCluster() {
+    await fillSharedRequiredFields()
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择数据库类型')
+    fireEvent.click(await screen.findByText('mysql', { selector: '.ant-select-item-option-content' }))
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.21'), { target: { value: '10.0.1.21' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：3306'), { target: { value: '3306' } })
+  }
+
+  /** middleware 除 cluster 外的全部必填项（§5.7：middleware_type / instance_ip / port / app_code） */
+  async function fillMiddlewareRequiredFieldsExceptCluster() {
+    await fillSharedRequiredFields()
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择中间件类型')
+    fireEvent.click(await screen.findByText('nginx'))
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.31'), { target: { value: '10.0.1.31' } })
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '80' } })
+  }
+
+  /** application 除 cluster 外的全部必填项（§5.8：service_name / endpoint / port / app_code / biz_code） */
+  async function fillApplicationRequiredFieldsExceptCluster() {
+    await fillSharedRequiredFields()
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    fireEvent.change(screen.getByPlaceholderText('例如：order-service'), { target: { value: 'pay-service' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：10.10.1.4'), { target: { value: '10.10.1.4' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：8081'), { target: { value: '8081' } })
+  }
+
+  /** generic_target 除 cluster 外的全部必填项（§5.9：target_name / instance_ip + 业务或应用二选一） */
+  async function fillGenericTargetRequiredFieldsExceptCluster() {
+    await fillSharedRequiredFields()
+    fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'node-exporter-cn-north' } })
+    fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), { target: { value: 'exporter.example.com' } })
+  }
+
+  /** 决策 F：application 集群留空 → 必填校验拦截，提示「请填写集群」且不提交 */
+  it('决策 F：application 集群留空 → cluster 必填报错并拦截提交', async () => {
+    renderDrawer({ category: 'application' })
+    await waitForDicts()
+    await fillApplicationRequiredFieldsExceptCluster()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(await screen.findByText('请填写集群', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  /** 决策 F：database 集群留空 → 必填校验拦截，提示「请填写集群」且不提交 */
+  it('决策 F：database 集群留空 → cluster 必填报错并拦截提交', async () => {
+    renderDrawer({ category: 'database' })
+    await waitForDicts()
+    await fillDatabaseRequiredFieldsExceptCluster()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(await screen.findByText('请填写集群', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  /** 决策 F：middleware 集群留空 → 必填校验拦截，提示「请填写集群」且不提交 */
+  it('决策 F：middleware 集群留空 → cluster 必填报错并拦截提交', async () => {
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFieldsExceptCluster()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(await screen.findByText('请填写集群', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 护栏：host / generic_target 集群可空（决策 F），留空**不得**报 cluster 必填错——
+   * 其余必填项全部填齐后应能提交成功。若误把可空类加上 required，本用例会因「请填写集群」红。
+   */
+  it('决策 F：host 集群留空可提交（可空类不得被误加 required）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(screen.queryByText('请填写集群')).toBeNull()
+    expect(createMock.mock.calls[0][0].cluster).toBeUndefined()
+  })
+
+  it('决策 F：generic_target 集群留空可提交（可空类不得被误加 required）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'generic_target' })
+    await waitForDicts()
+    await fillGenericTargetRequiredFieldsExceptCluster()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(screen.queryByText('请填写集群')).toBeNull()
+    expect(createMock.mock.calls[0][0].cluster).toBeUndefined()
+  })
+
+  /** 回归护栏：必填类填了 cluster 值即校验通过并随请求体下发 */
+  it('决策 F：middleware 填写集群后校验通过且 payload 携带 cluster', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFieldsExceptCluster()
+    fireEvent.change(screen.getByPlaceholderText('请填写集群'), { target: { value: 'bj-01' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(screen.queryByText('请填写集群', { selector: '.ant-form-item-explain-error' })).toBeNull()
+    expect(createMock.mock.calls[0][0]).toMatchObject({ cluster: 'bj-01' })
+  })
+
+  /** placeholder 与必填口径同步分化：可空类才标「可选」，必填类不标（避免自相矛盾） */
+  it('决策 F：cluster placeholder 按类分化（必填类不标「可选」）', () => {
+    const host = renderDrawer({ category: 'host' })
+    expect(screen.getByPlaceholderText('集群名（可选）')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('请填写集群')).toBeNull()
+    host.unmount()
+
+    const database = renderDrawer({ category: 'database' })
+    expect(screen.getByPlaceholderText('请填写集群')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('集群名（可选）')).toBeNull()
+    database.unmount()
   })
 })

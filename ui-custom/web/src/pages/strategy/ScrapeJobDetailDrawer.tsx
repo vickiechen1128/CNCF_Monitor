@@ -14,7 +14,50 @@ import { MONITOR_TYPE_MAP, SCRAPE_PARAM_FIELDS } from './strategyConstants'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 import { probeQueryForJob, probeStatusOfTarget } from './upStatus'
 
-const { Text } = Typography
+const { Text, Link } = Typography
+
+/** {T01-P6} 生效端口来源中文标注（提案 resource-scrape-port-chain §5.3 四种来源） */
+const PORT_SOURCE_META: Record<string, { label: string; color: string }> = {
+  instance: { label: '实例覆盖', color: 'green' },
+  mapping: { label: '类型默认', color: 'blue' },
+  template: { label: '采集器默认', color: 'cyan' },
+  business: { label: '业务端口兜底', color: 'orange' },
+}
+
+/** {T01-P6} business 兜底警示文案（D-4：后端恒 200，警示纯前端职责、不阻断任何操作） */
+const BUSINESS_PORT_TOOLTIP = '采集端口未配置，当前以业务端口兜底，请确认 exporter 是否监听该端口'
+
+/**
+ * {T01-P6} 生效端口只读回显单元（提案 §5.3，与 ScrapeJobFormDrawer 同口径）：
+ * - 端口：`port=0`（unresolved/未解析）展示 `-` 而非 0（§9 失败态口径）；
+ * - 来源：四种中文标注，business 附「⚠️」+ 警示 Tooltip（不阻断）；
+ * - 引导：来源非「实例覆盖」（= 生效端口与实例登记不一致）时给「前往 M07 修改」入口；
+ * - `port_source` 为空（blackbox / 旧数据）不渲染任何内容。
+ */
+function PortEcho({ item, onGoResources }: { item: ScrapeJobInstanceItem; onGoResources: () => void }) {
+  const source = item.port_source
+  if (!source) return null
+  const meta = PORT_SOURCE_META[source]
+  const mismatch = source !== 'instance'
+  return (
+    <Space size={4} wrap>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        生效端口
+      </Text>
+      <Text code>{item.port ? item.port : '-'}</Text>
+      {source === 'business' ? (
+        <Tooltip title={BUSINESS_PORT_TOOLTIP}>
+          <Tag color="orange" style={{ cursor: 'pointer' }}>
+            {meta.label} ⚠️
+          </Tag>
+        </Tooltip>
+      ) : meta ? (
+        <Tag color={meta.color}>{meta.label}</Tag>
+      ) : null}
+      {mismatch && <Link onClick={onGoResources}>前往 M07 修改</Link>}
+    </Space>
+  )
+}
 
 /**
  * 协议展示色（原型 PROTOCOL_COLOR）。
@@ -111,17 +154,22 @@ function matchTarget(it: ScrapeJobInstanceItem, targets: TargetItem[], deployed:
   return { status: t.health === 'up' ? ('collecting' as const) : ('down' as const), target: t }
 }
 
-/** 实例状态 Tag 展示元信息（原型 COLLECTION_STATUS_META：采集中=绿 / 待采集=warning / 已下发未采到=红） */
+/** 实例状态 Tag 展示元信息（原型 COLLECTION_STATUS_META：采集中=绿 / 待采集=warning / 已下发未采到=红）。
+ * stale（回传延迟中，F-40）仅在 up 指标推导路径产出；本抽屉标准 Job 走 targets 快照（health 三态）
+ * 不会命中 stale，但 Record 类型穷尽性要求补键。 */
 const INSTANCE_STATUS_TAG: Record<JobInstanceScrapeStatus, { color: string; label: string }> = {
   collecting: { color: 'green', label: '采集中' },
   pending: { color: 'warning', label: '待采集' },
+  stale: { color: 'orange', label: '回传延迟中' },
   down: { color: 'red', label: '已下发未采到' },
 }
 
-/** 拨测目标状态 Tag 展示元信息（F-12：通过=绿 / 待拨测=warning / 失败=红） */
+/** 拨测目标状态 Tag 展示元信息（F-12：通过=绿 / 待拨测=warning / 失败=红）。
+ * stale 同上：拨测路径不产出，仅为类型穷尽补键。 */
 const PROBE_STATUS_TAG: Record<JobInstanceScrapeStatus, { color: string; label: string }> = {
   collecting: { color: 'green', label: '通过' },
   pending: { color: 'warning', label: '待拨测' },
+  stale: { color: 'orange', label: '回传延迟中' },
   down: { color: 'red', label: '失败' },
 }
 
@@ -547,6 +595,8 @@ export function ScrapeJobDetailDrawer({
                             <Text type="secondary" style={{ fontSize: 12 }}>
                               {r.it.instance_ip || '-'}
                             </Text>
+                            {/* {T01-P6} 生效端口回显：四级解析链结果 + 来源标注（business ⚠️ 不阻断） */}
+                            <PortEcho item={r.it} onGoResources={() => navigate('/resources')} />
                           </Space>
                           {statusTag}
                         </List.Item>

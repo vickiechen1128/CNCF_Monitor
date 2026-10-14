@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-08 13:25 · commit: `7478df9`
+> 生成时间: 2026-10-14 18:58 · commit: `9b9cecc`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -10,14 +10,19 @@
 ### `platform/admin/networkdomain/access_progress.go`
 
 - `type DomainListItemView struct`
-- `func AccessStepOf(d *models.NetworkDomain, hasOnline bool) int`
+- `func AccessStepOf(d *models.NetworkDomain, hasOnline, hasEffectiveJob bool) int`
+- `func effectiveScrapeJobDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
 - `func onlineAgentDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
 - `func DomainListView(db *gorm.DB, list []models.NetworkDomain) ([]DomainListItemView, error)`
 
 ### `platform/admin/networkdomain/access_progress_test.go`
 
 - `func TestAccessStepOf(t *testing.T)`
+- `func effectiveJobFixture(name, domainID string, mutate func(*models.ScrapeJob)) *models.ScrapeJob`
+- `func TestEffectiveScrapeJobDomainIDs_Filters(t *testing.T)`
+- `func TestEffectiveScrapeJobDomainIDs_EmptyList(t *testing.T)`
 - `func TestDomainListView_AggregatesOnlineAgents(t *testing.T)`
+- `func TestDomainListView_Step4(t *testing.T)`
 - `func TestDomainListView_EmptyList(t *testing.T)`
 
 ### `platform/admin/networkdomain/authorized_test.go`
@@ -193,6 +198,78 @@
 
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
+
+### `platform/admin/storagelog/diskusage_unix.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
+### `platform/admin/storagelog/diskusage_windows.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
+### `platform/admin/storagelog/handler.go`
+
+- `type Options struct`
+- `func RegisterRoutes(admin *gin.RouterGroup, opts Options)`
+- `type Handler struct`
+- `type retentionState struct`
+- `type diskInfo struct`
+- `type logRotationInfo struct`
+- `type overviewResponse struct`
+- `type updateRetentionRequest struct`
+- `method (*Handler) GetOverview(c *gin.Context)`
+- `method (*Handler) UpdateRetention(c *gin.Context)`
+- `method (*Handler) overview(ctx context.Context) (*overviewResponse, error)`
+- `method (*Handler) fetchRuntimeFlags(ctx context.Context) (vals RetentionValues, tsdbPath string, ok bool)`
+- `method (*Handler) diskEntries(tsdbPath string, rtOK bool) []diskInfo`
+- `func newDiskInfo(label, dirPath string) diskInfo`
+
+### `platform/admin/storagelog/handler_test.go`
+
+- `func newTestRouter(t *testing.T, envFile string, promURL *url.URL) *gin.Engine`
+- `func mockPromFlags(t *testing.T, retentionTime, retentionSize, tsdbPath string) *httptest.Server`
+- `func mustParseURL(t *testing.T, raw string) *url.URL`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func decodeOK(t *testing.T, w *httptest.ResponseRecorder) *overviewResponse`
+- `func decodeError(t *testing.T, w *httptest.ResponseRecorder) (errorType, errMsg string)`
+- `func TestGetOverview_RuntimeDefaultWhenEnvMissing(t *testing.T)`
+- `func TestGetOverview_PendingRestartOnRealDiff(t *testing.T)`
+- `func TestGetOverview_NoFalsePendingOnUnitDifference(t *testing.T)`
+- `func TestGetOverview_DegradesWhenPrometheusDown(t *testing.T)`
+- `func TestGetOverview_LogRootDiskRow(t *testing.T)`
+- `func TestUpdateRetention_InvalidInputs(t *testing.T)`
+- `func TestUpdateRetention_WritesEnvAndReportsPending(t *testing.T)`
+- `func TestUpdateRetention_SameAsRuntimeNoPending(t *testing.T)`
+- `func TestUpdateRetention_OverviewAlwaysPresent(t *testing.T)`
+
+### `platform/admin/storagelog/retention.go`
+
+- `type RetentionValues struct`
+- `func ValidateRetentionTime(s string) error`
+- `func ValidateRetentionSize(s string) error`
+- `func parsePromDuration(s string) (time.Duration, error)`
+- `func parsePromBytes(s string) (int64, error)`
+- `func valuesEqual(a, b RetentionValues) bool`
+- `func durationEqual(a, b string) bool`
+- `func bytesEqual(a, b string) bool`
+- `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
+- `func writeRetentionPolicy(path string, vals RetentionValues) error`
+
+### `platform/admin/storagelog/retention_test.go`
+
+- `func TestValidateRetentionTime(t *testing.T)`
+- `func TestValidateRetentionSize(t *testing.T)`
+- `func TestValuesEqual_Normalized(t *testing.T)`
+- `func TestValuesEqual_ParseFailureFallsBackToString(t *testing.T)`
+- `func TestReadWriteRetentionPolicy(t *testing.T)`
+- `func TestReadRetentionPolicy_SkipsComments(t *testing.T)`
+- `func TestDiskUsage(t *testing.T)`
+- `func TestDetectLogRotation_SummaryAlwaysPresent(t *testing.T)`
+
+### `platform/admin/storagelog/system.go`
+
+- `func detectLogRotation() logRotationInfo`
+- `func readConf(path string) (content string, ok bool)`
 
 ### `platform/admin/tenant/handler.go`
 
@@ -388,23 +465,6 @@
 - `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
 - `func normalizeNotifyStatus(st amAlertStatus) string`
 
-### `platform/alertmanager/config/autoapply_test.go`
-
-- `func stubAutoApply(t *testing.T, errVal error) (*int32, *string)`
-- `func TestSubmitTriggersAutoApplyManagementDomain(t *testing.T)`
-- `func TestSubmitDegradesWhenAutoApplyFails(t *testing.T)`
-- `func TestRemountAlsoTriggersAutoApply(t *testing.T)`
-- `func TestSubmitAutoApplyFailureHandlerLogsNot500(t *testing.T)`
-- `func newAutoApplyDB(t *testing.T) *gorm.DB`
-- `func stubGeneratorTools(t *testing.T)`
-- `type deploymentRecorder struct`
-- `method (*deploymentRecorder) Apply(*generator.ConfigArtifacts) error`
-- `func seedAMMgmtDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedAMHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
-- `func seedAMJob(t *testing.T, db *gorm.DB, domainID, name string)`
-- `func TestApplyManagementDomainConfigNoChangesReturnsNil(t *testing.T)`
-- `func TestSubmitAutoAppliesManagementDomainEndToEnd(t *testing.T)`
-
 ### `platform/alertmanager/config/config_test.go`
 
 - `func newMemConfigDB(t *testing.T) *gorm.DB`
@@ -417,6 +477,8 @@
 - `func TestSubmitRejectsEmptyContent(t *testing.T)`
 - `func TestSubmitAmtoolUnavailableValidationFails(t *testing.T)`
 - `func TestSubmitIdempotentOnSameChecksum(t *testing.T)`
+- `func TestSubmitAfterDiscardedVersionCreatesNewVersion(t *testing.T)`
+- `func TestLatestAppliedSkipsDiscarded(t *testing.T)`
 - `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
 - `func TestErrValidationError(t *testing.T)`
 
@@ -431,13 +493,23 @@
 - `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondSubmitError(c *gin.Context, err error)`
 
+### `platform/alertmanager/config/pendingdraft_test.go`
+
+- `func stubEnsurePendingDraft(t *testing.T) *int32`
+- `func stubEnsurePendingDraftErr(t *testing.T, err error)`
+- `func TestSubmitTriggersChangeDetectionAndPendingDraft(t *testing.T)`
+- `func TestSubmitDoesNotAutoConfirmDraft(t *testing.T)`
+- `func TestSubmitPendingDraftErrNoChangesNotBlockSubmit(t *testing.T)`
+- `func TestSubmitPendingDraftErrOtherNotBlockSubmit(t *testing.T)`
+- `func TestEnsurePendingDraftGeneratesWhenNoLivePending(t *testing.T)`
+
 ### `platform/alertmanager/config/service.go`
 
 - `type ErrValidation struct`
 - `method (*ErrValidation) Error() string`
 - `func TriggerChangeDetection(db *gorm.DB) error`
-- `func AutoApplyManagementDomain(db *gorm.DB, by string) error`
-- `func applyManagementDomainConfig(db *gorm.DB, by string) error`
+- `func EnsurePendingDraft(db *gorm.DB) error`
+- `func generateOrReusePendingDraft(db *gorm.DB) error`
 - `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
@@ -533,6 +605,11 @@
 - `func TestBridgeSuccessStructuredLog(t *testing.T)`
 - `func TestSanitizeOutboundErrorStripsURL(t *testing.T)`
 - `func TestOutboundClientDoesNotFollowRedirects(t *testing.T)`
+- `func TestFeishuSignVector(t *testing.T)`
+- `func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T)`
+- `func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T)`
+- `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
+- `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
 
 ### `platform/alertmanager/notify/channel.go`
 
@@ -583,6 +660,9 @@
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
 - `func sanitizeOutboundError(err error) error`
+- `func feishuSign(secret, timestamp string) string`
+- `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
+- `func checkOutboundBusinessError(respBody []byte) error`
 
 ### `platform/alertmanager/notify/receiver_snippet.go`
 
@@ -692,6 +772,14 @@
 - `func TestToRouteNodes_RoundTrip(t *testing.T)`
 - `func TestToEditNodes_PreservesUnmodeledKeys(t *testing.T)`
 - `func toEditMatchers(in []RouteMatcher) []generator.RouteEditMatcher`
+
+### `platform/alertmanager/route/declared_receivers.go`
+
+- `func ParseDeclaredReceivers(baseYAML string) []string`
+
+### `platform/alertmanager/route/declared_receivers_test.go`
+
+- `func TestParseDeclaredReceivers(t *testing.T)`
 
 ### `platform/alertmanager/route/handler.go`
 
@@ -1263,6 +1351,7 @@
 - `func openAppPlatformRelTestDB(t *testing.T) *gorm.DB`
 - `func newAppPlatformStore(t *testing.T) *AppPlatformStore`
 - `func TestAppPlatformRelEndpoints(t *testing.T)`
+- `func TestValidateAppPlatformRefs_GuidanceByRegistrationState(t *testing.T)`
 - `func TestAppPlatformStorePrimaryPlatformOf(t *testing.T)`
 
 ### `platform/config/resource/application_dict.go`
@@ -1435,6 +1524,7 @@
 - `func applyCells(row *ImportRow, header, cells []string)`
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
+- `func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool`
 - `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictS…`
 - `func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
@@ -1520,6 +1610,15 @@
 - `func TestValidateRows_CollectsErrorsWithRowNumbers(t *testing.T)`
 - `func TestValidateRows_UnregisteredDomainCollected(t *testing.T)`
 - `func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T)`
+- `func TestApplyCells_ScrapePort(t *testing.T)`
+- `func TestValidateImportRow_ScrapePort(t *testing.T)`
+- `func withoutScrapePort(cols []string) []string`
+- `func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T)`
+- `func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T)`
+- `func legacyHostHeaderWithZoneEnv() []string`
+- `func TestExcelLegacyTemplateWithZoneEnvStillImports(t *testing.T)`
+- `func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T)`
+- `func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T)`
 
 ### `platform/config/resource/import.go`
 
@@ -1550,6 +1649,7 @@
 - `func countHosts(t *testing.T, db *gorm.DB) int64`
 - `func hostRow(ip, status string) []string`
 - `func TestImportResource_CreateOnly_Success(t *testing.T)`
+- `func TestImportResource_LegacyTemplateZoneEnvIgnored(t *testing.T)`
 - `func TestImportResource_CreateOnly_DuplicateFails(t *testing.T)`
 - `func TestImportResource_Upsert_UpdatesExisting(t *testing.T)`
 - `func TestImportResource_Upsert_Mixed(t *testing.T)`
@@ -1735,6 +1835,23 @@
 - `func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter) *gorm.DB`
 - `func parseIntDefault(raw string, def, min int) int`
 
+### `platform/config/resource/references.go`
+
+- `type ResourceReferenceJob struct`
+- `func ListResourceReferences(db *gorm.DB) gin.HandlerFunc`
+- `func containsInstance(ids []string, target string) bool`
+
+### `platform/config/resource/references_test.go`
+
+- `func openReferencesTestDB(t *testing.T) *gorm.DB`
+- `func refJob(jobName, domain string, ids []string, enabled bool) models.ScrapeJob`
+- `func mountReferences(t *testing.T, db *gorm.DB) *gin.Engine`
+- `type refResponse struct`
+- `func doReferences(t *testing.T, r *gin.Engine, resourceID string) (*httptest.ResponseRecorder, refResponse)`
+- `func TestListResourceReferences_Referenced(t *testing.T)`
+- `func TestListResourceReferences_NoReference(t *testing.T)`
+- `func TestListResourceReferences_NotFound(t *testing.T)`
+
 ### `platform/config/resource/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, c…`
@@ -1793,23 +1910,41 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
+- `type templateColumnDoc struct`
 - `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSt…`
-- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSto…`
+- `func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platfo…`
+- `func templateColumnRequiredLabel(category models.ResourceCategory, col string) string`
+- `func templateExampleRow(category models.ResourceCategory) []string`
 - `func statusValueDescription() string`
-- `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
+- `func buildTemplateXLSX(category models.ResourceCategory, valueRows [][]string) ([]byte, error)`
 
 ### `platform/config/resource/template_test.go`
 
 - `func fakeDomains() ([]DomainOption, error)`
 - `func setupTemplateRouter(t *testing.T) *gin.Engine`
 - `func openEmptyAppDictDB(t *testing.T) *gorm.DB`
+- `func openEmptyDictDB(t *testing.T) *gorm.DB`
 - `func allCategories() []models.ResourceCategory`
+- `func flattenRows(rows [][]string) string`
+- `func downloadTemplate(t *testing.T, category models.ResourceCategory) (sheet1, valueSheet [][]string)`
+- `func valueSheetColumnRows(valueSheet [][]string) [][]string`
 - `func TestTemplateColumnsMatchPRD(t *testing.T)`
 - `func TestDownloadTemplateHeaders(t *testing.T)`
 - `func TestDownloadTemplateSheet1Columns(t *testing.T)`
 - `func TestDownloadTemplateValueSheet(t *testing.T)`
+- `func TestDownloadTemplateValueSheet_CustomLabelsOnlyForGenericTarget(t *testing.T)`
 - `func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T)`
 - `func TestDownloadTemplateUnknownTypeNotFound(t *testing.T)`
+- `func TestTemplateColumnDocsCoverAllColumns(t *testing.T)`
+- `func TestDownloadTemplateValueSheetColumnsPerCategory(t *testing.T)`
+- `func TestDownloadTemplateValueSheetHasChineseLabel(t *testing.T)`
+- `func TestDownloadTemplateValueSheetRequiredLabel(t *testing.T)`
+- `func TestDownloadTemplateValueSheetNoteRow(t *testing.T)`
+- `func TestDownloadTemplateExampleRow(t *testing.T)`
+- `func TestDownloadTemplateExampleRowStyle(t *testing.T)`
+- `func TestParseExcelSkipsTemplateExampleRow(t *testing.T)`
+- `func TestDownloadedTemplateParsesToZeroRows(t *testing.T)`
+- `func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T)`
 
 ### `platform/config/resource/update.go`
 
@@ -1833,6 +1968,7 @@
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, keep *KeepDisabledValues) error`
+- `func validateScrapePort(in *ResourceInput) error`
 - `func validateHost(in *ResourceInput) error`
 - `func validateDatabase(in *ResourceInput) error`
 - `func validateMiddleware(in *ResourceInput) error`
@@ -1877,6 +2013,12 @@
 - `func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T)`
 - `func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T)`
 - `func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T)`
+- `func TestValidatePlatformCode_GuidanceByRegistrationState(t *testing.T)`
+- `func scrapePortInput(category models.ResourceCategory) *ResourceInput`
+- `func TestValidateResourceInput_ScrapePort(t *testing.T)`
+- `func TestScrapePortAutoMigrateAddsColumn(t *testing.T)`
+- `func TestGetResourceField_ScrapePort(t *testing.T)`
+- `func TestScrapePort_CreateUpdateListChannels(t *testing.T)`
 
 ### `platform/configcenter/change/watcher.go`
 
@@ -1913,6 +2055,19 @@
 - `func writebackRuleChangeStatus(db *gorm.DB) error`
 - `func writebackChangeStatuses(db *gorm.DB, domainID string) error`
 - `func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error`
+- `func draftAlertmanagerSourceID(db *gorm.DB, version *models.ConfigVersion) uint`
+- `func writebackAlertmanagerSource(db *gorm.DB, version *models.ConfigVersion, sourceID uint, at time.Time) error`
+- `func applyAlertmanagerWriteback(db *gorm.DB, cfg *models.AlertmanagerConfigVersion, changeNo string, at time.Time) error`
+
+### `platform/configcenter/deployment/callback_alertmanager_test.go`
+
+- `func TestDispatchAlertmanagerWritebackPreciseSource(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackMarksSiblings(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackSkipsDiscardedSibling(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackLegacyFallback(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackSelfHealsDiscardedSource(t *testing.T)`
+- `func seedAMVersionPending(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
+- `func seedAMSourceDraft(t *testing.T, db *gorm.DB, domainID, changeNo string, sourceAMVersionID uint) *models.ConfigDraft`
 
 ### `platform/configcenter/deployment/deployment_test.go`
 
@@ -2037,6 +2192,10 @@
 - `func TestMonitorDomainRejectsAlreadyMonitored(t *testing.T)`
 - `func TestMonitorDomainRejectsInvalidAgentType(t *testing.T)`
 - `func TestMonitorDomainNotFound(t *testing.T)`
+- `func TestValidateMaxDiskUsage(t *testing.T)`
+- `func TestMonitorDomainEdgeAcceptsMaxDiskUsage(t *testing.T)`
+- `func TestMonitorDomainRejectsInvalidMaxDiskUsage(t *testing.T)`
+- `func TestUpdateDomainMonitoringMaxDiskUsage(t *testing.T)`
 - `func TestResetDomainTokenEdgePush(t *testing.T)`
 - `func TestResetDomainTokenRejectsLocal(t *testing.T)`
 - `func TestResetDomainTokenRejectsNotMonitored(t *testing.T)`
@@ -2056,6 +2215,7 @@
 - `func UpdateDomainMonitoring(db *gorm.DB, id string, p UpdateParams) (*models.NetworkDomain, error)`
 - `func ResetDomainToken(db *gorm.DB, id string) (TokenResult, error)`
 - `func newToken() (string, error)`
+- `func validateMaxDiskUsage(v string) error`
 
 ### `platform/configcenter/draft/change_items.go`
 
@@ -2065,12 +2225,35 @@
 - `func diffPromAlertingItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
 - `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
 - `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
+- `type targetSnapshotEntry struct`
+- `func diffTargetItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Con…`
+- `func targetItemsFor(verb, jobName string, addrs []string, entries []targetSnapshotEntry, artifacts *generator.ConfigArtifact…`
+- `func skipReasonText(reason string) string`
+- `func diffTargetEntries(base, cur []targetSnapshotEntry) (added, removed, changed []string)`
+- `func parseTargetSnapshot(content string) ([]targetSnapshotEntry, error)`
 - `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
 - `func jobAffectedFiles(isBlackbox bool) []string`
 - `func snapshotScrapeConfigs(promYML string) map[string]string`
 - `func snapshotRuleGroups(rulesYML string) (map[string]string, error)`
 - `func normalizeYAML(v interface{}) string`
 - `func sortedKeys(m map[string]string) []string`
+
+### `platform/configcenter/draft/change_items_target_test.go`
+
+- `func seedHostWithIP(t *testing.T, db *gorm.DB, domainID, resourceID, ip string)`
+- `func seedJobWithInstances(t *testing.T, db *gorm.DB, domainID, name string, instanceIDs []string) *models.ScrapeJob`
+- `func confirmBaseline(t *testing.T, db *gorm.DB, domainID string)`
+- `func itemsOf(t *testing.T, d *models.ConfigDraft) []models.ConfigChangeItem`
+- `func itemsByTarget(items []models.ConfigChangeItem, target string) []models.ConfigChangeItem`
+- `func TestTargetLevelItemsOnHostSoftDelete(t *testing.T)`
+- `func TestTargetLevelItemsOnHostAdd(t *testing.T)`
+- `func TestTargetLevelItemsAbsentWhenNothingChanged(t *testing.T)`
+- `func TestTargetLevelItemsSkipIPChangeAsUpdate(t *testing.T)`
+- `func TestTargetLevelItemsNotDoubleCountNewJob(t *testing.T)`
+- `func TestTargetLevelItemsNotDoubleCountRemovedJob(t *testing.T)`
+- `func TestExistingJobLevelItemsUnaffected(t *testing.T)`
+- `func TestTargetLevelItemsTolerateBrokenBaseSnapshot(t *testing.T)`
+- `func TestBuildSummaryTargetLabel(t *testing.T)`
 
 ### `platform/configcenter/draft/draft_test.go`
 
@@ -2120,6 +2303,8 @@
 - `func todaySuffix() string`
 - `func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T)`
 - `func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T)`
+- `func TestGenerateDraftDiscardsOrphanPendings(t *testing.T)`
+- `func TestGenerateDraftConcurrentSameDomain(t *testing.T)`
 
 ### `platform/configcenter/draft/handler.go`
 
@@ -2136,6 +2321,7 @@
 
 ### `platform/configcenter/draft/service.go`
 
+- `func lockDomain(domainID string) func()`
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
 - `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
@@ -2160,6 +2346,8 @@
 - `func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error)`
 - `type DiscardImpact struct`
+- `func discardOrphanAlertmanagerVersions(tx *gorm.DB, protectedIDs []uint) error`
+- `func protectedVersionIDsFromLivePending(tx *gorm.DB, domainID, excludeChangeNo string) ([]uint, error)`
 - `func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error`
 - `func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error)`
 - `func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error)`
@@ -2168,6 +2356,17 @@
 - `func scrapeJobNamesFromPrometheusYml(yml string) (map[string]bool, error)`
 - `func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, error)`
+
+### `platform/configcenter/draft/service_alertmanager_discard_test.go`
+
+- `func TestDiscardDraftMarksOrphanAlertmanagerVersions(t *testing.T)`
+- `func TestDiscardDraftKeepsAppliedAlertmanagerVersion(t *testing.T)`
+- `func TestDiscardDraftNonDefaultDomainKeepsAlertmanagerVersions(t *testing.T)`
+- `func TestDiscardDraftProtectsOtherLivePendingSource(t *testing.T)`
+- `func TestSupersedePendingProtectsNewDraftSource(t *testing.T)`
+- `func TestGenerateDraftBackfillsAlertmanagerSourceVersionID(t *testing.T)`
+- `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
+- `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
 
 ### `platform/configcenter/draft/service_route_preset_test.go`
 
@@ -2219,6 +2418,7 @@
 
 ### `platform/configcenter/generator/change_detect.go`
 
+- `type sourceVersionRow struct`
 - `func SourceDataVersion(db *gorm.DB, domainID string) (string, error)`
 - `func NeedsRegeneration(prevSourceVersion, newSourceVersion string) bool`
 
@@ -2233,6 +2433,7 @@
 - `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
+- `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
 - `func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error)`
 - `type ErrNotFound struct`
@@ -2266,7 +2467,10 @@
 - `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
 - `func TestResolveTargetsInjectsResourceID(t *testing.T)`
 - `func TestResolveTargetsExporterPort(t *testing.T)`
+- `func TestExporterPortOrEquivalenceToPortchain(t *testing.T)`
+- `func TestResolveTargetsScrapePortChain(t *testing.T)`
 - `func TestLoadExporterPortPriority(t *testing.T)`
+- `func TestLoadExporterPortIsDefaultFilter(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
 - `func TestValidateTargetGroups(t *testing.T)`
 - `func TestValidateTargetGroupsRejectsEmpty(t *testing.T)`
@@ -2278,6 +2482,18 @@
 - `func TestValidateArtifactsPassed(t *testing.T)`
 - `func TestValidateArtifactsFailedSchema(t *testing.T)`
 - `func TestSourceDataVersionAndNeedsRegeneration(t *testing.T)`
+- `func newSourceVersionDB(t *testing.T) *gorm.DB`
+- `func seedVersionHost(t *testing.T, db *gorm.DB, domainID, serverID, resourceID string) *models.Host`
+- `func softDeleteHost(t *testing.T, db *gorm.DB, h *models.Host)`
+- `func hostMaxUpdatedAt(t *testing.T, db *gorm.DB, domainID string) *string`
+- `func hostMaxDeletedAt(t *testing.T, db *gorm.DB, domainID string) *string`
+- `func TestSourceDataVersionStableWithoutChange(t *testing.T)`
+- `func TestSourceDataVersionAdvancesOnSoftDelete(t *testing.T)`
+- `func TestSourceDataVersionAdvancesOnDeletedAtOnly(t *testing.T)`
+- `func TestSourceDataVersionPureNullDeletedAt(t *testing.T)`
+- `func TestSourceDataVersionEmptyDB(t *testing.T)`
+- `func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T)`
+- `func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestMarshalTargetGroupsJSON(t *testing.T)`
 - `func TestAssembleAlertmanagerYML(t *testing.T)`
@@ -2315,6 +2531,7 @@
 - `func mappingValueIndex(m *yaml.Node, key string) int`
 - `type existingReceiver struct`
 - `func firstWebhookURL(recv *yaml.Node) string`
+- `func receiverNameOnly(recv *yaml.Node) bool`
 - `func isPlatformBridgeURL(u string) bool`
 
 ### `platform/configcenter/generator/notify_receivers_test.go`
@@ -2330,6 +2547,8 @@
 - `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
 - `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversHandwrittenSquatStillConflicts(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T)`
 
 ### `platform/configcenter/generator/notify_route_generate.go`
 
@@ -2468,7 +2687,6 @@
 
 - `type SkippedInstance struct`
 - `func addressEmptyDetail(category string) string`
-- `func exporterPortOr(exporterPort, fallback int) int`
 - `func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error)`
 - `func instanceAddress(ip string, port int) string`
 - `func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[string]string) map[string]string`
@@ -2509,9 +2727,44 @@
 - `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
 - `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
 
+### `platform/configcenter/portchain/portchain.go`
+
+- `func Resolve(scrapePort, mappingPort, templatePort, businessPort int) (port int, source string)`
+
+### `platform/configcenter/portchain/portchain_test.go`
+
+- `func TestResolveFourLevelPermutations(t *testing.T)`
+- `func TestResolveAllZeroUnresolved(t *testing.T)`
+- `func TestResolveZeroTierFallsThrough(t *testing.T)`
+- `func TestResolveHostNoBusinessTier(t *testing.T)`
+- `func TestResolveHostCallFormNeverBusiness(t *testing.T)`
+
 ### `platform/configcenter/register.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+
+### `platform/dashboard/collection_health.go`
+
+- `type CollectionHealth struct`
+- `type UpHealthIndex struct`
+- `type UpHealthQuerier interface`
+- `type PromUpHealthQuerier struct`
+- `func NewPromUpHealthQuerier(baseURL *url.URL, client *http.Client) *PromUpHealthQuerier`
+- `method (*PromUpHealthQuerier) UpHealth(ctx context.Context) (*UpHealthIndex, error)`
+- `method (*PromUpHealthQuerier) queryResourceIDs(ctx context.Context, expr string) (map[string]bool, map[string]bool, error)`
+- `func classifyCollectionHealth(dispatched []string, idx *UpHealthIndex) *CollectionHealth`
+
+### `platform/dashboard/collection_health_test.go`
+
+- `type fakeUpHealthQuerier struct`
+- `method (*fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error)`
+- `func TestClassifyCollectionHealthFourStates(t *testing.T)`
+- `func TestClassifyCollectionHealthNilIndex(t *testing.T)`
+- `func TestSummaryCollectionHealth(t *testing.T)`
+- `func TestSummaryCollectionHealthDegradesOnError(t *testing.T)`
+- `func TestSummaryCollectionHealthOmittedWhenNotInjected(t *testing.T)`
+- `func TestPromUpHealthQuerierUpHealth(t *testing.T)`
+- `func TestPromUpHealthQuerierNilBase(t *testing.T)`
 
 ### `platform/dashboard/probe.go`
 
@@ -2540,6 +2793,7 @@
 - `type buildOptions struct`
 - `type Option`
 - `func WithProbeQuerier(q ProbeQuerier) Option`
+- `func WithUpHealthQuerier(q UpHealthQuerier) Option`
 - `func Build(db *gorm.DB, opts ...Option) (*Summary, error)`
 - `type categoryAgg struct`
 - `type subAgg struct`
@@ -2680,6 +2934,16 @@
 - `func BuiltinMetricLibrary() []builtinMetricSeed`
 - `func runMetricLibrary(db *gorm.DB) error`
 
+### `platform/db/seed/scrape_path.go`
+
+- `func runScrapeJobMetricsPathBackfill(db *gorm.DB) error`
+
+### `platform/db/seed/scrape_path_test.go`
+
+- `func metricsPathOf(t *testing.T, db *gorm.DB, id uint) string`
+- `func TestRunScrapeJobMetricsPathBackfillTrimsDirtyPath(t *testing.T)`
+- `func TestRunScrapeJobMetricsPathBackfillHandlesPureWhitespace(t *testing.T)`
+
 ### `platform/db/seed/seed.go`
 
 - `func Run(db *gorm.DB) error`
@@ -2732,6 +2996,7 @@
 - `method (stubProbe) Start(*supervisor.Component) error`
 - `method (stubProbe) Stop(*supervisor.Component) error`
 - `func TestRuntimeProviderSnapshotCarriesTargets(t *testing.T)`
+- `func TestRuntimeProviderSnapshotCarriesRemoteWriteStats(t *testing.T)`
 - `func TestRuntimeProviderSnapshotTargetsDegrade(t *testing.T)`
 - `func TestEnvOr(t *testing.T)`
 - `func TestVersionFlagString(t *testing.T)`
@@ -2772,12 +3037,17 @@
 - `method (*ProcProbe) Stop(c *supervisor.Component) error`
 - `method (*ProcProbe) Signal(typ string, sig syscall.Signal) error`
 - `method (*ProcProbe) Reload(typ string) error`
+- `method (*ProcProbe) RestartCollector() error`
+- `method (*ProcProbe) FlushBacklog() error`
 - `method (*ProcProbe) StopAll()`
 - `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
 - `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
 - `func tcpProbe(ctx context.Context, addr string) error`
 - `func envOr(key, def string) string`
 - `func metadataRemoteWriteURL(versionDir string) string`
+- `func metadataMaxDiskUsage(versionDir string) string`
+- `func readVersionMetadata(versionDir string) contract.Metadata`
+- `func resolveMaxDiskUsagePerURL(metadataVal string) string`
 - `func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
@@ -2791,6 +3061,29 @@
 - `func TestProcProbeReloadNotRunning(t *testing.T)`
 - `func TestResolveRemoteWriteURL(t *testing.T)`
 - `func TestMetadataRemoteWriteURL(t *testing.T)`
+- `func TestResolveMaxDiskUsagePerURL(t *testing.T)`
+- `func TestMetadataMaxDiskUsage(t *testing.T)`
+- `func TestCollectorArgsCarryMaxDiskUsage(t *testing.T)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote.go`
+
+- `type vmRemoteWriteStats struct`
+- `method (vmRemoteWriteStats) BacklogBytes() int64`
+- `func fetchVMAgentRemoteWriteStats(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...a…`
+- `func parsePromGauge(body, metric string) (float64, bool)`
+- `func parsePromSum(body, metric string) float64`
+- `func cutMetricLine(line, metric string) (string, bool)`
+- `func parsePromValue(rest string) (float64, bool)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote_test.go`
+
+- `func TestParsePromGauge(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStats(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsNoFailure(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsDegrades(t *testing.T)`
+- `func TestParsePromSum(t *testing.T)`
+- `func TestBacklogBytes(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsPersistentQueue(t *testing.T)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets.go`
 
@@ -2859,6 +3152,7 @@
 ### `platform/edge-sync-agent/internal/contract/contract_test.go`
 
 - `func TestHeartbeatRequestJSONRoundTrip(t *testing.T)`
+- `func TestHeartbeatRequestJSONCarriesRemoteWriteStats(t *testing.T)`
 - `func TestHeartbeatResponseJSON(t *testing.T)`
 - `func TestMetadataJSONAlignsCenter(t *testing.T)`
 - `func TestPathConstants(t *testing.T)`
@@ -2878,8 +3172,10 @@
 - `method (*Deployer) DomainDir() string`
 - `method (*Deployer) VersionDir(version string) string`
 - `method (*Deployer) CurrentVersion() string`
+- `method (*Deployer) CurrentMetadata() contract.Metadata`
 - `method (*Deployer) CurrentDir() string`
 - `method (*Deployer) setCurrentLink(version string)`
+- `method (*Deployer) currentMetadata() contract.Metadata`
 - `method (*Deployer) Restore() error`
 - `method (*Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error`
 - `method (*Deployer) ApplyState() ApplyState`
@@ -2911,6 +3207,10 @@
 - `func TestApplyMetadataRemoteWriteURLPersisted(t *testing.T)`
 - `func TestApplyFailureStatePersistedAndRestored(t *testing.T)`
 - `func TestApplyFailureStateWithoutCurrentLink(t *testing.T)`
+- `func readDiskMetadata(t *testing.T, d *Deployer, version string) contract.Metadata`
+- `func TestApplySameVersionParamsChangedReapply(t *testing.T)`
+- `func TestApplySameVersionParamsUnchangedSkips(t *testing.T)`
+- `func TestApplySameVersionRemoteWriteURLChangedReapply(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/extract.go`
 
@@ -2966,6 +3266,13 @@
 - `method (staticRuntime) Snapshot() RuntimeSnapshot`
 - `method (*Puller) Run(ctx context.Context)`
 - `method (*Puller) RunOnce(ctx context.Context) error`
+- `type restartState struct`
+- `method (*Puller) handleFlushCommand(resp *contract.HeartbeatResponse) error`
+- `method (*Puller) handleRestartCommand(resp *contract.HeartbeatResponse) error`
+- `method (*Puller) setExecutedRestartSeq(seq int64)`
+- `method (*Puller) setExecutedFlushSeq(seq int64)`
+- `method (*Puller) persistRestartState()`
+- `method (*Puller) loadRestartState()`
 - `method (*Puller) buildHeartbeat() contract.HeartbeatRequest`
 - `method (*Puller) pullAndVerify(ctx context.Context, url string) error`
 - `method (*Puller) handleAuth(ctx context.Context) bool`
@@ -2987,10 +3294,19 @@
 - `type testServer struct`
 - `func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer`
 - `func newPuller(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider) *Puller`
+- `func newPullerWithRestart(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onRestart func() error, s…`
 - `func TestRunOnceValidConfigDeploysAndRetains(t *testing.T)`
 - `func TestRunOnceChecksumMismatchRetainsLastValid(t *testing.T)`
 - `func TestVerifyChecksumValidAndMismatch(t *testing.T)`
+- `func TestBuildHeartbeatCarriesMetadataParams(t *testing.T)`
+- `func TestRunOnceParamsChangedForcesPull(t *testing.T)`
 - `func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T)`
+- `func TestRunOnceRestartSeqTriggersCallbackAndPersists(t *testing.T)`
+- `func TestRunOnceRestartSeqFailureRetries(t *testing.T)`
+- `func newPullerWithFlush(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onFlush func() error, state…`
+- `func TestRunOnceFlushSeqTriggersCallbackAndPersists(t *testing.T)`
+- `func TestRunOnceFlushSeqFailureRetries(t *testing.T)`
+- `func TestNoFlushCallbackStillAdvancesSeq(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/supervisor/supervisor.go`
 
@@ -3004,6 +3320,7 @@
 - `method (*Supervisor) Reconcile(want []contract.Component)`
 - `method (*Supervisor) getOrCreate(typ string) *Component`
 - `method (*Supervisor) Get(typ string) *Component`
+- `method (*Supervisor) Reset(typ string)`
 - `method (*Supervisor) SetInject(clock func() time.Time, sleep func(ctx context.Context, d time.Duration))`
 - `method (*Supervisor) Snapshot() []contract.Component`
 - `method (*Supervisor) Run(ctx context.Context)`
@@ -3029,6 +3346,7 @@
 - `func TestBackoffAndBreakerEntersCrashLoop(t *testing.T)`
 - `func TestOrchestrationBlackboxBeforeCollector(t *testing.T)`
 - `func TestSnapshotReportsContractView(t *testing.T)`
+- `func TestResetClearsCrashLoopAndRetainsGuard(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/token/token.go`
 
@@ -3068,6 +3386,8 @@
 - `func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T)`
 - `func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T)`
 - `func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T)`
+- `func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T)`
+- `func TestHeartbeatPersistsRemoteWriteDropAndRetryStats(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
 - `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
 - `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
@@ -3076,6 +3396,7 @@
 - `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
 - `func TestBuildConfigZipOptionalEntries(t *testing.T)`
 - `func TestBuildConfigZipRemoteWriteURL(t *testing.T)`
+- `func TestBuildConfigZipMaxDiskUsagePerURL(t *testing.T)`
 - `func TestConfigHandlerServeZipAnd304(t *testing.T)`
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
 - `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
@@ -3090,6 +3411,14 @@
 - `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
 - `func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T)`
 - `func TestResolveDownloadAuthorityEndToEnd(t *testing.T)`
+- `func TestHeartbeatParamsChangedFingerprint(t *testing.T)`
+- `func TestHeartbeatCarriesRestartSeq(t *testing.T)`
+
+### `platform/edge/flush_handler.go`
+
+- `func RequestFlushBacklog(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
+- `func FlushBacklogHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondFlushError(c *gin.Context, err error)`
 
 ### `platform/edge/heartbeat_handler.go`
 
@@ -3119,11 +3448,11 @@
 
 ### `platform/edge/management_handler.go`
 
-- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string)`
+- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier)`
 - `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondRetireError(c *gin.Context, err error)`
-- `func ListAgentsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetAgentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func ListAgentsHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
+- `func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
 - `func respondAgentError(c *gin.Context, err error)`
 - `func ListPackagesHandler(dir string) gin.HandlerFunc`
 - `func DownloadLatestPackageHandler(dir string) gin.HandlerFunc`
@@ -3142,6 +3471,9 @@
 - `func ListAgents(db *gorm.DB, now time.Time, threshold time.Duration) (*EdgeAgentsResponse, error)`
 - `func GetAgent(db *gorm.DB, id uint, now time.Time, threshold time.Duration) (*AgentView, error)`
 - `func normThreshold(t time.Duration) time.Duration`
+- `func fillSampleLags(views []AgentView, q SampleLagQuerier)`
+- `func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time)`
+- `func backlogInsight(hbs []models.EdgeHeartbeat) (age, growth *int64, channel string)`
 
 ### `platform/edge/management_test.go`
 
@@ -3150,6 +3482,12 @@
 - `func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.Time, comps []models.EdgeComponent) *models.…`
 - `func newManagementRouter(db *gorm.DB) *gin.Engine`
 - `func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine`
+- `func adminInjector() gin.HandlerFunc`
+- `func TestRequestVMAgentRestart(t *testing.T)`
+- `func TestRestartAgentEndpoint(t *testing.T)`
+- `func TestRequestFlushBacklog(t *testing.T)`
+- `func TestRequestSeqCommandsOnNullColumns(t *testing.T)`
+- `func TestFlushBacklogEndpoint(t *testing.T)`
 - `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
 - `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
 - `func TestRetireDomainHandlerHTTP(t *testing.T)`
@@ -3177,6 +3515,15 @@
 - `func TestListPackagesEmptyWhenNoManifest(t *testing.T)`
 - `func TestListPackagesUnavailableArtifactVariants(t *testing.T)`
 - `func TestListPackagesInvalidManifestReturns500(t *testing.T)`
+- `func seedHeartbeat(t *testing.T, db *gorm.DB, domainID string, ts time.Time, backlog int64, lastErr string, retries int64)`
+- `func TestBacklogInsightGrowsAgeAndFlagsPersistentError(t *testing.T)`
+- `func TestBacklogInsightDrainingHasNoAge(t *testing.T)`
+- `func TestBacklogInsightSingleSampleStaysNil(t *testing.T)`
+- `func TestBacklogInsightTransientErrorNotFlagged(t *testing.T)`
+- `func TestBacklogInsightRetriesGrowthFlagsAbnormal(t *testing.T)`
+- `func TestFillBacklogInsightsFromHeartbeats(t *testing.T)`
+- `func TestFillBacklogInsightsStaleHeartbeatsStayNil(t *testing.T)`
+- `func TestFillBacklogInsightsNoHeartbeats(t *testing.T)`
 
 ### `platform/edge/middleware.go`
 
@@ -3211,11 +3558,38 @@
 
 - `func RegisterRoutes(group *gin.RouterGroup, db *gorm.DB)`
 
+### `platform/edge/remote_write_lag.go`
+
+- `type SampleLagQuerier interface`
+- `type PromSampleLagQuerier struct`
+- `func NewPromSampleLagQuerier(base *url.URL, client *http.Client) *PromSampleLagQuerier`
+- `type promQueryResponse struct`
+- `method (*PromSampleLagQuerier) QueryDomainLags(ctx context.Context) (map[string]int64, error)`
+- `method (*PromSampleLagQuerier) fetch(ctx context.Context) (map[string]int64, error)`
+- `func toSeconds(v interface{}) (int64, bool)`
+
+### `platform/edge/remote_write_lag_test.go`
+
+- `func TestPromSampleLagQuerierParsesVector(t *testing.T)`
+- `func TestPromSampleLagQuerierTTLCache(t *testing.T)`
+- `func TestPromSampleLagQuerierUpstreamFailure(t *testing.T)`
+- `func TestPromSampleLagQuerierNegativeLagClampedToZero(t *testing.T)`
+- `type stubLagQuerier struct`
+- `method (stubLagQuerier) QueryDomainLags(context.Context) (map[string]int64, error)`
+- `func TestFillSampleLags(t *testing.T)`
+- `func mustParseURL(t *testing.T, raw string) *url.URL`
+
+### `platform/edge/restart_handler.go`
+
+- `func RequestVMAgentRestart(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
+- `func RestartAgentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondRestartError(c *gin.Context, err error)`
+
 ### `platform/edge/zipper.go`
 
 - `type metadata struct`
 - `type targetsCarrier`
-- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL string) ([]byte, string, error)`
+- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL, maxDiskUsagePerURL string) ([]byte,…`
 - `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
 
 ### `platform/examples/simple-agent/main.go`
@@ -3799,6 +4173,7 @@
 - `type ChangeStatus = string`
 - `type MappingOverride struct`
 - `type InstanceSelectionMode = string`
+- `func ValidPromDuration(s string) bool`
 - `type ScrapeJob struct`
 
 ### `platform/models/service_dict.go`
@@ -3841,6 +4216,27 @@
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
+### `platform/query/alert_annotation.go`
+
+- `type annotationTemplateData struct`
+- `func RenderAnnotation(src string, labels map[string]string, value string) (string, error)`
+- `func annotationFuncMap(labels map[string]string, value float64) template.FuncMap`
+- `func toFloat(v interface{}) (float64, bool)`
+- `func humanizeNumber(v interface{}, base float64, suffixes []string) string`
+- `func humanizeDurationValue(v interface{}) string`
+- `func humanizePercentageValue(v interface{}) string`
+- `func humanizeTimestampValue(v interface{}) string`
+- `func titleCase(s string) string`
+
+### `platform/query/alert_annotation_test.go`
+
+- `func TestRenderAnnotationLabels(t *testing.T)`
+- `func TestRenderAnnotationNoLeakOnMissingLabel(t *testing.T)`
+- `func TestRenderAnnotationFailure(t *testing.T)`
+- `func TestRenderAnnotationEmptyTemplate(t *testing.T)`
+- `func TestRenderHistorySummaryDegradesToEmpty(t *testing.T)`
+- `func TestRenderHistorySummaryInjectsNetworkDomain(t *testing.T)`
+
 ### `platform/query/alerts.go`
 
 - `type promAlert struct`
@@ -3859,11 +4255,12 @@
 - `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
 - `type promMatrixSample struct`
 - `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
-- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string, identities map[string]Re…`
-- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[s…`
+- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryTemplates map[string]string, identities map[str…`
+- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryTemplates…`
+- `func renderHistorySummary(tmpl string, labels map[string]string, domain string) string`
 - `func historyInstanceMatch(it AlertHistoryItem, keyword string) bool`
 - `type rulesAPIResponse struct`
-- `func fetchRulesAnnotations(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
+- `func fetchRuleSummaryTemplates(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
 - `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
 
 ### `platform/query/alerts_history_test.go`
@@ -3886,6 +4283,8 @@
 - `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
 - `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
+- `func TestAlertHistoryRendersSummaryTemplate(t *testing.T)`
+- `func TestAlertHistoryUnrenderableTemplateDegradesToEmpty(t *testing.T)`
 - `func TestNormalizeHistoryStep(t *testing.T)`
 - `func newHistoryStepCaptureRouter(t *testing.T) (*gin.Engine, *string)`
 - `func historyWindowQuery(window time.Duration, extra url.Values) string`
@@ -3986,6 +4385,33 @@
 ### `platform/query/routes.go`
 
 - `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
+- `func RegisterRuleInspectRoutes(platform *gin.RouterGroup, promURL *url.URL)`
+
+### `platform/query/rule_labels.go`
+
+- `type InspectRuleLabelsRequest struct`
+- `type InspectRuleLabel struct`
+- `type InspectRuleResult struct`
+- `func InspectRuleLabelsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `type inspectRuleYAML struct`
+- `func inspectRuleContent(ctx context.Context, client *http.Client, promURL *url.URL, content string) []InspectRuleResult`
+- `func inspectSingleRule( ctx context.Context, client *http.Client, promURL *url.URL, group, alert, record, expr string, annot…`
+- `type inspectSeries struct`
+- `func queryInstantSeries(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]inspectSeries, error)`
+- `func sampleValueString(v []interface{}) string`
+- `func summarizeSeriesLabels(series []inspectSeries) []InspectRuleLabel`
+
+### `platform/query/rule_labels_test.go`
+
+- `func newInspectRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func doInspect(t *testing.T, r *gin.Engine, ruleContent string) []InspectRuleResult`
+- `func inspectSeriesFixture() map[string]interface{}`
+- `func TestInspectRuleLabelsForBlackbox(t *testing.T)`
+- `func TestInspectRuleLabelsNoSeries(t *testing.T)`
+- `func TestInspectRuleLabelsInvalidExpr(t *testing.T)`
+- `func TestInspectRuleLabelsPreviewRenderFailure(t *testing.T)`
+- `func TestInspectRuleLabelsSkipsNonAlertEntries(t *testing.T)`
+- `func TestInspectRuleLabelsInvalidYAML(t *testing.T)`
 
 ### `platform/query/targets.go`
 
@@ -4073,6 +4499,7 @@
 - `func TestDeleteCITypeExporterMapping(t *testing.T)`
 - `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types ...string) string`
 - `func TestMappingExporterSupportTypeGuard(t *testing.T)`
+- `func TestUpdateCITypeExporterMappingDurationValidation(t *testing.T)`
 
 ### `platform/strategy/ci-exporter/create.go`
 
@@ -4145,6 +4572,14 @@
 - `func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T)`
 - `func TestDeleteExporterTemplateInternalOK(t *testing.T)`
 - `func TestDeleteExporterTemplateBuiltinAndReferencedForbidden(t *testing.T)`
+- `func TestCreateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
+- `func TestCreateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
+- `func TestCreateExporterTemplateAllowsAllValidSupportedMonitorTypes(t *testing.T)`
+- `func TestCreateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
+- `func TestUpdateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
+- `func TestUpdateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
+- `func TestUpdateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
+- `func quotedJoin(items []string) string`
 
 ### `platform/strategy/exporter-template/list.go`
 
@@ -4163,6 +4598,7 @@
 ### `platform/strategy/exporter-template/validate.go`
 
 - `func validateHTTPURL(field, raw string) error`
+- `func normalizeSupportedMonitorTypes(types []string) ([]string, error)`
 
 ### `platform/strategy/metric-library/create.go`
 
@@ -4253,6 +4689,23 @@
 - `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
 
+### `platform/strategy/rule/promtool_check.go`
+
+- `type promQLCheckStatus = string`
+- `type promQLCheckResult struct`
+- `func checkPromQLSyntax(content string) promQLCheckResult`
+- `func isToolNotExecutable(err error) bool`
+- `func promQLCheckMessage(r promQLCheckResult) string`
+
+### `platform/strategy/rule/promtool_check_test.go`
+
+- `func stubPromtool(t *testing.T, script string)`
+- `func TestCheckPromQLSyntaxPassed(t *testing.T)`
+- `func TestCheckPromQLSyntaxFailedIsHardFailure(t *testing.T)`
+- `func TestCheckPromQLSyntaxUnavailableWhenToolMissing(t *testing.T)`
+- `func TestCheckPromQLSyntaxUnavailableWhenNotExecutable(t *testing.T)`
+- `func TestValidateRuleYAMLHandlerPromQLGate(t *testing.T)`
+
 ### `platform/strategy/rule/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
@@ -4313,10 +4766,18 @@
 
 - `type jobInstanceItem struct`
 - `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
+- `func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip, domainID string, found bool)`
 - `func ListJobInstances(db *gorm.DB) gin.HandlerFunc`
 - `type confirmRequest struct`
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
 - `func CancelInstallation(db *gorm.DB) gin.HandlerFunc`
+
+### `platform/strategy/scrapejob/installation_test.go`
+
+- `func TestListInstancesPortSourceInstanceAndMapping(t *testing.T)`
+- `func TestListInstancesPortSourceTemplate(t *testing.T)`
+- `func TestListInstancesPortSourceUnresolvedHostNeverBusiness(t *testing.T)`
+- `func TestListInstancesPortSourceBusinessMiddlewareNotBlocked(t *testing.T)`
 
 ### `platform/strategy/scrapejob/list.go`
 
@@ -4329,6 +4790,26 @@
 - `func PreviewTargets(db *gorm.DB) gin.HandlerFunc`
 - `func applicationTargetAddress(a *models.Application) string`
 - `func resolveInstanceAddress(db *gorm.DB, resourceID string) string`
+- `func resolveInstanceScrapePort(db *gorm.DB, job *models.ScrapeJob, resourceID string) (int, string)`
+- `func mappingDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
+- `func templateDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
+
+### `platform/strategy/scrapejob/preview_test.go`
+
+- `type previewEnvelope struct`
+- `func postPreviewTargets(t *testing.T, r *gin.Engine, jobID string) (previewEnvelope, int)`
+- `func seedStandardJob(t *testing.T, db *gorm.DB, name string, resourceType models.ResourceType, monitorType, exporterTemplate…`
+- `func jobIDString(job *models.ScrapeJob) string`
+- `func seedDefaultHostMapping(t *testing.T, db *gorm.DB, monitorType string, defaultPort int)`
+- `func seedPortExporter(t *testing.T, db *gorm.DB, name string, defaultPort int) string`
+- `func setHostScrapePort(t *testing.T, db *gorm.DB, resourceID string, port int)`
+- `func TestPreviewTargetsPortSourceInstanceAndMapping(t *testing.T)`
+- `func TestPreviewTargetsPortJSONContractKeys(t *testing.T)`
+- `func TestPreviewTargetsPortSourceTemplate(t *testing.T)`
+- `func TestPreviewTargetsPortSourceUnresolved(t *testing.T)`
+- `func TestPreviewTargetsPortSourceBusinessNotBlocked(t *testing.T)`
+- `func TestPreviewTargetsApplicationPortBypassesChain(t *testing.T)`
+- `func TestPreviewTargetsBlackboxNoPortChain(t *testing.T)`
 
 ### `platform/strategy/scrapejob/routes.go`
 
@@ -4343,6 +4824,7 @@
 - `func seedEnabledDomain(t *testing.T, db *gorm.DB, id string)`
 - `func seedFrozenDomain(t *testing.T, db *gorm.DB, id string)`
 - `func seedExporter(t *testing.T, db *gorm.DB, name string) string`
+- `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types []string) string`
 - `func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string)`
 - `func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string)`
 - `func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T)`
@@ -4365,7 +4847,26 @@
 - `func TestConfirmAndCancelInstallation(t *testing.T)`
 - `func TestConfirmInstallationNotInSetRejected(t *testing.T)`
 - `func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T)`
+- `type instancesEnvelope struct`
+- `func listInstances(t *testing.T, r *gin.Engine, jobID string) instancesEnvelope`
+- `func newInstanceListJob(t *testing.T, db *gorm.DB, selected []string) *models.ScrapeJob`
+- `func TestListInstancesSkipsSoftDeletedResources(t *testing.T)`
+- `func TestListInstancesKeepsValidInstancesWhenOthersDeleted(t *testing.T)`
+- `func TestListInstancesAllSelectedDeleted(t *testing.T)`
+- `func TestListInstancesMissingCountZeroWhenAllValid(t *testing.T)`
 - `func TestPreviewTargetsStandardAndBlackbox(t *testing.T)`
+- `func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T)`
+- `func TestCreateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestCreateScrapeJobApplicationHTTPAllowsEmptyExporter(t *testing.T)`
+- `func TestCreateScrapeJobRejectsTemplateMonitorTypeMismatch(t *testing.T)`
+- `func TestCreateScrapeJobAcceptsMatchingTemplateAndInheritedMapping(t *testing.T)`
+- `func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T)`
+- `func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestUpdateScrapeJobReclaimsSoftDeletedInstanceRefs(t *testing.T)`
+- `func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T)`
+- `func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T)`
+- `func TestCreateScrapeJobDurationValidation(t *testing.T)`
 
 ### `platform/strategy/scrapejob/selection.go`
 
@@ -4388,10 +4889,16 @@
 ### `platform/strategy/scrapejob/validate.go`
 
 - `func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error`
+- `func reclaimMissingInstanceIDs(db *gorm.DB, job *models.ScrapeJob)`
 - `func validateNetworkDomain(db *gorm.DB, domainID string) error`
 - `func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error`
+- `func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string`
 - `func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error)`
 - `func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob)`
+- `func normalizeScrapePath(job *models.ScrapeJob)`
+- `func validateExporterForMonitorType(db *gorm.DB, job *models.ScrapeJob) error`
+- `func exporterTemplateSupportsType(tmpl *models.ExporterTemplate, monitorType string) bool`
+- `func supportedMonitorTypesByCollector(db *gorm.DB) ([]string, error)`
 - `func exporterExists(db *gorm.DB, exporterTemplateID string) error`
 
 ## ui-custom/web/src/（React 前端）
@@ -4471,6 +4978,7 @@
 - `interface AppSummary`
 - `interface ProbeTargetItem`
 - `interface CloudSummary`
+- `interface CollectionHealth`
 - `interface DashboardSummary`
 - `const dashboardApi`
 
@@ -4526,7 +5034,11 @@
 
 - `interface MonitoringRuleListParams`
 - `interface MonitoringRuleInput`
+- `type PromQLCheckStatus`
+- `interface PromQLCheckResult`
 - `interface YamlValidationResult`
+- `interface RuleLabelInfo`
+- `interface RuleInspectResult`
 - `type JobRefSeverity`
 - `interface JobRefIssue`
 - `const monitoringRuleApi`
@@ -4540,6 +5052,8 @@
 
 - `interface ResourceListParams`
 - `interface ResourceLabelsResponse`
+- `interface ResourceReferenceJob`
+- `interface ResourceReferenceResponse`
 - `interface ResourceLabelCreateInput`
 - `interface ResourceLabelUpdateInput`
 - `interface BusinessDomainsResponse`
@@ -4580,6 +5094,10 @@
 - `interface ConfirmInstanceInput`
 - `interface PreviewTargetsResult`
 - `const scrapeJobApi`
+
+### `ui-custom/web/src/api/storage.ts`
+
+- `const storageLogApi`
 
 ### `ui-custom/web/src/api/targets.ts`
 
@@ -4691,6 +5209,10 @@
 - `interface UseLoginLogsResult`
 - `function useLoginLogs`
 
+### `ui-custom/web/src/pages/admin/storagelog/StorageLogPage.tsx`
+
+- `function StorageLogPage`
+
 ### `ui-custom/web/src/pages/admin/tenants/TenantDetailDrawer.tsx`
 
 - `function TenantDetailDrawer`
@@ -4798,7 +5320,9 @@
 - `function isConfigApplied`
 - `const CONFIG_STATUS_APPLIED_LABEL`
 - `const CONFIG_STATUS_PENDING_LABEL`
+- `const CONFIG_STATUS_DISCARDED_LABEL`
 - `const CONFIG_STATUS_PENDING_TIP`
+- `const CONFIG_STATUS_DISCARDED_TIP`
 - `interface ConfigStatusView`
 - `function configStatusView`
 - `const silenceStatusLabel`
@@ -4829,20 +5353,25 @@
 - `interface AlertConfigScopeBlock`
 - `const ALERT_CONFIG_REQUIRED_BLOCKS`
 - `const ALERT_CONFIG_EXEMPT_BLOCKS`
-- `const ALERT_POLICY_CARD_TITLE`
-- `const ALERT_POLICY_FALLBACK_LABEL`
-- `const ALERT_POLICY_ROUTE_MODE_LABEL`
-- `const ALERT_POLICY_MODE_HANDWRITTEN`
-- `const ALERT_POLICY_MODE_MANAGED`
-- `const ALERT_GUIDE_CARD_TITLE`
-- `const ALERT_GUIDE_INHIBIT_COMING`
-- `const ALERT_ADVANCED_CARD_TITLE`
-- `const ALERT_ADVANCED_IMPORT_LABEL`
+- `const ROUTE_SETTING_CARD_TITLE`
+- `const ROUTE_SETTING_MODE_LABEL`
+- `const ROUTE_SETTING_FALLBACK_LABEL`
+- `const ROUTE_MODE_HANDWRITTEN`
+- `const ROUTE_MODE_MANAGED`
+- `const ROUTE_MODE_TIP`
+- `const ROUTE_SETTING_MODE_INDEPENDENCE_TIP`
+- `const ROUTE_ROOT_FALLBACK_TAG`
+- `const ROUTE_ROOT_RECEIVER_READONLY_TIP`
+- `const ALERT_IMPORT_CARD_TITLE`
+- `const ALERT_IMPORT_LABEL`
 - `const ALERT_ADVANCED_GUIDE_TITLE`
 - `const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO`
 - `const ALERT_ADVANCED_GUIDE_MANAGED`
 - `const ALERTMANAGER_MIN_SKELETON`
 - `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
+- `const CHANNEL_FALLBACK_COLUMN_TITLE`
+- `const CHANNEL_FALLBACK_TAG`
+- `const CHANNEL_FALLBACK_SUGGESTED_TAG`
 - `const CHANNEL_DERIVED_RECEIVER_EMPTY`
 - `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
 - `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
@@ -5064,6 +5593,17 @@
 - `const componentStatusColor`
 - `const HIGH_RISK_COMPONENT_STATUS`
 - `function formatBacklogBytes`
+- `const SAMPLE_LAG_WARN_SECONDS`
+- `const SAMPLE_LAG_DANGER_SECONDS`
+- `const SAMPLE_LAG_TOOLTIP`
+- `function formatSampleLag`
+- `function sampleLagSeverity`
+- `const BACKLOG_AGE_TOOLTIP`
+- `function formatBacklogAge`
+- `function formatBacklogGrowth`
+- `function channelStatusLabel`
+- `function channelStatusBadge`
+- `const CHANNEL_STATUS_TOOLTIP`
 - `function compareVersions`
 - `function latestPackageVersion`
 
@@ -5126,6 +5666,10 @@
 ### `ui-custom/web/src/pages/home/CloudDistributionPanel.tsx`
 
 - `function CloudDistributionPanel`
+
+### `ui-custom/web/src/pages/home/CollectionHealthPanel.tsx`
+
+- `function CollectionHealthPanel`
 
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
 
@@ -5379,6 +5923,7 @@
 - `const AUTH_TYPE_MAP`
 - `const SCRAPE_STATUS_META`
 - `const DOWN_TOOLTIP`
+- `const STALE_TOOLTIP`
 - `const COLLECTION_STATUS_TOOLTIP`
 - `const EFFECTIVE_STATUS_TOOLTIP`
 - `const CHANGE_PROGRESS_TOOLTIP`
@@ -5387,6 +5932,7 @@
 
 - `function hostOf`
 - `function upQueryForJob`
+- `function lastUpQueryForJob`
 - `function statusFromUp`
 - `function probeQueryForJob`
 - `function probeStatusOfTarget`
@@ -5401,6 +5947,7 @@
 
 - `type JobInstanceScrapeStatus`
 - `interface JobScrapeStatusSummary`
+- `function queryVector`
 - `function useScrapeJobStatus`
 
 ### `ui-custom/web/src/pages/strategy/useScrapeJobs.ts`
@@ -5656,6 +6203,15 @@
 - `interface ImportResult`
 - `type ImportMode`
 - `interface ImportRecord`
+
+### `ui-custom/web/src/types/storage.ts`
+
+- `interface RetentionValues`
+- `interface RetentionState`
+- `interface DiskInfo`
+- `interface LogRotationInfo`
+- `interface StorageLogOverview`
+- `interface RetentionInput`
 
 ### `ui-custom/web/src/types/strategy.ts`
 

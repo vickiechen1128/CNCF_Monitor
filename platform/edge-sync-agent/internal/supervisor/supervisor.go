@@ -180,6 +180,22 @@ func (s *Supervisor) Get(typ string) *Component {
 	return s.comps[typ]
 }
 
+// Reset 将指定组件恢复到初始守护状态（F-42 人工重启指令）：清 crash_loop 熔断判定、
+// 熔断滚动窗口与指数退避，LastError 清空。人工滚动重启后必须调用，否则 tick 对
+// crash_loop 组件直接跳过，重启后的进程不会被纳入守护判定；对未注册组件为 no-op。
+func (s *Supervisor) Reset(typ string) {
+	c := s.Get(typ)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Status = contract.ComponentStatusNotDeployed
+	c.restartTimes = nil
+	c.backoff = s.params.BackoffMin
+	c.LastError = ""
+}
+
 // SetProbe 更换探针（测试/运行期）。
 func (s *Supervisor) SetInject(clock func() time.Time, sleep func(ctx context.Context, d time.Duration)) {
 	s.clock = clock

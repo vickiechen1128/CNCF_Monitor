@@ -17,25 +17,61 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
 }
 
 /**
- * 各资源类别「填写要点」（用户语汇，F-7-③）：主标识列 + 通用要点。
+ * 各资源类别「填写要点」（用户语汇，F-7-③）：**必填项按类别分化**。
  * 替代原技术列名清单（IMPORT_TEMPLATE_COLUMNS 已删除）——用户只关心「填什么、怎么填」，
- * 列名以用户语汇表达（主机名 / IP 地址 / 端口），业务/应用取值直显当前字典（见下方「每列能填什么值」）。
+ * 列名以用户语汇表达，英文码仅作括号补充；业务/应用取值直显当前字典（见下方「每列能填什么值」）。
+ *
+ * F-22：原先五类共用一句「所属业务（必填）、所属应用（可选）」，而后端必填口径按 category
+ * 分化（validate.go 的 validateHost/validateDatabase/validateMiddleware/validateApplication/
+ * validateGenericTarget，以及 excel.go 导入侧分类别 switch），该句对 5 类中的 4 类均失准。
+ * 此处按后端真实口径逐类改写：业务可空后补的是 host/database/middleware；必填应用的是
+ * database/middleware/application；必填业务的是 application；业务与应用二选一的是
+ * generic_target；平台一律可空。
  */
 const FILLING_TIPS: Record<ResourceCategory, string[]> = {
-  host: ['主机名 / IP 地址 / 操作系统', '所属业务（必填）、所属应用（可选）', '环境、集群、负责人、运行状态'],
-  database: ['数据库类型 / IP 地址 / 端口 / 版本', '所属业务（必填）、所属应用（可选）', '环境、集群、负责人、运行状态'],
-  middleware: ['中间件类型 / IP 地址 / 端口 / 版本', '所属业务（必填）、所属应用（可选）', '环境、集群、负责人、运行状态'],
+  host: [
+    '必填：主机名（instance_name）、IP 地址（instance_ip，填 IPv4）、操作系统（os_type）',
+    '可留空：所属业务（biz_code，导入后再补）、所属应用（app_code）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '可留空：主机别名（hostname，与主机名二选一填一个即可）、所属集群（cluster）、负责人（owner）',
+  ],
+  database: [
+    '必填：数据库类型（database_type）、IP 地址（instance_ip，填 IPv4）、端口（port）',
+    '必填：所属应用（app_code）、所属集群（cluster）',
+    '可留空：所属业务（biz_code，导入后再补）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '可留空：版本（version）、负责人（owner）',
+  ],
+  middleware: [
+    '必填：中间件类型（middleware_type）、IP 地址（instance_ip，填 IPv4）、端口（port）',
+    '必填：所属应用（app_code）、所属集群（cluster）',
+    '可留空：所属业务（biz_code，导入后再补）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '可留空：版本（version）、负责人（owner）',
+  ],
   application: [
-    '服务名 / 健康检查 URL / 协议 / 端点 / 端口',
-    '所属业务（必填）、所属应用（可选）',
-    '环境、集群、负责人、运行状态',
+    '必填：服务名（service_name）、采集地址主机（endpoint）、采集端口（port）',
+    '必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）',
+    '可留空：健康检查地址（health_check_url，业务健康检查用，不作采集地址）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '可留空：服务编码（service_code）、负责人（owner）',
   ],
   generic_target: [
-    '目标名称 / Exporter 类型 / IP 地址 / 端口 / 采集路径 / 协议',
-    '自定义标签（key1=value1;key2=value2）',
-    '所属业务（必填）、所属应用（可选）',
-    '环境、集群、负责人、运行状态',
+    '必填：目标名称（target_name）、IP 地址（instance_ip，可填 IPv4 或域名）',
+    '必填二选一：所属业务（biz_code）与所属应用（app_code）两个里至少填一个，两个都留空会导入失败',
+    '可留空：端口（port，留空表示用默认端口）、采集路径（metrics_path）、协议（scheme）、Exporter 类型（exporter_type）',
+    '可留空：所属平台（platform_code）、所属集群（cluster）、负责人（owner）',
+    '自定义标签（custom_labels）按需填写，格式为 key1=value1;key2=value2',
   ],
+}
+
+/**
+ * 「每列能填什么值」区中业务列 / 应用列的填写范围说明（F-22）：按类别分化，
+ * 与 FILLING_TIPS 的必填口径保持一致，并明确取值来自已启用条目、未登记的可经声明表补充
+ * （与下方字典面板空态提示「业务声明」表 / 「应用声明」表协同，不自相矛盾）。
+ */
+const DICT_SCOPE_HINTS: Record<ResourceCategory, string> = {
+  host: '业务列和应用列都能留空，留空的资源导入后再补归属。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  database: '应用列必填，业务列能留空（导入后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  middleware: '应用列必填，业务列能留空（导入后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  application: '业务列和应用列都必填，只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  generic_target: '业务列和应用列二选一，至少填一个。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
 }
 
 /** 下载文件名日期戳：YYYYMMDD（F-7-⑤，旧文件一眼识破） */
@@ -65,6 +101,12 @@ interface TemplateDownloadModalProps {
  * 每列能填什么值（当前业务/应用字典启用条目直显）/ 为什么必须下最新（演进提示 Alert），
  * 删除全部设计黑话（决策 97 / 取值说明 sheet / 固定列模板 / 技术列名表）。
  * 「下载模板」按钮触发 xlsx 下载，文件名带日期 `${category}_template_${YYYYMMDD}.xlsx`（F-7-⑤）。
+ *
+ * F-22：填写要点（FILLING_TIPS）与业务/应用取值范围（DICT_SCOPE_HINTS）均按 category 分化，
+ * 与后端真实必填口径逐条对齐；网域提示同时说明「表单必填 / 导入留空归入 default / default
+ * 未登记则导入失败」三件事。
+ * 主机历史「可用区」列已由 chenrt 裁定废弃并从模板移除，故此处不再作任何介绍——
+ * 继续描述会误导用户去找一个不存在的列；分区依据只看所属网域（上方网域提示已说明）。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md §5.16/§6.1
  */
 export function TemplateDownloadModal({
@@ -178,7 +220,13 @@ export function TemplateDownloadModal({
           </li>
         ))}
         <li>
-          <Text style={{ fontSize: 13 }}>网域可留空——留空时平台自动归属默认网域</Text>
+          <Text style={{ fontSize: 13 }}>网域强烈建议填写：在页面上新增或编辑资源时网域是必填项；用本模板导入时留空会自动归入默认网域 default</Text>
+        </li>
+        <li>
+          <Text style={{ fontSize: 13 }}>默认网域 default 必须在「系统设置 → 网域管理」里已登记，否则导入会直接失败，请先到该页面确认后再导入</Text>
+        </li>
+        <li>
+          <Text style={{ fontSize: 13 }}>环境（env）必填，填 dev / test / staging / prod 之一；负责人与集群按下方说明填写</Text>
         </li>
         <li>
           <Text style={{ fontSize: 13 }}>运行状态填中文：运行中 / 已停止 / 维护中</Text>
@@ -190,7 +238,7 @@ export function TemplateDownloadModal({
         每列能填什么值
       </Text>
       <Text style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-        业务列必填，应用列按需填写——都只能填下方「当前业务 / 当前应用」中已启用的条目。
+        {DICT_SCOPE_HINTS[category]}
       </Text>
       <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
         {renderDictPanel(

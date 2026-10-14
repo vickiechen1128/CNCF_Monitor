@@ -24,18 +24,18 @@ const (
 // YAML passthrough (content_mode=yaml_passthrough).
 type MonitoringRule struct {
 	BaseModel
-	Name           string          `gorm:"size:100" json:"name"` // 展示名
-	ContentMode    RuleContentMode `gorm:"size:30;not null" json:"content_mode"`
-	RuleContent    string          `gorm:"type:text" json:"rule_content,omitempty"` // yaml_passthrough 必填
-	RuleType       string          `gorm:"size:20" json:"rule_type,omitempty"`      // alerting/recording（structured）
-	Expr           string          `gorm:"type:text" json:"expr,omitempty"`
-	Duration       string          `gorm:"size:20" json:"duration,omitempty"`
-	Labels         map[string]string `gorm:"serializer:json" json:"labels,omitempty"`
-	Annotations    map[string]string `gorm:"serializer:json" json:"annotations,omitempty"`
-	MonitorType    string          `gorm:"size:64" json:"monitor_type,omitempty"`
-	ExporterTemplateID string      `gorm:"size:64" json:"exporter_template_id,omitempty"`
-	Scope          ScopeType       `gorm:"size:20;not null" json:"scope"`
-	Enabled        bool            `json:"enabled"`
-	DraftStatus    string          `gorm:"size:20;not null" json:"draft_status"` // draft/ready
-	ChangeStatus   ChangeStatus    `gorm:"size:20;not null" json:"change_status"`
+	Name               string            `gorm:"size:100" json:"name"` // 展示名
+	ContentMode        RuleContentMode   `gorm:"size:30;not null" json:"content_mode"`
+	RuleContent        string            `gorm:"type:text" json:"rule_content,omitempty"` // yaml_passthrough 必填
+	RuleType           string            `gorm:"size:20" json:"rule_type,omitempty"`      // alerting/recording（structured）
+	Expr               string            `gorm:"type:text" json:"expr,omitempty"`
+	Duration           string            `gorm:"size:20" json:"duration,omitempty"`
+	Labels             map[string]string `gorm:"serializer:json" json:"labels,omitempty"`
+	Annotations        map[string]string `gorm:"serializer:json" json:"annotations,omitempty"`
+	MonitorType        string            `gorm:"size:64" json:"monitor_type,omitempty"`
+	ExporterTemplateID string            `gorm:"size:64" json:"exporter_template_id,omitempty"`
+	Scope              ScopeType         `gorm:"size:20;not null" json:"scope"`
+	Enabled            bool              `json:"enabled"`
+	DraftStatus        string            `gorm:"size:20;not null" json:"draft_status"` // draft/ready
+	ChangeStatus       ChangeStatus      `gorm:"size:20;not null" json:"change_status"`
 }

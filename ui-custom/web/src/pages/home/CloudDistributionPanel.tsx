@@ -1,16 +1,21 @@
 /**
  * 「按云分布」独立区块（Module_05 PRD v1.11 / 决策 100）。
  *
- * 整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前；每云一行：云名 / 主机数 / 已采数 / 覆盖率。
+ * 整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前；每云一行：云名 / 主机数 / 已下发数 / 纳管率。
  * **本期仅主机**——`cloud` 经资源所属网域 `cloud_code` 派生（网域必填、零空洞），其余四类暂不参与；
  * **不含告警数字**（告警口径收口 L0 告警卡 + L4 告警状态卡）。
- * 云名可点击穿资源清单并按云预筛选（`/resources?cloud=<cloud_code>`）；空态保留区块位并提供导入引导；
- * 窄屏沿用表格横向滚动（不卡片化）。
+ * 云名可点击穿资源清单并按云预筛选（`/resources?cloud=<cloud_code>`）；空态保留区块位并提供导入引导。
+ *
+ * 文案口径（反馈 10 §10.4 正名）：`monitored_count` 为**下发口径**，列名一律称「已下发」/「纳管率」。
+ *
+ * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：4 列表格在窄屏横向滚动观感差，改为
+ * **每云一张竖排卡片**（云名首行，末行「主机 · 已下发 + 纳管率条」）；宽屏表格分支逐字不变。
  */
 import { Link } from 'react-router-dom'
 import { Table, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { SurfaceCard } from './SurfaceCard'
+import { useNarrowLayout } from './homeResponsive'
 import type { CloudSummary } from '../../api/dashboard'
 
 const { Text } = Typography
@@ -48,7 +53,57 @@ function CoverageBar({ value }: { value: number }) {
   )
 }
 
+/**
+ * 窄屏（≤767px）单云卡片：把 4 列竖排为「云名首行 / 末行 主机·已下发 + 纳管率条」，
+ * 避免窄屏表格横向滚动。宽屏不渲染本组件。
+ */
+function CloudCard({ row }: { row: CloudSummary }) {
+  return (
+    <div
+      data-testid={`cloud-card-${row.cloud_code}`}
+      style={{
+        border: '1px solid #E5E6EB',
+        borderRadius: 8,
+        padding: '10px 12px',
+      }}
+    >
+      {/* 首行：云名（可点击穿按云预筛选的资源清单） */}
+      <Link
+        to={`/resources?cloud=${encodeURIComponent(row.cloud_code)}`}
+        style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}
+      >
+        {row.cloud_name}
+        <span style={{ marginLeft: 6, fontSize: 12, color: '#86909C' }}>{row.cloud_code}</span>
+      </Link>
+
+      {/* 末行：主机 · 已下发 + 纳管率条 */}
+      <div
+        style={{
+          marginTop: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          fontSize: 12,
+        }}
+      >
+        <span style={{ color: '#4E5969' }}>
+          主机 {row.resource_count} · 已下发 {row.monitored_count}
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <CoverageBar value={row.coverage_rate} />
+          <span style={{ color: row.coverage_rate < 70 ? '#C25E0A' : '#4E5969' }}>
+            {row.coverage_rate}%
+          </span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function CloudDistributionPanel({ clouds }: CloudDistributionPanelProps) {
+  // 窄屏（≤767px）版式开关：宽屏表格，手机竖屏改为竖排卡片列表（见头注释移动适配）
+  const narrow = useNarrowLayout()
   const columns: TableColumnsType<CloudSummary> = [
     {
       title: '云名',
@@ -62,9 +117,9 @@ export function CloudDistributionPanel({ clouds }: CloudDistributionPanelProps) 
       ),
     },
     { title: '主机数', dataIndex: 'resource_count', key: 'resource_count', width: 90 },
-    { title: '已采数', dataIndex: 'monitored_count', key: 'monitored_count', width: 90 },
+    { title: '已下发数', dataIndex: 'monitored_count', key: 'monitored_count', width: 90 },
     {
-      title: '覆盖率',
+      title: '纳管率',
       key: 'coverage',
       width: 160,
       render: (_, row) => (
@@ -97,6 +152,12 @@ export function CloudDistributionPanel({ clouds }: CloudDistributionPanelProps) 
           <Link to="/resources" style={{ marginTop: 12 }}>
             去导入主机资源 →
           </Link>
+        </div>
+      ) : narrow ? (
+        <div data-testid="cloud-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {clouds.map((row) => (
+            <CloudCard key={row.cloud_code} row={row} />
+          ))}
         </div>
       ) : (
         <Table<CloudSummary>

@@ -428,3 +428,35 @@ func TestMappingExporterSupportTypeGuard(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "supported_monitor_types")
 }
+
+// TestUpdateCITypeExporterMappingDurationValidation 覆盖 2026-10-12 诊断：映射是 Job
+// 层叠默认的继承源（resolveJobScrapeParams 回落映射值），非法时长须在映射保存入口拦截；
+// 空串合法（清空=回落层叠默认链下一层）。
+func TestUpdateCITypeExporterMappingDurationValidation(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	hostID := seedExporterWithID(t, db, "node-exporter")
+	m := &models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: hostID, IsDefault: true,
+		MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "15s", ScrapeTimeout: "10s",
+	}
+	require.NoError(t, db.Create(m).Error)
+	id := strconv.FormatUint(uint64(m.ID), 10)
+
+	// 裸数字 → bad_request，存量值不变。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/ci-exporter-mappings/"+id, `{"scrape_interval":"180"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_interval")
+	var got models.CITypeExporterMapping
+	require.NoError(t, db.First(&got, m.ID).Error)
+	assert.Equal(t, "15s", got.ScrapeInterval, "非法请求不应改库")
+
+	// 缺单位 scrape_timeout → bad_request。
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/ci-exporter-mappings/"+id, `{"scrape_timeout":"10"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scrape_timeout")
+
+	// 空串合法（清空回落）。
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/ci-exporter-mappings/"+id, `{"scrape_interval":""}`)
+	require.Equal(t, http.StatusOK, w.Code)
+}

@@ -420,3 +420,97 @@ func TestApplyFailureStateWithoutCurrentLink(t *testing.T) {
 		t.Fatalf("apply state should fall back to domain dir: %v", err)
 	}
 }
+
+// readDiskMetadata 读回版本目录落盘的 metadata.json。
+func readDiskMetadata(t *testing.T, d *Deployer, version string) contract.Metadata {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(d.VersionDir(version), contract.ZipEntryMetadata))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m contract.Metadata
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// TestApplySameVersionParamsChangedReapply 覆盖 F-42：同版本号但 metadata 回传参数
+// （max_disk_usage_per_url）变化时，幂等判定放宽为重应用——新参数落盘、.prev 暂存目录
+// 清理、current 软链仍指向该版本；prometheus.yml 内容未变则不重复触发 reload。
+func TestApplySameVersionParamsChangedReapply(t *testing.T) {
+	promRel := &rec{}
+	d, _ := newDeployer(t, promRel.reload, nil)
+	ctx := context.Background()
+
+	// 首次应用 v1（无回传参数）。
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""),
+		&contract.Metadata{ConfigVersion: "v1", GeneratedAt: "T1"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := readDiskMetadata(t, d, "v1"); m.MaxDiskUsagePerURL != "" {
+		t.Fatalf("initial metadata max_disk_usage_per_url = %q", m.MaxDiskUsagePerURL)
+	}
+
+	// 同版本 v1 但参数变化（携带 max_disk_usage_per_url=50GB）→ 重应用而非 skip。
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""),
+		&contract.Metadata{ConfigVersion: "v1", GeneratedAt: "T2", MaxDiskUsagePerURL: "50GB"}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := readDiskMetadata(t, d, "v1")
+	if m.MaxDiskUsagePerURL != "50GB" || m.GeneratedAt != "T2" {
+		t.Fatalf("reapply not persisted: max_disk_usage_per_url=%q generated_at=%q", m.MaxDiskUsagePerURL, m.GeneratedAt)
+	}
+	if d.CurrentVersion() != "v1" {
+		t.Fatalf("current version = %s want v1", d.CurrentVersion())
+	}
+	// current 软链仍存在且有效；.prev 暂存目录已被清理。
+	if _, err := os.Stat(d.CurrentDir()); err != nil {
+		t.Fatalf("current link broken: %v", err)
+	}
+	if _, err := os.Stat(d.VersionDir("v1") + ".prev"); !os.IsNotExist(err) {
+		t.Fatal(".prev stash dir should be removed after successful swap")
+	}
+	// prometheus.yml 内容未变 → 仅首次应用触发 reload 一次。
+	if promRel.count() != 1 {
+		t.Fatalf("reload count = %d want 1 (prom unchanged)", promRel.count())
+	}
+}
+
+// TestApplySameVersionParamsUnchangedSkips 覆盖 F-42 幂等另一半：同版本且参数一致时
+// 仍 skip（不重写落盘）。用 GeneratedAt 作探针——参数比较不涉及它，skip 时落盘文件
+// 保持首次写入的值；若误判重应用则会被覆盖为 T2。
+func TestApplySameVersionParamsUnchangedSkips(t *testing.T) {
+	d, _ := newDeployer(t, nil, nil)
+	ctx := context.Background()
+	meta1 := &contract.Metadata{ConfigVersion: "v1", GeneratedAt: "T1", MaxDiskUsagePerURL: "50GB"}
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""), meta1); err != nil {
+		t.Fatal(err)
+	}
+	meta2 := &contract.Metadata{ConfigVersion: "v1", GeneratedAt: "T2", MaxDiskUsagePerURL: "50GB"}
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""), meta2); err != nil {
+		t.Fatal(err)
+	}
+	if m := readDiskMetadata(t, d, "v1"); m.GeneratedAt != "T1" {
+		t.Fatalf("same-params Apply should skip, but metadata was rewritten: generated_at=%q", m.GeneratedAt)
+	}
+}
+
+// TestApplySameVersionRemoteWriteURLChangedReapply 覆盖 F-42 另一参数维度：
+// remote_write_url 同版本变化同样触发重应用落盘。
+func TestApplySameVersionRemoteWriteURLChangedReapply(t *testing.T) {
+	d, _ := newDeployer(t, nil, nil)
+	ctx := context.Background()
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""),
+		&contract.Metadata{ConfigVersion: "v1", RemoteWriteURL: "http://old:9090/api/v1/write"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Apply(ctx, buildZip(t, validProm, defaultTargets(), "", ""),
+		&contract.Metadata{ConfigVersion: "v1", RemoteWriteURL: "http://new:9090/api/v1/write"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := readDiskMetadata(t, d, "v1"); m.RemoteWriteURL != "http://new:9090/api/v1/write" {
+		t.Fatalf("remote_write_url reapply not persisted: %q", m.RemoteWriteURL)
+	}
+}

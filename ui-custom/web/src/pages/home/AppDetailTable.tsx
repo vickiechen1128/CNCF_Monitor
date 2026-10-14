@@ -1,13 +1,20 @@
 /**
  * L2 应用覆盖表（Module_05 §3.1 决策 93 / PRD v1.8）。
  *
- * 列：应用名称 / 业务域 / 实例 / 已采 / 覆盖率 + 操作。
+ * 列：应用名称 / 业务域 / 实例 / 已下发 / 纳管率 + 操作。
  * 数据源 `dashboard.by_app`（`app_code` 非空的资源按应用聚合）：
  * - `应用名称` = `app_name`（应用字典展示名，主），`app_code` 内联其后（次要色小字）作为应用简称；
- * - **覆盖率列改「进度条 + 百分比」**（窄进度条约 52px），<70% 橙色语义（颜色不作为唯一语义，
+ * - **纳管率列改「进度条 + 百分比」**（窄进度条约 52px），<70% 橙色语义（颜色不作为唯一语义，
  *   行内仍并列百分数）；
- * - **按覆盖率升序**排列（缺口最大的应用排最前），覆盖率相同按实例数降序；
+ * - **按纳管率升序**排列（缺口最大的应用排最前），纳管率相同按实例数降序；
  * - `未归类应用` 行**置底**：操作为「去补填」引导补录应用归属。
+ *
+ * 文案口径（反馈 10 §10.4 正名）：`monitored_count` 为**下发口径**，列名一律称「已下发」/「纳管率」，
+ * 禁用「已采 / 覆盖率」。
+ *
+ * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：6 列表格在窄屏会横向溢出 / 列挤压，
+ * 故改为**每应用一张竖排卡片**（应用名 + 操作在首行，业务域次行，末行「实例 · 已下发 + 纳管率条」），
+ * 宽屏表格分支逐字不变。
  *
  * 决策 93 **删除**「未恢复」「应用简称」两列：告警口径收口 L0 告警卡 + L4 告警状态卡，
  * 本表只承载采集覆盖（不再按 `app` 标签分组告警）。
@@ -18,6 +25,7 @@ import { Link } from 'react-router-dom'
 import type { AppSummary } from '../../api/dashboard'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { SurfaceCard } from './SurfaceCard'
+import { useNarrowLayout } from './homeResponsive'
 import {
   appResourceListHref,
   coveragePercent,
@@ -49,7 +57,7 @@ interface AppDetailTableProps {
 
 const UNCLASSIFIED_KEY = '__unclassified__'
 
-/** 覆盖率窄进度条（约 52px）：<70% 用橙色语义（颜色不作为唯一语义，右侧仍有百分数） */
+/** 纳管率窄进度条（约 52px）：<70% 用橙色语义（颜色不作为唯一语义，右侧仍有百分数） */
 function CoverageBar({ percent }: { percent: number | null }) {
   const { token } = theme.useToken()
   const value = percent ?? 0
@@ -83,11 +91,92 @@ function CoverageBar({ percent }: { percent: number | null }) {
   )
 }
 
+/**
+ * 窄屏（≤767px）单应用卡片：把表格 6 列竖排为「首行 应用名 + 操作 / 次行 业务域 /
+ * 末行 实例·已下发 + 纳管率条」，避免横向滚动与列挤压。宽屏不渲染本组件。
+ */
+function AppRowCard({ row }: { row: AppRow }) {
+  const { token } = theme.useToken()
+  const pct = coveragePercent(row.monitoredCount, row.resourceCount)
+  const warn = pct !== null && pct < SUBTYPE_COVERAGE_WARN_THRESHOLD
+  return (
+    <div
+      data-testid={`l2-app-row-${row.key}`}
+      style={{
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: 8,
+        padding: '10px 12px',
+      }}
+    >
+      {/* 首行：应用名称（+ 简称）+ 操作 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {row.unclassified ? (
+            <Typography.Text type="secondary">{row.appName}</Typography.Text>
+          ) : (
+            <span>
+              <Typography.Text>{row.appName}</Typography.Text>
+              {row.appCode && (
+                <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>
+                  {row.appCode}
+                </Typography.Text>
+              )}
+            </span>
+          )}
+        </span>
+        {row.unclassified ? (
+          <Link to={RESOURCE_IMPORT_HREF} style={{ whiteSpace: 'nowrap' }}>
+            去补填
+          </Link>
+        ) : (
+          <Link to={appResourceListHref(row.appCode)} style={{ whiteSpace: 'nowrap' }}>
+            看明细
+          </Link>
+        )}
+      </div>
+
+      {/* 次行：业务域 */}
+      <div style={{ marginTop: 6, fontSize: 12, color: token.colorTextSecondary }}>
+        业务域：{row.bizName || '-'}
+      </div>
+
+      {/* 末行：实例 · 已下发 + 纳管率条 */}
+      <div
+        style={{
+          marginTop: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          fontSize: 12,
+          color: token.colorTextSecondary,
+        }}
+      >
+        <span>
+          实例 {row.resourceCount} · 已下发 {row.monitoredCount}
+        </span>
+        {row.unclassified ? (
+          <span style={{ color: token.colorTextTertiary }}>纳管率 -</span>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <CoverageBar percent={pct} />
+            <Typography.Text type={warn ? 'danger' : 'secondary'}>
+              {coverageText(row.monitoredCount, row.resourceCount)}
+            </Typography.Text>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function AppDetailTable({
   byApp,
   unclassifiedResourceCount,
   unclassifiedMonitoredCount,
 }: AppDetailTableProps) {
+  // 窄屏（≤767px）版式开关：宽屏表格，手机竖屏改为竖排卡片列表（见头注释移动适配）
+  const narrow = useNarrowLayout()
   const rows: AppRow[] = byApp.map((a) => ({
     key: a.app_code,
     unclassified: false,
@@ -113,12 +202,12 @@ export function AppDetailTable({
     })
   }
 
-  // 覆盖率升序（缺口最大的排最前）；同覆盖率按实例数降序；未归类行恒置底。
+  // 纳管率升序（缺口最大的排最前）；同纳管率按实例数降序；未归类行恒置底。
   const sorted = [...rows].sort((a, b) => {
     if (a.unclassified !== b.unclassified) return a.unclassified ? 1 : -1
     const pa = coveragePercent(a.monitoredCount, a.resourceCount)
     const pb = coveragePercent(b.monitoredCount, b.resourceCount)
-    // 覆盖率为 null（无资源）视为最差，排最前
+    // 纳管率为 null（无资源）视为最差，排最前
     const va = pa === null ? -1 : pa
     const vb = pb === null ? -1 : pb
     if (va !== vb) return va - vb
@@ -157,9 +246,9 @@ export function AppDetailTable({
         ),
     },
     { title: '实例', dataIndex: 'resourceCount', key: 'resourceCount', align: 'right' },
-    { title: '已采', dataIndex: 'monitoredCount', key: 'monitoredCount', align: 'right' },
+    { title: '已下发', dataIndex: 'monitoredCount', key: 'monitoredCount', align: 'right' },
     {
-      title: '覆盖率',
+      title: '纳管率',
       key: 'coverage',
       render: (_, row) => {
         if (row.unclassified) {
@@ -202,6 +291,12 @@ export function AppDetailTable({
             </span>
           }
         />
+      ) : narrow ? (
+        <div data-testid="l2-app-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sorted.map((row) => (
+            <AppRowCard key={row.key} row={row} />
+          ))}
+        </div>
       ) : (
         <Table
           rowKey="key"

@@ -23,6 +23,10 @@ type metadata struct {
 	// 仅在中心显式下发时才写入（omitempty）。Agent 解包后优先用作 vmagent
 	// -remoteWrite.url（T11-G1-02 方案 B）。
 	RemoteWriteURL string `json:"remote_write_url,omitempty"`
+	// MaxDiskUsagePerURL 是网域级 vmagent 回传参数 -remoteWrite.maxDiskUsagePerURL
+	//（F-42）：持久队列磁盘上限，仅在中心显式配置时下发（omitempty，空 = agent 按
+	// env > 硬兜底回落）。与 remote_write_url 同通道、同 per-URL 口径。
+	MaxDiskUsagePerURL string `json:"max_disk_usage_per_url,omitempty"`
 }
 
 // targetsCarrier 与 ConfigVersion.TargetsFiles（JSON 载体 map[filename]content）对齐。
@@ -42,9 +46,10 @@ type targetsCarrier map[string]string
 // 返回 (zip 字节, 联合 sha256)。联合 checksum 由包内容（prometheus+rules+blackbox+
 // 各 targets 按固定序）计算，不含 metadata.json 自身，保证可复算一致。
 //
-// remoteWriteURL 为网域配置的 remote_write 上报地址（T11-G1-02 方案 B），非空时写入
-// metadata.json 供 Agent 解包下发；空串则省略该字段（Agent 回落 env/center_endpoint 推导）。
-func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL string) ([]byte, string, error) {
+// remoteWriteURL / maxDiskUsagePerURL 为网域下发的回传参数（T11-G1-02 方案 B / F-42），
+// 非空时写入 metadata.json 供 Agent 解包生效；空串则省略对应字段（Agent 回落 env /
+// center_endpoint 推导 / 内置兜底）。
+func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL, maxDiskUsagePerURL string) ([]byte, string, error) {
 	targets := targetsCarrier{}
 	if v.TargetsFiles != "" {
 		if err := json.Unmarshal([]byte(v.TargetsFiles), &targets); err != nil {
@@ -53,10 +58,11 @@ func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteW
 	}
 
 	zipMeta := metadata{
-		ConfigVersion:  configVersionString(v),
-		GeneratedAt:    v.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		AgentType:      string(agentType),
-		RemoteWriteURL: remoteWriteURL,
+		ConfigVersion:      configVersionString(v),
+		GeneratedAt:        v.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		AgentType:          string(agentType),
+		RemoteWriteURL:     remoteWriteURL,
+		MaxDiskUsagePerURL: maxDiskUsagePerURL,
 	}
 
 	// 内容条目（metadata.json 之外的包内容顺序化，供 checksum 可复算）。

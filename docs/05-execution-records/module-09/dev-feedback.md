@@ -561,3 +561,149 @@
 - **发现场景**：用户对「改了 agent `CENTER_ENDPOINT` 但不知道中心 `config_download_url` 有没有改」的复盘追问（2026-09-30）
 - **是否需设计侧确认**：否（属 MVP 设计债回收，契约增量见 `api-contract-snapshot.md`，未改既有契约字段语义）
 - **状态**：**已修复（代码未提交）**——`platform/edge/{helpers,heartbeat_handler}.go` / `platform/admin/networkdomain/{create,update}.go` / `platform/models/network_domain.go` / `platform/edge/edge_test.go` 已落；`mc-edge-debug.center_endpoint` 已落库 `https://metricback.chenrt.dpdns.org`。
+
+---
+
+## 2026-10-10（删除资源后变更检测失明：软删不推进源数据版本 → 无待确认提醒）
+
+### F-38：资源软删不推进源数据版本 → 自动变更检测完全失明，用户零提醒（① 契约空白 + ② 实现偏差，2026-10-10，用户已拍板处置方向）
+
+- **类别**：① 契约空白（`SourceDataVersion` 聚合口径未覆盖 `deleted_at`）+ ② 实现偏差（软删路径与版本触发预筛的前提不一致）
+- **PRD 章节 / 文件位置**：Module_09 §3.3.3（自动变更检测 30s 轮询 / 版本触发预筛）；源码 `platform/configcenter/generator/change_detect.go:44-60`（`SourceDataVersion`）、`platform/configcenter/change/watcher.go:120-210`（`ProcessDomainWithIntervals`）、`platform/config/resource/delete.go:66`（软删写点）
+- **现象（用户 2026-10-10 实测）**：M07 前台软删 3 台主机（`mc-edge-debug` 域，`deleted_at=2026-10-10 10:07:53~57`），
+  「一键删除无阻断」，但——① M09「配置变更确认」**不产任何 pending 草稿**、无待确认提醒；② M01 Job 列表显示
+  **「在线 29 / 总数 32」**，用户怀疑指标统计偏差。
+- **根因（代码级）**：`SourceDataVersion`（`change_detect.go:44-60`）逐表聚合 `MAX(updated_at)` 作「源数据版本」，
+  再由 `NeedsRegeneration`（`:64-68`）与基线 `config_change_baselines.source_version` 比对决定是否重算。
+  而 GORM 软删（`config/resource/delete.go:66` 的 `db.Delete(model)`）**只写 `deleted_at`，不动 `updated_at`**。
+  → **删除动作对版本预筛 100% 不可见**，`NeedsRegeneration` 恒返回 false，watcher 每轮都走「源数据未变化」退避分支。
+  实测铁证：`mc-edge-debug` 域 hosts 表 `max(updated_at)=2026-09-22 17:26:11`，而 `max(deleted_at)=2026-10-10 10:07:57`——
+  源数据版本停在 9/22，删除动作从未进入版本流。
+- **连带澄清（避免误判归因）**：该域基线 `source_version=2026-10-10 10:35:00` 实际来自 `scrape_jobs.test-app-01`
+  的 `updated_at`（另一条链路的编辑），**与删主机无关**；基线 `detect_status=skipped_pending` 是被 pending 草稿 #119
+  卡住（决策 44-2 保活），**也不是**主机删除导致。三者时间上邻近但无因果，排查时勿合并归因。
+- **附带确认（非缺陷，澄清用户认知）**：用户「已生成的 job 中找不到这 3 台机器」**恰恰是生成侧正确工作的表现**——
+  `generator/targets.go:272-281` 的 `resolveResource` 查不到资源即 skip（`SkipReasonResourceNotFound`），
+  已确认草稿 #117（10:15 confirmed，早于本次诊断）的 `tengxunyun-ceshi-host.json` 实为 **29 targets**（已剔除 3 台），
+  deployment #76 下发 success。即**采集面产物是对的**，用户看到的偏差另有其源（见关联条目）。
+- **用户已拍板的处置方向（2026-10-10，分层处置）**：
+  1. **采集面 targets 收缩 → 自动写盘（采集面自愈）**。理由：收缩是「减法」、可加回，风险量级明显低于告警误改；
+     且 `targets/*.json` 是 file_sd，**写盘后**边缘 vmagent / 中心 Prometheus 自动热加载、**不需 reload**
+     （`deployment/service.go:392-418` 原子写 + rename）——即「热更新即可」的正确表述是
+     **「只要产物写盘就无需 reload」**，而「谁触发写盘」是独立决策。
+  2. **告警 / 规则变更 → 继续走人工闸门**。与 2026-09-10 立场1（关闭 #25 自动闭环，`alertmanager.yml` 生效=人工确认）
+     **不冲突**——那条只约束 `alertmanager.yml` / `rules.yml`，本条只约束采集面 `targets/*.json` 收缩。
+  3. **确定性缺陷先行修复**（本轮派发）：软删纳入源数据版本聚合（根因）、删除时回收 Job 选中关系、
+     Job 列表分母口径、变更清单补 target 级收缩项。
+- **影响模块**：M09（`change_detect.go` 版本聚合口径 + 变更清单派生粒度 + 写盘触发策略）；M07（删除资源写点）；
+  M01（Job 列表 / 详情分母口径）。**跨模块契约面**：`api-contract-snapshot.md` 须补「软删事件计入源数据版本」一句，
+  否则改聚合口径与既有契约文字「各源表 `max(updated_at)`」冲突。
+- **关联**：M01 dev-feedback「Job 列表『在线 x / 总数 y』分子分母不同源」条（前端分母口径）；
+  M09 **F-31**（空 targets 静默产出 → 边缘拒收卡死，同属「skip 诊断未上报」家族，本条是它的**可见性反面**——
+  F-31 是「跳过了但没说」，本条是「该收缩但整条链路没启动」）。
+- **发现场景**：用户 2026-10-10 删除 3 台主机后追问「Job 中找不到、无需确认提醒、29/32 是否有偏差」，
+  核对 `metric_center.db`（hosts / scrape_jobs / config_drafts / config_change_baselines 四表交叉）+
+  `change_detect.go` / `watcher.go` / `targets.go` / `delete.go` 全链路后定位。
+- **是否需设计侧确认**：**是**——分层处置（targets 收缩自动写盘 vs 告警人工闸门）属产品决策，已由用户 2026-10-10 拍板；
+  契约快照 §3.3.3 的「软删计入版本」增量须回写后方可实现。
+- **状态**：**open**——确定性缺陷修复已派发（本轮）；分层写盘策略待实现（依赖设计侧回写契约增量）。
+
+---
+
+## 2026-10-10（边缘回传积压不可观测 + 采集状态误报「已下发但未采集到」）
+
+> 背景：2026-09-30 mc-edge-debug「在线 0」排查 + 2026-10-10 用户报开户环境「回传积压 66.1 MB，手动清缓存后随时间重新增多，
+> 资源采集又变『已下发但未采集到』」。两轮实测交叉定位：边缘本地采集一直成功（up=1，被采主机时钟自洽），坏的是
+> **回传（remote_write）一跳**——通道消费速率（~20 KB/s）低于边缘生产速率（~52 KB/s），vmagent 磁盘持久队列持续积压
+> （9/30 实测 `vm_persistentqueue_bytes_pending`=530 MB ≈ 2.8h 数据；清空后按净赤字 +30 KB/s 约 37 分钟即重新积压至 66 MB）。
+> 积压超 5 分钟查询窗口后 `up{job}` 瞬时查询返回空 → UI 判「未采集」。**环境瓶颈（通道带宽）不是产品缺陷**，
+> 但下面两条产品可观测性缺口让环境问题变成「不可诊断 + 误判方向」，登记为返工需求。
+
+### F-39：心跳 queue_backlog_bytes 硬编码 0 → 回传积压对平台完全不可观测（① 空白判定 + ③ 技术优化，2026-10-10，open）
+
+- **类别**：① 空白判定（心跳契约的队列字段为占位值）+ ③ 技术优化
+- **PRD 章节 / 文件位置**：心跳上报链路 `platform/edge/heartbeat_handler.go`；边缘端 `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go:87-98`（`QueueBacklogBytes: 0` 硬编码占位，注释「WAL 积压量当前无实时采集器读数，取 0」）
+- **现象（两轮实测）**：① 9/30 mc-edge-debug：边缘 vmagent 磁盘持久队列实测 `vm_persistentqueue_bytes_pending`=530 MB（`du` 目录 794 MB），而平台心跳 `queue_backlog_bytes` 恒为 0、`edge_agents` 状态 `in_sync`——平台对积压零感知；② 10/10 开户环境：中心侧积压 66.1 MB 复发，运维只能靠「采集状态翻转」间接发现，且发现后无任何平台数据可指向回传通道。
+- **根因**：edge-sync-agent 心跳载荷的队列字段是硬编码占位，未对接 vmagent `/metrics`（`-httpListenAddr=127.0.0.1:8429` 本机可拉）；回传链路（边缘队列 → 通道 → 中心接收）整段在平台侧是盲区。
+- **建议**：edge-sync-agent 定期拉取本机 vmagent `/metrics`，透传以下指标进心跳并落库：
+  1. `vm_persistentqueue_bytes_pending`（队列积压字节，核心信号）；
+  2. `vm_persistentqueue_blocks_dropped_total` / `vmagent_remotewrite_packets_dropped_total`（丢块/丢包，非零即告警）；
+  3. `vmagent_remotewrite_retries_count_total`（发送重试，链路不稳信号）；
+  4. 边缘侧「最新样本时间戳落后墙钟秒数」（端到端回传延迟的直接读数）。
+  UI 在边缘节点详情 / 采集状态旁展示「回传积压 N MB · 延迟 N 分钟」，并按阈值（如 pending > 10 分钟数据量）出告警。
+- **影响模块**：后端（edge-sync-agent 心跳采集 + 心跳契约字段 + `edge_agents` 落库）、前端（节点详情展示）
+- **发现场景**：2026-09-30 mc-edge-debug「在线 0」排查（用 `queue_backlog_bytes=0` 误排除积压后翻代码发现硬编码）+ 2026-10-10 开户环境 66.1 MB 积压复发复盘。
+- **是否需设计侧确认**：契约增量（心跳新增队列指标字段）须回写 `api-contract-snapshot.md` 后实现。
+- **状态**：**已实现（2026-10-10）**
+- **实现记录**：
+  - 边缘端 `vmremote.go`：一次拉取本机 vmagent `/metrics`，新增解析 `vm_persistentqueue_bytes_pending`（gauge 跨分片取 **max**，各分片独立缓冲累加会重复计数）、`vm_persistentqueue_blocks_dropped_total` / `vmagent_remotewrite_packets_dropped_total` / `vmagent_remotewrite_retries_count_total`（counter 跨分片**求和**，累计事实）；`BacklogBytes()` 取 max(内存缓冲, 磁盘持久队列)——9/30 实测 530MB 积压时内存缓冲近 0，仅看 `pending_data_bytes` 会把大积压误报成正常。
+  - 契约：`HeartbeatRequest` 新增 `remote_write_dropped_total` / `remote_write_retries_total`（omitempty，零值/缺失向后兼容），`queue_backlog_bytes` 语义升级为 max 口径。
+  - 中心端：`EdgeAgent` / `EdgeHeartbeat` 落库两新字段（AutoMigrate 加列），`AgentView` 透出（离线时保留透出——累计事实不随心跳超时失效）。
+  - 前端：节点详情新增「累计丢块/丢包」（非零红色）与「累计发送重试」（非零 warning 橙色）。
+  - 设计决策：建议第 4 条「边缘侧最新样本时间戳落后墙钟秒数」**改由中心侧 F-40 计算**（`timestamp(last_over_time(up[1h]))`），边缘端无需再加时钟比对逻辑，端到端延迟 = 中心视角的样本新鲜度，口径更直接。
+  - 验证：edge-sync-agent 模块 `go test ./...`、`go vet` 全过；platform 全量 `go test` 30 包全过（含 `TestHeartbeatPersistsRemoteWriteDropAndRetryStats`、`TestEdgeHeartbeatComponentsPersistence` 扩展断言）。
+
+### F-40：采集状态二态判定混淆「回传延迟」与「未采集」→ 三态判定（① 契约空白 + ③ 技术优化，2026-10-10，已实现）
+
+- **类别**：① 契约空白（采集状态判定口径）+ ③ 技术优化
+- **PRD 章节 / 文件位置**：前端 `ui-custom/web/src/pages/strategy/upStatus.ts:44-50`（`statusFromUp` 无样本 → `pending`）、`useJobScrapeStatus.ts`、`useScrapeJobStatus.ts`（均以 `up{job="..."}` 瞬时查询为数据源，F-10 收敛决策）；关联 M01 dev-feedback「Job 列表『在线 x / 总数 y』分子分母不同源」条
+- **现象**：回传积压时（9/30 端到端延迟 ~2.5h；10/10 开户环境 66.1 MB ≈ 21 分钟延迟）中心 Prometheus 最新样本超出瞬时查询 **5 分钟 lookback 窗口** → `up{job}` 返回空 → `statusFromUp` 判 `pending` → 在线 0 / 全部「待采集」，UI 呈现「已下发但未采集到」。
+- **根因**：边缘本地采集实际成功（被采主机 up=1、`node_time_seconds` 与样本时间戳自洽），坏的是「回传」一跳；但产品把「**采集了但堵在路上**」与「**真的没采集**」合并为同一状态（pending/未采集），故障域误导运维去查采集配置，而实际应查网络通道 / 中心出口。
+- **建议（三态判定）**：以 `timestamp(last_over_time(up[1h]))`（或 [24h]，取域内最新样本时间）替代/补充现有瞬时查询：
+  1. **样本新鲜**（距今 < 5 min）→「采集中」（现状 green）；
+  2. **有历史样本但过期** →「回传延迟中（最新数据 ≈ N 分钟前）」warning 黄色，提示「检查回传通道/中心出口，而非采集配置」，并与 F-39 的积压指标交叉定位；
+  3. **从无样本** →「未采集 / 待采集」（真·配置问题路径）。
+- **影响模块**：前端（M01 采集 Job 状态列 / 详情状态判定）；后端无改动（纯查询口径变更，不新增接口）
+- **发现场景**：同 F-39 两轮实测。
+- **是否需设计侧确认**：状态文案与阈值口径建议设计侧过目（涉及用户对「延迟中」状态的解读）。
+- **状态**：**已实现（2026-10-10）**
+- **实现记录**：
+  - `upStatus.ts`：新增 `lastUpQueryForJob`（`timestamp(last_over_time(up{job="..."}[1h]))`），`statusFromUp` 三态判定——瞬时 `up` 仍只认 5min lookback（样本新鲜 → 采集中）；5min 无样本但 1h 内有历史样本 → **stale「回传延迟中」**；1h 内也无 → pending「未采集」。
+  - `useScrapeJobStatus.ts` / `useJobScrapeStatus.ts`：双查询并行（瞬时 up + 1h last_over_time），实例状态新增 `stale`、汇总新增 `stale` 计数；聚合优先级 `online > down > stale > pending`（真实抓取失败重于回传延迟）；抽公共 `queryVector` helper（try/catch 降级，查询失败不误判状态）；拨测（blackbox）聚合不产出 stale。
+  - 展示：列表页 stale-only 时显示橙色「回传延迟中」Tag（anomaly 优先红色不遮蔽）；汇总区与安装面板 Badge warning；详情抽屉状态映射补 `stale`（本抽屉 targets 快照路径不产出 stale，仅类型穷尽）。
+  - **醒目化补强（2026-10-10 用户反馈「只有 hover 才能看到三态」）**：列表「实例采集状态」格改为计数分段——stale-only 整格橙色 Tag 直接点名「回传延迟中 n / 总数 y」（替代哑文本「在线 0 / 总数 y」）；混合态（有在线也有延迟）主 Tag 旁追加橙色「延迟 n」小 Tag（此前混合态延迟完全不可见）；anomaly 与 stale 并存时红色主 Tag 优先 + 橙色小标；列头 `COLLECTION_STATUS_TOOLTIP` 同步三态口径。ScrapeJobListPage 新增 3 个分段渲染用例。
+  - **M09 采集节点列表「回传延迟」维度（用户要求透出）**：后端新增 `SampleLagQuerier`（`platform/edge/remote_write_lag.go`，PromQL `max by (network_domain_id) (time() - timestamp(last_over_time(up[24h])))`，依赖边缘域 external_labels 已注入 network_domain_id），`AgentView` 新增 `remote_write_lag_seconds`（指针，nil=无数据：24h 无样本/中心 Prom 不可用；带 30s TTL 缓存与 3s 超时，查询失败降级不阻塞列表）；前端节点列表新增「回传延迟」列（<5min 正常 / 5–30min warning / ≥30min danger，无数据 '-'）、节点详情抽屉同步展示。窗口取 24h 而非 1h：覆盖 9/30 实测 2.8h 级积压场景（超 1h 时前端 F-40 三态已无法区分延迟/未采集，本列仍给出读数）。
+  - 验证：`npx vitest run src/pages/strategy` 14 文件 126 用例全过（含新增 stale 判定 / 优先级 / 聚合回归用例）；`npx tsc --noEmit` 通过；strategy 目录 lint 无新增问题。
+
+### F-42：vmagent 持久队列无磁盘上限 + 回传参数对用户不可配置 → 回传参数产品化（① 空白判定 + ③ 技术优化，2026-10-10，open）
+
+- **类别**：① 契约空白（边缘回传参数无管理通道）+ ③ 技术优化（vmagent 启动参数加固）
+- **PRD 章节 / 文件位置**：边缘 `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go:100-105`（拉起 vmagent 仅传 4 个 flag：`-promscrape.config` / `-httpListenAddr` / `-remoteWrite.url` / `-remoteWrite.tmpDataPath`，**无 `-remoteWrite.maxDiskUsagePerURL`**）；关联 F-39（积压/丢块观测）、F-40（延迟三态）
+- **现象 / 风险**：持久队列磁盘占用无上限——9/30 实测 530MB（2.8h）、10/10 开户环境 66.1MB 均因此能无界增长；通道长期断开（如专线故障一天）时队列会写爆 `/opt/data` 分区，从「数据延迟」升级为「打爆磁盘拖垮 OS」的可用性事故。另：用户不知道 `maxDiskUsagePerURL` / 抓取间隔 / 压缩等参数的存在与修改方式。
+- **边界澄清**：通讯保障本身不需要用户调参（vmagent 自带持久队列 + 指数退避 + 断连补发）；压缩 vmagent remote_write 默认已开、无需暴露；「调大抓取间隔降生产速率」M02 采集 Job 的 `scrape_interval` 前台已有能力——回传积压/延迟页应与 M02 互相指引。设默认上限只能把「打爆磁盘」变成「按上限丢最老数据 + F-39 丢块计数增长」，带宽赤字治本仍靠降生产速率 / 升带宽。
+- **方案（PM 拍板 2026-10-10）**：
+  1. **分层默认值**：平台内置硬兜底（未配置时的安全底线，1–2GB 级）+ 生产部署默认 **50GB**（**PM 拍板：开发环境 1–2GB 仅针对当前开发态，生产保持 50G**）——落点：probe.go 兜底默认 + 打包 / 网域级可配默认（按部署形态，参考 env.sh.example 先例）；
+  2. **页面落位**：网域级参数，置于 M09 网域详情/编辑抽屉「回传」区块（与 `remote_write_url` 同层——`maxDiskUsagePerURL` 本就是 per-URL 口径、同域多节点共享，节点级设置会造成同域不一致）；当前生效值在采集节点详情只读展示；
+  3. **中心侧可控（PM 确认走此路径）**：复用 metadata.json 下发通道先例（probe.go `remote_write_url` 四档解析），扩展携带 `maxDiskUsagePerURL`；supervisor 对比参数变化后滚动重启 vmagent 子进程（agent 自身不重启、`tmpDataPath` 不变队列数据不丢、用户无感）；老版本 agent 不识别新字段则维持默认，天然向后兼容；
+  4. **首期范围**：仅 `maxDiskUsagePerURL`（P0 安全底线）；触顶后丢块经 F-39 心跳透传可观测（联动告警留给后续）。
+  5. **人工重启按钮（PM 拍板 2026-10-10 第二轮，随 F-42 本期实施）**：排障兜底操作，与配置变更解耦（vmagent 卡死/队列异常时强制重启，区别于参数 diff 触发的自动滚动重启）——
+     - **入口**：M09 采集节点列表操作列 Dropdown「更多」→「重启采集进程」（列表是异常发现第一现场，「看到异常 → 就地恢复」最短路径，PM 反提案采纳，推翻实现侧最初「本期不做按钮」结论；**单入口**，节点详情抽屉不重复放）；
+     - **机制（seq 简化指令位，outbound-only 约束 D1 下复用心跳通道）**：`PUT /api/v2/platform/edge-agents/:id/restart` 将该 agent `vmagent_restart_seq` +1（DB 字段 + 操作留痕）→ 心跳响应携带当前 seq（复用 `HeartbeatResponse.ConfigVersion` 同类指令通道先例）→ agent 本地持久化已执行 seq、发现响应更大值时滚动重启 vmagent 子进程（**复用第 3 条同一滚动重启函数，仅多一个触发源**）→ 更新本地 seq；天然幂等（重复心跳不重复重启）、无需 pending/回报状态机，执行效果靠组件状态/积压/延迟列自然反映；
+     - **约束**：节点离线时按钮 disabled + tooltip（心跳停 = 指令发不出，不做「预约重启」语义）；RequireAdmin + 前端二次确认（文案明示：仅滚动重启 vmagent 采集子进程、agent 本体与持久队列不受影响、队列数据不丢、约 30s 内随下次心跳生效）。
+  6. **互相指引**：M09 回传积压展示处指引「抓取间隔过密？→ M02 调整 scrape_interval」；M02 Job 实例延迟态指引「回传积压？→ M09 采集节点页」（F-40 tooltip 动线已预留，M02 仅指引不承载操作）。
+- **影响模块**：M09（下发通道 + 网域抽屉「回传参数」分组 + 采集节点列表操作列重启入口 + heartbeat seq 指令位）、edge-sync-agent（probe.go flags + metadata 解析 + supervisor 滚动重启 + seq 执行 + config）、M06（若参数入网域登记表单，需按 M06 #15/#19 先例定权威入口——M06 登记承载、M09 纳管不重复承载）、M02（延迟态 tooltip 指引跳转）
+- **发现场景**：F-39/F-40 回传积压排查延伸 + PM 提问「vmagent 日志空间怎么管理、用户不知道怎么改参数」（2026-10-10）；重启按钮归属讨论（2026-10-10，PM 提问「操作列增加按钮是否合理」→ 采纳）。
+- **是否需设计侧确认**：是——页面落位（网域抽屉「回传参数」分组、采集节点操作列「更多」Dropdown）与默认值分层（开发/生产）需 prototype-designer 过目；两套网域表单并存的权威入口对齐 #19 先例。
+- **状态**：open（**设计定稿 2026-10-10，两轮 PM 拍板收束：① 配置入口 = M09 域详情/纳管抽屉「回传参数」分组；② 人工重启按钮本期随 F-42 实施，seq 简化机制，入口 = M09 采集节点列表操作列「更多」**；实施顺序：F-42 本体（metadata 携带 + 域抽屉表单 + supervisor diff 滚动重启 + probe.go 硬底线）→ seq 重启按钮（复用滚动重启函数）→ 互相指引 + 全量验证）
+
+## 2026-10-13（回传积压治理：清空积压破坏性指令，随 f42-6 前端批次）
+
+### F-43：「清空回传积压」节点级破坏性运维指令（① 空白判定 + ③ 技术优化，2026-10-13，已实现）
+
+- **类别**：① 空白判定（积压只能队外手工清，平台无处置出口）+ ③ 技术优化
+- **PRD 章节 / 文件位置**：M09 采集节点列表操作列；关联 F-39（积压可观测）、F-40（延迟三态）、F-42（seq 重启指令位先例）
+- **动机（生产实测 2026-10-13）**：GL-OPS-GITLAB-01-X86（mc-edge-debug 域）因 Cloudflare 免费隧道吞吐瓶颈，vmagent 持久队列积压 **1.4GB、端到端回传延迟 9h+**，按既有链路要 9 小时才排空——排空期间时效性无意义，运维需要「在边缘就地丢弃积压、立即恢复实时回传」的能力，此前只能 SSH 上节点手工删队列目录。
+- **方案（PM 拍板 2026-10-13，用户同意并入 f42-6 前端批次）**：节点级「清空回传积压」破坏性指令，全栈复用 F-42 seq 简化幂等机制（management 端点乐观推进 seq + 留痕 → 心跳响应透传 → agent 判定更大 seq 时执行 → 成功才持久化，失败下轮重试），无需 pending/回报状态机。
+- **破坏性护栏**：
+  1. 中心侧仅 `status=online` 节点可下发（sentinel `ErrFlushNotOnline` → 400；离线 = 心跳停 = 指令发不出，不预约），端点挂 RequireAdmin；
+  2. agent 执行时序：**先 Stop vmagent → 删持久队列目录 → Start**（进程持句柄，运行中删除行为未定义）；
+  3. 队列目录从 vmagent 最近启动参数 `-remoteWrite.tmpDataPath=` 推导（缺失回落 `EDGE_WAL_DIR` 环境变量 / configDir 下 `vmagent-cache`，与 specs 同源防漂移）；`RemoveAll` 且目录不存在视为已清空；
+  4. 前端 Modal.confirm danger 二次确认：红色警示「队列内全部积压数据将被**永久丢弃**，无法恢复」，okText「确认清空（数据丢弃）」+ 展示当前积压量；操作列入口仅在线可用，离线/退役 disabled + tooltip；执行语义明示「有意丢弃数据」而非重启（区别于 F-42 重启按钮文案）。
+- **变更点**：
+  - 数据层：`EdgeAgent` 新增 `FlushBacklogSeq` / `FlushRequestedBy` / `FlushRequestedAt` 指令位 + 留痕（AutoMigrate 自动加列）；
+  - 中心侧：`platform/edge/flush_handler.go`（`PUT /api/v2/platform/edge-agents/:id/flush-backlog`，gorm.Expr 原子递增 + 留痕 + 重读视图）；`AgentView` 透出 seq/留痕；心跳 Save Omit 六字段（含 restart 三字段）防心跳全量覆盖并发指令，响应前重读最新 seq（`sql.NullInt64` 防 NULL 行 500）；
+  - agent：契约 `HeartbeatResponse.FlushBacklogSeq`（omitempty，老 Agent 忽略未知字段向后兼容）；puller 双回调 + restart-state.json 增 `ExecutedFlushBacklogSeq`（与 restart seq 共库互不破坏，零值兼容旧文件）；probe 新增 `FlushBacklog()`（Stop→删队列→Start）；main 接线第二回调；
+  - 前端：`edgeAgentsApi.flushBacklog(id)` + 类型 + 操作列「更多」danger 菜单项（确认弹窗）+ 节点详情抽屉「最近清空回传积压」留痕行（发起人/时间）。
+- **幂等与竞态**：seq 未递增不重复执行；回调失败不推进 seq 不落盘（下轮心跳重试）；未装配回调仅推进 seq（向后兼容）。执行效果靠下轮心跳 `backlog_bytes` 归零自然反映，无回报状态机。
+- **状态**：**已实现（2026-10-13，f42-6/f43 批次）**
+- **验证**：platform flush 专项测试（seq 0→1→2、留痕、offline/retired→403/404/400、admin 端点）通过；edge-sync-agent `go vet ./...` + `go test ./...` 9 包全过；前端 vitest 21 用例全绿（含 F-43 admin 下发 / 离线禁用两用例，antd Modal Portal 残留改为计数断言防 flake）。

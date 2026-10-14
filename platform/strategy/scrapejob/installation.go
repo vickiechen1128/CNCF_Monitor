@@ -21,13 +21,31 @@ type jobInstanceItem struct {
 	InstanceIP   string `json:"instance_ip"`
 	// 未找到该实例的确认记录时 status 为 unconfirmed（默认）。
 	Status string `json:"status"`
+	// Port/PortSource 是生效端口与来源（提案 resource-scrape-port-chain §5.3
+	// 抽屉只读回显），经 resolveInstanceScrapePort → portchain.Resolve 与
+	// preview-targets 同源；枚举 instance/mapping/template/business/unresolved。
+	Port       int    `json:"port"`
+	PortSource string `json:"port_source"`
 }
 
-// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
-// instance-candidates：host=InstanceName/PrivateIP，database=ResourceID/InstanceIP，
-// middleware=AppName/InstanceIP，application=ServiceName/采集地址（endpoint:port），
-// generic_target=TargetName/InstanceIP。未命中返回空串。
+// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP（仅存活资源，
+// 受 GORM 软删过滤）。口径对齐 instance-candidates：host=InstanceName/PrivateIP，
+// database=ResourceID/InstanceIP，middleware=AppName/InstanceIP，
+// application=ServiceName/采集地址（endpoint:port），generic_target=TargetName/InstanceIP。
+// 未命中返回空串。
 func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
+	name, ip, _, found = lookupResourceMeta(db, resourceID, false)
+	return
+}
+
+// lookupResourceMeta 是 resolveResourceMeta 的底层查询，额外返回资源所属
+// network_domain_id；unscoped=true 时用 Unscoped 绕过 GORM 软删过滤，已删资源也能
+// 解析出删除前的实例名/IP/网域。
+//
+// 存在的理由：软删过滤下「实例已删除」与「实例属于其他网域」在查询里同样表现为
+// 查不到，旧校验文案一律报「不属于网域」会把用户引去排查网域配置（实际该实例的
+// 网域就是当前网域），且裸 UUID 对用户无意义；用本函数可区分两种失败并带实例名报错。
+func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip, domainID string, found bool) {
 	lookups := []struct {
 		dest    any
 		getMeta func(any) (string, string)
@@ -54,16 +72,25 @@ func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found
 		}},
 	}
 	for _, l := range lookups {
-		if err := db.Where("resource_id = ?", resourceID).First(l.dest).Error; err == nil {
+		q := db.Where("resource_id = ?", resourceID)
+		if unscoped {
+			q = q.Unscoped()
+		}
+		if err := q.First(l.dest).Error; err == nil {
 			n, i := l.getMeta(l.dest)
-			return n, i, true
+			d, _ := models.GetResourceField(l.dest, "network_domain_id")
+			return n, i, d, true
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // ListJobInstances 是 GET /api/v2/platform/scrape-jobs/:id/instances 的 handler：
-// 返回该 Job 已选实例 + 安装状态。Job 未命中 not_found（api-contract-snapshot §6）。
+// 返回该 Job **仍存在资源**的已选实例 + 安装状态。Job 未命中 not_found
+// （api-contract-snapshot §6）。
+// 响应 data = {items, total, missing_count}：items 仅含资源未被软删的实例
+// （total = len(items)）；missing_count = 仍在 selected_instance_ids 但资源已不存在的
+// 失效引用数，供前端提示「Job 里有 n 台机器已被删除」，不混入 items 避免空行污染列表。
 func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)
@@ -92,16 +119,32 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 			statusByResource[cnf.ResourceID] = string(cnf.Status)
 		}
 
+		// 遍历已选集构造实例列表：区分「资源仍存在」与「引用已失效」两种情况。
+		// 资源软删（M07 DELETE /resources/:id 置 DeletedAt）后 selected_instance_ids
+		// 无人回收（回收是另一条独立任务），若把查不到的 resource_id 也当正常实例返回，
+		// 会得到 instance_name/instance_ip 皆空的空白行；且 items.length 会与
+		// 前端 up 指标聚合出的 online 分子不同源（详情页「在线 x / 总数 y」分母虚高、
+		// 恒不收敛）。故此处过滤掉失效引用，仅计入 missing_count 对外暴露，
+		// 避免用户对「Job 少了几台」无知（M01 F-39）。total = len(items) 为有效实例数。
 		items := make([]jobInstanceItem, 0, len(job.SelectedInstanceIDs))
+		missing := 0
 		for _, rid := range job.SelectedInstanceIDs {
+			name, ip, found := resolveResourceMeta(db, rid)
+			if !found {
+				missing++
+				continue
+			}
 			st, ok := statusByResource[rid]
 			if !ok {
 				st = string(models.InstallationStatusUnconfirmed)
 			}
-			name, ip, _ := resolveResourceMeta(db, rid)
-			items = append(items, jobInstanceItem{ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st})
+			port, source := resolveInstanceScrapePort(db, &job, rid)
+			items = append(items, jobInstanceItem{
+				ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st,
+				Port: port, PortSource: source,
+			})
 		}
-		response.OK(c, gin.H{"items": items, "total": len(items)})
+		response.OK(c, gin.H{"items": items, "total": len(items), "missing_count": missing})
 	}
 }
 
@@ -173,7 +216,7 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !okDomain {
-			response.BadRequest(c, fmt.Errorf("实例 %q 不属于网域 %q", resourceID, job.NetworkDomainID))
+			response.BadRequest(c, fmt.Errorf("%s", describeInstanceRejection(db, resourceID, job.NetworkDomainID)))
 			return
 		}
 

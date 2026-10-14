@@ -69,6 +69,11 @@ type ResourceInput struct {
 	Scheme       string            `json:"scheme"`
 	ExporterType string            `json:"exporter_type"`
 	CustomLabels map[string]string `json:"custom_labels"`
+
+	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选 int，五类通用）：
+	// 0=未指定（缺省），留空时由 M09 四级端口解析链回落（scrape_port → 映射 →
+	// 模板 → 业务 port，提案 resource-scrape-port-chain §5.1）。
+	ScrapePort int `json:"scrape_port"`
 }
 
 // KeepDisabledValues 承载「编辑保留停用历史值」的放行集合（决策 92/93 红线）：
@@ -226,7 +231,9 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 //   - 空值：合法，不校验（platform 标签由所属应用 is_primary 平台兜底填充）；
 //   - 编辑保留历史值：请求体值与资源当前值相同时跳过全部平台校验（已停用平台 /
 //     与应用平台集合不自洽的历史值均允许保留）；改为新值 / 新选停用平台仍拒绝；
-//   - 填值：须命中平台字典启用条目（停用条目不可新选）；
+//   - 填值：须命中平台字典启用条目；未命中时用 Lookup 区分「已停用」（引导『平台
+//     管理』页启用）与「未登记」（引导登记，或在本文件『平台声明』sheet 声明后
+//     重新导入），与 biz_code / app_code / service_code 的引导口径保持一致；
 //   - 自洽：app_code 非空且该应用存在关联平台时，填值须落在关联平台集合内，
 //     否则「平台 xxx 不属于应用 yyy 的关联平台」；app_code 为空 / 应用无关联
 //     平台时不校验自洽。
@@ -256,7 +263,23 @@ func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisab
 		return fmt.Errorf("平台字典加载失败：%w", err)
 	}
 	if _, ok := enabled[code]; !ok {
-		return fmt.Errorf("平台 %s 未登记或已停用，请在『平台管理』页登记或启用后重试", code)
+		// 与 excel.go 的 biz_code / app_code / service_code 同构：用 Lookup 区分
+		// 「已停用」与「未登记」两种情形——条目存在但停用引导「启用」，条目不存在
+		// 才引导「登记」。前端 isPendingRegistrationReason 仅匹配含「未登记」的文案，
+		// 停用态不被误标为待登记高亮。
+		//
+		// 未登记文案同时给出两条路径：去『平台管理』页登记，或在本文件『平台声明』
+		// sheet 补充后重新导入（该 sheet 由 excel_declare.go 的 platformDeclareSheet
+		// 解析、经 import.go 的 applyDeclaredDicts 与资源落库同事务原子提交），与
+		// biz / app / service 三处保持一致的能力口径。
+		_, found, lerr := refs.PlatformStore.Lookup(code)
+		if lerr != nil {
+			return fmt.Errorf("查询平台 %s 失败：%w", code, lerr)
+		}
+		if found {
+			return fmt.Errorf("平台 %s 已停用，请在『平台管理』页启用后重新导入", code)
+		}
+		return fmt.Errorf("平台 %s 未登记且未在声明 sheet 声明，请在『平台管理』页登记，或在本文件『平台声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", code)
 	}
 	appCode := strings.TrimSpace(in.AppCode)
 	if appCode == "" {
@@ -338,8 +361,21 @@ func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, k
 	return nil
 }
 
+// validateScrapePort 校验实例级采集端口覆盖 scrape_port（可选，五类同口径）：
+// 0（未指定）合法，填值须在 1~65535；错误消息以 scrape_port 开头，供 excel.go
+// 的 resourceInputFieldPrefixes 前缀映射回 §5.16.3 的 field。
+func validateScrapePort(in *ResourceInput) error {
+	if in.ScrapePort != 0 && (in.ScrapePort < 1 || in.ScrapePort > 65535) {
+		return fmt.Errorf("scrape_port 必须为 0（未指定）或 1~65535，当前：%d", in.ScrapePort)
+	}
+	return nil
+}
+
 // validateHost 校验 host 资源必填字段（决策 93：host 的 biz_code 可空后补）。
 func validateHost(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.InstanceIP) == "" {
 		return fmt.Errorf("instance_ip 必填")
 	}
@@ -360,12 +396,16 @@ func validateHost(in *ResourceInput) error {
 }
 
 func validateDatabase(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.DatabaseType) == "" {
 		return fmt.Errorf("database_type 必填")
 	}
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
@@ -373,12 +413,16 @@ func validateDatabase(in *ResourceInput) error {
 }
 
 func validateMiddleware(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.MiddlewareType) == "" {
 		return fmt.Errorf("middleware_type 必填")
 	}
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
@@ -401,6 +445,9 @@ func validateIPPortResource(in *ResourceInput) error {
 }
 
 func validateApplication(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	// 决策 93：application 应用服务上线后 biz_code 必填（对应启用条目由
 	// validateCommon 校验，host/db/middleware 不受此约束）。
 	if strings.TrimSpace(in.BizCode) == "" {
@@ -412,6 +459,7 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.AppCode) == "" {
 		return fmt.Errorf("app_code 必填")
 	}
+	// 决策 F（§5.2）：cluster 必填规则同 app_code —— host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 cluster 标签）；application / database / middleware 必填。空值不注入标签（5.15 规则 4）
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
@@ -441,6 +489,9 @@ func validateApplication(in *ResourceInput) error {
 }
 
 func validateGenericTarget(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	// 决策 95：app_code 与 biz_code 二选一必填（两者皆空 bad_request，避免指标
 	// 无归属）；非空侧的存在性/启用态校验已由 validateCommon 完成。
 	if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {

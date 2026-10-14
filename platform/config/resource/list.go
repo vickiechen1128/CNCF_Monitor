@@ -214,16 +214,19 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["hostname"] = r.Hostname()      // legacy: InstanceName
 		item["instance_ip"] = r.InstanceIP() // legacy: PrivateIP
 		item["os_type"] = r.OSType()         // legacy: Image
+		item["scrape_port"] = r.ScrapePort   // 实例级采集端口覆盖（0=未指定，int 口径同 port）
 	case *models.Database:
 		item["database_type"] = r.DatabaseType
 		item["instance_ip"] = r.InstanceIP
 		item["port"] = r.Port
 		item["version"] = r.Version
+		item["scrape_port"] = r.ScrapePort
 	case *models.Middleware:
 		item["middleware_type"] = r.MiddlewareType
 		item["instance_ip"] = r.InstanceIP
 		item["port"] = r.Port
 		item["version"] = r.Version
+		item["scrape_port"] = r.ScrapePort
 	case *models.Application:
 		item["service_name"] = r.ServiceName
 		// 决策 105：service_code 仅 application / generic_target 返回（其余三类不挂）。
@@ -232,6 +235,7 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["protocol"] = r.Protocol
 		item["endpoint"] = r.Endpoint
 		item["port"] = r.Port
+		item["scrape_port"] = r.ScrapePort
 	case *models.GenericTarget:
 		item["target_name"] = r.TargetName
 		item["service_code"] = r.ServiceCode
@@ -241,6 +245,7 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["scheme"] = r.Scheme
 		item["exporter_type"] = r.ExporterType
 		item["custom_labels"] = r.CustomLabels
+		item["scrape_port"] = r.ScrapePort
 	}
 	return item
 }

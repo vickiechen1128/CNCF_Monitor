@@ -56,6 +56,25 @@ const (
 	DefaultScheme         = "http"
 )
 
+// ValidPromDuration 校验 s 是否为 Prometheus/VMAgent 接受的 duration 字面量
+//（^\d+(ms|s|m|h|d|w|y)$）。空串返回 false，「留空=继承」语义由调用方先行判断。
+// 背景：裸数字（如 "180"）会被 promtool check config 拒绝（not a valid duration
+// string: "180"），导致变更单卡校验失败无法下发（2026-10-12 诊断），须在保存入口拦截。
+func ValidPromDuration(s string) bool {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i == len(s) {
+		return false // 无数字，或无单位（裸数字即后者）
+	}
+	switch s[i:] {
+	case "ms", "s", "m", "h", "d", "w", "y":
+		return true
+	}
+	return false
+}
+
 // ScrapeJob defines a Prometheus scrape job configuration, aligned with
 // Module_01 §5.4. Legacy Phase-0 fields are retained for compatibility.
 type ScrapeJob struct {

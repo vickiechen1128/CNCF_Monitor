@@ -49,6 +49,10 @@ func Run(db *gorm.DB) error {
 	if err := runAppPlatformBackfill(db); err != nil {
 		return fmt.Errorf("backfill app-platform: %w", err)
 	}
+	// 一次性修正：采集路径 metrics_path 的首尾空白（脏路径 → 抓取 404、up=0）。
+	if err := runScrapeJobMetricsPathBackfill(db); err != nil {
+		return fmt.Errorf("backfill scrape job metrics_path: %w", err)
+	}
 	return nil
 }
 

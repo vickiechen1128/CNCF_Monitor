@@ -8,11 +8,13 @@ import {
   Drawer,
   Form,
   Input,
+  List,
   Radio,
   Row,
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -24,8 +26,8 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, MonitorType } from '../../types/strategy'
-import type { ScrapeJob } from '../../types/strategy'
+import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
+import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import { SCRAPE_PARAM_FIELDS, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, CATEGORY_MAP } from './strategyConstants'
@@ -50,6 +52,49 @@ function ParamsSyncTag({ state }: { state: 'inherited' | 'overridden' | 'pending
   if (state === 'overridden') return <Tag color="blue">已覆盖</Tag>
   if (state === 'pending') return <Tag color="orange">待同步</Tag>
   return null
+}
+
+/** {T01-P6} 生效端口来源中文标注（提案 resource-scrape-port-chain §5.3 四种来源） */
+const PORT_SOURCE_META: Record<string, { label: string; color: string }> = {
+  instance: { label: '实例覆盖', color: 'green' },
+  mapping: { label: '类型默认', color: 'blue' },
+  template: { label: '采集器默认', color: 'cyan' },
+  business: { label: '业务端口兜底', color: 'orange' },
+}
+
+/** {T01-P6} business 兜底警示文案（D-4：后端恒 200，警示纯前端职责、不阻断任何操作） */
+const BUSINESS_PORT_TOOLTIP = '采集端口未配置，当前以业务端口兜底，请确认 exporter 是否监听该端口'
+
+/**
+ * {T01-P6} 生效端口只读回显单元（提案 §5.3）：
+ * - 端口：`port=0`（unresolved/未解析）展示 `-` 而非 0（§9 失败态口径）；
+ * - 来源：四种中文标注，business 附「⚠️」+ 警示 Tooltip（不阻断）；
+ * - 引导：来源非「实例覆盖」（= 生效端口与实例登记不一致）时给「前往 M07 修改」入口；
+ * - `port_source` 为空（blackbox / 旧数据）不渲染任何内容。
+ */
+function PortEcho({ item, onGoResources }: { item: ScrapeJobInstanceItem; onGoResources: () => void }) {
+  const source = item.port_source
+  if (!source) return null
+  const meta = PORT_SOURCE_META[source]
+  const mismatch = source !== 'instance'
+  return (
+    <Space size={4} wrap>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        生效端口
+      </Text>
+      <Text code>{item.port ? item.port : '-'}</Text>
+      {source === 'business' ? (
+        <Tooltip title={BUSINESS_PORT_TOOLTIP}>
+          <Tag color="orange" style={{ cursor: 'pointer' }}>
+            {meta.label} ⚠️
+          </Tag>
+        </Tooltip>
+      ) : meta ? (
+        <Tag color={meta.color}>{meta.label}</Tag>
+      ) : null}
+      {mismatch && <Link onClick={onGoResources}>前往 M07 修改</Link>}
+    </Space>
+  )
 }
 
 interface ScrapeJobFormDrawerProps {
@@ -82,9 +127,15 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   // F-28 稀疏覆盖：当前监控对象类型的默认采集配置（用于参数 placeholder 展示继承默认值；
   // 不再值预填进表单，留空=继承，保存时由后端按 映射→模板→全局 链解析生效快照）
   const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
+  // {T01-P6} 编辑态生效端口回显数据（GET /instances 的 port/port_source，仅 standard 分支渲染）
+  const [portEchoItems, setPortEchoItems] = useState<ScrapeJobInstanceItem[]>([])
 
   const isEdit = !!record
-  const jobType = Form.useWatch('job_type', form) ?? 'standard'
+  // 任务类型分支状态：编辑态由 record.job_type 直接决定（确定性，不依赖
+  // Form.useWatch 在 setFieldsValue 后的异步翻转——该异步翻转在真实浏览器中
+  // 偶发不触发，导致拨测 Job 编辑时仍停留在「采集」分支、已填的拨测信息不回显）。
+  // 新增态初值 standard，由下方 Radio onChange 切换。
+  const [jobType, setJobType] = useState<JobType>(record?.job_type ?? 'standard')
   const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
   // O2/T01-F15：登记采集器发起上下文 = 当前已选监控对象类型（预填 supported_monitor_types）；useMemo 稳定引用
   const registerInitialTypes = useMemo<MonitorType[] | undefined>(
@@ -119,6 +170,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     // 异步请求回调内 setState；沿用本模块既有 set-state-in-effect 模式
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubmitError(null)
+    // 编辑态分支由 record 决定（确定性），避免依赖 useWatch 异步翻转导致回显失败
+    setJobType(record ? (record.job_type as JobType) : 'standard')
     networkDomainApi
       .list({ page: 1, page_size: 100 })
       .then((res) => setDomains((res.data?.list ?? []).filter((d) => d.is_monitored && d.status === 'enabled')))
@@ -130,6 +183,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       .catch(() => setLabelTemplates([]))
     form.resetFields()
     setMappingDefaults(null)
+    setPortEchoItems([])
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
       // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
@@ -162,6 +216,24 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: undefined } as Partial<ScrapeJobInput>)
     }
   }, [open, record, form])
+
+  // {T01-P6} 编辑态拉取生效端口回显（GET /instances 携带 port/port_source）。
+  // 仅编辑态 + standard 拉取；失败静默（回显为增强信息，不阻断表单主流程）。
+  useEffect(() => {
+    if (!open || !record || jobType !== 'standard') return
+    let cancelled = false
+    scrapeJobApi
+      .instances(record.id)
+      .then((res) => {
+        if (!cancelled) setPortEchoItems(res.data?.items ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setPortEchoItems([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, record, jobType])
 
   // monitor_type 变化 → 带出默认采集器与标签模板；采集参数仅以 placeholder 展示
   // 映射默认值（F-28 稀疏覆盖：留空=继承，不再把参数值写进表单快照）
@@ -351,7 +423,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         form={form}
         layout="vertical"
         requiredMark
-        preserve={false}
+        // 不要用 preserve={false}：standard/blackbox 分支切换卸载时会连带删除
+        // network_domain_id/blackbox_* 等值，且 StrictMode 开发态 StrictEffects
+        // 模拟卸载会二次删除，导致编辑态回显清空。提交语义不受影响：
+        // getFieldsValue()/validateFields() 仅收集已挂载字段，buildBody 按 job_type 显式组装。
         initialValues={{ job_type: 'standard', auth_type: 'none', tls_skip_verify: false }}
       >
         <Row gutter={16}>
@@ -362,7 +437,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           </Col>
           <Col span={10}>
             <Form.Item label="任务类型" name="job_type" rules={[{ required: true }]}>
-              <Radio.Group buttonStyle="solid">
+              <Radio.Group buttonStyle="solid" onChange={(e) => setJobType(e.target.value as JobType)}>
                 <Radio.Button value="standard">采集</Radio.Button>
                 <Radio.Button value="blackbox">拨测</Radio.Button>
               </Radio.Group>
@@ -582,6 +657,27 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <Card size="small" title="选择实例" style={{ marginBottom: 12 }}>
               <InstanceSelector monitorType={monitorType} networkDomainId={networkDomainId} selectedIds={selectedIds} onChange={setSelectedIds} />
             </Card>
+            {/* {T01-P6} 生效端口只读回显：四级解析链结果 + 来源标注（业务端口兜底 ⚠️ 不阻断） */}
+            {isEdit && portEchoItems.length > 0 && (
+              <Card size="small" title="生效端口回显" style={{ marginBottom: 12 }}>
+                <List
+                  bordered
+                  size="small"
+                  dataSource={portEchoItems}
+                  renderItem={(it) => (
+                    <List.Item>
+                      <Space direction="vertical" size={0} style={{ minWidth: 0 }}>
+                        <Text strong>{it.instance_name}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {it.instance_ip}
+                        </Text>
+                      </Space>
+                      <PortEcho item={it} onGoResources={() => navigate('/resources')} />
+                    </List.Item>
+                  )}
+                />
+              </Card>
+            )}
             {isEdit && (
               <ExporterInstallationPanel
                 jobId={record!.id}

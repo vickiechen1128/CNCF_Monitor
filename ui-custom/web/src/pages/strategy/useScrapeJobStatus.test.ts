@@ -36,7 +36,7 @@ describe('useScrapeJobStatus（F-10：up 指标推导）', () => {
 
   it('未确认下发（deployed=false）时全部待采集且不调 query API', () => {
     const { result } = renderHook(() => useScrapeJobStatus('job-x', false, items))
-    expect(result.current.summary).toEqual({ online: 0, total: 3, pending: 3 })
+    expect(result.current.summary).toEqual({ online: 0, total: 3, pending: 3, stale: 0 })
     expect(Object.values(result.current.statusMap).every((s) => s === 'pending')).toBe(true)
     expect(queryMock).not.toHaveBeenCalled()
   })
@@ -53,7 +53,39 @@ describe('useScrapeJobStatus（F-10：up 指标推导）', () => {
       'srv-3': 'pending', // 无对应 up 样本
     }
     expect(result.current.statusMap).toEqual(expected)
-    expect(result.current.summary).toEqual({ online: 1, total: 3, pending: 1 })
+    expect(result.current.summary).toEqual({ online: 1, total: 3, pending: 1, stale: 0 })
+  })
+
+  it('F-40：5min 无 up 样本但 1h 内出现过 → stale（回传延迟中）', async () => {
+    // up（瞬时）为空、last_over_time 命中 srv-1/srv-3 → 两者 stale；srv-2 1h 内也无样本 → pending
+    queryMock.mockImplementation(({ query }: { query: string }) => {
+      if (query.startsWith('timestamp(last_over_time(')) {
+        return Promise.resolve(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-3' })]))
+      }
+      return Promise.resolve(vector([]))
+    })
+    const { result } = renderHook(() => useScrapeJobStatus('job-x', true, items))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.statusMap).toEqual({
+      'srv-1': 'stale',
+      'srv-2': 'pending',
+      'srv-3': 'stale',
+    })
+    expect(result.current.summary).toEqual({ online: 0, total: 3, pending: 1, stale: 2 })
+  })
+
+  it('F-40：实时 up 有样本时优先于 last_over_time（stale 不遮蔽实时态）', async () => {
+    // srv-1 实时 up=1 → collecting（即使 1h 窗口也命中）；srv-2 实时 up=0 → down
+    queryMock.mockImplementation(({ query }: { query: string }) => {
+      if (query.startsWith('timestamp(last_over_time(')) {
+        return Promise.resolve(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-2' })]))
+      }
+      return Promise.resolve(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-2' }, '0')]))
+    })
+    const { result } = renderHook(() => useScrapeJobStatus('job-x', true, items))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.statusMap['srv-1']).toBe('collecting')
+    expect(result.current.statusMap['srv-2']).toBe('down')
   })
 
   it('up 样本 resource_id 缺失时回落 host 匹配', async () => {

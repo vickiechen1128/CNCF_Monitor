@@ -126,8 +126,17 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
+		// 飞书签名校验：渠道登记了 secret 时注入 timestamp + sign（开启「签名校验」的
+		// 自定义机器人要求每请求携带，否则拒收）；未登记 secret 则原样转发，兼容
+		// 未开启签名校验的存量渠道。
+		outbound, err := applyFeishuSignature(ch, body, time.Now())
+		if err != nil {
+			bridgeLogf("[notify-bridge] sign failed channel=%d template=%d err=%v", ch.ID, tpl.ID, err)
+			response.InternalServerError(c, err)
+			return
+		}
 		// 出站转投：目标来自 DB（ch.WebhookURL），非请求方。
-		status, err := sendOutbound(c.Request.Context(), ch.WebhookURL, body)
+		status, err := sendOutbound(c.Request.Context(), ch.WebhookURL, outbound)
 		if err != nil {
 			bridgeLogf("[notify-bridge] send failed channel=%d type=%s template=%d alerts=%d http_status=%d err=%v",
 				ch.ID, ch.Type, tpl.ID, len(payload.Alerts), status, err)

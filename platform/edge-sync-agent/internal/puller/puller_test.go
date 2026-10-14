@@ -1,12 +1,14 @@
 package puller
 
 import (
-	"bytes"
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 
@@ -84,7 +86,7 @@ func TestBuildHeartbeatCarriesTargets(t *testing.T) {
 		{Job: "node", Instance: "10.0.0.2:9100", Health: "down", LastError: "refused"},
 	}
 	rt := fakeRuntime{snap: RuntimeSnapshot{
-		AgentVersion: "v0.2.0",
+		AgentVersion:  "v0.2.0",
 		ConfigVersion: "v9",
 		Components:    []contract.Component{{Type: contract.ComponentTypeCollector, Status: contract.ComponentStatusRunning}},
 		Targets:       targets,
@@ -142,7 +144,12 @@ func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer {
 
 func newPuller(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider) *Puller {
 	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
-	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil))
+	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), nil, nil, "")
+}
+
+func newPullerWithRestart(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onRestart func() error, statePath string) *Puller {
+	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
+	return NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), onRestart, nil, statePath)
 }
 
 func TestRunOnceValidConfigDeploysAndRetains(t *testing.T) {
@@ -224,6 +231,65 @@ func TestVerifyChecksumValidAndMismatch(t *testing.T) {
 	}
 }
 
+// TestBuildHeartbeatCarriesMetadataParams 校验 buildHeartbeat 透传当前生效 metadata
+// 回传参数指纹（F-42：随心跳上报供中心比对网域参数变更）。
+func TestBuildHeartbeatCarriesMetadataParams(t *testing.T) {
+	cfg := testConfig("http://center:8080")
+	rt := fakeRuntime{snap: RuntimeSnapshot{
+		ConfigVersion:              "v1",
+		MetadataRemoteWriteURL:     "http://center:9090/api/v1/write",
+		MetadataMaxDiskUsagePerURL: "50GB",
+	}}
+	p := newPuller(cfg, nil, nil, rt)
+	hb := p.buildHeartbeat()
+	if hb.MetadataRemoteWriteURL != "http://center:9090/api/v1/write" {
+		t.Fatalf("metadata_remote_write_url = %q", hb.MetadataRemoteWriteURL)
+	}
+	if hb.MetadataMaxDiskUsagePerURL != "50GB" {
+		t.Fatalf("metadata_max_disk_usage_per_url = %q", hb.MetadataMaxDiskUsagePerURL)
+	}
+}
+
+// TestRunOnceParamsChangedForcesPull 覆盖 F-42 参数传播：网域回传参数变更时中心
+// 不改 config_version（config_changed=false）仅返回 params_changed=true，Agent 也
+// 必须强制拉包；params_changed=false 时不拉。
+func TestRunOnceParamsChangedForcesPull(t *testing.T) {
+	valid := buildZip(t, "scrape: 1", "")
+	ts := newTestServer(contract.HeartbeatResponse{}, valid)
+	defer ts.srv.Close()
+
+	dep := &fakeDeploy{}
+	cfg := testConfig(ts.srv.URL)
+	p := newPuller(cfg, ts, dep, nil)
+
+	// config_changed=false + params_changed=false → 不拉包。
+	ts.resp = contract.HeartbeatResponse{ConfigVersion: "v1"}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if dep.count() != 0 {
+		t.Fatalf("no-params-change should not pull, deploy count = %d", dep.count())
+	}
+
+	// config_changed=false + params_changed=true → 强制拉包并 deploy。
+	ts.resp = contract.HeartbeatResponse{ConfigVersion: "v1", ParamsChanged: true, ConfigDownloadURL: ts.srv.URL + "/cfg"}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if dep.count() != 1 {
+		t.Fatalf("params_changed=true should force pull, deploy count = %d", dep.count())
+	}
+
+	// config_changed=true 依旧拉包（原路径回归）。
+	ts.resp = contract.HeartbeatResponse{ConfigChanged: true, ConfigVersion: "v2", ConfigDownloadURL: ts.srv.URL + "/cfg"}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if dep.count() != 2 {
+		t.Fatalf("config_changed=true should pull, deploy count = %d", dep.count())
+	}
+}
+
 func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T) {
 	dep := &fakeDeploy{}
 	cfg := testConfig("")
@@ -266,5 +332,285 @@ func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T) {
 	}
 	if !bytes.Equal(p2.LastValidConfig(), retained) {
 		t.Fatal("last valid config should be retained across network outage")
+	}
+}
+
+// TestRunOnceRestartSeqTriggersCallbackAndPersists 覆盖 F-42 人工重启指令：心跳响应
+// seq 大于本地已执行序号时执行回调并落盘；重复心跳（seq 未递增）不重复执行（幂等）；
+// agent 重启后从磁盘恢复 seq，不重复执行。
+func TestRunOnceRestartSeqTriggersCallbackAndPersists(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	calls := 0
+	p := newPullerWithRestart(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+
+	// 第一轮：中心下发 seq=5 → 回调执行 1 次，seq 落盘。
+	ts.resp = contract.HeartbeatResponse{VMAgentRestartSeq: 5}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("restart callback calls = %d want 1", calls)
+	}
+	if p.executedRestartSeq != 5 {
+		t.Fatalf("executedRestartSeq = %d want 5", p.executedRestartSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("restart state not persisted: %v", err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil || st.ExecutedVMAgentRestartSeq != 5 {
+		t.Fatalf("restart state = %s err=%v", b, err)
+	}
+
+	// 第二轮：同一 seq（未递增）→ 不重复执行（幂等）。
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("duplicate heartbeat re-triggered restart, calls = %d", calls)
+	}
+
+	// 模拟 agent 重启：从磁盘恢复 seq，同一 seq 不再执行。
+	p2 := newPullerWithRestart(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+	if p2.executedRestartSeq != 5 {
+		t.Fatalf("restored executedRestartSeq = %d want 5", p2.executedRestartSeq)
+	}
+	ts.resp = contract.HeartbeatResponse{VMAgentRestartSeq: 5}
+	if err := p2.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("restart re-executed after agent restart, calls = %d", calls)
+	}
+
+	// seq 再递增（5→6）→ 新一轮指令执行。
+	ts.resp = contract.HeartbeatResponse{VMAgentRestartSeq: 6}
+	if err := p2.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p2.executedRestartSeq != 6 {
+		t.Fatalf("incremented seq not executed: calls=%d seq=%d", calls, p2.executedRestartSeq)
+	}
+}
+
+// TestRunOnceRestartSeqFailureRetries 覆盖失败重试语义：回调失败不推进 seq、不落盘，
+// 下轮心跳对同一 seq 自动重试；成功后推进。
+func TestRunOnceRestartSeqFailureRetries(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	fail := true
+	calls := 0
+	p := newPullerWithRestart(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		if fail {
+			return errors.New("restart failed")
+		}
+		return nil
+	}, statePath)
+
+	ts.resp = contract.HeartbeatResponse{VMAgentRestartSeq: 3}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("first attempt calls = %d want 1", calls)
+	}
+	if p.executedRestartSeq != 0 {
+		t.Fatalf("failed restart must not advance seq, got %d", p.executedRestartSeq)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("failed restart must not persist state, stat err = %v", err)
+	}
+
+	// 下轮心跳：同一 seq 重试，这次成功。
+	fail = false
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p.executedRestartSeq != 3 {
+		t.Fatalf("retry not executed: calls=%d seq=%d", calls, p.executedRestartSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("restart state not persisted after success: %v", err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil || st.ExecutedVMAgentRestartSeq != 3 {
+		t.Fatalf("restart state = %s err=%v", b, err)
+	}
+}
+
+// ---- F-43 清空回传积压（破坏性 seq 指令） ----
+
+func newPullerWithFlush(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onFlush func() error, statePath string) *Puller {
+	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
+	p := NewPuller(cfg, token.NewStore(cfg.Token), cli, rt, deploy, logger.New(nil), nil, nil, statePath)
+	p.onFlushBacklog = onFlush
+	return p
+}
+
+// TestRunOnceFlushSeqTriggersCallbackAndPersists 覆盖 F-43 清积压指令：心跳响应 seq
+// 大于本地已执行序号时执行回调并落盘；重复心跳不重复执行（幂等）；agent 重启后从
+// 磁盘恢复 seq 不重复执行；seq 递增再执行。与 F-42 重启共用同一状态文件（两个 seq
+// 互不干扰，字段独立读写）。
+func TestRunOnceFlushSeqTriggersCallbackAndPersists(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	calls := 0
+
+	// 预置一份含重启 seq=7 的状态文件：确认 flush 读写不破坏 restart seq 字段。
+	if err := os.WriteFile(statePath, []byte(`{"executed_vm_agent_restart_seq":7}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+	if p.executedRestartSeq != 7 {
+		t.Fatalf("preloaded restart seq not restored: %d", p.executedRestartSeq)
+	}
+
+	// 第一轮：flush seq=2 → 回调执行，两个 seq 一起落盘。
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 2}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("flush callback calls = %d want 1", calls)
+	}
+	if p.executedFlushSeq != 2 {
+		t.Fatalf("executedFlushSeq = %d want 2", p.executedFlushSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("flush state not persisted: %v", err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("state unmarshal: %v", err)
+	}
+	if st.ExecutedFlushBacklogSeq != 2 || st.ExecutedVMAgentRestartSeq != 7 {
+		t.Fatalf("state = %s（flush=2 restart=7 须同时保留）", b)
+	}
+
+	// 第二轮：同一 seq 不重复执行（幂等）；flush seq 递增才再执行。
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 2}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("duplicate heartbeat re-triggered flush, calls = %d", calls)
+	}
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 3}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p.executedFlushSeq != 3 {
+		t.Fatalf("incremented flush seq not executed: calls=%d seq=%d", calls, p.executedFlushSeq)
+	}
+
+	// agent 重启恢复：flush seq=3、restart seq=7，均不再重复执行。
+	p2 := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		return nil
+	}, statePath)
+	if p2.executedFlushSeq != 3 {
+		t.Fatalf("restored executedFlushSeq = %d want 3", p2.executedFlushSeq)
+	}
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 3, VMAgentRestartSeq: 7}
+	if err := p2.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("flush/restart re-executed after agent restart, calls = %d", calls)
+	}
+}
+
+// TestRunOnceFlushSeqFailureRetries 覆盖 F-43 失败重试语义：回调失败不推进 seq、
+// 不落盘，下轮心跳对同一 seq 自动重试；成功后推进并持久化。
+func TestRunOnceFlushSeqFailureRetries(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	fail := true
+	calls := 0
+	p := newPullerWithFlush(cfg, ts, &fakeDeploy{}, nil, func() error {
+		calls++
+		if fail {
+			return errors.New("flush failed")
+		}
+		return nil
+	}, statePath)
+
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 4}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("first attempt calls = %d want 1", calls)
+	}
+	if p.executedFlushSeq != 0 {
+		t.Fatalf("failed flush must not advance seq, got %d", p.executedFlushSeq)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("failed flush must not persist state, stat err = %v", err)
+	}
+
+	fail = false
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || p.executedFlushSeq != 4 {
+		t.Fatalf("retry not executed: calls=%d seq=%d", calls, p.executedFlushSeq)
+	}
+}
+
+// TestNoFlushCallbackStillAdvancesSeq 覆盖未装配回调（旧版本装配）场景：仅推进内存
+// seq 并落盘，不重试、不死循环。
+func TestNoFlushCallbackStillAdvancesSeq(t *testing.T) {
+	ts := newTestServer(contract.HeartbeatResponse{}, nil)
+	defer ts.srv.Close()
+
+	cfg := testConfig(ts.srv.URL)
+	statePath := t.TempDir() + "/restart-state.json"
+	cli := client.NewClient(cfg, token.NewStore(cfg.Token), logger.New(nil))
+	p := NewPuller(cfg, token.NewStore(cfg.Token), cli, nil, &fakeDeploy{}, logger.New(nil), nil, nil, statePath)
+	if p.onFlushBacklog != nil {
+		t.Fatal("onFlushBacklog should be nil by default")
+	}
+
+	ts.resp = contract.HeartbeatResponse{FlushBacklogSeq: 9}
+	if err := p.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if p.executedFlushSeq != 9 {
+		t.Fatalf("missing callback should still advance seq, got %d", p.executedFlushSeq)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st restartState
+	if err := json.Unmarshal(b, &st); err != nil || st.ExecutedFlushBacklogSeq != 9 {
+		t.Fatalf("state = %s err=%v", b, err)
 	}
 }

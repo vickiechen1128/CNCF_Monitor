@@ -27,7 +27,6 @@ type ImportRow struct {
 	Input           ResourceInput
 	PortRaw         string // 原始 port 单元格文本（非数字时用于错误报告）
 	CustomLabelsRaw string // 原始 custom_labels 单元格文本
-	ZoneEnv         string // host 兼容导入列 zone_env 原文（决策 101 / §5.6）
 	Status          models.ResourceStatus
 	DedupKey        string
 }
@@ -47,9 +46,12 @@ func (e *ImportRowError) Error() string {
 
 // ParseExcel 解析上传的 Excel 字节（.xlsx）：读取 sheet1 首行表头并与该类型固定
 // 列模板（TemplateColumns，§5.16.1）逐列比对，列缺失/列名不符/多余列均返回错误
-// （handler 包装为 bad_request，不支持动态列）；随后按表头把每行映射为 ImportRow
-// （原始文本，含 Row 行号）。不执行行级校验——调用方需对每行调用
-// ValidateImportRow。未知资源类型返回错误。
+// （handler 包装为 bad_request，不支持动态列）；两处兼容：末列 scrape_port 允许缺省
+// （旧模板兼容、缺列按 0 处理——决策 D-7 P1）、已废弃列按列名剔除后比对（存量模板
+// 可能仍带 zone_env——决策 101 后续，值被静默忽略）；随后按表头把每行映射为
+// ImportRow（原始文本，含 Row 行号）。空行与与模板示例行逐格一致的行（F-23-① sheet1
+// 第 2 行，用户忘删时不应被静默导入）不产出 ImportRow。不执行行级校验——调用方需对
+// 每行调用 ValidateImportRow。未知资源类型返回错误。
 func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow, error) {
 	expected, ok := TemplateColumns[category]
 	if !ok {
@@ -83,6 +85,12 @@ func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow
 		if allEmpty(cells) {
 			continue // 跳过空行（Excel 末尾常见空白行）
 		}
+		if isTemplateExampleRow(category, cells) {
+			// 跳过与模板示例行逐格一致的数据行（F-23-①：sheet1 第 2 行为示例行，
+			// 用户忘删也不应被当作真实资源导入）。只影响行的取舍，不改动后续
+			// 行级校验规则与错误文案；行号仍取 i+1，错误反馈行号不变。
+			continue
+		}
 		row := ImportRow{
 			Row:      i + 1, // 表头后第一行 = Excel 第 2 行（§5.16.3）
 			Category: category,
@@ -94,21 +102,46 @@ func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow
 	return out, nil
 }
 
+// removedTemplateColumns 是已从模板输出中移除、但存量 Excel 仍可能携带的列
+// （决策 101 后续：host 的 zone_env 已废弃，网络分区权威值为所属网域 zone_type，
+// 该列既不进标签也不作分区权威）。导入时按**列名**剔除后再逐列比对——存量模板
+// 带该列仍可成功导入，其值在 applyCells 中被静默忽略（不落库、不报错）；按列名
+// 而非按数量剔除，保证列序差异不会被误判为「列头超出模板」。
+var removedTemplateColumns = map[string]bool{
+	"zone_env": true,
+}
+
 // validateHeader 校验表头与固定列模板完全一致（§5.16.1 不支持动态列）。
+// 决策 D-7 P1：末列 `scrape_port` 允许整体缺省（旧模板无该列，导入按 0=未指定
+// 处理）；决策 101 后续：已废弃列（removedTemplateColumns）按列名剔除后参与比对，
+// 存量模板不因该列报「列头不一致 / 超出模板」。其余列仍逐列严格比对，列序依赖
+// 不放松。错误文案中的列号回填为 Excel 原始列号。
 func validateHeader(header, expected []string) error {
 	if len(header) == 0 {
 		return fmt.Errorf("Excel 缺少表头行")
 	}
+	kept := make([]string, 0, len(header))
+	keptIdx := make([]int, 0, len(header))
+	for i, col := range header {
+		if removedTemplateColumns[strings.TrimSpace(col)] {
+			continue
+		}
+		kept = append(kept, col)
+		keptIdx = append(keptIdx, i)
+	}
+	if len(kept) == len(expected)-1 && expected[len(expected)-1] == "scrape_port" {
+		expected = expected[:len(expected)-1] // 旧模板缺 scrape_port 末列，按可缺省处理
+	}
 	for i, want := range expected {
-		if i >= len(header) {
+		if i >= len(kept) {
 			return fmt.Errorf("Excel 列头缺失：第 %d 列应为「%s」（固定列模板，不支持动态列）", i+1, want)
 		}
-		if got := strings.TrimSpace(header[i]); got != want {
-			return fmt.Errorf("Excel 列头与模板不一致：第 %d 列应为「%s」，实际为「%s」（固定列模板，不支持动态列）", i+1, want, got)
+		if got := strings.TrimSpace(kept[i]); got != want {
+			return fmt.Errorf("Excel 列头与模板不一致：第 %d 列应为「%s」，实际为「%s」（固定列模板，不支持动态列）", keptIdx[i]+1, want, got)
 		}
 	}
-	if len(header) > len(expected) {
-		return fmt.Errorf("Excel 列头超出模板：第 %d 列「%s」未定义（固定列模板，不支持动态列）", len(expected)+1, strings.TrimSpace(header[len(expected)]))
+	if len(kept) > len(expected) {
+		return fmt.Errorf("Excel 列头超出模板：第 %d 列「%s」未定义（固定列模板，不支持动态列）", keptIdx[len(expected)]+1, strings.TrimSpace(kept[len(expected)]))
 	}
 	return nil
 }
@@ -153,6 +186,10 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.MiddlewareType = val
 		case "port":
 			in.Port, row.PortRaw = parsePort(val)
+		case "scrape_port":
+			// 实例级采集端口覆盖（可选列，决策 D-7 随模型进 P0）：复用 parsePort，
+			// 空 → 0（未指定）、非数字 → -1 哨兵（ValidateImportRow 报行级错误）。
+			in.ScrapePort, _ = parsePort(val)
 		case "version":
 			in.Version = val
 		case "service_name":
@@ -177,8 +214,8 @@ func applyCells(row *ImportRow, header, cells []string) {
 		case "custom_labels":
 			row.CustomLabelsRaw = val // 解析与校验在 ValidateImportRow 中完成
 		case "zone_env":
-			// 决策 101 / §5.6：host 兼容导入列，仅解析不校验、不作分区权威。
-			row.ZoneEnv = val
+			// 决策 101 后续：该列已从模板废弃（分区权威值为所属网域 zone_type），
+			// 存量 Excel 可能仍带此列——静默忽略，值不落库、不报错。
 		}
 	}
 }
@@ -201,6 +238,35 @@ func parsePort(raw string) (int, string) {
 func allEmpty(cells []string) bool {
 	for _, c := range cells {
 		if strings.TrimSpace(c) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// isTemplateExampleRow 判断一行是否与该类别的模板示例行（templateExampleRow，
+// F-23-① sheet1 第 2 行）逐格一致：比对到模板列数为止，缺失的尾部单元格视为空串；
+// 超出模板列数的多余单元格一律视为非示例行。
+//
+// ParseExcel 用它兜住「用户下载模板后忘记删除示例行」的场景——示例行不进入
+// 校验与导入链路，不会被当作真实资源写入。判定为**逐格全等**：用户只要改动任一
+// 格（含按真实字典填码），该行即按普通数据行走原有校验流程，行为与改造前一致。
+func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool {
+	example := templateExampleRow(category)
+	if len(example) == 0 {
+		return false
+	}
+	for i, want := range example {
+		got := ""
+		if i < len(cells) {
+			got = strings.TrimSpace(cells[i])
+		}
+		if got != want {
+			return false
+		}
+	}
+	for i := len(example); i < len(cells); i++ {
+		if strings.TrimSpace(cells[i]) != "" {
 			return false
 		}
 	}
@@ -422,6 +488,7 @@ var resourceInputFieldPrefixes = []string{
 	"service_name", "service_code", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
 	"app_code", "platform_code", "cluster", "resource_category",
+	"scrape_port",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -471,6 +538,8 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 			return portRaw
 		}
 		return strconv.Itoa(in.Port)
+	case "scrape_port":
+		return strconv.Itoa(in.ScrapePort)
 	case "version":
 		return in.Version
 	case "service_name":

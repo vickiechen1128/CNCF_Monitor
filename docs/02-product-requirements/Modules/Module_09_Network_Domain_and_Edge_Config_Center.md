@@ -248,6 +248,7 @@ M09 的 Web 门户菜单为单一一级菜单组「配置下发」（配置面�
 | 实例下线排除           | 生成目标文件时按资源状态过滤已下线实例，下一配置生成周期即从目标集合移除                                                    | P0  | MVP    |
 | 租户标签校验           | 多租户开启时校验「被引用 Job 的标签模板含 `tenant` 映射」，缺失则 `validation_status=failed`，经同一门禁模式路由回 M07 标签模板                                           | P0  | {v0.2} |
 | 实例地址解析不出不得静默放行 | 生成目标文件时，资源不存在（`resource_not_found`）/ 地址为空（`address_empty`）/ 实例下线（`offline`）须记录跳过归因（精确到 ResourceID + 原因），**不得静默跳过**；空 targets 由 [3.2.3](#323-下发前校验与失败出口) 校验层判非法（产物仍生成、校验不放行），避免缺陷配置下发后边缘永久卡死「同步中」 | P0  | MVP  |
+| 软删计入源数据版本（变更检测触发增量，F-38 根因） | 源数据版本 = 各源表 `MAX(updated_at)` 与 `MAX(deleted_at)` 的较大者：聚合时须 `Unscoped()` 解除 GORM 默认软删过滤（内嵌 `BaseModel` 的 `DeletedAt` 会让 GORM 默认追加 `deleted_at IS NULL`，使 `MAX(deleted_at)` 恒为 NULL）。资源软删仅写 `deleted_at`、**不更新 `updated_at`**，若不计入则「源数据版本」不前进 → watcher 不产草稿 → 用户零提醒（M09 F-38 / M01 F-39 根因）。软删须与新增/修改**同等**触发重算生成草稿（targets 收缩即采集面自愈） | P0  | MVP  |
 
 ### 3.4 通用口径
 
@@ -287,7 +288,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   A["Module_01 / 07：ScrapeJobs · Rules · Resources · LabelTemplates<br/>写库并维护 updated_at（不主动通知 Module_09）"]
-  B["① 定时轮询：聚合各源表 max(updated_at) 计算「源数据版本」<br/>② 版本聚合预筛：无变化 → 跳过本轮；有变化 → 进入生成"]
+  B["① 定时轮询：聚合各源表 max(updated_at, deleted_at)（`Unscoped()` 解除软删过滤）计算「源数据版本」<br/>② 版本聚合预筛：无变化 → 跳过本轮；有变化（含软删）→ 进入生成"]
   C["③ 按网域生成配置：prometheus.yml / targets/*.json / rules.yml / blackbox.yml（按需）"]
   D["④ 联合 checksum 裁决：与生效 ConfigVersion 一致 → 丢弃不产生新草稿（仅更新版本记录）；<br/>不一致 → 生成 status=pending 的 ConfigDraft"]
   E["⑤ 草稿进入确认列表（异步链路结束，等待确认）"]

@@ -2,6 +2,7 @@ package scrapejob
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -21,10 +22,15 @@ const (
 //   - 采集参数可留空（F-28）：留空=继承映射/模板/全局默认，保存时由
 //     resolveJobScrapeParams 解析为生效快照；**例外** application_http 的
 //     metrics_path 必须显式填写（应用指标端点无通用默认值）
+//   - 采集器联动（validateExporterForMonitorType）：standard 任务的 monitor_type
+//     必须有可用采集器（内置目录/已登记模板声明支持，或有 is_default 默认采集配置
+//     兜底）；application_http 直采端点，留空 exporter_template_id 放行
 //   - 认证TLS：basic→username+password 必填；bearer→token 必填；password/token 仅存储
 //   - blackbox：blackbox_module 必填 + blackbox_targets 非空且 protocol ∈ 限定集；
 //     monitor_type / exporter_template_id 置空
 //   - instance_selection_mode 默认 manual
+//   - scrape_interval / scrape_timeout 非空时须为带单位的 Prometheus duration
+//     字面量（裸数字如 "180" 会被 promtool check config 拒绝，2026-10-12 诊断）
 func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 	if strings.TrimSpace(job.JobName) == "" {
 		return fmt.Errorf("job_name 不能为空")
@@ -34,6 +40,15 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 	}
 	if err := validateNetworkDomain(db, job.NetworkDomainID); err != nil {
 		return err
+	}
+	// 时长校验：空串合法（F-28 留空=继承，保存时由 resolveJobScrapeParams 回落
+	// 层叠默认）；非空但缺单位（如 "180"）在保存时即拦为 bad_request，避免留到
+	// 变更单外部校验才失败，用户还要回头重新编辑下发。
+	if job.ScrapeInterval != "" && !models.ValidPromDuration(job.ScrapeInterval) {
+		return fmt.Errorf("scrape_interval %q 非法：须为带单位的时长（如 15s/1m/2h），单位可选 ms/s/m/h/d/w/y", job.ScrapeInterval)
+	}
+	if job.ScrapeTimeout != "" && !models.ValidPromDuration(job.ScrapeTimeout) {
+		return fmt.Errorf("scrape_timeout %q 非法：须为带单位的时长（如 10s/30s），单位可选 ms/s/m/h/d/w/y", job.ScrapeTimeout)
 	}
 	if job.InstanceSelectionMode == "" {
 		job.InstanceSelectionMode = defaultInstanceSelection
@@ -75,6 +90,11 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		if job.MonitorType == models.MonitorTypeApplicationHTTP && strings.TrimSpace(job.MetricsPath) == "" {
 			return fmt.Errorf("monitor_type=application_http 时必须填写采集路径 metrics_path（例如 /actuator/prometheus）；应用指标端点没有通用默认值，不能留空继承")
 		}
+		// 采集器联动：monitor_type 必须有可用采集器，否则保存时报错而不是留到运行时
+		// 静默 up=0（详见 validateExporterForMonitorType）。
+		if err := validateExporterForMonitorType(db, job); err != nil {
+			return err
+		}
 	}
 
 	// 认证TLS（决策31）。
@@ -99,11 +119,40 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		job.AuthType = models.AuthTypeNone
 	}
 
+	// 保存时回收失效实例引用（根治编辑死锁）：资源在 CMDB 被软删后
+	// selected_instance_ids 无人回收，而前端实例选择器只列存活资源——用户既看不到
+	// 也无法取消勾选这些失效 ID，编辑任何字段（如 scrape_interval）回传旧 ID 都会被
+	// 网域校验拦下，形成"改任何参数都报错"的死锁。这里统一剔除已不存在（含软删）
+	// 的引用；**存活但跨网域**的引用不剔除——那是真正的配置错误，仍由
+	// validateSelectedInstancesDomain 拦为 bad_request。
+	reclaimMissingInstanceIDs(db, job)
+
 	// 已选实例须属于同一网域（非同域 bad_request）。
 	if err := validateSelectedInstancesDomain(db, job); err != nil {
 		return err
 	}
 	return nil
+}
+
+// reclaimMissingInstanceIDs 剔除 job.SelectedInstanceIDs 中已不存在（含软删）的
+// 资源引用。存活引用原样保留（含跨网域的，交由域校验拦截）。
+func reclaimMissingInstanceIDs(db *gorm.DB, job *models.ScrapeJob) {
+	if len(job.SelectedInstanceIDs) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(job.SelectedInstanceIDs))
+	dropped := 0
+	for _, id := range job.SelectedInstanceIDs {
+		if _, _, _, alive := lookupResourceMeta(db, id, false); alive {
+			kept = append(kept, id)
+		} else {
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		log.Printf("[scrapejob] job %q 保存时回收 %d 个失效实例引用（资源已删除或不存在）", job.JobName, dropped)
+		job.SelectedInstanceIDs = kept
+	}
 }
 
 // validateNetworkDomain 校验网域已纳管且非冻结：is_monitored=true 且 status=enabled
@@ -124,6 +173,7 @@ func validateNetworkDomain(db *gorm.DB, domainID string) error {
 
 // validateSelectedInstancesDomain 校验 job.SelectedInstanceIDs 均属于 job 的网域
 // （非同域 bad_request）。空选择集（手填 exporter 场景）直接通过。
+// 校验失败时经 describeInstanceRejection 解析真实原因并生成带实例名的文案。
 func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error {
 	if len(job.SelectedInstanceIDs) == 0 {
 		return nil
@@ -134,10 +184,35 @@ func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("实例 %q 不属于网域 %q", id, job.NetworkDomainID)
+			return fmt.Errorf("%s", describeInstanceRejection(db, id, job.NetworkDomainID))
 		}
 	}
 	return nil
+}
+
+// describeInstanceRejection 解析「已选实例未通过网域校验」的真实原因，生成带实例名
+// 的可操作文案（不暴露裸 UUID——用户不认识资源 ID）。
+//
+// 存在的理由：GORM 软删过滤让「实例已删除」与「实例属于其他网域」在资源查询中同样
+// 表现为查不到；旧文案一律报「不属于网域」，把用户引去排查网域配置（实际该实例的
+// 网域就是当前网域）。这里用 Unscoped 复查区分三种情况：
+//   - 资源已软删：报「已被删除」，指引从已选实例中移除（实例选择器只列存活资源，
+//     保存时由 reclaimMissingInstanceIDs 自动回收，见 validateJobRequest）；
+//   - 资源存活但网域不同：报真实归属网域，指引改选本网域实例；
+//   - 彻底不存在：报不存在。
+func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string {
+	name, _, resDomain, found := lookupResourceMeta(db, resourceID, true) // Unscoped：含软删
+	if !found {
+		return fmt.Sprintf("实例 %q 不存在（可能已被彻底删除），请从已选实例中移除", resourceID)
+	}
+	label := strings.TrimSpace(name)
+	if label == "" {
+		label = resourceID
+	}
+	if _, _, _, alive := lookupResourceMeta(db, resourceID, false); alive {
+		return fmt.Sprintf("实例 %q 属于网域 %q，与本任务网域 %q 不同；请改选本网域实例", label, resDomain, domainID)
+	}
+	return fmt.Sprintf("实例 %q 已被删除，仍残留在已选实例中；请从已选实例中移除后重试", label)
 }
 
 // resourceInDomain 报告 resourceID 资源是否存在于指定网域（host/database/
@@ -173,7 +248,15 @@ func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error) {
 //  3. 全局兜底常量（models.DefaultScrapeInterval/Timeout/MetricsPath/Scheme）。
 //
 // label_template_id 仅做映射层继承（无更下层默认）。调用方已保证 job.MonitorType 合法。
+//
+// 归一（normalizeScrapePath）刻意放在本函数入口、层叠默认解析之前：用户填了
+// " /actuator/prometheus" 这类带首尾空白的路径时，若不先 trim，"非空但带空白"
+// 既不会命中下面的 `== ""` 回落分支、也不会被纠正，会原样进入生效快照，
+// 最终生成带前导空格的抓取路径 → 目标应用 404 → up=0 且无业务样本。
+// 先归一再解析，"纯空白"也才会退化为真正的"留空"（F-28 恢复继承 / 被
+// application_http 校验拦为 bad_request）。
 func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob) {
+	normalizeScrapePath(job)
 	if job.JobType == models.JobTypeBlackbox {
 		return
 	}
@@ -234,6 +317,125 @@ func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob) {
 	if job.Scheme == "" {
 		job.Scheme = models.DefaultScheme
 	}
+}
+
+// normalizeScrapePath 归一（trim）采集路径 metrics_path。
+//
+// 存在的理由：采集路径会被拼进 vmagent 的 scrape 路径原样发往被采集端，
+// 首尾空白会生成形如 " http://ip:8081/actuator/prometheus" 的非法请求 →
+// 被采集应用返回 404 → 中心 Prometheus instance=... up=0 且无任何业务样本，
+// 而用户在界面上"已经改对了"却看不到数据（只差一个不可见空格）。
+//
+// 语义约束（不破坏 F-28 层叠默认）：
+//   - 归一后为空串 ≡ 留空，仍表示"继承下层默认"（映射→模板→全局兜底），
+//     resolveJobScrapeParams 的回落分支语义完全不变；
+//   - application_http 归一后为空串，由 validateJobRequest 拦为 bad_request
+//     （应用指标端点无通用默认值），不会把空串写进库；
+//   - 只处理 metrics_path，不动 scheme/scrape_interval/scrape_timeout/认证字段。
+func normalizeScrapePath(job *models.ScrapeJob) {
+	job.MetricsPath = strings.TrimSpace(job.MetricsPath)
+}
+
+// validateExporterForMonitorType 校验采集任务与采集器的联动：monitor_type 必须有
+// 可用采集器，把"该类型根本没有采集器"这类配置错误拦在保存时，而不是留到运行时
+// 才暴露为中心 Prometheus up=0（用户在界面上完全看不出是配置问题）。
+//
+// 三条判定：
+//  1. 显式选了 exporter_template_id：模板须声明支持该 monitor_type（不匹配报错）。
+//     模板不存在/ID 非法不在此拦，交给 exporterExists 统一报（避免重复错误信息）。
+//  2. application_http：应用自带指标端点直采（如 Spring Boot /actuator/prometheus），
+//     不经采集器中转，留空 exporter_template_id 是既有设计，放行。
+//  3. 其余类型留空：必须确有可用采集器——内置采集器目录、已登记的采集器模板、
+//     或该类型的默认采集配置（CITypeExporterMapping）任一命中即视为可用。
+func validateExporterForMonitorType(db *gorm.DB, job *models.ScrapeJob) error {
+	if job.ExporterTemplateID != "" {
+		id, err := strconv.ParseUint(job.ExporterTemplateID, 10, 64)
+		if err != nil || id == 0 {
+			return nil // ID 非法 → exporterExists 报"非法"
+		}
+		var tmpl models.ExporterTemplate
+		if err := db.First(&tmpl, id).Error; err != nil {
+			return nil // 模板不存在 → exporterExists 报"不存在"
+		}
+		if !exporterTemplateSupportsType(&tmpl, job.MonitorType) {
+			return fmt.Errorf("采集器 %q 未声明支持监控对象类型 %q（supported_monitor_types=%v）；请改选支持 %s 的采集器模板，或在「采集器模板」中为 %q 补正支持类型",
+				tmpl.Name, job.MonitorType, tmpl.SupportedMonitorTypes, job.MonitorType, tmpl.Name)
+		}
+		return nil
+	}
+
+	// application_http 直采端点：不经过采集器，留空 exporter_template_id 合法。
+	if job.MonitorType == models.MonitorTypeApplicationHTTP {
+		return nil
+	}
+
+	supported, err := supportedMonitorTypesByCollector(db)
+	if err != nil {
+		return err
+	}
+	for _, mt := range supported {
+		if mt == job.MonitorType {
+			return nil
+		}
+	}
+	return fmt.Errorf("monitor_type=%s 无可用采集器：内置采集器与已登记采集器模板均未声明支持该类型（当前可用类型：%s）；请先在「采集器模板」中登记支持 %s 的采集器后再创建本任务，或改用拨测（job_type=blackbox）监控",
+		job.MonitorType, strings.Join(supported, "/"), job.MonitorType)
+}
+
+// exporterTemplateSupportsType 报告采集器模板是否可用于该 monitor_type。
+// supported_monitor_types 为空视为未标注（兼容存量登记的采集器）→ 放行，
+// 与 ci-exporter.ensureExporterSupportsType（F-27 C）同口径。
+func exporterTemplateSupportsType(tmpl *models.ExporterTemplate, monitorType string) bool {
+	if len(tmpl.SupportedMonitorTypes) == 0 {
+		return true
+	}
+	for _, t := range tmpl.SupportedMonitorTypes {
+		if t == monitorType {
+			return true
+		}
+	}
+	return false
+}
+
+// supportedMonitorTypesByCollector 汇总平台当前"有采集器可用"的 monitor_type 集合，
+// 按 models.ValidMonitorTypes() 顺序返回（顺序稳定，便于错误提示文案可读）：
+//   - 内置采集器目录（models.BuiltinExporterTemplates）：内置模板只读禁删
+//     （exporter-template/delete.go），是平台采集能力的权威声明，不依赖 seed 是否跑过；
+//   - 已登记的采集器模板：用户可自行登记 nginx 等类型的采集器使其变为可用；
+//   - 已配置的默认采集配置（CITypeExporterMapping）：其引用的采集器即该类型可用。
+func supportedMonitorTypesByCollector(db *gorm.DB) ([]string, error) {
+	supported := map[string]bool{}
+	mark := func(types []string) {
+		for _, t := range types {
+			if t = strings.TrimSpace(t); t != "" {
+				supported[t] = true
+			}
+		}
+	}
+	for _, t := range models.BuiltinExporterTemplates() {
+		mark(t.SupportedMonitorTypes)
+	}
+	var tmpls []models.ExporterTemplate
+	if err := db.Find(&tmpls).Error; err != nil {
+		return nil, fmt.Errorf("list exporter templates: %w", err)
+	}
+	for _, t := range tmpls {
+		mark(t.SupportedMonitorTypes)
+	}
+	var mappings []models.CITypeExporterMapping
+	if err := db.Find(&mappings).Error; err != nil {
+		return nil, fmt.Errorf("list ci-exporter mappings: %w", err)
+	}
+	for _, m := range mappings {
+		mark([]string{m.MonitorType})
+	}
+	var ordered []string
+	for _, mt := range models.ValidMonitorTypes() {
+		if supported[mt] {
+			ordered = append(ordered, mt)
+		}
+	}
+	return ordered, nil
 }
 
 // exporterExists 校验 exporter_template_id（存 ID 字符串）对应采集器存在；

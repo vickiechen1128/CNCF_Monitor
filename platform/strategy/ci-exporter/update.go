@@ -53,6 +53,18 @@ func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc {
 		monitorType := m.MonitorType
 		isDefault := m.IsDefault
 
+		// 时长校验：映射层是 Job 层叠默认的继承源（resolveJobScrapeParams 回落映射值），
+		// 非法值会经 Job 生效快照流入 prometheus.yml 被 promtool 拒绝（裸数字如 "180"），
+		// 须与 Job 保存入口同样拦截（2026-10-12 诊断）。空串合法（映射可稀疏留空）。
+		if req.ScrapeInterval != nil && *req.ScrapeInterval != "" && !models.ValidPromDuration(*req.ScrapeInterval) {
+			response.BadRequest(c, fmt.Errorf("scrape_interval %q 非法：须为带单位的时长（如 15s/1m/2h），单位可选 ms/s/m/h/d/w/y", *req.ScrapeInterval))
+			return
+		}
+		if req.ScrapeTimeout != nil && *req.ScrapeTimeout != "" && !models.ValidPromDuration(*req.ScrapeTimeout) {
+			response.BadRequest(c, fmt.Errorf("scrape_timeout %q 非法：须为带单位的时长（如 10s/30s），单位可选 ms/s/m/h/d/w/y", *req.ScrapeTimeout))
+			return
+		}
+
 		if req.MonitorType != nil {
 			if !models.ValidMonitorType(*req.MonitorType) {
 				response.BadRequest(c, fmt.Errorf("monitor_type %q 非法的监控对象类型", *req.MonitorType))

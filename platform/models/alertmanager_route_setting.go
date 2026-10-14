@@ -4,8 +4,9 @@
 // route.receiver 单键。平台仅在设定生效时原地替换该键，绝不触碰 group_by / group_wait /
 // group_interval / repeat_interval / continue，绝不写入 route.routes[]。
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §4.1.1（最小运行骨架 / 默认接收人来源）/ §9.1 / §9.2；
-//   docs/05-execution-records/module-08/design-decisions.md 决策 113。
+//
+//	§4.1.1（最小运行骨架 / 默认接收人来源）/ §9.1 / §9.2；
+//	docs/05-execution-records/module-08/design-decisions.md 决策 113。
 package models
 
 // RouteMode 是 alertmanager.yml route 段的作者模式（提案 §4.3 / §4.5；T08-F12 模式开关）：
@@ -34,8 +35,8 @@ const (
 // EffectiveDefaultReceiver 回落为不接管（决策 113 护栏③：关闭 = 停止替换、不删最后写入的值）。
 type AlertmanagerRouteSetting struct {
 	BaseModel
-	NetworkDomainID          string   `gorm:"size:64;not null;uniqueIndex" json:"network_domain_id"`
-	DefaultReceiverChannelID *uint    `gorm:"index" json:"default_receiver_channel_id,omitempty"`
+	NetworkDomainID          string    `gorm:"size:64;not null;uniqueIndex" json:"network_domain_id"`
+	DefaultReceiverChannelID *uint     `gorm:"index" json:"default_receiver_channel_id,omitempty"`
 	Mode                     RouteMode `gorm:"size:16;not null;default:handwritten" json:"mode"`
 }
 

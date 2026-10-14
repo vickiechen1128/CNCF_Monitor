@@ -215,6 +215,15 @@ export interface ScrapeJobInstanceItem {
   instance_name: string
   instance_ip: string
   status: InstallationStatus
+  /** {T01-P6} 四级解析链生效端口（0/缺省 = 未解析，前端展示 '-' 不展示 0；提案 §5.3） */
+  port?: number
+  /**
+   * {T01-P6} 生效端口来源（提案 §5.3 四种标注 + unresolved）：
+   * instance（实例覆盖）/ mapping（类型默认）/ template（采集器默认）/
+   * business（业务端口兜底，前端 ⚠️ 警示不阻断）/ unresolved（四级全缺）；
+   * blackbox 或旧数据为空串 → 前端不渲染来源标注。
+   */
+  port_source?: string
 }
 
 /** 参数继承映射快照可覆盖项（§5.4，UI「参数同步」列概览） */
