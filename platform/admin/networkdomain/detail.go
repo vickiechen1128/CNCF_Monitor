@@ -32,10 +32,15 @@ func GetNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		on := onlineCount > 0
+		effectiveMap, err := effectiveScrapeJobDomainIDs(db, []models.NetworkDomain{dom})
+		if err != nil {
+			response.InternalServerError(c, fmt.Errorf("aggregate effective scrape jobs for %q: %w", id, err))
+			return
+		}
 		response.OK(c, DomainListItemView{
 			NetworkDomain:   dom,
 			HasOnlineAgents: on,
-			AccessStep:      AccessStepOf(&dom, on),
+			AccessStep:      AccessStepOf(&dom, on, effectiveMap[dom.ID]),
 		})
 	}
 }
