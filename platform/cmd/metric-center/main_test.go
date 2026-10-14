@@ -456,7 +456,8 @@ func TestNetworkDomainWriteForbiddenWithoutAdmin(t *testing.T) {
 	dsn := fmt.Sprintf("file:netdom_admin_%d?mode=memory&cache=shared", n)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NetworkDomain{}, &models.EdgeAgent{}))
+	// ScrapeJob：接入进度派生需聚合 effective 采集任务，缺表会导致 GET 500。
+	require.NoError(t, db.AutoMigrate(&models.NetworkDomain{}, &models.EdgeAgent{}, &models.ScrapeJob{}))
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
