@@ -205,24 +205,30 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     reloadRouteSettingMock.mockReset()
   })
 
-  // 契约①：常驻状态区「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（按 mode 渲染）
-  // 2026-10-02 四页说明区统一：页头改用 PageIntro（标题 + 一行副标 + 折叠说明区）；
-  // 「顺序即优先级 + 模式徽标」随 mode 变化，属状态信息，仍留在页头下方常驻（不进折叠区）。
+  // 契约①：「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（按 mode 渲染）
+  // 2026-10-02 四页说明区统一：页头改用 PageIntro（标题 + 一行副标 + 折叠说明区）。
   //
-  // 2026-10-13（T08-SPLIT-01 / A5）：「前往告警配置」反向链接**已删除**——模式开关已迁至
-  // 本页常驻「路由设置」卡，为改一个开关跨页跳转是纯粹的绕路。改为就地指引（指向本卡控件 A）。
-  it('常驻状态区含「路由顺序 = 生效顺序」与模式徽标；只读时给出去「告警配置」的切换引导', () => {
+  // 2026-10-14 布局优化：常驻 info Alert **整块删除**，「模式」这个事实原先在三处重复。
+  // 三件事各自迁到更贴近的落位：
+  //   - 模式徽标 → 路由设置卡的模式行右端（route-mode-badge）
+  //   - 可编辑性指引 → ROUTE_MODE_TIP（模式控件下方一行）
+  //   - 顺序提示 → 路由树卡标题行（顺序只约束这张表）
+  it('模式徽标在「路由设置」卡模式行内；顺序提示随路由树卡标题；只读说明并入模式提示行', () => {
     useRoutesMock.mockReturnValue(result())
     renderPage()
     expect(screen.getByText('路由顺序 = 生效顺序：先匹配到的先生效')).toBeInTheDocument()
     expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('我来编辑')
-    // 门禁：handwritten=本页只读（isRouteEditable），常驻区据此明说无编辑入口
-    expect(screen.getByText(/本页为只读展示/)).toBeInTheDocument()
-    // A5：反向链接已删，改为指向本卡控件 A 的就地指引
+    // 门禁：handwritten=本页只读（isRouteEditable），模式提示据此明说无编辑入口 + 就地切换指引
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('只读视图')
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('不提供新建')
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('切换为「平台生成」')
+    // A5：反向链接已删，改为指向本卡控件 A 的就地指引（指引直接点名控件 label，
+    // 不再依赖常驻 Alert 里那块「「路由设置」」的粗体字——Alert 已整块删除）
     expect(screen.queryByRole('link', { name: '前往告警配置' })).toBeNull()
-    expect(screen.getByText(/在上方/)).toBeInTheDocument()
-    expect(screen.getByText('「路由设置」')).toBeInTheDocument()
-    expect(screen.getByText(/切换为「平台生成」/)).toBeInTheDocument()
+    expect(screen.getByLabelText('路由规则由谁维护')).toBeInTheDocument()
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('「路由规则由谁维护」')
+    // 「模式」全页只说一次：常驻 Alert 里的重复徽标已随该 Alert 一并删除
+    expect(screen.getAllByTestId('route-mode-badge')).toHaveLength(1)
   })
 
   it('PageIntro：页头副标一行定位，机制说明收进默认收起的说明区（与常驻区不重复）', () => {
@@ -235,15 +241,18 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     // 说明区默认收起：要点不在 DOM
     expect(screen.getByTestId('routes-intro-guide-label')).toBeInTheDocument()
     expect(screen.queryByTestId('routes-intro-guide-points')).toBeNull()
-    // 展开后只含不随状态变化的机制说明——「顺序提示 / 模式引导」已去重，只留在下方常驻区
-    // （2026-10-13 去重修复，避免同屏两份、且模式说明方向曾写反）
+    // 展开后只含**不随状态变化、且不约束某一具体区块**的机制说明：
+    // 「顺序提示」已迁到路由树卡标题行、「顶层路由是总入口」已下沉到表格正上方
+    // （2026-10-14 布局优化：约束具体表格的说明不该藏在默认收起的折叠区里）
     fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
     const points = screen.getByTestId('routes-intro-guide-points')
     expect(points.textContent ?? '').toContain('一条规则包含')
-    expect(points.textContent ?? '').toContain('顶层路由')
+    expect(points.textContent ?? '').not.toContain('顶层路由')
+    // 下沉后的落位：读表须知常驻在路由树表格正上方
+    expect(screen.getByText(/顶层路由是所有告警的总入口/)).toBeInTheDocument()
   })
 
-  it('平台生成模式：模式徽标渲染为「平台生成」，常驻区说明本页可直接编辑', () => {
+  it('平台生成模式：模式徽标渲染为「平台生成」，模式提示说明本页可直接编辑', () => {
     useRoutesMock.mockReturnValue(result({ data: { mode: 'managed', items: [rootNode], dead_receivers: [] } }))
     // 模式以 useRouteSetting 为准（保存后即刻生效，无需等只读树重新拉取），故同步 mock 为 managed
     useRouteSettingMock.mockReturnValue(
@@ -260,8 +269,9 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     renderPage()
     expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('平台生成')
     // 门禁（isRouteEditable）：managed=本页可写（PRD §11.7「平台管理模式可写」），
-    // 常驻区据此给出编辑引导，而非此前写反的「只读视图」提示
-    expect(screen.getByText(/本页可直接新建/)).toBeInTheDocument()
+    // 模式提示据此给出编辑引导，而非此前写反的「只读视图」提示（2026-10-14：原在常驻 Alert，
+    // Alert 删除后并入 ROUTE_MODE_TIP）
+    expect(screen.getByTestId('route-setting-mode-tip').textContent ?? '').toContain('直接增删改路由')
   })
 
   // 契约②：树形缩进展示层级（按 parent_id / order 建树）；根路由置顶锁定
@@ -719,6 +729,60 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(screen.getByText(/Alertmanager 会向上取整/)).toBeInTheDocument()
     expect(screen.queryByTestId('route-precheck-blocking')).toBeNull()
     expect(screen.getByTestId('route-save-btn')).toBeEnabled()
+  })
+
+  // 2026-10-14 布局优化：条件提示四合一。
+  // 原先 blocking / warnings / partial / saveResult 各占一条满宽 Alert，最坏情况四条同屏——
+  // 同样醒目、同样占宽的色块把「真正阻断保存的那条」淹没了。现收敛为一张「需要处理」卡，
+  // 条目按 severity 从高到低排列。
+  it('需要处理卡：多条提示收敛进同一张卡，且 error 级排在最前', () => {
+    useRouteEditorMock.mockReturnValue(
+      editorResult({
+        tree: editTree,
+        importState: 'partial',
+        importNotice: '有 2 条规则无法被平台完整解析，请手动校正后再保存',
+        issues: [],
+        blocking: [
+          {
+            level: 'error',
+            code: 'receiver_dangling',
+            node_id: 'root/0',
+            field: 'receiver',
+            message: '接收人「sre-critical」未定义（对应通知渠道未启用或已删除），告警将无处可发',
+          },
+        ],
+        warnings: [
+          {
+            level: 'warning',
+            code: 'repeat_interval_not_multiple_of_group_interval',
+            node_id: 'root/0',
+            field: 'repeat_interval',
+            message: '重复间隔 7m 不是分组间隔 5m 的整数倍，Alertmanager 会向上取整（可保存）',
+          },
+        ],
+      }),
+    )
+    renderPage()
+    const card = screen.getByTestId('route-notices')
+    expect(within(card).getByText('需要处理')).toBeInTheDocument()
+    // 三条提示同在卡内
+    expect(within(card).getByTestId('route-precheck-blocking')).toHaveTextContent('必须修正后才能保存')
+    expect(within(card).getByTestId('route-precheck-warning')).toHaveTextContent('有 1 项建议确认')
+    expect(within(card).getByTestId('route-import-notice')).toHaveTextContent('部分导入：不可无损导入')
+    // 排序护栏：阻断项必须排在警告/建议之前，否则「先看哪条」失去意义
+    const alertOrder = Array.from(card.querySelectorAll('[data-testid]')).map((el) =>
+      el.getAttribute('data-testid'),
+    )
+    expect(alertOrder.indexOf('route-precheck-blocking')).toBeLessThan(
+      alertOrder.indexOf('route-import-notice'),
+    )
+  })
+
+  // 收敛后的反向护栏：没有任何待处理项时不该留空壳卡。
+  it('需要处理卡：无待处理项时不渲染', () => {
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+    expect(screen.queryByTestId('route-notices')).toBeNull()
   })
 
   // 编辑抽屉：点「编辑」打开三段式抽屉（标题 = 编辑路由规则）

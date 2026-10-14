@@ -37,6 +37,7 @@
  * 才进入编辑态，而该按钮在首屏更像可选动作而非前置步骤。
  */
 import { useCallback, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Alert,
@@ -118,6 +119,11 @@ const ROUTE_MODE_COLOR: Record<RouteMode, string> = {
 /** 顶层路由锁定说明（Tooltip）。去技术化：不说「route: 本体」，用户语言只说「顶层路由」。 */
 const ROUTE_ROOT_LOCK_TIP = '顶层路由（兜底，即最外层的路由入口），不可删除、不可移动'
 
+/** 路由树读表须知（表格上方常驻）。
+ *  2026-10-14：原在 PageIntro 折叠要点里，与「一条规则包含什么」挤在同一折叠区，
+ *  而它约束的是**这张表**（哪一行是总入口、哪一行不能动），故下沉到表格正上方常驻。 */
+const ROUTE_TREE_LEAD_IN = '顶层路由是所有告警的总入口（兜底），不可删除、不可移动。'
+
 /** 顶层路由在父路由下拉中的展示名 */
 const ROUTE_ROOT_PARENT_LABEL = '顶层路由（兜底）'
 
@@ -160,6 +166,27 @@ const YAML_BLOCK_STYLE = {
   borderRadius: 8,
   fontSize: 13,
 } as const
+
+/** 「需要处理」卡内单条提示的严重度：error = 阻断保存，warning = 可保存但建议确认，
+ *  success = 已提交待人工确认。 */
+type RouteNoticeLevel = 'error' | 'warning' | 'success'
+
+interface RouteNotice {
+  key: string
+  level: RouteNoticeLevel
+  /** 沿用各自原有 data-testid，避免收敛后破坏既有测试契约 */
+  testId?: string
+  title: string
+  body?: ReactNode
+}
+
+/** 严重度排序权重（error 最先，success 最后） */
+const NOTICE_LEVEL_ORDER: Record<RouteNoticeLevel, number> = { error: 0, warning: 1, success: 2 }
+const NOTICE_LEVEL_COLOR: Record<RouteNoticeLevel, string> = {
+  error: 'error',
+  warning: 'warning',
+  success: 'success',
+}
 
 export function RoutesPage() {
   const { data, rows, loading, error, ready, reload } = useRoutes()
@@ -682,11 +709,144 @@ export function RoutesPage() {
     return Array.from(names)
   }, [editor.knownReceivers, editor.tree])
 
+  /** 编辑操作区按钮组（新建 / 导入|重载 / 保存 / 放弃）。
+   *  2026-10-14 布局优化：原先独占一张无标题 Card，视觉上像与路由树无关的第五个区块；
+   *  现挂到路由树卡 `extra`——这些按钮操作的正是这张表，就近才合理（与其余列表页一致）。
+   *  degraded 且未进入编辑态时无路由树可挂，改挂降级卡内，保证「从当前配置导入」入口不丢。 */
+  const routeActions = editable ? (
+    <Space wrap>
+      <Button
+        type="primary"
+        icon={<PlusOutlined />}
+        onClick={openCreate}
+        disabled={!editing}
+        data-testid="route-new-btn"
+      >
+        新建路由规则
+      </Button>
+      <Button onClick={editor.importFromCurrent} data-testid="route-import-btn">
+        {editing ? '重新载入' : '从当前配置导入'}
+      </Button>
+      <Button
+        type="primary"
+        onClick={() => void editor.save()}
+        loading={editor.saving}
+        disabled={!editing}
+        data-testid="route-save-btn"
+      >
+        保存并提交变更
+      </Button>
+      {editing && (
+        <Button onClick={editor.reset} data-testid="route-reset-btn">
+          放弃编辑
+        </Button>
+      )}
+    </Space>
+  ) : null
+
+  /** 操作区附属说明：导入成功提示 + 保存口径提示（后者的三态随加载/编辑/解析状态变化）。 */
+  const routeActionNotes = editable ? (
+    <>
+      {/* 2026-10-13：导入成功提示从整条绿色 Alert 收进操作区内（紧挨其指引的「保存并提交变更」
+          按钮），message 与 description 重复「已从当前配置导入」。partial 信息量大，仍走独立 Alert。 */}
+      {editor.importState === 'imported' && editor.importNotice && (
+        <Text
+          type="success"
+          style={{ display: 'block', marginTop: 8, fontSize: 12 }}
+          data-testid="route-import-notice"
+        >
+          {editor.importNotice}
+        </Text>
+      )}
+      <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+        {editing
+          ? '保存会生成整份 alertmanager.yml 并提交挂载；改动不会立即生效，需在「配置变更确认」中人工确认后才会写入并 reload。'
+          : degraded
+            ? '当前配置无法完整解析，尚未进入编辑态。点「从当前配置导入」可按空白根路由开始手动补齐。'
+            : '正在加载当前路由配置，加载完成后即可直接编辑。'}
+      </Text>
+    </>
+  ) : null
+
+  /** 「需要处理」条目（2026-10-14 布局优化）。
+   *
+   *  背景：原先 partial / saveResult / blocking / warning 是四条各自独立的 Alert 平铺，
+   *  最坏情况四条同时出现——四条同样醒目、同样占满宽度的色块，视觉噪音远大于信息量，
+   *  反而让「真正阻断保存的那一条」被淹没。现收敛为一张卡，条目按 severity 从高到低排列。
+   *
+   *  不收进本卡的两类（它们是「替代视图」而非「一行提示」，塞进来反而更吵）：
+   *  - 整页 error：独占三元分支，与其他内容互斥；
+   *  - degraded 降级卡：承载可滚动 YAML 原文 + 「重新加载」+ 唯一的补齐入口。
+   *  deadReceivers 同理保留独立卡——它带接收人清单与「两种处理方式」，本身是内容主体。
+   */
+  const notices: RouteNotice[] = []
+  if (editable && editor.blocking.length > 0) {
+    notices.push({
+      key: 'precheck-blocking',
+      level: 'error',
+      testId: 'route-precheck-blocking',
+      title: `保存前预检未通过（${editor.blocking.length} 项，必须修正后才能保存）`,
+      body: (
+        <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
+          {editor.blocking.map((i, idx) => (
+            <li key={idx}>{i.message}</li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+  if (editor.saveResult) {
+    notices.push({
+      key: 'save-result',
+      level: editor.saveResult.ok ? 'success' : 'error',
+      testId: 'route-save-result',
+      title: editor.saveResult.ok ? '已提交，等待你在「配置变更确认」中确认下发' : '保存未通过',
+      body: editor.saveResult.ok ? (
+        <Space direction="vertical" size={4}>
+          <span>{editor.saveResult.message}</span>
+          {/* 成功后的唯一下一步就是去 M09 确认（提交只产 pending 草稿，不即时生效）。 */}
+          <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
+        </Space>
+      ) : (
+        editor.saveResult.message
+      ),
+    })
+  }
+  if (editable && editor.importState === 'partial' && editor.importNotice) {
+    notices.push({
+      key: 'import-partial',
+      level: 'warning',
+      testId: 'route-import-notice',
+      title: '部分导入：不可无损导入，请手动校正',
+      body: editor.importNotice,
+    })
+  }
+  if (editable && editor.warnings.length > 0) {
+    notices.push({
+      key: 'precheck-warning',
+      level: 'warning',
+      testId: 'route-precheck-warning',
+      title: `可以保存，但有 ${editor.warnings.length} 项建议确认`,
+      body: (
+        <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
+          {editor.warnings.map((i, idx) => (
+            <li key={idx}>{i.message}</li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+  const sortedNotices = [...notices].sort(
+    (a, b) => NOTICE_LEVEL_ORDER[a.level] - NOTICE_LEVEL_ORDER[b.level]
+  )
+
   return (
     <MainLayout>
       {/* 页头 + 说明区（四页统一，见 components/PageIntro.tsx）。
-          「顺序即优先级」与模式徽标是**随状态变化**的信息（换mode 就变），故留在页头下方常驻；
-          说明区只放不随状态变化的机制说明（2026-10-13 去重：模式引导只留在常驻区，不再重复）。 */}
+          说明区只留**不随状态变化**、且**不约束某一具体区块**的机制说明：
+          「一条规则包含什么」是全页概念；而「顶层路由是总入口」只约束路由树那一张表，
+          已下沉到表格正上方（ROUTE_TREE_LEAD_IN），折叠区里再放一遍等于让用户
+          展开折叠区才能知道哪一行不能拖。 */}
       <PageIntro
         testId="routes-intro"
         title="路由规则"
@@ -694,10 +854,7 @@ export function RoutesPage() {
         // （原副标只讲「按标签匹配」，读不出上方那张「路由设置」卡也归本页管）。
         subtitle="维护告警路由：谁产出路由规则、没匹配到规则的告警发给谁"
         points={[
-          // 2026-10-13 去重：只留**不随状态变化**的机制说明。「顺序即生效顺序」与模式引导
-          // 已由下方常驻状态区承载（PRD §11.7 要求常驻），此前在说明区重复一遍且方向写反。
           '一条规则包含：匹配条件（发什么）、接收人（发给谁）、分组与节奏（怎么攒批、多久重发）。',
-          '顶层路由是所有告警的总入口，不可删除、不可移动；它同时承载「未匹配任何规则的告警发给谁」。',
         ]}
       />
 
@@ -710,12 +867,18 @@ export function RoutesPage() {
         style={{ marginBottom: 16 }}
         data-testid="route-setting-card"
       >
+        {/* 2026-10-14 布局优化：两个控件各占一行「label 左 / 控件 中 / 结论 Tag 右端」，
+            label 固定列宽使两个控件纵向对齐（原先挤在同一个 wrap Space 里，控件一多就错位）。
+            「模式」这个事实原先出现在三处（Segmented / 控件下方说明 / 常驻 Alert 徽标），
+            现只留在本行：徽标并入模式行，说明行改为「谁产出 + 本页能不能编辑」合并成一句。 */}
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           {/* 控件 B：没匹配到具体规则的告警发给谁（含「不接管」= 平台不替换顶层路由接收人）。
               与控件 A 同卡，避免用户在两页之间来回找这一个开关。 */}
           <div>
-            <Space size={8} align="center" wrap>
-              <Text strong>{ROUTE_SETTING_FALLBACK_LABEL}</Text>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <Text strong style={{ minWidth: 260 }}>
+                {ROUTE_SETTING_FALLBACK_LABEL}
+              </Text>
               <Select<number>
                 aria-label={ROUTE_SETTING_FALLBACK_LABEL}
                 value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
@@ -733,7 +896,7 @@ export function RoutesPage() {
                   {fallbackConclusion.text}
                 </Tag>
               )}
-            </Space>
+            </div>
             {/* 决策五原句常驻落位：手写整份文件 ≠ 交出兜底。不明写会被理解成
                 「切到手写 = 交出全部控制权」，而只有这一项仍由平台决定。 */}
             <Text
@@ -748,8 +911,10 @@ export function RoutesPage() {
           {/* 控件 A：路由规则由谁维护（Segmented 表达二选一模式，非 Switch 的开/关）。
               置于控件 B 之下，让"读卡顺序 = 因果顺序"：先看清兜底归谁，再决定谁来写路由。 */}
           <div>
-            <Space size={8} align="center" wrap>
-              <Text strong>{ROUTE_SETTING_MODE_LABEL}</Text>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <Text strong style={{ minWidth: 260 }}>
+                {ROUTE_SETTING_MODE_LABEL}
+              </Text>
               <Segmented
                 aria-label={ROUTE_SETTING_MODE_LABEL}
                 value={mode === 'managed' ? 'managed' : 'handwritten'}
@@ -760,7 +925,12 @@ export function RoutesPage() {
                 ]}
                 onChange={(value) => handleModeChange(value as RouteMode)}
               />
-            </Space>
+              {/* 模式徽标（原在常驻 Alert 里）：并入本行右端，「当前是哪个模式 + 本页能不能编辑」
+                  三件事在一条横线上读完，不必在页头与卡片之间来回对视线。 */}
+              <Tag color={ROUTE_MODE_COLOR[mode]} data-testid="route-mode-badge">
+                {ROUTE_MODE_LABEL[mode]}
+              </Tag>
+            </div>
             <Text
               type="secondary"
               style={{ display: 'block', marginTop: 4, fontSize: 12 }}
@@ -801,37 +971,10 @@ export function RoutesPage() {
         </Space>
       </Card>
 
-      {/* 常驻状态区：顺序即优先级 + 模式徽标（按 mode 渲染） */}
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message={
-          <Space size={8} wrap>
-            <Text strong>{ROUTE_ORDER_TIP}</Text>
-            <Tag color={ROUTE_MODE_COLOR[mode]} data-testid="route-mode-badge">
-              {ROUTE_MODE_LABEL[mode]}
-            </Tag>
-          </Space>
-        }
-        description={
-          // 2026-10-13 方向修正：此前两分支与门禁 `isRouteEditable`（managed=可写，PRD §11.7
-          // L752「平台管理模式可写、手写模式只读」）写反，导致按钮明明可点却提示「本页为只读」。
-          // A5：反向链接（原「前往告警配置」）已删除——模式开关已迁至上方常驻「路由设置」卡，
-          // 让用户为改一个开关跨页跳转是纯粹的绕路；改为就地指引（指向本卡控件 A）。
-          mode === 'handwritten' ? (
-            <Text>
-              本页为只读展示，不提供新建 / 编辑 / 拖拽入口；在上方
-              <Text strong>「路由设置」</Text>
-              里把「路由规则由谁维护」切换为「{ROUTE_MODE_MANAGED}」，即可在此页直接编辑。
-            </Text>
-          ) : (
-            <Text>
-              本页可直接新建 / 编辑 / 拖拽调整顺序，改动经「保存并提交变更」进入「配置变更确认」，不即时生效。
-            </Text>
-          )
-        }
-      />
+      {/* 2026-10-14 布局优化：原此处常驻 info Alert 整块删除。它把「顺序即生效顺序」+
+          模式徽标 + 可编辑性指引三件事混在一块醒目蓝条里，而这三件事已各自有更贴近的落位：
+          徽标 → 路由设置卡的模式行；可编辑性 → ROUTE_MODE_TIP；顺序提示 → 路由树卡标题行。
+          「模式」因此只说一次（不再三处重复），腾出的注意力留给真正需要动作的告警。 */}
 
       {error ? (
         <Alert
@@ -849,7 +992,7 @@ export function RoutesPage() {
       ) : (
         <>
           {/* 解析失败降级：原文只读展示 + 提示（不白屏、不报错页）；
-              平台模式下仍可从上方操作区「从当前配置导入」走「部分导入 + 手动校正」通道 */}
+              平台模式下仍可从本卡底部「从当前配置导入」走「部分导入 + 手动校正」通道 */}
           {degraded && (
           <Card
             title={
@@ -870,11 +1013,15 @@ export function RoutesPage() {
             为避免白屏，下面按原文只读展示当前 alertmanager.yml 内容；修复配置后可点击「重新加载」重试。
           </Text>
           <pre style={YAML_BLOCK_STYLE}>{data?.raw_yaml ?? ''}</pre>
-            <Space style={{ marginTop: 12 }}>
+            <Space style={{ marginTop: 12 }} wrap>
               <Button size="small" onClick={reload}>
                 重新加载
               </Button>
+              {/* degraded 时 showTree=false（除非已导入进入编辑态），路由树卡不存在，
+                  操作区改挂此处——否则这条唯一的「补齐入口」会随操作卡一起消失。 */}
+              {routeActions}
             </Space>
+            {routeActionNotes}
           </Card>
           )}
 
@@ -921,127 +1068,39 @@ export function RoutesPage() {
             </Card>
           )}
 
-          {editable && (
-            <Card style={{ marginBottom: 16 }} styles={{ body: { paddingBlock: 12 } }}>
-              <Space wrap>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={openCreate}
-                  disabled={!editing}
-                  data-testid="route-new-btn"
-                >
-                  新建路由规则
-                </Button>
-                <Button onClick={editor.importFromCurrent} data-testid="route-import-btn">
-                  {editing ? '重新载入' : '从当前配置导入'}
-                </Button>
-                <Button
-                  type="primary"
-                  onClick={() => void editor.save()}
-                  loading={editor.saving}
-                  disabled={!editing}
-                  data-testid="route-save-btn"
-                >
-                  保存并提交变更
-                </Button>
-                {editing && (
-                  <Button onClick={editor.reset} data-testid="route-reset-btn">
-                    放弃编辑
-                  </Button>
-                )}
-              </Space>
-              {/* 2026-10-13 布局优化：导入成功提示从卡片外的整条绿色 Alert 收进操作区内
-                  （紧挨其指引的「保存并提交变更」按钮）。整条大绿条会把保存按钮挤出首要视线，
-                  且 message 与 description 重复「已从当前配置导入」。partial（warning）信息量大，
-                  仍保留下方独立 Alert。 */}
-              {editor.importState === 'imported' && editor.importNotice && (
-                <Text
-                  type="success"
-                  style={{ display: 'block', marginTop: 8, fontSize: 12 }}
-                  data-testid="route-import-notice"
-                >
-                  {editor.importNotice}
-                </Text>
-              )}
-              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                {editing
-                  ? '保存会生成整份 alertmanager.yml 并提交挂载；改动不会立即生效，需在「配置变更确认」中人工确认后才会写入并 reload。'
-                  : degraded
-                    ? '当前配置无法完整解析，尚未进入编辑态。点「从当前配置导入」可按空白根路由开始手动补齐。'
-                    : '正在加载当前路由配置，加载完成后即可直接编辑。'}
-              </Text>
-            </Card>
-          )}
+          {/* 2026-10-14 布局优化：原此处「新建 / 导入 / 保存 / 放弃」独占一张无标题 Card，
+              已删除——按钮操作的就是下方那张路由树，挂在路由树卡 extra 里就近得多。
+              degraded 态的挂载点见上方降级卡（showTree=false 时路由树卡不渲染）。 */}
 
-          {/* 部分导入提示（不可无损导入，需手动校正）——完整导入的成功提示已收进上方操作区 */}
-          {editable && editor.importState === 'partial' && editor.importNotice && (
-            <Alert
-              type="warning"
-              showIcon
+          {/* 需要处理：保存前预检阻断 / 保存结果 / 部分导入 / 预检建议，四合一。
+              完整导入的成功提示不进这里——它属于「已完成的正常操作」，挂在操作区按钮旁。 */}
+          {sortedNotices.length > 0 && (
+            <Card
               style={{ marginBottom: 16 }}
-              data-testid="route-import-notice"
-              message="部分导入：不可无损导入，请手动校正"
-              description={editor.importNotice}
-            />
-          )}
-
-          {/* 保存结果 */}
-          {editor.saveResult && (
-            <Alert
-              type={editor.saveResult.ok ? 'success' : 'error'}
-              showIcon
-              style={{ marginBottom: 16 }}
-              data-testid="route-save-result"
-              message={editor.saveResult.ok ? '已提交，等待你在「配置变更确认」中确认下发' : '保存未通过'}
-              description={
-                editor.saveResult.ok ? (
-                  <Space direction="vertical" size={4}>
-                    <span>{editor.saveResult.message}</span>
-                    {/* 成功后的唯一下一步就是去 M09 确认（提交只产 pending 草稿，不即时生效）。 */}
-                    <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-                  </Space>
-                ) : (
-                  editor.saveResult.message
-                )
+              data-testid="route-notices"
+              title={
+                <Space size={8}>
+                  <WarningOutlined />
+                  需要处理
+                  <Tag color={NOTICE_LEVEL_COLOR[sortedNotices[0].level]}>
+                    {sortedNotices.length}
+                  </Tag>
+                </Space>
               }
-            />
-          )}
-
-          {/* 保存前本地预检：阻断项红字列出（不阻断保存按钮交互，保存时再次裁决） */}
-          {editable && editor.blocking.length > 0 && (
-            <div data-testid="route-precheck-blocking">
-              <Alert
-                type="error"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={`保存前预检未通过（${editor.blocking.length} 项，必须修正后才能保存）`}
-                description={
-                  <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
-                    {editor.blocking.map((i, idx) => (
-                      <li key={idx}>{i.message}</li>
-                    ))}
-                  </ul>
-                }
-              />
-            </div>
-          )}
-          {editable && editor.warnings.length > 0 && (
-            <div data-testid="route-precheck-warning">
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={`可以保存，但有 ${editor.warnings.length} 项建议确认`}
-                description={
-                  <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
-                    {editor.warnings.map((i, idx) => (
-                      <li key={idx}>{i.message}</li>
-                    ))}
-                  </ul>
-                }
-              />
-            </div>
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {sortedNotices.map((n) => (
+                  <Alert
+                    key={n.key}
+                    type={n.level}
+                    showIcon
+                    data-testid={n.testId}
+                    message={n.title}
+                    description={n.body}
+                  />
+                ))}
+              </Space>
+            </Card>
           )}
 
           {showTree && (
@@ -1053,9 +1112,25 @@ export function RoutesPage() {
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   共 {viewRows.length} 个节点
                 </Text>
+                {/* 「顺序即生效顺序」原在页头下方常驻 info Alert 里（与模式徽标、可编辑性指引
+                    混在一块）。2026-10-14 Alert 整块删除后，本句迁到它真正约束的那张表的标题行
+                    ——顺序只对这张表有意义，紧贴表格比占据页面顶端更合理。 */}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {ROUTE_ORDER_TIP}
+                </Text>
               </Space>
             }
+            /* 操作按钮迁入 extra（2026-10-14）：原先独占一张无标题 Card。
+               手写模式（editable=false）无编辑动作，不占 extra 位。 */
+            extra={routeActions}
           >
+            {/* 导入成功提示与保存口径：贴在表格正上方，紧邻其指引的「保存并提交变更」按钮 */}
+            {routeActionNotes}
+            {/* 读表须知（2026-10-14 从 PageIntro 折叠要点下沉）：「顶层路由是总入口」约束的
+                是这张表里哪一行不能动，放在表格正上方才看得出说的是哪一行。 */}
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+              {ROUTE_TREE_LEAD_IN}
+            </Text>
             <Table<RouteViewRow>
               rowKey={(row) => row.id}
               dataSource={viewRows}
