@@ -33,6 +33,18 @@ type LabelTemplate struct {
 	Mappings         []LabelMapping   `gorm:"serializer:json" json:"mappings"`
 }
 
+// NormalizeMappings 把 nil 的映射切片归一为**空切片**，避免 JSON 序列化成 `null`。
+//
+// 成因：`Mappings` 是 `serializer:json` 列，新建模板不传映射时落库为 NULL，读回来是
+// nil slice → 序列化成 `mappings: null`。前端按数组消费（`mappings.length`）会直接
+// 抛 TypeError 白屏（实测于标签模板列表新建后）。
+// 凡对外输出 LabelTemplate 的读/写路径都应先调用本方法。
+func (t *LabelTemplate) NormalizeMappings() {
+	if t.Mappings == nil {
+		t.Mappings = []LabelMapping{}
+	}
+}
+
 // DefaultMappingBuilders returns the default field→label mappings for a given
 // resource category, aligned with Module_07 §5.13.
 //

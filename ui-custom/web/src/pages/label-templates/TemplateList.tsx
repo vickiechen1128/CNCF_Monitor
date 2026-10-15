@@ -280,7 +280,10 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
                     description={
                       <Space size={12} wrap>
                         <span>
-                          <Badge count={tpl.mappings.length} showZero color="#185FA5" /> {tpl.mappings.length} 条映射
+                          {/* 防御：后端在「模板从未写过映射」时曾返回 `mappings: null`，
+                              直接读 .length 会抛 TypeError 白屏（已在后端出口经
+                              NormalizeMappings 兜底，此处再兜一层）。 */}
+                          <Badge count={tpl.mappings?.length ?? 0} showZero color="#185FA5" /> {tpl.mappings?.length ?? 0} 条映射
                         </span>
                         {/* 双场景治理边界（PRD §3.3/§5.2/§6.2）：仅实例级自定义开放类别展示关联实例 badge（F-34） */}
                         {INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(tpl.resource_category) && (
