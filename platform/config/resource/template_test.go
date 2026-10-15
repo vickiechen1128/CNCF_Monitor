@@ -32,7 +32,7 @@ func setupTemplateRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), newPlatformStore(t), newSvcStore(t), fakeDomains))
+	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), newPlatformStore(t), fakeDomains))
 	return r
 }
 
@@ -48,20 +48,30 @@ func openEmptyAppDictDB(t *testing.T) *gorm.DB {
 // emptyDictTemplateDBCounter 为「全空字典」测试生成唯一内存 DB 名。
 var emptyDictTemplateDBCounter int64
 
-// openEmptyDictDB 打开四张字典表全空的内存 DB（业务/应用/平台/服务），用于模板取值
+// openEmptyDictDB 打开三张字典表全空的内存 DB（业务/应用/平台），用于模板取值
 // 说明在无任何字典数据时的降级断言。
 func openEmptyDictDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	n := atomic.AddInt64(&emptyDictTemplateDBCounter, 1)
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:resource_template_empty_dict_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.BusinessDomain{}, &models.ApplicationDict{}, &models.PlatformDict{}, &models.ServiceDict{}))
+	require.NoError(t, db.AutoMigrate(&models.BusinessDomain{}, &models.ApplicationDict{}, &models.PlatformDict{}))
 	return db
 }
 
 // allCategories 是五类权威资源类型。
 func allCategories() []models.ResourceCategory {
 	return models.ValidResourceCategories()
+}
+
+// containsColumn 报告 cols 是否含 want 列（用于按类别条件化断言）。
+func containsColumn(cols []string, want string) bool {
+	for _, c := range cols {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }
 
 // flattenRows 把「取值说明」二维单元格展平为 `cell|cell|...`，便于子串断言。
@@ -126,17 +136,21 @@ func TestTemplateColumnsMatchPRD(t *testing.T) {
 			"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 			"scrape_port",
 		},
-		// 决策 105 / §5.16.1：application / generic_target 模板新增可选 service_code 列；
 		// 决策 110：五类模板均在 app_code 之后新增可空 platform_code 列。
 		models.ResourceCategoryApplication: {
-			"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
+			"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
 			"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
 			"scrape_port",
 		},
 		models.ResourceCategoryGenericTarget: {
 			"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
-			"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+			"exporter_type", "custom_labels", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 			"scrape_port",
+		},
+		// 接口服务用平台自带的 blackbox_exporter 探活（目标即完整 URL），无采集端口
+		// 语义，是全类别里唯一**不追加** scrape_port 尾列的。
+		models.ResourceCategoryInterfaceService: {
+			"network_domain", "api_name", "api_url", "biz_code", "app_code", "env", "status",
 		},
 	}
 
@@ -281,7 +295,7 @@ func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/platform/resources/:type/template",
-		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), newPlatformStore(t), newSvcStore(t), fakeDomains))
+		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), newPlatformStore(t), fakeDomains))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources/host/template", nil)
@@ -554,45 +568,34 @@ func TestDownloadedTemplateParsesToZeroRows(t *testing.T) {
 	}
 }
 
-// TestBuildValueSheetEmptyDictsNoPanic 断言字典与网域清单全空（含 nil 平台/服务
-// store）时，取值说明仍能生成且不 panic（降级行为）。
+// TestBuildValueSheetEmptyDictsNoPanic 断言字典与网域清单全空（含 nil 平台 store）时，
+// 取值说明仍能生成且不 panic（降级行为）。
 func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	emptyDB := openEmptyDictDB(t)
 	bizStore := NewBusinessDomainStore(emptyDB)
 	appStore := NewApplicationDictStore(emptyDB)
 	platformStore := NewPlatformDictStore(emptyDB)
-	svcStore := NewServiceDictStore(emptyDB)
 
 	t.Run("全部字典与网域清单为空", func(t *testing.T) {
 		for _, cat := range allCategories() {
-			rows, err := buildValueSheet(cat, bizStore, appStore, platformStore, svcStore,
+			rows, err := buildValueSheet(cat, bizStore, appStore, platformStore,
 				func() ([]DomainOption, error) { return nil, nil })
 			require.NoError(t, err)
 			require.Len(t, rows, len(TemplateColumns[cat])+2)
 			flat := flattenRows(rows)
 			assert.Contains(t, flat, "暂无已登记应用", "空应用字典应输出占位引导，而非空串")
-			assert.Contains(t, flat, "可空列，留空按所属应用主平台兜底", "平台字典为空时保留兜底说明")
-			// service_code 行按类过滤后只在 application / generic_target 出现（决策 105），
-			// 故仅对含该列的类别断言「服务字典为空时保留可选说明」。
-			hasServiceCode := false
-			for _, col := range TemplateColumns[cat] {
-				if col == "service_code" {
-					hasServiceCode = true
-					break
-				}
-			}
-			if hasServiceCode {
-				assert.Contains(t, flat, "可选列，留空不填", "服务字典为空时保留可选说明")
-			} else {
-				assert.NotContains(t, flat, "可选列，留空不填", "本类别无 service_code 列，不应输出该行")
+			// interface_service 模板刻意不含 platform_code 列，故仅在含该列的类别上断言
+			// 平台兜底说明。
+			if containsColumn(TemplateColumns[cat], "platform_code") {
+				assert.Contains(t, flat, "可空列，留空按所属应用主平台兜底", "平台字典为空时保留兜底说明")
 			}
 		}
 	})
 
-	t.Run("平台与服务字典 store 为 nil", func(t *testing.T) {
+	t.Run("平台字典 store 为 nil", func(t *testing.T) {
 		require.NotPanics(t, func() {
-			rows, err := buildValueSheet(models.ResourceCategoryApplication, bizStore, appStore, nil, nil, fakeDomains)
+			rows, err := buildValueSheet(models.ResourceCategoryApplication, bizStore, appStore, nil, fakeDomains)
 			require.NoError(t, err)
 			assert.Len(t, rows, len(TemplateColumns[models.ResourceCategoryApplication])+2)
 		})
@@ -600,7 +603,7 @@ func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T) {
 
 	t.Run("listDomains 为 nil", func(t *testing.T) {
 		require.NotPanics(t, func() {
-			rows, err := buildValueSheet(models.ResourceCategoryHost, bizStore, appStore, platformStore, svcStore, nil)
+			rows, err := buildValueSheet(models.ResourceCategoryHost, bizStore, appStore, platformStore, nil)
 			require.NoError(t, err)
 			assert.Len(t, rows, len(TemplateColumns[models.ResourceCategoryHost])+2)
 		})

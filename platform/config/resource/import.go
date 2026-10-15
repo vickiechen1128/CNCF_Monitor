@@ -49,7 +49,7 @@ const maxImportFileSize = 10 << 20
 //     field, value, reason}]}，create_only 不含 updated 字段。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
+func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 资源类型：表单优先，路径 :type 兜底。
 		categoryStr := strings.TrimSpace(c.PostForm("resource_category"))
@@ -58,7 +58,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 		}
 		category := models.ResourceCategory(categoryStr)
 		if !isValidCategory(category) {
-			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", categoryStr))
+			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 %s", categoryStr, models.CategoriesHint()))
 			return
 		}
 
@@ -102,15 +102,15 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			return
 		}
 
-		// 4.5 决策 97 / 104 / 105：解析并校验「业务声明」「应用声明」「平台声明」
-		// 「服务声明」四个内联 sheet（校验顺序 ①声明自身：编码/必填/重码/同名不一致/
+		// 4.5 决策 97 / 104：解析并校验「业务声明」「应用声明」「平台声明」
+		// 三个内联 sheet（校验顺序 ①声明自身：编码/必填/重码/同名不一致/
 		// 停用激活均硬拒绝）；声明自身失败 → bad_request 整体拒绝，不落任何数据。
 		sheets, err := ParseDeclareSheets(fileBytes)
 		if err != nil {
 			response.BadRequest(c, err)
 			return
 		}
-		if err := validateDeclareSheets(sheets, bizStore, appStore, platformStore, svcStore); err != nil {
+		if err := validateDeclareSheets(sheets, bizStore, appStore, platformStore); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
@@ -138,7 +138,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 		// 决策 110：事务内 store 令「声明 sheet ∪ 字典」在事务内可见，platform_code
 		// 的平台启用态与「所属应用平台集合」自洽校验同口径生效。
 		valid, errs := ValidateRowsWithPlatform(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx),
-			NewServiceDictStore(tx), networkDomainExistsFunc(tx), nil,
+			networkDomainExistsFunc(tx), nil,
 			&PlatformRefs{PlatformStore: NewPlatformDictStore(tx), AppPlatformStore: NewAppPlatformStore(tx)})
 
 		// 6. 逐行执行 create_only/upsert。
@@ -286,6 +286,16 @@ func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *
 		if result.Error != gorm.ErrRecordNotFound {
 			return nil, false, fmt.Errorf("按判重键定位 generic_target：%w", result.Error)
 		}
+	case models.ResourceCategoryInterfaceService:
+		// 判重键与 DedupKey(interface_service) 同源：(network_domain_id, api_url)。
+		var o models.InterfaceService
+		result := db.Where("network_domain_id = ? AND api_url = ?", in.NetworkDomainID, in.APIURL).First(&o)
+		if result.Error == nil {
+			return &o, true, nil
+		}
+		if result.Error != gorm.ErrRecordNotFound {
+			return nil, false, fmt.Errorf("按判重键定位 interface_service：%w", result.Error)
+		}
 	}
 	return nil, false, nil
 }
@@ -303,6 +313,8 @@ func setSourceType(model any, st models.SourceType) {
 	case *models.Application:
 		m.SourceType = st
 	case *models.GenericTarget:
+		m.SourceType = st
+	case *models.InterfaceService:
 		m.SourceType = st
 	}
 }

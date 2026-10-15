@@ -133,6 +133,8 @@ describe('ScrapeJobFormDrawer', () => {
     fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
     // antd Select 的 placeholder 以文本呈现而非 placeholder 属性，按文本查询
     expect(await screen.findByText('选择拨测模块')).toBeInTheDocument()
+    // 阶段5 解耦：资源类别与探测地址字段均为用户可见选择项
+    expect(screen.getByText('探测地址字段')).toBeInTheDocument()
     expect(screen.getByText('拨测目标')).toBeInTheDocument()
     expect(screen.queryByText('监控对象类型')).toBeNull()
   })
@@ -150,7 +152,7 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.getByPlaceholderText('密文仅存储，不回显')).toBeInTheDocument()
   })
 
-  it('submits a blackbox job with required fields', async () => {
+  it('submits a blackbox job with resource-based targets (阶段5：手填已禁用)', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 9, job_name: 'probe-x', job_type: 'blackbox' } })
     renderDrawer()
 
@@ -168,9 +170,16 @@ describe('ScrapeJobFormDrawer', () => {
     const moduleOption = await screen.findByText('http_2xx', { selector: '.ant-select-item-option-content' })
     await userEvent.click(moduleOption)
 
-    // 添加一个拨测目标并填 target
-    fireEvent.click(screen.getByText('添加拨测目标'))
-    await userEvent.type(await screen.findByPlaceholderText('目标地址'), 'https://example.com')
+    // 阶段5：先选资源类别，再选该类别的探测地址字段（均不再固定）
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    await selectAntdOption('接口服务')
+    // 选类别后才启用字段下拉（placeholder 由「请先选择资源类别」切换）
+    expect(await screen.findByText('请选择探测地址字段')).toBeInTheDocument()
+    fireEvent.mouseDown(screen.getByText('请选择探测地址字段'))
+    await selectAntdOption('接口地址')
+
+    // 拨测目标改走「从资源选择」：旧的手填入口必须彻底消失
+    expect(screen.queryByText('添加拨测目标')).not.toBeInTheDocument()
 
     // 新增态 footer：提交生效（完整校验进入 M09 管线）
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
@@ -181,7 +190,30 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.job_type).toBe('blackbox')
     expect(body.blackbox_module).toBe('http_2xx')
     expect(body.network_domain_id).toBe('mc-a')
-    expect((body.blackbox_targets as { target: string }[])[0].target).toBe('https://example.com')
+    // 目标由资源选择承载：类别与字段均取自用户选择，且不再提交 blackbox_targets
+    expect(body.resource_type).toBe('interface_service')
+    expect(body.target_field).toBe('api_url')
+    expect(body.blackbox_targets).toBeUndefined()
+  })
+
+  it('blackbox：探测地址字段候选随资源类别联动，换类别清空已选字段', async () => {
+    renderDrawer()
+    fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
+
+    // 未选类别时字段下拉禁用并提示先选类别
+    expect(await screen.findByText('请先选择资源类别')).toBeInTheDocument()
+
+    // 选「数据库」类别 → 字段候选取自该类别列（含 IP 地址，不含主标识/采集状态）
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    await selectAntdOption('数据库')
+    fireEvent.mouseDown(await screen.findByText('请选择探测地址字段'))
+    expect(await screen.findByText('数据库类型', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    await selectAntdOption('IP 地址')
+
+    // 换类别 → 已选字段被清空，字段下拉回到未选态
+    fireEvent.mouseDown(screen.getByText('数据库'))
+    await selectAntdOption('主机')
+    expect(await screen.findByText('请选择探测地址字段')).toBeInTheDocument()
   })
 
   it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {

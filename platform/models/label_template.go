@@ -36,8 +36,7 @@ type LabelTemplate struct {
 // DefaultMappingBuilders returns the default field→label mappings for a given
 // resource category, aligned with Module_07 §5.13.
 //
-// `platform` 是资源行一等字段，经 platform_code → platform 映射注入；`svc` 经
-// service_code 映射，仅 application / generic_target 拥有该映射行。
+// `platform` 是资源行一等字段，经 platform_code → platform 映射注入。
 func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 	if category == ResourceCategoryApplication {
 		// application default template has no composite→instance mapping; endpoint
@@ -46,13 +45,27 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 			{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
 			{SourceField: "platform_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "platform", Enabled: true},
 			{SourceField: "service_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "service_name", Enabled: true},
-			// 决策 105：service_code → svc（可选字段，留空不注入；既有 service_name 映射不动）。
-			{SourceField: "service_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "svc", Enabled: true},
 			{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 			{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
 			{SourceField: "health_check_url", SourceType: LabelSourceTypeResourceField, TargetLabel: "health_check_url", Enabled: true},
+		}
+	}
+
+	if category == ResourceCategoryInterfaceService {
+		// 接口服务（第 6 类）：拨测目标是**完整 URL**，没有 instance_ip/port 概念，
+		// 故**刻意不含** composite→instance 组合映射（`instance_ip:port` 对它不成立，
+		// 会产出空 instance 标签 —— 见实施计划高危点 H4）。
+		return []LabelMapping{
+			{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
+			{SourceField: "platform_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "platform", Enabled: true},
+			{SourceField: "api_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "api_name", Enabled: true},
+			{SourceField: "api_url", SourceType: LabelSourceTypeResourceField, TargetLabel: "api_url", Enabled: true},
+			{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
+			{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
+			{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
 		}
 	}
 
@@ -66,13 +79,6 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 		{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 		{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 		{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
-	}
-	// 决策 105：service_code → svc 映射仅对 application / generic_target 生效
-	//（同上的 svc 行）——host / database / middleware 属基础设施，不挂服务维度。
-	if category == ResourceCategoryGenericTarget {
-		return append([]LabelMapping{
-			{SourceField: "service_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "svc", Enabled: true},
-		}, mappings...)
 	}
 
 	// 决策 103 scheme-B：cloud / zone / network_domain 三标签改由 TARGET-LEVEL

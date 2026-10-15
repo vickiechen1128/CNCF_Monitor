@@ -38,6 +38,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.ScrapeJob{},
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
@@ -91,13 +92,14 @@ func seed(t *testing.T, db *gorm.DB) {
 		Code: "infra", Name: "公共基础设施", Enabled: true,
 	}).Error)
 
-	// 12 个资源，覆盖五类 + 应用归属（含未归类）+ 子类，用于分组聚合不变量断言：
+	// 15 个资源，覆盖六类 + 应用归属（含未归类）+ 子类，用于分组聚合不变量断言：
 	//   host(3): Image=linux/linux/windows；AppCode=app/app/""（未归类）；BizCode=pay/ops/infra
 	//   database(2): DatabaseType=mysql/redis；AppName=db/db；BizCode=infra/infra
 	//   middleware(2): MiddlewareType=nginx/kafka；AppName=app/""（未归类）；BizCode=pay/infra
 	//   application(2): AppName=appsvc/""（未归类）；无子类；BizCode=infra/infra
 	//   generic_target(3): ExporterType=snmp_exporter/snmp_exporter/http_exporter；AppName=gt/gt/""（未归类）；BizCode=infra/infra/infra
-	// → resource_count=12，未归类(app 空)=4，app 非空=8。
+	//   interface_service(3): AppCode=""（未归类）；BizCode=infra；无子类
+	// → resource_count=15，未归类(app 空)=7，app 非空=8。
 	// 业务域多数归因（决策 92/93/95）：app 下 3 资源 biz=pay×2 + ops×1 → BizCode=pay；
 	// db/appsvc/gt 全量 biz=infra → BizCode=infra。
 	for _, m := range []interface{}{
@@ -183,6 +185,34 @@ func seed(t *testing.T, db *gorm.DB) {
 			},
 			TargetName: "http-1", InstanceIP: "10.0.0.9", Port: 9115, ExporterType: "http_exporter",
 		},
+		// 接口服务（第 6 类，拨测资源模式的目标源）：app_code 空（未归类）。
+		&models.InterfaceService{
+			ResourceBase: models.ResourceBase{
+				ResourceID: "res-is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
+				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				SourceType: models.SourceTypeManual,
+			},
+			APIName: "订单查询", APIURL: "https://api.example.com/order/health",
+			ResourceType: models.ResourceTypeInterfaceService,
+		},
+		&models.InterfaceService{
+			ResourceBase: models.ResourceBase{
+				ResourceID: "res-is-2", ResourceCategory: models.ResourceCategoryInterfaceService,
+				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				SourceType: models.SourceTypeManual,
+			},
+			APIName: "支付回调", APIURL: "https://api.example.com/pay/health",
+			ResourceType: models.ResourceTypeInterfaceService,
+		},
+		&models.InterfaceService{
+			ResourceBase: models.ResourceBase{
+				ResourceID: "res-is-3", ResourceCategory: models.ResourceCategoryInterfaceService,
+				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				SourceType: models.SourceTypeManual,
+			},
+			APIName: "用户查询", APIURL: "https://api.example.com/user/health",
+			ResourceType: models.ResourceTypeInterfaceService,
+		},
 	} {
 		require.NoError(t, db.Create(m).Error)
 	}
@@ -249,10 +279,11 @@ func newJob(name string, jobType models.JobType, draftStatus string, enabled boo
 
 // seedScrapeJobs 构造采集 Job 覆盖场景，用于 monitored_count / scrape_job_count / 拨测口径断言：
 //   - ready+enabled 标准 Job 覆盖 res-host-1 / res-host-2 / res-db-1 / res-mw-1 / res-app-1 /
-//     res-gt-1（去重）→ monitored=6；
+//     res-gt-1（去重）；
 //   - draft 状态、enabled=false 的标准 Job 选中的资源不得计入；
-//   - blackbox Job 选中 res-mw-2，用于证明「blackbox 不计入 monitored」且拨测目标独立统计；
-//   - 未软删 Job 共 5 个，其中 enabled=true 4 个；blackbox Job 带 3 个拨测目标。
+//   - blackbox Job（资源模式）选中 3 个 interface_service 资源，其拨测目标由 api_url 派生；
+//     H9：黑盒资源模式的选择**计入 monitored**（与覆盖率口径一致）；
+//   - 未软删 Job 共 5 个，其中 enabled=true 4 个。
 func seedScrapeJobs(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
@@ -261,15 +292,11 @@ func seedScrapeJobs(t *testing.T, db *gorm.DB) {
 		newJob("job-standard-b", models.JobTypeStandard, "ready", true, []string{"res-mw-1", "res-app-1", "res-gt-1"}),
 		newJob("job-standard-c", models.JobTypeStandard, "draft", true, []string{"res-host-3"}),
 		newJob("job-standard-d", models.JobTypeStandard, "ready", false, []string{"res-db-2"}),
-		newJob("job-blackbox-a", models.JobTypeBlackbox, "ready", true, []string{"res-mw-2"}),
+		newJob("job-blackbox-a", models.JobTypeBlackbox, "ready", true, []string{"res-is-1", "res-is-2", "res-is-3"}),
 	}
-	// blackbox Job 自带 3 个拨测目标（models.BlackboxTarget，不计入资源台账）。
-	// 第 3 个带显式 URL，用于 probe_targets.url 优先取 URL 的断言。
-	jobs[4].BlackboxTargets = []models.BlackboxTarget{
-		{Target: "10.0.0.1:80", Protocol: models.BlackboxTargetProtocolHTTP},
-		{Target: "10.0.0.2:80", Protocol: models.BlackboxTargetProtocolHTTP},
-		{Target: "10.0.0.3:443", Protocol: models.BlackboxTargetProtocolHTTPS, URL: "https://10.0.0.3:443/healthz"},
-	}
+	// 拨测目标改走资源选择：blackbox Job 通过 selected_instance_ids 选择接口服务资源，
+	// 地址取所选资源的 api_url（不再手填 blackbox_targets）。
+	jobs[4].ResourceType = models.ResourceTypeInterfaceService
 	for i := range jobs {
 		require.NoError(t, db.Create(&jobs[i]).Error)
 	}
@@ -304,13 +331,14 @@ func TestSummaryHandler(t *testing.T) {
 	code, s := runSummaryRequest(t, db)
 	require.Equal(t, http.StatusOK, code)
 
-	assert.Equal(t, 12, s.ResourceCount, "五类资源合计")
+	assert.Equal(t, 15, s.ResourceCount, "六类资源合计")
 	assert.Equal(t, 2, s.PendingDraftCount)
 	assert.Equal(t, 1, s.DomainCount, "仅 default 网域已纳管")
 
-	// 已监控：ready+enabled 标准 Job 覆盖 6 个资源（host-1/2、db-1、mw-1、app-1、gt-1）；
-	// draft / disabled / blackbox / 软删 Job 均不计入。
-	assert.Equal(t, 6, s.MonitoredCount)
+	// 已监控：ready+enabled Job 覆盖 9 个资源——标准 Job 6 个（host-1/2、db-1、mw-1、
+	// app-1、gt-1）+ 拨测资源模式 3 个接口服务（H9 统一口径）。draft / disabled / 软删
+	// Job 均不计入。
+	assert.Equal(t, 9, s.MonitoredCount)
 	assert.LessOrEqual(t, s.MonitoredCount, s.ResourceCount, "已监控不得超过资源总数")
 
 	// —— 决策 91 分组聚合不变量（验收红线）——
@@ -319,9 +347,10 @@ func TestSummaryHandler(t *testing.T) {
 	for _, c := range s.ByCategory {
 		sumCatRes += c.ResourceCount
 		sumCatMon += c.MonitoredCount
-		// 子类合计应等于该类合计（application 不设子类，by_subtype 恒为空数组，跳过）。
-		if c.ResourceCategory == "application" {
-			assert.Empty(t, c.BySubtype, "application 不设子类")
+		// 子类合计应等于该类合计（application / interface_service 不设子类，
+		// by_subtype 恒为空数组，跳过）。
+		if c.ResourceCategory == "application" || c.ResourceCategory == "interface_service" {
+			assert.Empty(t, c.BySubtype, "%s 不设子类", c.ResourceCategory)
 			continue
 		}
 		var subRes, subMon int
@@ -342,7 +371,7 @@ func TestSummaryHandler(t *testing.T) {
 		sumAppMon += a.MonitoredCount
 	}
 	assert.Equal(t, 8, sumAppRes, "app 非空资源数")
-	assert.Equal(t, 4, s.UnclassifiedResourceCount, "未归类资源数（app_code 空）")
+	assert.Equal(t, 7, s.UnclassifiedResourceCount, "未归类资源数（app_code 空，含 3 个接口服务）")
 	assert.Equal(t, s.ResourceCount, sumAppRes+s.UnclassifiedResourceCount, "不变量3")
 	assert.Equal(t, s.MonitoredCount, sumAppMon+s.UnclassifiedMonitoredCount, "不变量4")
 
@@ -360,8 +389,8 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, "infra", appByCode["appsvc"].BizCode)
 	assert.Equal(t, "infra", appByCode["gt"].BizCode)
 
-	// 五类固定齐全且 application 不拆子类。
-	require.Len(t, s.ByCategory, 5, "by_category 五类固定齐全")
+	// 六类固定齐全且 application 不拆子类。
+	require.Len(t, s.ByCategory, 6, "by_category 六类固定齐全")
 	catByKey := make(map[string]CategorySummary)
 	for _, c := range s.ByCategory {
 		catByKey[c.ResourceCategory] = c
@@ -369,32 +398,34 @@ func TestSummaryHandler(t *testing.T) {
 	// application by_subtype 必须为空数组。
 	assert.Empty(t, catByKey["application"].BySubtype, "application 不设子类")
 	// host 子类 linux=2/windows=1；database mysql=1/redis=1；middleware nginx=1/kafka=1；
-	// generic_target snmp_exporter=2/http_exporter=1。
+	// generic_target snmp_exporter=2/http_exporter=1；interface_service 不拆子类。
 	assert.Equal(t, 3, catByKey["host"].ResourceCount)
 	assert.Equal(t, 2, catByKey["host"].MonitoredCount)
 	assert.Equal(t, 2, catByKey["database"].ResourceCount)
 	assert.Equal(t, 1, catByKey["database"].MonitoredCount)
 	assert.Equal(t, 2, catByKey["middleware"].ResourceCount)
 	assert.Equal(t, 2, catByKey["application"].ResourceCount)
+	// 接口服务：3 个资源全部被拨测资源模式选中（H9：计入 monitored）；不拆子类。
+	assert.Equal(t, 3, catByKey["interface_service"].ResourceCount)
+	assert.Equal(t, 3, catByKey["interface_service"].MonitoredCount)
+	assert.Empty(t, catByKey["interface_service"].BySubtype, "interface_service 不设子类")
 
-	// 拨测（blackbox）不进 resource/monitored，独立统计；未注入 querier 时 abnormal 恒 0。
+	// 拨测目标（api_url 派生）独立统计；未注入 querier 时 abnormal 恒 0。
 	assert.Equal(t, 3, s.ProbeTargetCount, "blackbox 目标数")
 	assert.Equal(t, 0, s.ProbeTargetAbnormalCount, "未注入 querier：无样本，异常恒 0")
-	assert.NotContains(t, []int{sumCatRes, sumCatMon}, s.ProbeTargetCount, "拨测不进资源台账")
 
 	// —— 决策 93：probe_targets 拨测目标明细 ——
 	require.Len(t, s.ProbeTargets, 3, "blackbox 目标明细条数")
-	// url：无显式 URL 时 protocol+target 拼接；有 URL 时优先取 URL。
-	assert.Equal(t, "http://10.0.0.1:80", s.ProbeTargets[0].URL)
-	assert.Equal(t, "http://10.0.0.2:80", s.ProbeTargets[1].URL)
-	assert.Equal(t, "https://10.0.0.3:443/healthz", s.ProbeTargets[2].URL)
+	// url：资源模式下即所选接口服务资源的 api_url。
+	assert.Equal(t, "https://api.example.com/order/health", s.ProbeTargets[0].URL)
+	assert.Equal(t, "https://api.example.com/pay/health", s.ProbeTargets[1].URL)
+	assert.Equal(t, "https://api.example.com/user/health", s.ProbeTargets[2].URL)
 	// status 不得臆造：无实时拨测样本，每条恒为空串（前端显示「未知」），禁硬编 up/down。
 	for _, p := range s.ProbeTargets {
 		assert.Empty(t, p.Status, "无实时拨测样本，status 必须为空串而非臆造的 up/down")
 	}
-	// 归属口径（probe-ownership-alignment）：拨测目标不承载「应用 / 业务域」维度，
-	// 归属取自 ScrapeJob.NetworkDomainID（not null）→ network_domains.name。
-	// blackbox Job 归属 default → 展示名「管理网域」。
+	// 归属：拨测目标以「归属网域」承载归属（ScrapeJob.NetworkDomainID，not null）
+	// → network_domains.name。blackbox Job 归属 default → 展示名「管理网域」。
 	// last_probe_at：未注入 querier，无最近拨测时间源，恒为 nil。
 	for _, p := range s.ProbeTargets {
 		assert.Equal(t, "default", p.NetworkDomainID)
@@ -429,8 +460,8 @@ func TestSummaryHandlerEmpty(t *testing.T) {
 	assert.NotNil(t, s.RecentDeployments)
 	assert.Empty(t, s.RecentDeployments)
 
-	// 空库下分组聚合字段同样为零值：五类固定齐全（全 0）、by_app 空、拨测 0。
-	require.Len(t, s.ByCategory, 5, "空库仍返回五类 0 值条目")
+	// 空库下分组聚合字段同样为零值：六类固定齐全（全 0）、by_app 空、拨测 0。
+	require.Len(t, s.ByCategory, 6, "空库仍返回六类 0 值条目")
 	for _, c := range s.ByCategory {
 		assert.Equal(t, 0, c.ResourceCount)
 		assert.Equal(t, 0, c.MonitoredCount)
@@ -515,9 +546,9 @@ func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T) {
 	downAt := time.Date(2026, 9, 21, 18, 1, 0, 0, time.UTC)
 	q := &fakeProbeQuerier{index: map[string]map[string]ProbeSample{
 		"job-blackbox-a": {
-			"http://10.0.0.1:80":           {Success: true, At: upAt},
-			"http://10.0.0.2:80":           {Success: false, At: downAt},
-			"https://10.0.0.3:443/healthz": {Success: true, At: upAt},
+			"https://api.example.com/order/health": {Success: true, At: upAt},
+			"https://api.example.com/pay/health":   {Success: false, At: downAt},
+			"https://api.example.com/user/health":  {Success: true, At: upAt},
 		},
 	}}
 
@@ -530,7 +561,7 @@ func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T) {
 	assert.True(t, s.ProbeTargets[0].LastProbeAt.Equal(upAt))
 
 	assert.Equal(t, "down", s.ProbeTargets[1].Status, "probe_success=0 → down")
-	assert.Equal(t, "up", s.ProbeTargets[2].Status, "URL 优先匹配（含协议头形态）")
+	assert.Equal(t, "up", s.ProbeTargets[2].Status, "probe_success=1 → up")
 
 	assert.Equal(t, 1, s.ProbeTargetAbnormalCount, "异常数 = probe_success=0 条数")
 	assert.Equal(t, 3, s.ProbeTargetCount)
@@ -543,7 +574,7 @@ func TestSummaryProbeTargetsUnknownWhenNoSample(t *testing.T) {
 	seed(t, db)
 
 	q := &fakeProbeQuerier{index: map[string]map[string]ProbeSample{
-		"job-blackbox-a": {"http://10.0.0.1:80": {Success: true, At: time.Now()}},
+		"job-blackbox-a": {"https://api.example.com/order/health": {Success: true, At: time.Now()}},
 	}}
 
 	s, err := Build(db, WithProbeQuerier(q))
@@ -573,24 +604,39 @@ func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T) {
 	assert.Equal(t, 0, s.ProbeTargetAbnormalCount)
 }
 
-// TestLookupProbeSampleFallsBackToRawTarget 覆盖 F-13 匹配回落：
-// instance 为裸 target（无协议头）时按 protocol+target 拼接形态匹配。
-func TestLookupProbeSampleFallsBackToRawTarget(t *testing.T) {
+// TestLookupProbeSampleMatchesAddress：拨测资源模式下按 api_url（probe_success 的
+// instance 标签 = 目标地址）精确匹配；地址不符不命中。
+func TestLookupProbeSampleMatchesAddress(t *testing.T) {
 	index := map[string]map[string]ProbeSample{
-		"job-blackbox-a": {"10.0.0.3:443": {Success: true, At: time.Now()}},
+		"job-blackbox-a": {"https://api.example.com/order/health": {Success: true, At: time.Now()}},
 	}
-	tgt := models.BlackboxTarget{
-		Target:   "10.0.0.3:443",
-		Protocol: models.BlackboxTargetProtocolHTTPS,
-		URL:      "https://10.0.0.3:443/healthz",
-	}
-	sample, ok := lookupProbeSample(index, "job-blackbox-a", tgt)
-	require.True(t, ok, "应回落到裸 target 匹配")
+	sample, ok := lookupProbeSample(index, "job-blackbox-a", "https://api.example.com/order/health")
+	require.True(t, ok)
 	assert.True(t, sample.Success)
+
+	_, ok = lookupProbeSample(index, "job-blackbox-a", "https://api.example.com/other")
+	assert.False(t, ok, "地址不一致不命中")
 }
 
 // TestLookupProbeSampleNilIndex 覆盖 F-13：未注入查询器时（index 为 nil）不 panic、不匹配。
 func TestLookupProbeSampleNilIndex(t *testing.T) {
-	_, ok := lookupProbeSample(nil, "job-blackbox-a", models.BlackboxTarget{Target: "10.0.0.1:80"})
+	_, ok := lookupProbeSample(nil, "job-blackbox-a", "https://api.example.com/order/health")
 	assert.False(t, ok)
+}
+
+// TestResourceModelsAlignWithValidCategories 是 H1 护栏：dashboard.resourceModels()
+// 与 models.ValidResourceCategories() 必须等长且逐项类别一致——Build 按**下标**把
+// 两者对齐取值（cat := models.ValidResourceCategories()[i]），两处不同序追加会让
+// 资源被归入错误类别且不报错（静默错误）。新增类别时必须两处同序追加到末尾。
+func TestResourceModelsAlignWithValidCategories(t *testing.T) {
+	modelsList := resourceModels()
+	cats := models.ValidResourceCategories()
+	require.Len(t, modelsList, len(cats),
+		"resourceModels() 与 ValidResourceCategories() 长度必须一致（新增类别须两处同序追加）")
+	for i, cat := range cats {
+		res, ok := modelsList[i].(models.Resource)
+		require.True(t, ok, "resourceModels()[%d] (%T) 应实现 models.Resource", i, modelsList[i])
+		assert.Equal(t, string(cat), string(res.GetResourceType()),
+			"下标 %d 的模型类别必须与 ValidResourceCategories() 一致", i)
+	}
 }

@@ -32,6 +32,7 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新）。文案经 F-9 用户评审改为场景化人话，标签与后端 mode 枚举对应，默认 create_only */
@@ -49,11 +50,10 @@ interface ImportModalProps {
   onSuccess?: () => void
 }
 
-/** 存在「未登记 / 已停用」字典可达性判定的字段（业务/应用/服务/平台/网域五维度） */
+/** 存在「未登记 / 已停用」字典可达性判定的字段（业务/应用/平台/网域四维度） */
 const PENDING_REGISTRATION_FIELDS = new Set([
   'biz_code',
   'app_code',
-  'service_code',
   'platform_code',
   'network_domain_id',
 ])
@@ -63,8 +63,8 @@ const PENDING_REGISTRATION_FIELDS = new Set([
  * 错误行渲染 warning 高亮 + 可执行指引（去平台侧登记，或在声明 sheet 补充后重新导入）。
  *
  * 判定按「错误字段 + reason 语义」两段：
- * - 首选 field：后端五处未登记文案分别落在 network_domain_id / biz_code / app_code /
- *   service_code / platform_code 五个字段上（models.ImportErrorDetail.Field），
+ * - 首选 field：后端四处未登记文案分别落在 network_domain_id / biz_code / app_code /
+ *   platform_code 四个字段上（models.ImportErrorDetail.Field），
  *   命中字段即认为该行属于待登记清单；
  * - field 为空/缺失时回退 reason 语义（整批拒绝类错误无字段），避免漏判。
  *
@@ -79,7 +79,7 @@ function isPendingRegistrationError(error?: { field?: string; reason?: string })
   if (reason.includes('已停用')) return false
   const field = error?.field?.trim()
   if (field) return PENDING_REGISTRATION_FIELDS.has(field)
-  return /业务|应用|服务|平台|网域/.test(reason)
+  return /业务|应用|平台|网域/.test(reason)
 }
 
 /**
@@ -87,7 +87,7 @@ function isPendingRegistrationError(error?: { field?: string; reason?: string })
  * - 文件上传 + 导入模式选择（默认 create_only）+ 提交 loading 防重复；
  * - 上传区下方提供次级「下载当前资源类型模板」文字链接，直接触发下载（复用 handleDownloadTemplate）；
  * - 导入结果展示 total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；
- * - 错误文案透传后端引导；命中待登记清单（业务/应用/服务/平台/网域未登记且未声明）时高亮可执行指引。
+ * - 错误文案透传后端引导；命中待登记清单（业务/应用/平台/网域未登记且未声明）时高亮可执行指引。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
@@ -162,8 +162,8 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       key: 'reason',
       render: (v: string | undefined, record: ImportError) => {
         if (!v) return '-'
-        // 命中待登记清单（业务/应用/服务/平台/网域未登记且未声明，决策 97）：warning 高亮 + 图标，
-        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』/『服务管理』/『平台管理』页登记，
+        // 命中待登记清单（业务/应用/平台/网域未登记且未声明，决策 97）：warning 高亮 + 图标，
+        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』/『平台管理』页登记，
         // 或在文件声明 sheet 补充后重新导入」），前后端一致
         if (isPendingRegistrationError(record)) {
           return (

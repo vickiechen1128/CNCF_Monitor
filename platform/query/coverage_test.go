@@ -31,6 +31,7 @@ func openCoverageTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.ScrapeJob{},
 	))
 	return db
@@ -346,4 +347,36 @@ func TestCoverageNoUpAggDependency(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	require.Equal(t, "error", out.Status)
 	require.Equal(t, "internal", out.ErrorType)
+}
+
+// TestCoverageBlackboxResourceSelectionCountsAsMonitored：H9 统一口径——拨测（blackbox）
+// 资源模式选中的接口服务资源计入「已监控」（无 up 样本 → pending_down），与首页
+// monitored_count 同源（loadSelectedInstances 不再按 job_type 过滤）。
+func TestCoverageBlackboxResourceSelectionCountsAsMonitored(t *testing.T) {
+	db := openCoverageTestDB(t)
+	require.NoError(t, db.Create(&models.InterfaceService{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
+			NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+			SourceType: models.SourceTypeManual,
+		},
+		APIName: "订单查询", APIURL: "https://api.example.com/order/health",
+		ResourceType: models.ResourceTypeInterfaceService,
+	}).Error)
+	require.NoError(t, db.Create(&models.ScrapeJob{
+		JobName: "bb-a", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeInterfaceService,
+		NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"is-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/probe", Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusConfirmed, Enabled: true,
+	}).Error)
+
+	r, srv := newCoverageRouter(t, db, coverageUpFixture(), coverageTargetsFixture())
+	defer srv.Close()
+	out := doCoverage(t, r, "?resource_category=interface_service")
+	require.Equal(t, 1, out.Data.Total)
+	require.Equal(t, StatePendingDown, out.Data.Items[0].MonitorState,
+		"拨测资源模式的选择计入已监控（无 up 样本 → pending_down，非 not_monitored）")
+	require.Equal(t, "is-1", out.Data.Items[0].ResourceID)
+	require.Equal(t, "订单查询", out.Data.Items[0].InstanceName)
 }

@@ -23,7 +23,6 @@ import type {
   ResourceCreateInput,
   ResourceLabelItem,
   ResourceUpdateInput,
-  ServiceDict,
 } from '../types/resource'
 
 /** 资源列表分页与筛选参数（Module_07 §6.1 / T07-05） */
@@ -39,8 +38,6 @@ export interface ResourceListParams extends Record<string, string | number | boo
   platform_code?: string
   /** 应用归属编码等值筛选（决策 92；五类均支持） */
   app_code?: string
-  /** 服务归属编码等值筛选（决策 105；**仅 application / generic_target 生效**，其余三类后端忽略） */
-  service_code?: string
   /** 未监控筛选（字段由 M01 维护、M07 只读映射透传，§6.1 / 决策 31-M1） */
   is_monitored?: boolean
   page?: number
@@ -322,57 +319,6 @@ export const platformDictApi = {
   /** 受限编辑平台（PUT :platform_code，契约快照 §5C）：仅 platform_name/description/enabled */
   update(platformCode: string, input: PlatformDictUpdateInput): Promise<ApiResponse<PlatformDict>> {
     return apiClient.put<PlatformDict>(`/api/v2/platform/platform-dict/${encodeURIComponent(platformCode)}`, {
-      body: input,
-    })
-  },
-}
-
-/** 服务字典响应（GET /service-dict，非分页信封 {list,total}，§5.22 / 契约快照 §5D） */
-export interface ServiceDictsResponse {
-  list: ServiceDict[]
-  total: number
-}
-
-/** 服务字典登记输入（契约快照 §5D / 决策 112）：service_code 不可变、service_name 必填；关系字段选填 */
-export interface ServiceDictCreateInput {
-  service_code: string
-  service_name: string
-  /** 所属应用（应用↔服务 1:N 关系权威）：留空表示暂无明确所属应用 */
-  app_code?: string
-  /** 主业务（服务↔业务 N:1 主归属权威）：留空表示暂无主归属 */
-  biz_code?: string
-  description?: string
-}
-
-/**
- * 服务字典受限编辑输入（契约快照 §5D / 决策 112）：仅 service_name/description/enabled
- * 与两个关系字段可改，**不接收 service_code**（编码创建后不可变）。
- *
- * 关系字段 `null` 表达**摘除**（恢复为无所属应用 / 无主业务），`undefined` 表达**不改**。
- */
-export interface ServiceDictUpdateInput {
-  service_name?: string
-  description?: string
-  enabled?: boolean
-  app_code?: string | null
-  biz_code?: string | null
-}
-
-/**
- * 服务字典（§5.22 / 决策 105，落 DB；`svc` label 取 `service_code`，展示取 `service_name`）。
- * 无 DELETE（停用不删除）：资源侧「服务」下拉只读消费本字典且仅列启用项。
- */
-export const serviceDictApi = {
-  list(): Promise<ApiResponse<ServiceDictsResponse>> {
-    return apiClient.get<ServiceDictsResponse>('/api/v2/platform/service-dict')
-  },
-  /** 登记服务（POST，契约快照 §5D）：{service_code,service_name,description}，默认 enabled */
-  create(input: ServiceDictCreateInput): Promise<ApiResponse<ServiceDict>> {
-    return apiClient.post<ServiceDict>('/api/v2/platform/service-dict', { body: input })
-  },
-  /** 受限编辑服务（PUT :service_code，契约快照 §5D）：仅 service_name/description/enabled */
-  update(serviceCode: string, input: ServiceDictUpdateInput): Promise<ApiResponse<ServiceDict>> {
-    return apiClient.put<ServiceDict>(`/api/v2/platform/service-dict/${encodeURIComponent(serviceCode)}`, {
       body: input,
     })
   },

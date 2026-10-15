@@ -1,10 +1,9 @@
 // 本文件提供 Excel 导入「业务声明」「应用声明」内联 sheet 的解析、校验与落库
 // （决策 97，Module_07 §5.16.1/§5.16.2/§5.18/§5.19）：
 //
-//   - ParseDeclareSheets：从导入文件解析四个可选 sheet（业务声明 = biz_code|
+//   - ParseDeclareSheets：从导入文件解析三个可选 sheet（业务声明 = biz_code|
 //     biz_name|说明?；应用声明 = app_code|app_name|说明?；平台声明 = platform_code|
-//     platform_name|说明?；服务声明 = service_code|service_name|说明?），缺省 sheet
-//     返回空不报错；
+//     platform_name|说明?），缺省 sheet 返回空不报错；
 //   - validateDeclareSheets：声明自身校验（校验顺序 ①）——code/name 必填、编码规范、
 //     声明内重码硬拒绝、与存量字典同名（名称一致幂等跳过 / 不一致绝不覆盖）、
 //     停用条目不接受声明激活；失败由调用方整体拒绝（bad_request）；
@@ -25,12 +24,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// 声明 sheet 名（决策 97 / 104 / 105，与模板「取值说明」sheet 并列的固定命名）。
+// 声明 sheet 名（决策 97 / 104，与模板「取值说明」sheet 并列的固定命名）。
 const (
 	bizDeclareSheet      = "业务声明"
 	appDeclareSheet      = "应用声明"
 	platformDeclareSheet = "平台声明"
-	serviceDeclareSheet  = "服务声明"
 )
 
 // 声明 sheet 固定列头（说明列可选）。
@@ -38,7 +36,6 @@ var (
 	bizDeclareHeader      = []string{"biz_code", "biz_name", "说明"}
 	appDeclareHeader      = []string{"app_code", "app_name", "说明"}
 	platformDeclareHeader = []string{"platform_code", "platform_name", "说明"}
-	serviceDeclareHeader  = []string{"service_code", "service_name", "说明"}
 )
 
 // DeclareEntry 是声明 sheet 中一行的解析结果（code/name 必填，说明可选）。
@@ -48,17 +45,16 @@ type DeclareEntry struct {
 	Description string
 }
 
-// DeclareSheets 是资源导入文件内联声明 sheet 的解析结果（决策 97 / 104 / 105）。
+// DeclareSheets 是资源导入文件内联声明 sheet 的解析结果（决策 97 / 104）。
 // sheet 可缺省（存量模板文件兼容），缺省对应切片为空。
 type DeclareSheets struct {
 	Biz      []DeclareEntry // 业务声明：biz_code | biz_name | 说明?
 	App      []DeclareEntry // 应用声明：app_code | app_name | 说明?
 	Platform []DeclareEntry // 平台声明：platform_code | platform_name | 说明?（决策 104）
-	Service  []DeclareEntry // 服务声明：service_code | service_name | 说明?（决策 105）
 }
 
 // ParseDeclareSheets 解析上传 Excel 中的「业务声明」「应用声明」「平台声明」
-// 「服务声明」四个内联 sheet。
+// 三个内联 sheet。
 // sheet 不存在时返回空切片不报错；存在时校验列头（前两列固定 code/name，第三列
 // 「说明」可选，超出 3 列报错）并逐行解析，全空行跳过。不执行任何字典相关校验
 // （由 validateDeclareSheets 负责）。
@@ -85,11 +81,6 @@ func ParseDeclareSheets(fileBytes []byte) (*DeclareSheets, error) {
 		return nil, err
 	}
 	sheets.Platform = platform
-	service, err := parseDeclareSheet(f, serviceDeclareSheet, serviceDeclareHeader)
-	if err != nil {
-		return nil, err
-	}
-	sheets.Service = service
 	return sheets, nil
 }
 
@@ -164,7 +155,7 @@ func trimCells(cells []string) []string {
 // validateDeclareSheets 校验声明 sheet 自身（决策 97 校验顺序 ①声明自身）。
 // 任一声明行不合法返回整体错误（调用方包装为 bad_request 整批拒绝）；成功返回 nil
 // 表示声明可进入资源可达性（②）与整体写（③）阶段。
-func validateDeclareSheets(sheets *DeclareSheets, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore) error {
+func validateDeclareSheets(sheets *DeclareSheets, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore) error {
 	if sheets == nil {
 		return nil
 	}
@@ -192,15 +183,6 @@ func validateDeclareSheets(sheets *DeclareSheets, bizStore *BusinessDomainStore,
 			return "", false, false, lerr
 		}
 		return d.PlatformName, d.Enabled, ok, nil
-	}); err != nil {
-		return err
-	}
-	if err := validateDeclareEntries(serviceDeclareSheet, sheets.Service, models.ValidServiceCode, func(code string) (name string, enabled bool, found bool, err error) {
-		d, ok, lerr := svcStore.Lookup(code)
-		if lerr != nil {
-			return "", false, false, lerr
-		}
-		return d.ServiceName, d.Enabled, ok, nil
 	}); err != nil {
 		return err
 	}
@@ -259,8 +241,6 @@ func sheetCodeField(sheet string) string {
 		return "app_code"
 	case platformDeclareSheet:
 		return "platform_code"
-	case serviceDeclareSheet:
-		return "service_code"
 	}
 	return "biz_code"
 }
@@ -271,8 +251,6 @@ func sheetNameField(sheet string) string {
 		return "app_name"
 	case platformDeclareSheet:
 		return "platform_name"
-	case serviceDeclareSheet:
-		return "service_name"
 	}
 	return "biz_name"
 }
@@ -343,25 +321,6 @@ func applyDeclaredDicts(db *gorm.DB, sheets *DeclareSheets) error {
 		}
 		if err := db.Create(&row).Error; err != nil {
 			return fmt.Errorf("写入平台声明 %s：%w", e.Code, err)
-		}
-	}
-	for _, e := range sheets.Service {
-		var count int64
-		if err := db.Model(&models.ServiceDict{}).Where("service_code = ?", e.Code).Count(&count).Error; err != nil {
-			return fmt.Errorf("检查服务声明 %s：%w", e.Code, err)
-		}
-		if count > 0 {
-			continue // 只增不覆盖
-		}
-		row := models.ServiceDict{
-			ServiceCode: e.Code,
-			ServiceName: e.Name,
-			Description: e.Description,
-			Enabled:     true,
-			Source:      models.DictSourceExcelImport,
-		}
-		if err := db.Create(&row).Error; err != nil {
-			return fmt.Errorf("写入服务声明 %s：%w", e.Code, err)
 		}
 	}
 	return nil

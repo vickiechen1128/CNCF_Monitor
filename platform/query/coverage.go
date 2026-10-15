@@ -225,6 +225,16 @@ func queryCategoryResources(db *gorm.DB, cat models.ResourceCategory, netDomain 
 			out = append(out, coverageResource{rows[i].ResourceID, cat, rows[i].TargetName})
 		}
 		return out, nil
+	case models.ResourceCategoryInterfaceService:
+		var rows []models.InterfaceService
+		if err := applyDomain(db.Model(&models.InterfaceService{})).Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("list interface_service resources: %w", err)
+		}
+		out := make([]coverageResource, 0, len(rows))
+		for i := range rows {
+			out = append(out, coverageResource{rows[i].ResourceID, cat, rows[i].APIName})
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("unsupported resource_category: %s", cat)
 }

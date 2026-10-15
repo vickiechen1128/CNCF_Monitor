@@ -138,15 +138,13 @@ const MODULES: ModuleDef[] = [
     label: '监控对象管理',
     path: '/resources',
     subItems: [
-      // 字典纵向组成链（F-12 修复）：平台 → 应用 → 服务按「归属层级」自上而下排列
-      // （平台承载应用、应用归属平台，服务再归入应用），故三者相邻成组；
+      // 字典纵向组成链（F-12 修复）：平台 → 应用按「归属层级」自上而下排列
+      // （平台承载应用），故二者相邻成组；
       // 「业务管理」是横切分类维度，单独置后，不再插在链路中间破坏组成关系。
       // 平台字典维护页（M07 §5.21 / 决策 104）
       { key: '/platform-dict', label: '平台管理', icon: <DeploymentUnitOutlined /> },
       // 应用字典维护页（M07 §5.19 / 决策 92，与业务管理同构：编码不可变 + 停用不删除）
       { key: '/application-dict', label: '应用管理', icon: <AppstoreOutlined /> },
-      // 服务字典维护页（M07 §5.22 / 决策 105）
-      { key: '/service-dict', label: '服务管理', icon: <ApiOutlined /> },
       // 业务分组字典为资源录入/导入的取值权威，与上面组成链正交，置为一组末尾
       { key: '/business-domains', label: '业务管理', icon: <PartitionOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
@@ -256,7 +254,7 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates、/business-domains、/application-dict、/platform-dict、/service-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -276,8 +274,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/label-templates') ||
     locationPath.startsWith('/business-domains') ||
     locationPath.startsWith('/application-dict') ||
-    locationPath.startsWith('/platform-dict') ||
-    locationPath.startsWith('/service-dict')
+    locationPath.startsWith('/platform-dict')
   )
     return findModuleByKey('monitoring-object')
   if (

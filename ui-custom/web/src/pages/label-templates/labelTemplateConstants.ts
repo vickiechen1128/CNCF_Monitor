@@ -17,16 +17,18 @@ export const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /**
  * 允许实例级自定义的资源类别（PRD §3.3/§5.2/§6.2 双场景治理边界）：
- * 仅业务类型资源（application）开放 user 来源实例级标签；host / database / middleware /
- * generic_target 实例级标签只读（治理在 CMDB 侧），无实例级自定义能力。
+ * 仅业务类型资源（application / interface_service）开放 user 来源实例级标签；
+ * host / database / middleware / generic_target 实例级标签只读（治理在 CMDB 侧），
+ * 无实例级自定义能力。
  * 驱动「关联实例」Tab 与左栏关联实例 badge 的展示——仅本集合内类别展示
  * （未来微服务 / 业务属性类型开放实例级能力时加入本集合即可）。
  */
-export const INSTANCE_LEVEL_CUSTOM_CATEGORIES: ResourceCategory[] = ['application']
+export const INSTANCE_LEVEL_CUSTOM_CATEGORIES: ResourceCategory[] = ['application', 'interface_service']
 
 /** 实例状态展示名（对齐原型 STATUS_MAP；孤儿为后续版本预留） */
 export const INSTANCE_STATUS_MAP: Record<string, string> = {
@@ -97,6 +99,7 @@ export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
   middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
   application: ['instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
   generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
+  interface_service: ['api_name', 'api_url', 'resource_id', 'env', 'cluster', 'biz_code', 'app_code', 'platform_code'],
 }
 
 /** 组合字段选项（§5.12 C：MVP 仅 instance_ip:port → instance） */

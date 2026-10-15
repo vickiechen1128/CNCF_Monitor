@@ -98,6 +98,9 @@ func listCategoryInstances(db *gorm.DB, cat models.ResourceCategory, page, pageS
 	case models.ResourceCategoryGenericTarget:
 		return queryInstances(db, &[]models.GenericTarget{}, page, pageSize, keyword, status,
 			"target_name", func(g *models.GenericTarget) string { return g.TargetName })
+	case models.ResourceCategoryInterfaceService:
+		return queryInstances(db, &[]models.InterfaceService{}, page, pageSize, keyword, status,
+			"api_name", func(o *models.InterfaceService) string { return o.APIName })
 	default:
 		return []templateInstanceItem{}, 0, nil
 	}

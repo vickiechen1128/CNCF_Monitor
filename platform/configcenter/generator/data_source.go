@@ -27,6 +27,10 @@ type resourceTarget struct {
 	// （materializePrimaryPlatform），不再作为 system 层 `platform` 派生来源。
 	AppCode string
 	Fields  map[string]string // LabelTemplate 源字段展开视图（须含 platform_code，决策 118-2）
+	// Raw 是解析到的原始资源模型指针（*models.Host / *Database / ...），供
+	// 拨测目标按任意字段取值复用 models.GetResourceField——避免为 label 模板视图
+	// Fields（只覆盖部分字段）之外的字段另造取值逻辑。resolveResource 命中即填充。
+	Raw any
 }
 
 // LoadDomain 按 ID 读取网域。

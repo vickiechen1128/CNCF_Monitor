@@ -2,6 +2,7 @@ package scrapejob
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
@@ -26,8 +27,9 @@ type previewTarget struct {
 // PreviewTargets 是 POST /api/v2/platform/scrape-jobs/:id/preview-targets 的
 // handler：解析该 Job 的目标清单。standard→已选实例地址（host PrivateIP /
 // database InstanceIP / middleware InstanceIP / application endpoint:port /
-// generic_target InstanceIP）；blackbox→blackbox_targets（api-contract-snapshot §6,
-// L2 接口预览）。Job 未命中 not_found。
+// generic_target InstanceIP）；blackbox→已选实例在 job.TargetField 上的字段值
+// （与生成侧 generator.ResolveJobTargets 同源，api-contract-snapshot §6, L2 接口预览）。
+// Job 未命中 not_found。
 func PreviewTargets(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)
@@ -46,9 +48,17 @@ func PreviewTargets(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if job.JobType == models.JobTypeBlackbox {
-			items := make([]previewTarget, 0, len(job.BlackboxTargets))
-			for _, t := range job.BlackboxTargets {
-				items = append(items, previewTarget{Address: t.Target, Protocol: string(t.Protocol)})
+			// 拨测资源模式：目标 = 所选类别实例在 job.TargetField 上的值（经
+			// models.GetResourceField，与生成侧同源），无端口解析概念（port/port_source
+			// 保持零值）。protocol 由目标地址的 scheme 推导（URL 类字段才有 scheme）。
+			items := make([]previewTarget, 0, len(job.SelectedInstanceIDs))
+			for _, rid := range job.SelectedInstanceIDs {
+				addr := resolveBlackboxTarget(db, &job, rid)
+				proto := ""
+				if u, err := url.Parse(addr); err == nil && u.Scheme != "" {
+					proto = u.Scheme
+				}
+				items = append(items, previewTarget{ResourceID: rid, Address: addr, Protocol: proto})
 			}
 			response.OK(c, gin.H{"targets": items})
 			return
@@ -78,7 +88,7 @@ func applicationTargetAddress(a *models.Application) string {
 	return fmt.Sprintf("%s:%d", a.Endpoint, a.Port)
 }
 
-// resolveInstanceAddress 根据 resource_id 在五类资源表中查找该实例地址；
+// resolveInstanceAddress 根据 resource_id 在六类资源表中查找该实例地址；
 // 未命中返回空字符串。
 func resolveInstanceAddress(db *gorm.DB, resourceID string) string {
 	var host models.Host
@@ -101,7 +111,38 @@ func resolveInstanceAddress(db *gorm.DB, resourceID string) string {
 	if err := db.Where("resource_id = ?", resourceID).First(&generic).Error; err == nil {
 		return generic.InstanceIP
 	}
+	// interface_service：地址即其端点 api_url（完整 URL，原样返回，不拼端口）。
+	var iface models.InterfaceService
+	if err := db.Where("resource_id = ?", resourceID).First(&iface).Error; err == nil {
+		return iface.APIURL
+	}
 	return ""
+}
+
+// resolveBlackboxTarget 解析拨测目标任务中某个实例的目标地址：按 job.ResourceType
+// （资源类别）在对应资源表定位实例，再经 models.GetResourceField 取 job.TargetField
+// 字段值——与生成侧 generator.resolveSelectedInstanceTargets 同源（复用同一字段读取
+// 入口，不另造取值逻辑）。资源未命中或字段缺失返回空串。
+func resolveBlackboxTarget(db *gorm.DB, job *models.ScrapeJob, resourceID string) string {
+	res := loadResourceForCategory(db, models.ResourceCategory(job.ResourceType), resourceID)
+	if res == nil {
+		return ""
+	}
+	v, _ := models.GetResourceField(res, job.TargetField)
+	return v
+}
+
+// loadResourceForCategory 按资源类别在对应资源表按 resource_id 取资源对象指针
+// （供 models.GetResourceField 使用）；未知类别或未命中返回 nil。
+func loadResourceForCategory(db *gorm.DB, category models.ResourceCategory, resourceID string) any {
+	dest := resourceModelForCategory(category)
+	if dest == nil {
+		return nil
+	}
+	if err := db.Where("resource_id = ?", resourceID).First(dest).Error; err != nil {
+		return nil
+	}
+	return dest
 }
 
 // resolveInstanceScrapePort 按四级端口解析链计算某实例的生效端口与来源

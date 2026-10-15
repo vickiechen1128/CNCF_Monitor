@@ -114,7 +114,7 @@ func CreateLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !validResourceCategory(req.ResourceCategory) {
-			response.BadRequest(c, fmt.Errorf("resource_category %q 非法，必须是 host/database/middleware/application/generic_target 之一", req.ResourceCategory))
+			response.BadRequest(c, fmt.Errorf("resource_category %q 非法，必须是 %s 之一", req.ResourceCategory, models.CategoriesHint()))
 			return
 		}
 		if len(req.Mappings) > 0 {

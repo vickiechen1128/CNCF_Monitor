@@ -27,13 +27,12 @@ import { Link } from 'react-router-dom'
 import type { CategorySummary } from '../../api/dashboard'
 import { SurfaceCard } from './SurfaceCard'
 import {
-  APPLICATION_SUBTYPE_LABEL,
-  APPLICATION_SUBTYPE_TIP,
   coveragePercent,
   coverageText,
   L1_CATEGORY_META,
   L1_CATEGORY_ORDER,
   resourceListHref,
+  SINGLE_SUBTYPE_CHIP,
   SUBTYPE_COVERAGE_WARN_THRESHOLD,
   uncoveredCount,
 } from './resourceTypeMeta'
@@ -219,10 +218,12 @@ function CategoryCard({
         </div>
         <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {meta.subtypeTitle === null ? (
-            <Tooltip title={APPLICATION_SUBTYPE_TIP}>
+            // 不设子类：单条采集类型 chip + 说明 Tooltip。**按 category 分派**——
+            // 原先写死 application 的文案，接口服务卡会错显应用服务的说明。
+            <Tooltip title={SINGLE_SUBTYPE_CHIP[category]?.tip}>
               <span data-testid={`l1-no-subtype-${category}`}>
                 <SubtypeChip
-                  label={APPLICATION_SUBTYPE_LABEL}
+                  label={SINGLE_SUBTYPE_CHIP[category]?.label ?? ''}
                   value={`${monitored}/${total} · ${coverageText(monitored, total)}`}
                   warn={warn}
                 />

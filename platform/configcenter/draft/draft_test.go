@@ -82,6 +82,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.CITypeExporterMapping{},
 		&models.ExporterInstallationConfirmation{},
 		&models.ConfigDraft{},

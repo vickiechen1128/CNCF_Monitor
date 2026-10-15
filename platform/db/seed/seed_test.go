@@ -219,7 +219,7 @@ func TestRunIsIdempotent(t *testing.T) {
 	assert.Equal(t, int64(1), tenants, "tenant is unique")
 	assert.Equal(t, int64(1), domains, "default domain is unique")
 	assert.Equal(t, int64(4), zones, "zone_type dictionary is unique")
-	assert.Equal(t, int64(5), templates, "label templates are unique")
+	assert.Equal(t, int64(6), templates, "label templates are unique")
 	assert.Equal(t, int64(6), exporters, "exporters are unique")
 	assert.Equal(t, int64(6), mappings, "ci_type_exporter_mappings are unique")
 	assert.Equal(t, int64(len(BuiltinMetricLibrary())), metrics, "metric library is unique and idempotent")

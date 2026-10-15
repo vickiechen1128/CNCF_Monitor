@@ -33,6 +33,7 @@ func openListTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.NetworkDomain{},
 	))
 	return db
@@ -582,53 +583,6 @@ func TestParseIsMonitored(t *testing.T) {
 	}
 }
 
-// TestResourceListServiceCode 覆盖决策 105 的列表返回口径：service_code 仅在
-// application / generic_target 的列表 item 上返回（其余三类不挂、不返回该键）。
-func TestResourceListServiceCode(t *testing.T) {
-	db := openListTestDB(t)
-	require.NoError(t, db.Create(&models.Application{
-		ResourceID: "app-1", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "default",
-		BizCode: "payment", AppName: "pay-service", Cluster: "pay", Env: "prod", Status: "online",
-		ServiceName: "pay-service", ServiceCode: "order-api", Endpoint: "10.0.0.20", Port: 8080,
-	}).Error)
-	require.NoError(t, db.Create(&models.GenericTarget{
-		ResourceBase: models.ResourceBase{
-			ResourceID: "gt-1", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "default",
-			BizCode: "infra", Env: "prod", Status: "online", AppName: strPtr("app"),
-		},
-		TargetName: "snmp-01", ServiceCode: "pay-api", InstanceIP: "10.0.0.30", Port: 161,
-	}).Error)
-	require.NoError(t, db.Create(&models.Host{
-		ResourceID: "host-1", ResourceCategory: models.ResourceCategoryHost, NetworkDomainID: "default",
-		BizCode: "infra", AppCode: "app", EnvFlag: "prod", Status: "online", InstanceName: "web-01",
-		PrivateIP: "10.0.0.1", Image: "Linux", ServerID: "host-1",
-	}).Error)
-	r := mountListResources(t, db)
-
-	cases := []struct {
-		category string
-		wantCode string
-		wantKey  bool
-	}{
-		{"application", "order-api", true},
-		{"generic_target", "pay-api", true},
-		{"host", "", false}, // 基础设施不挂服务：契约上不返回该键
-	}
-	for _, tc := range cases {
-		t.Run(tc.category, func(t *testing.T) {
-			_, out := doResourceList(t, r, "?resource_category="+tc.category)
-			require.Len(t, out.Data.List, 1)
-			item := out.Data.List[0]
-			if !tc.wantKey {
-				_, exists := item["service_code"]
-				assert.False(t, exists, "%s 列表 item 不应含 service_code 键（不挂服务）", tc.category)
-				return
-			}
-			assert.Equal(t, tc.wantCode, item["service_code"], "%s 应返回 service_code", tc.category)
-		})
-	}
-}
-
 // seedHostListPlatformApp 落一条带 platform_code / app_code 的主机 fixture。
 // host 的 app_code 物理列名为 app_code（host.go AppCode），与其余四类的 app_name 不同。
 func seedHostListPlatformApp(t *testing.T, db *gorm.DB, id, name, ip, platform, appCode, status string) {
@@ -648,9 +602,9 @@ func seedHostListPlatformApp(t *testing.T, db *gorm.DB, id, name, ip, platform, 
 	}).Error)
 }
 
-// seedAppWithFourDims 落一条四维齐全的 application fixture（平台 / 应用 / 服务 / 业务）。
+// seedAppWithFourDims 落一条三维齐全的 application fixture（平台 / 应用 / 业务）。
 // application 的 app_code 物理列名为 app_name（resource.go AppName）。
-func seedAppWithFourDims(t *testing.T, db *gorm.DB, id, service, platform, appCode, svcCode, bizCode, status string) {
+func seedAppWithFourDims(t *testing.T, db *gorm.DB, id, service, platform, appCode, bizCode, status string) {
 	t.Helper()
 	require.NoError(t, db.Create(&models.Application{
 		ResourceID: id, ResourceCategory: models.ResourceCategoryApplication,
@@ -660,19 +614,19 @@ func seedAppWithFourDims(t *testing.T, db *gorm.DB, id, service, platform, appCo
 		AppName:         appCode,
 		SourceType:      models.SourceTypeManual,
 		Env:             "prod", Cluster: "c1", Status: status,
-		ServiceName: service, ServiceCode: svcCode,
-		Endpoint: "10.0.0.1", Port: 8080, Protocol: "http",
+		ServiceName: service,
+		Endpoint:    "10.0.0.1", Port: 8080, Protocol: "http",
 		HealthCheckURL: "http://10.0.0.1/health",
 	}).Error)
 }
 
-// TestListResourcesPlatformAppServiceFilter 覆盖 F-18 四层模型查询侧：
-// platform_code / app_code / service_code 三个新维度在各自持有的类别上按等值条件生效。
+// TestListResourcesPlatformAppFilter 覆盖 F-18 查询侧：platform_code / app_code
+// 两个维度在各自持有的类别上按等值条件生效。
 //
 // 其中 app_code 的**物理列名按类别不同**（host=app_code、其余四类=app_name，决策 92
-// 只统一语义未改名），这是本用例除 service_code 外第二个易踩点：若按app_code 拼列，
-// host 会命中而其余四类直接 SQL 报错。
-func TestListResourcesPlatformAppServiceFilter(t *testing.T) {
+// 只统一语义未改名）是本用例的易踩点：若按 app_code 拼列，host 会命中而其余四类直接
+// SQL 报错。
+func TestListResourcesPlatformAppFilter(t *testing.T) {
 	db := openListTestDB(t)
 	r := mountListResources(t, db)
 
@@ -680,9 +634,9 @@ func TestListResourcesPlatformAppServiceFilter(t *testing.T) {
 	seedHostListPlatformApp(t, db, "host-1", "web-01", "10.0.0.1", "ecommerce", "order", "online")
 	seedHostListPlatformApp(t, db, "host-2", "web-02", "10.0.0.2", "ecommerce", "payment", "online")
 	seedHostListPlatformApp(t, db, "host-3", "web-03", "10.0.0.3", "retail", "order", "online")
-	// application 两行：四维齐全，服务不同
-	seedAppWithFourDims(t, db, "app-1", "order-svc", "ecommerce", "order", "order-api", "payment", "online")
-	seedAppWithFourDims(t, db, "app-2", "pay-svc", "ecommerce", "payment", "pay-api", "infra", "online")
+	// application 两行：三维齐全，应用不同
+	seedAppWithFourDims(t, db, "app-1", "order-svc", "ecommerce", "order", "payment", "online")
+	seedAppWithFourDims(t, db, "app-2", "pay-svc", "ecommerce", "payment", "infra", "online")
 
 	// platform_code：host 上按平台收敛。
 	_, out := doResourceList(t, r, "?resource_category=host&platform_code=ecommerce")
@@ -699,71 +653,28 @@ func TestListResourcesPlatformAppServiceFilter(t *testing.T) {
 	require.Equal(t, int64(1), out.Data.Total)
 	assert.Equal(t, "app-2", out.Data.List[0]["resource_id"])
 
-	// service_code：仅 application / generic_target 生效。
-	_, out = doResourceList(t, r, "?resource_category=application&service_code=pay-api")
-	require.Equal(t, int64(1), out.Data.Total)
-	assert.Equal(t, "app-2", out.Data.List[0]["resource_id"])
-	_, out = doResourceList(t, r, "?resource_category=application&service_code=order-api")
-	require.Equal(t, int64(1), out.Data.Total)
-	assert.Equal(t, "app-1", out.Data.List[0]["resource_id"])
-
-	// 四维 + 业务 + 状态组合（分页总数与筛选一致，替代此前前端过滤的口径缺陷）。
+	// 平台 + 应用 + 业务 + 状态组合（分页总数与筛选一致，替代此前前端过滤的口径缺陷）。
 	_, out = doResourceList(t, r,
-		"?resource_category=application&platform_code=ecommerce&app_code=payment&service_code=pay-api&biz_code=infra&status=online")
+		"?resource_category=application&platform_code=ecommerce&app_code=payment&biz_code=infra&status=online")
 	require.Equal(t, int64(1), out.Data.Total)
 	assert.Equal(t, "app-2", out.Data.List[0]["resource_id"])
 
 	// 组合无命中 → 空列表而非报错。
 	_, out = doResourceList(t, r,
-		"?resource_category=application&platform_code=retail&service_code=pay-api")
+		"?resource_category=application&platform_code=retail&app_code=pay-api")
 	require.Equal(t, int64(0), out.Data.Total)
 	assert.Empty(t, out.Data.List)
 
-	// 未传三维 → 全量。
+	// 未传维度 → 全量。
 	_, out = doResourceList(t, r, "?resource_category=host")
 	require.Equal(t, int64(3), out.Data.Total)
 }
 
-// TestListResourcesServiceCodeIgnoredOnNonServiceCategories 是 F-18 的**核心回归防护**：
-// service_code 仅 application（resource.go）/ generic_target（generic_target.go）持有该列，
-// host / database / middleware **无该列**。若 BuildListQuery 无条件拼接 service_code，
-// 这三类会因引用不存在的列直接 SQL 报错（列表接口 500）。
-//
-// 故断言：传入 service_code 时这三类必须 200 且结果与不传时一致（条件被安全忽略）。
-func TestListResourcesServiceCodeIgnoredOnNonServiceCategories(t *testing.T) {
-	db := openListTestDB(t)
-	r := mountListResources(t, db)
-
-	seedHostList(t, db, "host-1", "default", "web-01", "10.0.0.1", "online")
-	seedDatabaseList(t, db, "db-1", "default", "10.0.0.2", 3306, "online")
-	seedMiddlewareList(t, db, "mw-1", "default", "10.0.0.3", 9092, "online")
-	// 另落两条承载 service_code 的行，验证「跨类别传同一个 service_code」不影响这三类。
-	seedAppWithFourDims(t, db, "app-1", "order-svc", "ecommerce", "order", "shared-svc", "infra", "online")
-
-	for _, category := range []string{"host", "database", "middleware"} {
-		t.Run(category, func(t *testing.T) {
-			w, base := doResourceList(t, r, "?resource_category="+category)
-			require.Equal(t, http.StatusOK, w.Code, "%s 不传service_code 应正常", category)
-			require.Equal(t, int64(1), base.Data.Total)
-
-			// 传一个真实存在于 application 的 service_code：这三类不得报错，也不得被误筛掉。
-			w, out := doResourceList(t, r, "?resource_category="+category+"&service_code=shared-svc")
-			require.Equal(t, http.StatusOK, w.Code,
-				"%s 无 service_code 列，传该参数不得导致 SQL 报错（F-18 回归防护点）", category)
-			assert.Equal(t, "success", out.Status, "%s", category)
-			assert.Equal(t, int64(1), out.Data.Total,
-				"%s 不持有 service_code 列，该条件应被忽略而非过滤", category)
-			require.Len(t, out.Data.List, 1)
-			assert.Equal(t, base.Data.List[0]["resource_id"], out.Data.List[0]["resource_id"])
-		})
-	}
-}
-
-// TestParseListFilterFourDimensionFields 验证 F-18 五个筛选字段的 query 参数解析。
+// TestParseListFilterFourDimensionFields 验证 F-18 筛选字段的 query 参数解析。
 func TestParseListFilterFourDimensionFields(t *testing.T) {
 	values, err := url.Parse(
 		"?network_domain_id=mc-a&keyword=web&biz_code=infra&status=online" +
-			"&platform_code=ecommerce&app_code=order&service_code=order-api&is_monitored=true")
+			"&platform_code=ecommerce&app_code=order&is_monitored=true")
 	require.NoError(t, err)
 	f := ParseListFilter(values.Query())
 
@@ -773,28 +684,19 @@ func TestParseListFilterFourDimensionFields(t *testing.T) {
 	assert.Equal(t, "online", f.Status)
 	assert.Equal(t, "ecommerce", f.PlatformCode)
 	assert.Equal(t, "order", f.AppCode)
-	assert.Equal(t, "order-api", f.ServiceCode)
 	assert.Equal(t, "true", f.IsMonitored)
 
 	// 缺失参数 → 零值（不拼等值条件）。
 	empty := ParseListFilter(url.Values{})
 	assert.Empty(t, empty.PlatformCode)
 	assert.Empty(t, empty.AppCode)
-	assert.Empty(t, empty.ServiceCode)
 	assert.Empty(t, empty.BizCode)
 	assert.Empty(t, empty.Status)
 }
 
-// TestHasServiceCodeAndAppCodeColumn 锁定两个 schema 事实（列持有与列名口径），
-// 任何模型/迁移变更若破坏这两个假设，用例会先于运行时 SQL 报错给出信号。
-func TestHasServiceCodeAndAppCodeColumn(t *testing.T) {
-	// service_code 仅两类持有。
-	assert.True(t, hasServiceCode(models.ResourceCategoryApplication))
-	assert.True(t, hasServiceCode(models.ResourceCategoryGenericTarget))
-	assert.False(t, hasServiceCode(models.ResourceCategoryHost))
-	assert.False(t, hasServiceCode(models.ResourceCategoryDatabase))
-	assert.False(t, hasServiceCode(models.ResourceCategoryMiddleware))
-
+// TestAppCodeColumn 锁定 schema 事实（app_code 语义列的物理列名口径），
+// 任何模型/迁移变更若破坏该假设，用例会先于运行时 SQL 报错给出信号。
+func TestAppCodeColumn(t *testing.T) {
 	// app_code 语义列的物理列名按类别不同（决策 92 只统一语义、未改名）。
 	assert.Equal(t, "app_code", appCodeColumn(models.ResourceCategoryHost))
 	for _, category := range []models.ResourceCategory{
@@ -808,14 +710,12 @@ func TestHasServiceCodeAndAppCodeColumn(t *testing.T) {
 }
 
 // TestColumnSchemaHelpersCoverAllCategories 是**枚举完整性断言**
-// （golang-reviewer LOW-1）：原 TestHasServiceCodeAndAppCodeColumn 逐个枚举值硬断言，
-// 新增 ResourceCategory 时该测试不会失败——appCodeColumn 的 `default` 分支会静默把
-// 未知类别落到某个列名（或空串），属最难排查的 latent bug。
-// 本测试遍历 ValidResourceCategories() 权威全集，要求：
-//  1. hasServiceCode 与 appCodeColumn 都不得返回「未覆盖」信号
-//     （appCodeColumn 对未知类别返回 ""，权威枚举内不允许出现空串）；
-//  2. 未知类别（不在权威枚举内）两个函数都不应给出有效列名/真值——
-//     即降级方向必须是「不加条件」而非「猜一列」。
+// （golang-reviewer LOW-1）：逐个枚举值硬断言在新增 ResourceCategory 时不会失败
+// ——appCodeColumn 的 `default` 分支会静默把未知类别落到某个列名（或空串），属
+// 最难排查的 latent bug。本测试遍历 ValidResourceCategories() 权威全集，要求：
+//  1. appCodeColumn 不得返回「未覆盖」信号（对未知类别返回 ""，权威枚举内不允许空串）；
+//  2. 未知类别（不在权威枚举内）不得给出有效列名——即降级方向必须是「不加条件」
+//     而非「猜一列」。
 func TestColumnSchemaHelpersCoverAllCategories(t *testing.T) {
 	for _, category := range models.ValidResourceCategories() {
 		col := appCodeColumn(category)
@@ -824,11 +724,9 @@ func TestColumnSchemaHelpersCoverAllCategories(t *testing.T) {
 		assert.NotEqual(t, "?", col,
 			"appCodeColumn(%q) 返回了占位符，疑似漏改switch", category)
 	}
-	// 未知类别：降级方向须为「不加条件」（appCodeColumn 返回空串、hasServiceCode 为 false），
+	// 未知类别：降级方向须为「不加条件」（appCodeColumn 返回空串），
 	// 不可像原先`if host / else` 那样静默落到 app_name（golang-reviewer LOW-1 的根因）。
 	unknown := models.ResourceCategory("brand_new_category_not_in_enum")
 	assert.Empty(t, appCodeColumn(unknown),
 		"未知类别不得猜测列名，否则新增枚举时会静默错筛且不报错")
-	assert.False(t, hasServiceCode(unknown),
-		"未知类别不得报告持有 service_code，否则会拼不存在的列导致 SQL 报错")
 }

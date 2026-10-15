@@ -12,7 +12,7 @@
 //
 // 三条链路回填 `resource_name` 等实例字段。
 //
-// 只读约束：本文件只做 SELECT，不写 M01 任何表；每类资源表一次 `IN` 查询（共 5 条
+// 只读约束：本文件只做 SELECT，不写 M01 任何表；每类资源表一次 `IN` 查询（共 6 条
 // SQL），禁止逐 resource_id 查询（TQ-6 反 N+1，与 coverage 同口径）。
 //
 // 容错口径：单类资源表查询失败**只跳过该类**（其余类别照常回填），错误经
@@ -116,7 +116,7 @@ func firstLabelOf(labels map[string]string, keys []string) string {
 //   - 返回 map[resource_id]ResourceIdentity，未命中的 id 不出现在结果中；
 //   - 单类资源表查询失败只跳过该类（其余类别照常回填），错误经 errors.Join 汇总返回；
 //     调用方应继续使用已回填的部分结果（见 ResolveResourceIdentitiesSafe）；
-//   - 每类资源表一次 `IN` 查询（共 5 条 SQL），与调用方传入的 id 数量无关。
+//   - 每类资源表一次 `IN` 查询（共 6 条 SQL），与调用方传入的 id 数量无关。
 func ResolveResourceIdentities(db *gorm.DB, ids []string) (map[string]ResourceIdentity, error) {
 	out := make(map[string]ResourceIdentity)
 	if db == nil || len(ids) == 0 {
@@ -212,6 +212,21 @@ func ResolveResourceIdentities(db *gorm.DB, ids []string) (map[string]ResourceId
 				Category:   string(models.ResourceCategoryGenericTarget),
 				IP:         g.InstanceIP,
 				Port:       g.Port,
+			}
+		}
+	}
+
+	var interfaceServices []models.InterfaceService
+	if err := db.Where("resource_id IN ?", uniq).Find(&interfaceServices).Error; err != nil {
+		errs = append(errs, fmt.Errorf("resolve interface_service identities: %w", err))
+	} else {
+		for i := range interfaceServices {
+			o := &interfaceServices[i]
+			// 接口服务无独立 IP 字段：api_url 是完整 URL，不塞进 IP 字段（保持语义纯净）。
+			out[o.ResourceID] = ResourceIdentity{
+				ResourceID: o.ResourceID,
+				Name:       o.APIName,
+				Category:   string(models.ResourceCategoryInterfaceService),
 			}
 		}
 	}

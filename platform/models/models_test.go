@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -163,7 +164,8 @@ func TestResourceCategoryConstants(t *testing.T) {
 	assert.Equal(t, ResourceCategory("middleware"), ResourceCategoryMiddleware)
 	assert.Equal(t, ResourceCategory("application"), ResourceCategoryApplication)
 	assert.Equal(t, ResourceCategory("generic_target"), ResourceCategoryGenericTarget)
-	assert.Len(t, ValidResourceCategories(), 5)
+	assert.Equal(t, ResourceCategory("interface_service"), ResourceCategoryInterfaceService)
+	assert.Len(t, ValidResourceCategories(), 6)
 }
 
 func TestResourceInterfaceImplementations(t *testing.T) {
@@ -173,6 +175,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 		_ Resource = (*Middleware)(nil)
 		_ Resource = (*Application)(nil)
 		_ Resource = (*GenericTarget)(nil)
+		_ Resource = (*InterfaceService)(nil)
 	)
 
 	db := &Database{
@@ -1016,4 +1019,25 @@ func TestEdgeAgentSyncFieldsAndComponents(t *testing.T) {
 	assert.Len(t, got.Components, 1)
 	assert.Equal(t, ComponentStatusCrashLoop, got.Components[0].Status)
 	assert.Equal(t, 6, got.Components[0].RestartCount)
+}
+
+// TestDefaultMappingBuildersInterfaceServiceHasNoComposite 是实施计划高危点 H4 的护栏：
+// 接口服务的默认标签映射必须**显式**给出，绝不能落进 host/db/middleware/generic_target
+// 那份含 `instance_ip:port → instance` 组合映射的通用兜底 —— 拨测目标是完整 URL，
+// 组合映射对它不成立，静默继承会产出空 instance 标签。
+func TestDefaultMappingBuildersInterfaceServiceHasNoComposite(t *testing.T) {
+	mappings := DefaultMappingBuilders(ResourceCategoryInterfaceService)
+	require.NotEmpty(t, mappings)
+
+	targets := make(map[string]string, len(mappings))
+	for _, m := range mappings {
+		assert.NotEqual(t, LabelSourceTypeComposite, m.SourceType,
+			"接口服务默认映射不得包含 composite 组合映射（来源字段 %s）", m.SourceField)
+		targets[m.TargetLabel] = m.SourceField
+	}
+
+	// 类型专属字段应可映射；resource_id 恒在（供采集状态回连）。
+	assert.Equal(t, "api_name", targets["api_name"])
+	assert.Equal(t, "api_url", targets["api_url"])
+	assert.Equal(t, "resource_id", targets["resource_id"])
 }

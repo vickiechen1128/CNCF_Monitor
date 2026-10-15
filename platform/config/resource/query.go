@@ -50,11 +50,6 @@ type ListFilter struct {
 	// （历史列名，语义已切换为 app_code 编码，见 resource_base.go AppName 注释）。
 	// 故列名选择必须按 category 分支，见 BuildListQuery 的 appCodeColumn。
 	AppCode string
-	// ServiceCode 按服务归属编码精确筛选（决策 105 / F-18）。
-	// ⚠️ 仅 application（resource.go ServiceCode）/ generic_target（generic_target.go
-	// ServiceCode）两类持有该列；host / database / middleware **无该列**，
-	// 必须按 category 条件化追加条件，否则拼该列会直接 SQL 报错。
-	ServiceCode string
 	// IsMonitored 由 M01 维护、M07 只读映射；M01 未实现时透传不生效（见 T07-05）。
 	IsMonitored string
 	PageParams
@@ -70,7 +65,6 @@ func ParseListFilter(values url.Values) ListFilter {
 		Status:          values.Get("status"),
 		PlatformCode:    values.Get("platform_code"),
 		AppCode:         values.Get("app_code"),
-		ServiceCode:     values.Get("service_code"),
 		IsMonitored:     values.Get("is_monitored"),
 		PageParams:      ParsePageParams(values),
 	}
@@ -80,8 +74,8 @@ func ParseListFilter(values url.Values) ListFilter {
 //
 // 决策 92 只统一了语义（资源侧只存 app_code 编码），未统一物理列名：
 //   - host：AppCode → 列 app_code（host.go）
-//   - database / middleware / application / generic_target：AppName → 列 app_name
-//     （resource_base.go / resource.go，历史列名沿用不改名）
+//   - database / middleware / application / generic_target / interface_service：
+//     AppName → 列 app_name（resource_base.go / resource.go，历史列名沿用不改名）
 //
 // 五类均存在该列，仅列名不同，故按 category 返回而非条件化掉。
 //
@@ -89,7 +83,7 @@ func ParseListFilter(values url.Values) ListFilter {
 // 未知/新增类别静默落到 `app_name`。若将来新增第 6 类且其 app_code 语义列名为
 // `app_code`（如沿用 host 布局），则不报错、但筛选恒空或错筛——属最难排查的一类
 // latent bug。改为穷举后，新增枚举会落入 `default` 返回 ""，配合 BuildListQuery 的
-// `col != ""` 守卫表现为「不加该条件」，方向与 hasServiceCode 一致且安全。
+// `col != ""` 守卫表现为「不加该条件」，安全降级。
 //
 // ⚠️ **新增 ResourceCategory 枚举时必须同步本 switch**（`TestAppCodeColumnCoversAllCategories`
 // 已用 `ValidResourceCategories()` 做完整性断言，漏改会测试失败）。
@@ -98,23 +92,12 @@ func appCodeColumn(category models.ResourceCategory) string {
 	case models.ResourceCategoryHost:
 		return "app_code"
 	case models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware,
-		models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
+		models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget,
+		models.ResourceCategoryInterfaceService:
 		return "app_name"
 	default:
 		// 未知类别：不返回任何列名，由调用方跳过该条件（不静默猜列）
 		return ""
-	}
-}
-
-// hasServiceCode 报告该类别是否持有 service_code 列（决策 105）。
-// 仅 application / generic_target 两类可挂服务字典归属；
-// host / database / middleware 无该列，拼条件会直接 SQL 报错（F-18 核心坑点）。
-func hasServiceCode(category models.ResourceCategory) bool {
-	switch category {
-	case models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -124,10 +107,10 @@ func hasServiceCode(category models.ResourceCategory) bool {
 //   - biz_code / status 等值筛选（五类资源表均含 biz_code / status 列）；
 //   - platform_code 等值筛选（五类资源表均含该列，决策 110）；
 //   - app_code 等值筛选（按 category 取物理列名 app_code / app_name，决策 92）；
-//   - service_code 等值筛选（**仅 application / generic_target 追加**，决策 105）；
 //   - keyword 对「名称 + IP」做模糊匹配（LIKE），列按类型选取：
 //     host=(instance_name, private_ip)、database/middleware=instance_ip、
-//     application=(service_name, endpoint)、generic_target=(target_name, instance_ip)；
+//     application=(service_name, endpoint)、generic_target=(target_name, instance_ip)、
+//     interface_service=(api_name, api_url)；
 //   - is_monitored 仅解析透传，M01 未实现时不拼 GORM 条件（见 T07-05）。
 //
 // 分页（Offset/Limit）由调用方（T07-05 list.go）在 Count 后追加。
@@ -151,11 +134,6 @@ func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter)
 	if col := appCodeColumn(category); f.AppCode != "" && col != "" {
 		db = db.Where(col+" = ?", f.AppCode)
 	}
-	// 决策 105：service_code 仅 application / generic_target 持有该列，
-	// 其余三类必须跳过，否则引用不存在列 → SQL 报错（F-18 回归防护点）。
-	if f.ServiceCode != "" && hasServiceCode(category) {
-		db = db.Where("service_code = ?", f.ServiceCode)
-	}
 	if f.Keyword != "" {
 		like := "%" + f.Keyword + "%"
 		switch category {
@@ -168,6 +146,9 @@ func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter)
 			db = db.Where("(service_name LIKE ? OR endpoint LIKE ?)", like, like)
 		case models.ResourceCategoryGenericTarget:
 			db = db.Where("(target_name LIKE ? OR instance_ip LIKE ?)", like, like)
+		case models.ResourceCategoryInterfaceService:
+			// 接口服务：接口名或接口地址模糊匹配
+			db = db.Where("(api_name LIKE ? OR api_url LIKE ?)", like, like)
 		}
 	}
 	return db

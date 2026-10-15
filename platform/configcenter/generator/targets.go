@@ -27,7 +27,7 @@ const (
 // 仅用于生成侧校验给出资源级定位（哪个实例、为什么没解析出地址），不做持久化。
 type SkippedInstance struct {
 	ResourceID string
-	Category   string // host/database/middleware/application/generic_target；解析不到资源时为空，blackbox 跳过填 blackbox
+	Category   string // host/database/middleware/application/generic_target/interface_service；解析不到资源时为空
 	Reason     string // resource_not_found / address_empty / offline
 	Detail     string // 人类可读补充（如「健康检查地址（health_check_url）为空」）
 }
@@ -42,10 +42,11 @@ func addressEmptyDetail(category string) string {
 	return "实例 IP 为空"
 }
 
-// resolveResource 按 resource_id 在五类资源表中解析目标实例
+// resolveResource 按 resource_id 在六类资源表（host/database/middleware/application/
+// generic_target/interface_service）中解析目标实例
 // （address / 标签模板字段视图 / status / category）。
 //
-// 字段视图与 platform_code（决策 118-2）：五类字段视图**均须携带 `platform_code`**——
+// 字段视图与 platform_code（决策 118-2）：各类字段视图**均须携带 `platform_code`**——
 // 它是 `platform` 标签的唯一模板来源字段（`platform_code → platform` 的 resource_field
 // 映射，决策 110 ②）。决策 118 归一前本视图不含该键，导致模板映射恒 `v != ""` 判空
 // 跳过、`platform` 只能由 system 层派生——即「兜底前移物化」不生效的直接原因。
@@ -76,6 +77,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:          host.Status,
 			Category:        models.ResourceCategoryHost,
 			AppCode:         host.GetAppCode(),
+			Raw:             &host,
 			Fields: map[string]string{
 				"app_name":         host.AppCode,
 				"biz_code":         host.BizCode,
@@ -99,6 +101,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:          database.Status,
 			Category:        models.ResourceCategoryDatabase,
 			AppCode:         database.GetAppCode(),
+			Raw:             &database,
 			Fields: map[string]string{
 				"app_name":      database.GetAppCode(),
 				"biz_code":      database.BizCode,
@@ -120,6 +123,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:          middleware.Status,
 			Category:        models.ResourceCategoryMiddleware,
 			AppCode:         middleware.GetAppCode(),
+			Raw:             &middleware,
 			Fields: map[string]string{
 				"app_name":      middleware.AppName,
 				"biz_code":      middleware.BizCode,
@@ -139,9 +143,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:          application.Status,
 			Category:        models.ResourceCategoryApplication,
 			AppCode:         application.GetAppCode(),
+			Raw:             &application,
 			Fields: map[string]string{
 				"app_code":         application.GetAppCode(),
-				"service_code":     application.ServiceCode,
 				"biz_code":         application.BizCode,
 				"cluster":          application.GetCluster(),
 				"service_name":     application.ServiceName,
@@ -160,14 +164,41 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:          generic.Status,
 			Category:        models.ResourceCategoryGenericTarget,
 			AppCode:         generic.GetAppCode(),
+			Raw:             &generic,
 			Fields: map[string]string{
 				"app_name":      generic.GetAppCode(),
-				"service_code":  generic.ServiceCode,
 				"biz_code":      generic.BizCode,
 				"cluster":       generic.GetCluster(),
 				"instance_ip":   generic.InstanceIP,
 				"env":           generic.GetEnv(),
 				"platform_code": generic.PlatformCode,
+			},
+		}, nil
+	}
+	// interface_service（第 6 类）：Address **直接等于 api_url，逐字节原样** —— 严禁走
+	// instanceAddress / 拼端口，api_url 是含 `?` 查询参数的完整 URL，拼端口会产出行如
+	// `https://api.example.com/health?token=x:0` 的非法地址。本类别不存在采集端口概念。
+	// 注：拨测目标不再固定取该 Address，而是按 job.TargetField 经 models.GetResourceField
+	// 取字段值（resolveSelectedInstanceTargets）；此处 Address 仅供标签模板
+	// （instance_ip:port 合成）与标准分支使用。
+	var iface models.InterfaceService
+	if err := db.Where("resource_id = ?", resourceID).First(&iface).Error; err == nil {
+		return &resourceTarget{
+			ResourceID:      iface.GetResourceID(),
+			NetworkDomainID: iface.NetworkDomainID,
+			Address:         iface.APIURL,
+			Status:          iface.Status,
+			Category:        models.ResourceCategoryInterfaceService,
+			AppCode:         iface.GetAppCode(),
+			Raw:             &iface,
+			Fields: map[string]string{
+				"api_name":          iface.APIName,
+				"api_url":           iface.APIURL,
+				"app_code":          iface.GetAppCode(),
+				"biz_code":          iface.BizCode,
+				"env":               iface.GetEnv(),
+				"platform_code":     iface.PlatformCode,
+				"network_domain_id": iface.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -221,7 +252,9 @@ func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[strin
 // 的实例归因（C-1，config-sync-stall-and-empty-targets-guard 设计提案 §3.1）：
 //   - standard：从已选实例解析目标，排除 Resource.status=offline（跨模块契约 M07 §8.1）；
 //     exporterPort 为采集策略层端口（host/database/middleware 拼接，见 resolveResource）；
-//   - blackbox：将 ScrapeJob.blackbox_targets 展开为目标组（labels 空）。
+//   - blackbox：拨测与采集同构——目标 = 所选资源类别（job.ResourceType）实例在用户选定
+//     字段（job.TargetField）上的值（经 models.GetResourceField），与 standard 共用同一
+//     解析循环与标签注入。类别不预设、字段不预设，一律由用户在 Job 上选择。
 //
 // 每实例生成一个 TargetGroup（targets=[地址]，labels=模板展开标签）。
 //
@@ -238,29 +271,25 @@ func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[strin
 // resource_id 标签回连资源）的稳定身份回连键，作为 system 层标签强制注入——
 // 不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
 //
-// 决策 110 / 118：`platform` 与 `svc` **均走标签模板层**——`platform` 由资源行
+// 决策 110 / 118：`platform` **走标签模板层**——`platform` 由资源行
 // `platform_code` 经 `platform_code → platform` 的 resource_field 映射注入（资源留空
-// 时由 materializePrimaryPlatform 兜底物化应用 is_primary 平台），`svc` 由
-// `service_code → svc` 映射注入。**system 层不注入这两个标签**（决策 118-2：注入点
-// 唯一权威 = 模板层；决策 104 / 107 / 108 的「经应用父级 platform_code 在 system 层
-// 派生」实现已废止，`ApplicationDict.PlatformCode` 生产消费者归零）。
+// 时由 materializePrimaryPlatform 兜底物化应用 is_primary 平台）。**system 层不注入
+// 该标签**（决策 118-2：注入点唯一权威 = 模板层；决策 104 / 107 / 108 的「经应用父级
+// platform_code 在 system 层派生」实现已废止，`ApplicationDict.PlatformCode` 生产消费者归零）。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance, error) {
-	if job.JobType == models.JobTypeBlackbox {
-		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
-		var skipped []SkippedInstance
-		for _, t := range job.BlackboxTargets {
-			if t.Target == "" {
-				skipped = append(skipped, SkippedInstance{
-					Category: "blackbox",
-					Reason:   SkipReasonAddressEmpty,
-					Detail:   "blackbox 拨测目标（target）为空",
-				})
-				continue
-			}
-			groups = append(groups, TargetGroup{Targets: []string{t.Target}, Labels: map[string]string{}})
-		}
-		return groups, skipped, nil
-	}
+	groups, skipped := resolveSelectedInstanceTargets(db, job, tmpl, exporterPort)
+	return groups, skipped, nil
+}
+
+// resolveSelectedInstanceTargets 从 job.SelectedInstanceIDs 解析目标组，逐条记录
+// 跳过归因。
+//
+// standard：目标地址取 resolveResource 解析出的实例采集地址（rt.Address）。
+// blackbox：目标地址取该实例在 job.TargetField 上的字段值（models.GetResourceField，
+// 与实例解析共用同一 resourceTarget.Raw 资源对象）——取值缺失/字段为空记
+// SkipReasonAddressEmpty 跳过。渲染侧 render.go 的黑盒专属逻辑（/probe、params.module、
+// 127.0.0.1:9115 relabel）保持不变。
+func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance) {
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
 	var skipped []SkippedInstance
 	// domainCache / primaryPlatformCache 在同一 Job 内复用查询结果，避免相同
@@ -286,16 +315,23 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 			})
 			continue
 		}
-		if rt.Address == "" {
+		// target 地址：standard = 实例采集地址；blackbox = 所选字段的值。
+		address := rt.Address
+		emptyDetail := addressEmptyDetail(string(rt.Category))
+		if job.JobType == models.JobTypeBlackbox {
+			address, _ = models.GetResourceField(rt.Raw, job.TargetField)
+			emptyDetail = fmt.Sprintf("探测地址字段（%s）的值为空", job.TargetField)
+		}
+		if address == "" {
 			skipped = append(skipped, SkippedInstance{
 				ResourceID: rt.ResourceID,
 				Category:   string(rt.Category),
 				Reason:     SkipReasonAddressEmpty,
-				Detail:     addressEmptyDetail(string(rt.Category)),
+				Detail:     emptyDetail,
 			})
 			continue
 		}
-		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), rt.Address)
+		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), address)
 		// 决策 103 scheme-B：cloud / zone / network_domain 三标签在 TARGET-LEVEL SYSTEM
 		// 层强制注入（不可被 LabelTemplate 覆盖，亦不经 external_labels）：
 		//   - network_domain = 资源所属网域 id；
@@ -330,9 +366,9 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 			}
 		}
 		labels := mergeIntoLabels(systemLabels, templateLabels)
-		groups = append(groups, TargetGroup{Targets: []string{rt.Address}, Labels: labels})
+		groups = append(groups, TargetGroup{Targets: []string{address}, Labels: labels})
 	}
-	return groups, skipped, nil
+	return groups, skipped
 }
 
 // MarshalTargetGroups 将目标组序列化为 file_sd JSON 文件内容（顶层数组）。

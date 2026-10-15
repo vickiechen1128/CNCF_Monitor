@@ -14,6 +14,7 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /**
@@ -50,7 +51,7 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
     '必填：服务名（service_name）、采集地址主机（endpoint）、采集端口（port）',
     '必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）',
     '可留空：健康检查地址（health_check_url，业务健康检查用，不作采集地址）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
-    '可留空：服务编码（service_code）、负责人（owner）',
+    '可留空：负责人（owner）',
   ],
   generic_target: [
     '必填：目标名称（target_name）、IP 地址（instance_ip，可填 IPv4 或域名）',
@@ -58,6 +59,11 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
     '可留空：端口（port，留空表示用默认端口）、采集路径（metrics_path）、协议（scheme）、Exporter 类型（exporter_type）',
     '可留空：所属平台（platform_code）、所属集群（cluster）、负责人（owner）',
     '自定义标签（custom_labels）按需填写，格式为 key1=value1;key2=value2',
+  ],
+  interface_service: [
+    '必填：接口名（api_name）、接口地址（api_url，填完整 URL，含 ? 查询参数）',
+    '必填：所属业务（biz_code）、所属应用（app_code）',
+    '可留空：所属平台（platform_code，留空按所属应用的默认平台归属）、所属集群（cluster）、负责人（owner）',
   ],
 }
 
@@ -72,6 +78,7 @@ const DICT_SCOPE_HINTS: Record<ResourceCategory, string> = {
   middleware: '应用列必填，业务列能留空（导入后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   application: '业务列和应用列都必填，只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   generic_target: '业务列和应用列二选一，至少填一个。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  interface_service: '业务列和应用列都必填，只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
 }
 
 /** 下载文件名日期戳：YYYYMMDD（F-7-⑤，旧文件一眼识破） */

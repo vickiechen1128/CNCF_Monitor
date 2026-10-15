@@ -16,8 +16,6 @@ import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import ApplicationDictPage from './pages/resources/ApplicationDictPage'
 // 平台字典维护页（M07 §5.21 / 决策 104，契约快照 §5C）
 import PlatformManagementPage from './pages/resources/PlatformManagementPage'
-// 服务字典维护页（M07 §5.22 / 决策 105，契约快照 §5D）
-import ServiceManagementPage from './pages/resources/ServiceManagementPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
@@ -118,8 +116,6 @@ function AppRoutes() {
           <Route path="/application-dict" element={<ApplicationDictPage />} />
           {/* 平台字典维护页（M07 §5.21 / 决策 104，与应用字典同构） */}
           <Route path="/platform-dict" element={<PlatformManagementPage />} />
-          {/* 服务字典维护页（M07 §5.22 / 决策 105，与应用字典同构） */}
-          <Route path="/service-dict" element={<ServiceManagementPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />

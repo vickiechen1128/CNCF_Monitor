@@ -12,11 +12,12 @@ type ResourceType string
 
 // Resource type constants.
 const (
-	ResourceTypeHost          ResourceType = "host"
-	ResourceTypeDatabase      ResourceType = "database"
-	ResourceTypeMiddleware    ResourceType = "middleware"
-	ResourceTypeApplication   ResourceType = "application"
-	ResourceTypeGenericTarget ResourceType = "generic_target"
+	ResourceTypeHost             ResourceType = "host"
+	ResourceTypeDatabase         ResourceType = "database"
+	ResourceTypeMiddleware       ResourceType = "middleware"
+	ResourceTypeApplication      ResourceType = "application"
+	ResourceTypeGenericTarget    ResourceType = "generic_target"
+	ResourceTypeInterfaceService ResourceType = "interface_service"
 )
 
 // BaseModel provides the common primary key and timestamp fields used by all models.
@@ -95,11 +96,6 @@ type Application struct {
 	Owner       string `gorm:"size:100" json:"owner"`
 	Status      string `gorm:"size:20;not null" json:"status"`
 	ServiceName string `gorm:"size:100;not null" json:"service_name"`
-	// ServiceCode 是**可选**服务归属编码（决策 105，对应服务字典 ServiceDict 主键），
-	// 仅 application / generic_target 适用，是 `svc` label 的唯一取值来源；留空表示
-	// 纯自由文本、向后兼容（svc 标签不注入）。既有必填字段 ServiceName（应用服务名）
-	// 口径不变，仍参与 application 判重键 (domain, service_name, endpoint)。
-	ServiceCode    string `gorm:"size:64" json:"service_code"`
 	HealthCheckURL string `gorm:"size:500;not null" json:"health_check_url"`
 	Protocol       string `gorm:"size:20;not null" json:"protocol"`
 	Endpoint       string `gorm:"size:500" json:"endpoint"`

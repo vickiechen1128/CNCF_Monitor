@@ -129,6 +129,8 @@ func countCategoryResources(db *gorm.DB, cat models.ResourceCategory) (int64, er
 		target = &models.Application{}
 	case models.ResourceCategoryGenericTarget:
 		target = &models.GenericTarget{}
+	case models.ResourceCategoryInterfaceService:
+		target = &models.InterfaceService{}
 	default:
 		return 0, nil
 	}

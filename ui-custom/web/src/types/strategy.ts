@@ -41,6 +41,11 @@ export interface ScrapeJob {
   blackbox_module?: string
   /** blackbox Job 的拨测目标（job_type=blackbox 必填，§5.4） */
   blackbox_targets?: BlackboxTarget[]
+  /**
+   * blackbox Job 的探测地址字段（阶段5 解耦）：从 `resource_type` 该类别的字段中
+   * 选一个，生成时取所选实例在该字段上的值作为探测目标。仅 blackbox 使用。
+   */
+  target_field?: string
   /** 认证TLS密文仅存储不回显明文，编辑回填一律置空（决策31） */
   password?: string
   /** 参数继承映射快照可覆盖项（§5.4，UI「参数同步」列概览） */

@@ -37,6 +37,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.ExporterInstallationConfirmation{},
 	))
 	return db
@@ -124,6 +125,19 @@ func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string
 		NetworkDomainID: domainID, BizCode: "infra", SourceType: models.SourceTypeManual,
 		InstanceName: "host-" + resourceID, Status: status, Region: "cn", ZoneEnv: "dev",
 		InstanceSpec: "2c4g", Image: "linux", VPC: "vpc", SecurityGroup: "sg", PrivateIP: ip,
+	}).Error)
+}
+
+// seedInterfaceService 落一条「接口服务」资源（拨测资源模式的候选源）。
+func seedInterfaceService(t *testing.T, db *gorm.DB, resourceID, domainID, apiName, apiURL, status string) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.InterfaceService{
+		ResourceBase: models.ResourceBase{
+			ResourceID: resourceID, ResourceCategory: models.ResourceCategoryInterfaceService,
+			NetworkDomainID: domainID, BizCode: "infra", Env: "prod", Status: status,
+			SourceType: models.SourceTypeManual,
+		},
+		APIName: apiName, APIURL: apiURL, ResourceType: models.ResourceTypeInterfaceService,
 	}).Error)
 }
 
@@ -383,14 +397,46 @@ func TestCreateScrapeJobBlackbox(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health?token=x", "online")
 
-	// blackbox 缺 module/targets → bad_request。
+	// blackbox 缺 module → bad_request。
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
 		`{"job_name":"bb-bad","job_type":"blackbox","network_domain_id":"default"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "blackbox_module")
 
-	// blackbox 合法：monitor_type/exporter 置空。
-	body := `{"job_name":"bb-ok","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","blackbox_targets":[{"target":"api.example.com","protocol":"http"}]}`
+	// blackbox 有 module 但缺 resource_type → bad_request（类别不预设，须用户选择）。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-nocat","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "resource_type")
+
+	// 有类别但未选实例 → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-noselect","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "selected_instance_ids")
+
+	// 有实例但 target_field 为空 → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-nofield","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","selected_instance_ids":["is-1"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "target_field")
+
+	// target_field 不在该类别字段集内 → bad_request 并指出字段名。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-badfield","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"not_a_field","selected_instance_ids":["is-1"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "not_a_field")
+
+	// 手填 blackbox_targets 一律拒绝（彻底禁用手填模式）。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-handfill","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-1"],"blackbox_targets":[{"target":"api.example.com","protocol":"http"}]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "不再支持手填 blackbox_targets")
+
+	// blackbox 合法：选类别 + 字段 + 实例；monitor_type/exporter 置空；ResourceType 保留用户所选。
+	body := `{"job_name":"bb-ok","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-1"]}`
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
@@ -398,10 +444,59 @@ func TestCreateScrapeJobBlackbox(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, "http_2xx", out.Data.BlackboxModule)
-	assert.Len(t, out.Data.BlackboxTargets, 1)
-	assert.Equal(t, models.BlackboxTargetProtocolHTTP, out.Data.BlackboxTargets[0].Protocol)
+	assert.Empty(t, out.Data.BlackboxTargets, "手填字段不落库")
+	assert.Equal(t, []string{"is-1"}, out.Data.SelectedInstanceIDs)
+	assert.Equal(t, models.ResourceTypeInterfaceService, out.Data.ResourceType)
+	assert.Equal(t, "api_url", out.Data.TargetField)
 	assert.Empty(t, out.Data.MonitorType, "blackbox 任务 monitor_type 置空")
 	assert.Empty(t, out.Data.ExporterTemplateID, "blackbox 任务 exporter 置空")
+}
+
+// TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance：resource_type 指定类别与所选
+// 实例实际类别不符 → 400。此处 resource_type=interface_service，但实例是 host。
+func TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-host","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["host-1"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "不属于资源类别")
+}
+
+// TestCreateScrapeJobBlackboxNonInterfaceServiceCategory：核心判据——拨测不再与
+// interface_service 耦合：选 database 类别实例 + target_field=instance_ip → 创建成功。
+func TestCreateScrapeJobBlackboxNonInterfaceServiceCategory(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedDatabase(t, db, "db-1", "default", "10.0.2.7", "mysql", "online")
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-db","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"database","target_field":"instance_ip","selected_instance_ids":["db-1"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, models.ResourceTypeDatabase, out.Data.ResourceType)
+	assert.Equal(t, "instance_ip", out.Data.TargetField)
+}
+
+// TestCreateScrapeJobBlackboxCrossDomainRejected：跨网域接口服务 → 400。
+func TestCreateScrapeJobBlackboxCrossDomainRejected(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedEnabledDomain(t, db, "other")
+	seedInterfaceService(t, db, "is-other", "other", "外部接口", "https://other.example.com/health", "online")
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
+		`{"job_name":"bb-cross","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-other"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "网域")
 }
 
 func TestListScrapeJobsFiltersAndLabelTemplateReverseLookup(t *testing.T) {
@@ -438,6 +533,7 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health", "online")
 	job := &models.ScrapeJob{
 		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
 		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
@@ -451,19 +547,22 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"job_type":"blackbox"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	// standard → blackbox（带拨测字段）：monitor_type/exporter 清空、job_type 切换。
+	// standard → blackbox（选类别 + 字段 + 实例）：monitor_type/exporter 清空、job_type 切换、
+	// ResourceType 保留用户所选类别。
 	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
-		`{"job_type":"blackbox","blackbox_module":"http_2xx","blackbox_targets":[{"target":"api.example.com","protocol":"http"}]}`)
+		`{"job_type":"blackbox","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-1"]}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
 		Data struct {
-			JobType        models.JobType `json:"job_type"`
-			MonitorType    string         `json:"monitor_type"`
-			BlackboxModule string         `json:"blackbox_module"`
+			JobType        models.JobType     `json:"job_type"`
+			ResourceType   models.ResourceType `json:"resource_type"`
+			MonitorType    string             `json:"monitor_type"`
+			BlackboxModule string             `json:"blackbox_module"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, string(models.JobTypeBlackbox), string(out.Data.JobType))
+	assert.Equal(t, models.ResourceTypeInterfaceService, out.Data.ResourceType)
 	assert.Empty(t, out.Data.MonitorType, "切到 blackbox 后 monitor_type 清空")
 	assert.Equal(t, "http_2xx", out.Data.BlackboxModule)
 
@@ -682,6 +781,85 @@ func TestInstanceCandidatesDatabaseSubtypeFilter(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, int64(1), out.Data.Total, "mysql 子类型过滤")
 	assert.Equal(t, "db-mysql", out.Data.List[0].ResourceID)
+}
+
+// TestInstanceCandidatesInterfaceServiceByCategory：拨测资源模式候选——以
+// resource_category=interface_service 直查（不依赖 monitor_type）；展示名 = api_name、
+// 地址 = api_url；keyword 命中 api_name 或 api_url。
+func TestInstanceCandidatesInterfaceServiceByCategory(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/order/health", "online")
+	seedInterfaceService(t, db, "is-2", "default", "支付回调", "https://pay.example.com/callback", "online")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online") // 不应出现在接口服务候选里
+
+	var out struct {
+		Data struct {
+			List  []InstanceCandidate `json:"list"`
+			Total int64               `json:"total"`
+		} `json:"data"`
+	}
+
+	// 全量：仅 2 条接口服务。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?resource_category=interface_service&network_domain_id=default", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, int64(2), out.Data.Total)
+	byID := map[string]InstanceCandidate{}
+	for _, c := range out.Data.List {
+		byID[c.ResourceID] = c
+	}
+	assert.Equal(t, "订单查询", byID["is-1"].InstanceName, "展示名取 api_name")
+	assert.Equal(t, "https://api.example.com/order/health", byID["is-1"].InstanceIP, "地址取 api_url")
+
+	// keyword 命中 api_name。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?resource_category=interface_service&network_domain_id=default&keyword=支付", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Equal(t, int64(1), out.Data.Total)
+	assert.Equal(t, "is-2", out.Data.List[0].ResourceID)
+
+	// keyword 命中 api_url。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?resource_category=interface_service&network_domain_id=default&keyword=order/health", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Equal(t, int64(1), out.Data.Total)
+	assert.Equal(t, "is-1", out.Data.List[0].ResourceID)
+}
+
+// TestInstanceCandidatesCategoryAndMonitorTypePrecedence：monitor_type 与
+// resource_category 二选一——都空 400；都给时 resource_category 优先。
+func TestInstanceCandidatesCategoryAndMonitorTypePrecedence(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health", "online")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	// 都空 → 400。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?network_domain_id=default", "")
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 都给 → resource_category 优先（返回接口服务，而非 host）。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?monitor_type=host_linux&resource_category=interface_service&network_domain_id=default", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			List  []InstanceCandidate `json:"list"`
+			Total int64               `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Equal(t, int64(1), out.Data.Total)
+	assert.Equal(t, "is-1", out.Data.List[0].ResourceID)
+
+	// 老路径 monitor_type 回归不变。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?monitor_type=host_linux&network_domain_id=default", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Equal(t, int64(1), out.Data.Total)
+	assert.Equal(t, "host-1", out.Data.List[0].ResourceID)
 }
 
 func TestConfirmAndCancelInstallation(t *testing.T) {
@@ -949,11 +1127,13 @@ func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	require.Len(t, out.Data.Targets, 1)
 	assert.Equal(t, "10.0.1.1", out.Data.Targets[0].Address)
 
-	// blackbox → targets。
+	// blackbox → 资源模式：目标是所选实例在 target_field 上的值（此处 api_url）。
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health?token=x", "online")
 	bb := &models.ScrapeJob{
-		JobName: "bb-prod", JobType: models.JobTypeBlackbox, NetworkDomainID: "default",
-		InstanceSelectionMode: models.InstanceSelectionManual, AuthType: models.AuthTypeNone,
-		BlackboxModule: "http_2xx", BlackboxTargets: []models.BlackboxTarget{{Target: "api.example.com", Protocol: models.BlackboxTargetProtocolHTTP}},
+		JobName: "bb-prod", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeInterfaceService,
+		TargetField: "api_url",
+		NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual, AuthType: models.AuthTypeNone,
+		BlackboxModule: "http_2xx", SelectedInstanceIDs: []string{"is-1"},
 		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
 	}
 	require.NoError(t, db.Create(bb).Error)
@@ -961,8 +1141,9 @@ func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	require.Len(t, out.Data.Targets, 1)
-	assert.Equal(t, "api.example.com", out.Data.Targets[0].Address)
-	assert.Equal(t, "http", out.Data.Targets[0].Protocol)
+	assert.Equal(t, "https://api.example.com/health?token=x", out.Data.Targets[0].Address)
+	assert.Equal(t, "https", out.Data.Targets[0].Protocol, "协议由 api_url scheme 推导")
+	assert.Equal(t, 0, out.Data.Targets[0].Port, "拨测无端口解析概念")
 }
 
 // 采集路径 metrics_path 归一（TrimSpace）：路径会被拼进 vmagent 抓取 URL 原样发往

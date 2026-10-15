@@ -24,7 +24,11 @@ const recentDeploymentLimit = 5
 // 与 platform/query/coverage.go 的「未监控 = 未被任何 ready+enabled Job 选中」判定保持同源。
 const scrapeJobDraftReady = "ready"
 
-// resourceModels 返回 M07 五类资源表模型（口径与 platform/query、config/resource 一致）。
+// resourceModels 返回 M07 资源表模型（口径与 platform/query、config/resource 一致）。
+//
+// ⚠️ 顺序即契约（H1）：本切片**必须与 models.ValidResourceCategories() 同序**，
+// 因为 Build 中按下标对齐取值（cat := models.ValidResourceCategories()[i]）。
+// 新增类别一律追加到末尾，summary_test.go 有等长 + 逐项一致的护栏断言。
 func resourceModels() []interface{} {
 	return []interface{}{
 		&models.Host{},
@@ -32,6 +36,7 @@ func resourceModels() []interface{} {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 	}
 }
 
@@ -44,14 +49,13 @@ type DeploymentItem struct {
 	TriggeredAt       *time.Time `json:"triggered_at"`
 }
 
-// ProbeTargetItem 是首页拨测态势面板单条拨测目标明细（决策 93 / M05 PRD v1.8），
-// 归属口径见 design-proposals/probe-ownership-alignment.md。JSON 与前端
-// ProbeTargetItem 对齐：url/status/network_domain_id/network_domain_name/last_probe_at。
+// ProbeTargetItem 是首页拨测态势面板单条拨测目标明细（决策 93 / M05 PRD v1.8）。
+// JSON 与前端 ProbeTargetItem 对齐：
+// url/status/network_domain_id/network_domain_name/last_probe_at。
 //
-// 归属口径：拨测目标不是 M07 资源台账对象，「应用 / 业务域」维度不适用（拨测面向开源组件
-// 连通性，与应用监控是正交维度），故不再输出 biz_name / app_name，改以必然有值的「归属网域」
-// 承载归属语义（ScrapeJob.NetworkDomainID 为 not null）。遵循「可空不臆造」：status 只来自
-// 真实 probe_success 样本，无样本留空（前端显示「未知」），不硬编 up/down；
+// 拨测目标改走资源选择后，目标地址来自所选「接口服务」资源的 api_url（URL 展示）。
+// 归属仍以「归属网域」承载（ScrapeJob.NetworkDomainID 为 not null）。遵循「可空不臆造」：
+// status 只来自真实 probe_success 样本，无样本留空（前端显示「未知」），不硬编 up/down；
 // last_probe_at 取样本采样时间，拿不到则 nil。
 type ProbeTargetItem struct {
 	URL               string     `json:"url"`                 // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
@@ -61,26 +65,12 @@ type ProbeTargetItem struct {
 	LastProbeAt       *time.Time `json:"last_probe_at"`       // 最近一次拨测时间（拿不到时 nil）
 }
 
-// probeTargetURL 构造拨测目标展示地址：优先取 BlackboxTarget.URL，否则 protocol+target 拼接；
-// 两端均为空则返回空串。
-func probeTargetURL(t models.BlackboxTarget) string {
-	if u := strings.TrimSpace(t.URL); u != "" {
-		return u
-	}
-	proto := strings.TrimSpace(string(t.Protocol))
-	target := strings.TrimSpace(t.Target)
-	if proto == "" || target == "" {
-		return ""
-	}
-	return proto + "://" + target
-}
-
 // lookupProbeSample 按 job 名 + 拨测目标地址匹配 probe_success 样本（F-13）。
-// instance 标签即 blackbox 探测的目标地址：优先用展示 URL，回落 protocol+target 拼接。
+// instance 标签即 blackbox 探测的目标地址：资源模式下即所选接口服务资源的 api_url。
 func lookupProbeSample(
 	index map[string]map[string]ProbeSample,
 	jobName string,
-	t models.BlackboxTarget,
+	addr string,
 ) (ProbeSample, bool) {
 	if index == nil || jobName == "" {
 		return ProbeSample{}, false
@@ -89,14 +79,12 @@ func lookupProbeSample(
 	if byInstance == nil {
 		return ProbeSample{}, false
 	}
-	candidates := []string{probeTargetURL(t), strings.TrimSpace(t.Target)}
-	for _, c := range candidates {
-		if c == "" {
-			continue
-		}
-		if s, ok := byInstance[c]; ok {
-			return s, true
-		}
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return ProbeSample{}, false
+	}
+	if s, ok := byInstance[addr]; ok {
+		return s, true
 	}
 	return ProbeSample{}, false
 }
@@ -104,7 +92,7 @@ func lookupProbeSample(
 // Summary 是首页聚合接口的返回结构。
 type Summary struct {
 	ResourceCount         int              `json:"resource_count"`           // 监控资源总数（M07 resource）
-	MonitoredCount        int              `json:"monitored_count"`          // 已监控资源数（口径见 §3.5：ready+enabled 标准 Job 覆盖去重）
+	MonitoredCount        int              `json:"monitored_count"`          // 已监控资源数（口径见 §3.5：ready+enabled Job——含拨测资源模式——覆盖去重）
 	ScrapeJobCount        int              `json:"scrape_job_count"`         // 采集 Job 总数（M01，未软删）
 	ScrapeJobEnabledCount int              `json:"scrape_job_enabled_count"` // 采集 Job 中 enabled=true 数
 	PendingDraftCount     int              `json:"pending_draft_count"`      // 待确认配置草稿数（M09，status=pending）
@@ -188,8 +176,8 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 		ProbeTargets:      []ProbeTargetItem{},
 	}
 
-	// 0. 被 ready+enabled 标准 Job 选中的 resource_id 集合（复用于 monitored 判定，
-	//    不另造口径）。blackbox 拨测目标不在其中（见 loadSelectedResourceIDs 注释）。
+	// 0. 被 ready+enabled Job（所有 job_type，含拨测资源模式选择）选中的
+	//    resource_id 集合（复用于 monitored 判定，不另造口径；见 loadSelectedResourceIDs）。
 	selected, err := loadSelectedResourceIDs(db)
 	if err != nil {
 		return nil, err
@@ -300,12 +288,28 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	}
 	s.DomainCount = int(domainCount)
 
-	// 7. 拨测（blackbox）目标：落在 ScrapeJob.blackbox_targets JSON 列
-	//    （models.BlackboxTarget），不属 M07 五类资源，永不进 resource_count /
-	//    monitored_count / 覆盖率（不变量 6）。
+	// 7. 拨测（blackbox）目标：目标来自 ScrapeJob.selected_instance_ids 所选的
+	//    「接口服务」资源，地址取其 api_url。拨测目标不进 resource_count /
+	//    by_category（接口服务资源本身已作为第 6 类台账计入），但**资源模式的
+	//    选择计入 monitored_count**（H9 统一口径，见 loadSelectedResourceIDs）。
 	var bjobs []models.ScrapeJob
 	if err := db.Where("job_type = ?", models.JobTypeBlackbox).Find(&bjobs).Error; err != nil {
 		return nil, fmt.Errorf("list blackbox jobs: %w", err)
+	}
+	// 批量取所有被选中接口服务的 api_url（一次 WHERE resource_id IN ?，避免 N+1）。
+	probeIDs := make([]string, 0)
+	for _, j := range bjobs {
+		probeIDs = append(probeIDs, j.SelectedInstanceIDs...)
+	}
+	ifaceURLs := make(map[string]string, len(probeIDs))
+	if len(probeIDs) > 0 {
+		var ifaces []models.InterfaceService
+		if err := db.Where("resource_id IN ?", probeIDs).Find(&ifaces).Error; err != nil {
+			return nil, fmt.Errorf("list interface services for probe: %w", err)
+		}
+		for _, it := range ifaces {
+			ifaceURLs[it.ResourceID] = it.APIURL
+		}
 	}
 	// F-13：拨测实时结果取自中心 Prometheus 的 probe_success（1=通过 / 0=失败）。
 	// 查询失败一律降级——status 留空（前端显示「未知」）、异常计数为 0，不阻断聚合接口。
@@ -325,18 +329,21 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 		domainNames[d.ID] = d.Name
 	}
 	for _, j := range bjobs {
-		s.ProbeTargetCount += len(j.BlackboxTargets)
 		domainName := domainNames[j.NetworkDomainID]
 		if domainName == "" {
 			domainName = j.NetworkDomainID
 		}
-		for _, t := range j.BlackboxTargets {
+		for _, rid := range j.SelectedInstanceIDs {
+			addr := ifaceURLs[rid]
+			if addr == "" {
+				continue // 资源不存在 / 无地址：不计入（与生成侧 skip 同口径）
+			}
 			item := ProbeTargetItem{
-				URL:               probeTargetURL(t),
+				URL:               addr,
 				NetworkDomainID:   j.NetworkDomainID,
 				NetworkDomainName: domainName,
 			}
-			if sample, ok := lookupProbeSample(probeIndex, j.JobName, t); ok {
+			if sample, ok := lookupProbeSample(probeIndex, j.JobName, addr); ok {
 				item.LastProbeAt = &sample.At
 				if sample.Success {
 					item.Status = "up"
@@ -345,6 +352,7 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 					abnormalCount++
 				}
 			}
+			s.ProbeTargetCount++
 			s.ProbeTargets = append(s.ProbeTargets, item)
 		}
 	}
@@ -554,6 +562,16 @@ func loadResourceRows(db *gorm.DB, m interface{}) ([]models.Resource, error) {
 			out[i] = &xs[i]
 		}
 		return out, nil
+	case *models.InterfaceService:
+		var xs []models.InterfaceService
+		if err := db.Find(&xs).Error; err != nil {
+			return nil, fmt.Errorf("list interface services: %w", err)
+		}
+		out := make([]models.Resource, len(xs))
+		for i := range xs {
+			out[i] = &xs[i]
+		}
+		return out, nil
 	}
 	return nil, nil
 }
@@ -575,26 +593,27 @@ func subtypeFieldForCategory(cat models.ResourceCategory) string {
 		return "middleware_type"
 	case models.ResourceCategoryGenericTarget:
 		return "exporter_type"
+	case models.ResourceCategoryInterfaceService:
+		return "" // 接口服务不按子类拆
 	default:
 		return "" // application 不按子类拆
 	}
 }
 
-// loadSelectedResourceIDs 聚合 job_type=standard 且 ready+enabled 的采集 Job 的
+// loadSelectedResourceIDs 聚合 ready+enabled 采集 Job（**所有 job_type**）的
 // selected_instance_ids 并集（去重，元素为 M07 resource_id）。
 //
-// 仅统计 standard Job：blackbox 拨测目标的 resource_id 落在 blackbox_targets 内、
-// 不属 M07 资源（models.BlackboxTarget），故不计入「已监控」。
-// 判定条件与 platform/query/coverage.go 的 loadSelectedInstances 一致，读侧只消费
-// M01 选中关系、不反向修改 M01。
+// H9 统一口径：拨测（blackbox）目标改走资源选择后，其选中关系同样计入「已监控」——
+// 判定条件与 platform/query/coverage.go 的 loadSelectedInstances（不按 job_type 过滤）
+// 严格一致，避免同一资源在覆盖率里算已监控、在首页 monitored_count 里不算。读侧只
+// 消费 M01 选中关系、不反向修改 M01。
 func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error) {
 	selected := make(map[string]bool)
 
 	var jobs []models.ScrapeJob
 	if err := db.Model(&models.ScrapeJob{}).
 		Select("selected_instance_ids").
-		Where("job_type = ? AND draft_status = ? AND enabled = ?",
-			models.JobTypeStandard, scrapeJobDraftReady, true).
+		Where("draft_status = ? AND enabled = ?", scrapeJobDraftReady, true).
 		Find(&jobs).Error; err != nil {
 		return nil, fmt.Errorf("list enabled scrape jobs: %w", err)
 	}

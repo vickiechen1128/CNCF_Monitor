@@ -13,7 +13,6 @@ const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn()
 const cloudDictListMock = vi.fn()
-const serviceDictListMock = vi.fn()
 const platformDictListMock = vi.fn()
 // F-18 / 决策 111：应用↔平台 M:N 关联，「应用」筛选器按所选平台级联的数据源
 const appPlatformRelListMock = vi.fn()
@@ -38,10 +37,6 @@ vi.mock('../../api/resources', () => ({
   // 决策 103：云列经 cloudDictApi.list 解析 cloud_name（部署级只读，仅有 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
-  },
-  // 决策 105：服务列经 serviceDictApi.list 解析 service_name
-  serviceDictApi: {
-    list: (...args: unknown[]) => serviceDictListMock(...args),
   },
   // 决策 104：平台列经 platformDictApi.list 派生 platform_name
   platformDictApi: {
@@ -197,7 +192,6 @@ describe('ResourcesPage', () => {
     businessDomainListMock.mockReset()
     applicationDictListMock.mockReset()
     cloudDictListMock.mockReset()
-    serviceDictListMock.mockReset()
     platformDictListMock.mockReset()
     appPlatformRelListMock.mockReset()
     coverageListMock.mockReset()
@@ -222,7 +216,6 @@ describe('ResourcesPage', () => {
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
-    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     platformDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     appPlatformRelListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
@@ -688,8 +681,8 @@ describe('ResourcesPage', () => {
       主机: ['实例名', '操作系统', '网域', '运行状态', '采集状态', '操作'],
       数据库: ['实例名', '数据库类型', '网域', '运行状态', '采集状态', '操作'],
       中间件: ['实例名', '中间件类型', '网域', '运行状态', '采集状态', '操作'],
-      应用服务: ['服务名', '网域', '运行状态', '采集状态', '所属服务', '操作'],
-      其他监控目标: ['目标名称', '网域', '运行状态', '采集状态', '所属服务', '操作'],
+      应用服务: ['服务名', '网域', '运行状态', '采集状态', '操作'],
+      其他监控目标: ['目标名称', '网域', '运行状态', '采集状态', '操作'],
     }
     for (const name of Object.keys(PM_DEFAULTS)) {
       fireEvent.click(screen.getByRole('tab', { name }))
@@ -805,8 +798,8 @@ describe('ResourcesPage', () => {
     expect(await screen.findByText('该资源归属的应用字典条目')).toBeInTheDocument()
   })
 
-  // F-8-c / F-15：应用服务 Tab「服务名」列头 tooltip（与服务字典归属「所属服务」区分）
-  it('F-15：应用服务 Tab「服务名」列头提示实例名与服务字典归属是两个概念', async () => {
+  // F-8-c / F-15：应用服务 Tab「服务名」列头 tooltip（本应用服务实例名，参与判重）
+  it('F-15：应用服务 Tab「服务名」列头提示为实例名（参与判重）', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByText('暂无资源')
@@ -816,9 +809,7 @@ describe('ResourcesPage', () => {
     const badge = svcHeader.querySelector('.anticon-info-circle')
     expect(badge).toBeTruthy()
     fireEvent.mouseEnter(badge!)
-    expect(
-      await screen.findByText('本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('本应用服务实例名，参与判重')).toBeInTheDocument()
   })
 
   // F-15：应用服务 Tab 标签由「应用」改为「应用服务」（RESOURCE_TYPE_MAP）
@@ -828,20 +819,6 @@ describe('ResourcesPage', () => {
     await screen.findByRole('tab', { name: '应用服务' })
     expect(screen.getByRole('tab', { name: '应用服务' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: '应用' })).toBeNull()
-  })
-
-  // F-15：共享「所属服务」列（决策 105）列头 + tooltip
-  it('F-15：应用服务 Tab「所属服务」列头挂提示（服务字典归属，svc 标签取值）', async () => {
-    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
-    renderPage()
-    await screen.findByText('暂无资源')
-    fireEvent.click(screen.getByRole('tab', { name: '应用服务' }))
-    await waitFor(() => expect(screen.getByRole('tab', { name: '应用服务' }).getAttribute('aria-selected')).toBe('true'))
-    const header = await screen.findByRole('columnheader', { name: /所属服务/ })
-    const badge = header.querySelector('.anticon-info-circle')
-    expect(badge).toBeTruthy()
-    fireEvent.mouseEnter(badge!)
-    expect(await screen.findByText('该资源归属的服务字典条目（svc 标签取值）')).toBeInTheDocument()
   })
 
   // F-14：云列列头 tooltip（云归属经网域派生、资源侧只读）
@@ -1316,101 +1293,6 @@ describe('ResourcesPage', () => {
     )
   })
 
-  /**
-   * F-18 条件化断言（与列口径一致）：「服务」筛选器**仅** application / generic_target
-   * 两个 Tab 出现；host / database / middleware 不渲染。
-   */
-  it('F-18：「服务」筛选器仅在应用服务/其他监控目标 Tab 出现', async () => {
-    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
-    renderPage()
-    await waitFor(() => expect(listMock).toHaveBeenCalled())
-
-    // host Tab：不出现
-    expect(screen.queryByText('全部服务')).toBeNull()
-
-    // database / middleware 同样不出现
-    fireEvent.click(screen.getByText('数据库'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'database' })))
-    expect(screen.queryByText('全部服务')).toBeNull()
-
-    fireEvent.click(screen.getByText('中间件'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'middleware' })))
-    expect(screen.queryByText('全部服务')).toBeNull()
-
-    // application Tab：出现
-    fireEvent.click(screen.getByText('应用服务'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'application' })))
-    expect(await screen.findByText('全部服务')).toBeInTheDocument()
-
-    // generic_target Tab：同样出现
-    fireEvent.click(screen.getByText('其他监控目标'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'generic_target' })))
-    expect(await screen.findByText('全部服务')).toBeInTheDocument()
-  })
-
-  /** F-18：application Tab 选中服务后 service_code 进入请求参数。 */
-  it('F-18：选中服务后把 service_code 下发给后端列表', async () => {
-    serviceDictListMock.mockResolvedValue({
-      status: 'success',
-      data: { list: [{ service_code: 'order-api', service_name: '订单接口', enabled: true }], total: 1 },
-    })
-    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
-    renderPage()
-    fireEvent.click(screen.getByText('应用服务'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'application' })))
-    fireEvent.mouseDown(await screen.findByText('全部服务'))
-    fireEvent.click(await screen.findByText('订单接口 (order-api)'))
-    await waitFor(() =>
-      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ service_code: 'order-api' })),
-    )
-  })
-
-  /**
-   * F-18 回归防护：service_code 生效时切到 host Tab，必须被清空——否则会带着一个
-   * 下拉不可见的生效筛选器静默过滤行（用户无从感知、也无法清除）。
-   */
-  it('F-18：从应用服务切到主机 Tab 时清空已选服务', async () => {
-    serviceDictListMock.mockResolvedValue({
-      status: 'success',
-      data: { list: [{ service_code: 'order-api', service_name: '订单接口', enabled: true }], total: 1 },
-    })
-    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
-    renderPage()
-    fireEvent.click(screen.getByText('应用服务'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'application' })))
-    fireEvent.mouseDown(await screen.findByText('全部服务'))
-    fireEvent.click(await screen.findByText('订单接口 (order-api)'))
-    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ service_code: 'order-api' })))
-
-    fireEvent.click(screen.getByText('主机'))
-    await waitFor(() =>
-      expect(listMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ resource_category: 'host', service_code: undefined }),
-      ),
-    )
-  })
-
-  /**
-   * F-18 回归防护：host Tab 选中应用（host 承载 app_code 语义）后，请求带 app_code，
-   * 且**不带** service_code —— 服务维度对 host 无意义。
-   */
-  it('F-18：主机 Tab 应用筛选生效且不带 service_code', async () => {
-    applicationDictListMock.mockResolvedValue({
-      status: 'success',
-      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }], total: 1 },
-    })
-    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
-    renderPage()
-    await waitFor(() => expect(listMock).toHaveBeenCalled())
-    fireEvent.mouseDown(screen.getByText('全部应用'))
-    fireEvent.click(await screen.findByText('订单服务 (order)'))
-    await waitFor(() =>
-      expect(listMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ resource_category: 'host', app_code: 'order', service_code: undefined }),
-      ),
-    )
-  })
-
   // ─────────────────────────────────────────────────────────────────────────
   // F-17：资源列表列显隐配置（「列设置」下拉 + localStorage 按 category 分区）
   // ─────────────────────────────────────────────────────────────────────────
@@ -1420,8 +1302,8 @@ describe('ResourcesPage', () => {
     主机: ['实例名', '操作系统', '网域', '运行状态', '采集状态', '操作'],
     数据库: ['实例名', '数据库类型', '网域', '运行状态', '采集状态', '操作'],
     中间件: ['实例名', '中间件类型', '网域', '运行状态', '采集状态', '操作'],
-    应用服务: ['服务名', '网域', '运行状态', '采集状态', '所属服务', '操作'],
-    其他监控目标: ['目标名称', '网域', '运行状态', '采集状态', '所属服务', '操作'],
+    应用服务: ['服务名', '网域', '运行状态', '采集状态', '操作'],
+    其他监控目标: ['目标名称', '网域', '运行状态', '采集状态', '操作'],
   }
 
   /** F-17：五类 Tab 的全量可配置列（下拉里应能看到的全部勾选项） */
@@ -1429,8 +1311,8 @@ describe('ResourcesPage', () => {
     主机: ['实例名', 'IP 地址', '采集端口', '操作系统', '环境', '集群', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
     数据库: ['实例名', '数据库类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
     中间件: ['实例名', '中间件类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '采集端口', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
-    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '所属服务', '业务名称', '操作'],
+    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '采集端口', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
   }
 
   it('F-17：工具栏提供「列设置」入口，可展开列出当前 Tab 的全部数据列', async () => {
@@ -1451,8 +1333,8 @@ describe('ResourcesPage', () => {
     closeColumnSettings()
     fireEvent.click(screen.getByRole('tab', { name: '应用服务' }))
     await waitFor(() => expect(screen.getByRole('tab', { name: '应用服务' }).getAttribute('aria-selected')).toBe('true'))
-    // application 的 16 列（含 T01-P5 采集端口）
-    expect(screen.getByRole('button', { name: /列设置（6\/16）/ })).toBeInTheDocument()
+    // application 的 15 列（含 T01-P5 采集端口）
+    expect(screen.getByRole('button', { name: /列设置（5\/15）/ })).toBeInTheDocument()
     await openColumnSettings()
     expect(screen.getByRole('checkbox', { name: '健康检查 URL' })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '集群' })).toBeNull()

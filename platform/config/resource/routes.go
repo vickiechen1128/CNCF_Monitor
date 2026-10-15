@@ -32,20 +32,20 @@ import (
 // （注册即 panic，见 route_probe_test.go），故统一以 :resource_id 注册，并用
 // withTypeParam 为 template/import 转译出 :type。对外 URL 形态（如
 // /resources/host/template）与契约完全一致，仅内部参数名不同。
-func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, appPlatformStore *AppPlatformStore) {
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) {
 	resources := platform.Group("/resources")
 	{
 		resources.GET("", ListResources(db))
 		// 决策 110：platform_code 为一等字段，创建 / 更新 / 导入三条写链路均注入
 		// 平台字典与应用↔平台关联 store。
-		resources.POST("", CreateResource(db, bizStore, appStore, svcStore, platformStore, appPlatformStore))
-		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore, svcStore, platformStore, appPlatformStore))
+		resources.POST("", CreateResource(db, bizStore, appStore, platformStore, appPlatformStore))
+		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore, platformStore, appPlatformStore))
 		resources.DELETE("/:resource_id", DeleteResource(db))
 		// B 方案知情确认（dev-feedback §15 F-21）：删除仍静默放行（软删可恢复），
 		// 引用信息由本只读接口在删除二次确认弹窗中预检回显，不再 403 拦截。
 		resources.GET("/:resource_id/referenced-by", ListResourceReferences(db))
-		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, appStore, platformStore, svcStore, listDomainOptions(db))))
-		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore, platformStore, svcStore, appPlatformStore)))
+		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, appStore, platformStore, listDomainOptions(db))))
+		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore, platformStore, appPlatformStore)))
 
 		resourceLabels := resources.Group("/:resource_id/labels")
 		{
@@ -75,11 +75,6 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	platform.GET("/platform-dict", ListPlatformDicts(platformStore))
 	platform.POST("/platform-dict", CreatePlatformDict(platformStore))
 	platform.PUT("/platform-dict/:platform_code", UpdatePlatformDict(platformStore))
-	// 服务字典路由（决策 105/107，契约快照 §5D，与 platform-dict 同构）：资源行
-	// service_code 只允许引用未停用条目（svc label 取值权威）。
-	platform.GET("/service-dict", ListServiceDicts(svcStore))
-	platform.POST("/service-dict", CreateServiceDict(svcStore, appStore, bizStore))
-	platform.PUT("/service-dict/:service_code", UpdateServiceDict(svcStore, appStore, bizStore))
 	// 云字典为部署级只读，只注册 GET，不提供任何写接口。
 	platform.GET("/cloud-dict", ListCloudDicts(cloudStore))
 	// 操作系统内置字典（只读，供 M07 采集入口/资源表单下拉；位于 platform 层，

@@ -3,7 +3,6 @@ import { ApiError, clearToken, setToken } from './client'
 import {
   resourceApi,
   businessDomainApi,
-  serviceDictApi,
   appPlatformRelApi,
   cloudDictApi,
   importApi,
@@ -508,89 +507,6 @@ describe('resources API', () => {
     expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel/rel-1')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.rel_id).toBe('rel-1')
-  })
-
-  // ---- 决策 112：服务字典关系字段（app_code / biz_code）透传 ----
-
-  it('serviceDictApi.create carries app_code / biz_code relation fields', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        service_code: 'order-api',
-        service_name: '订单接口服务',
-        app_code: 'order-service',
-        biz_code: 'payment',
-        enabled: true,
-      },
-    })
-
-    await serviceDictApi.create({
-      service_code: 'order-api',
-      service_name: '订单接口服务',
-      app_code: 'order-service',
-      biz_code: 'payment',
-    })
-
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict')
-    expect(lastInitBody()).toEqual({
-      service_code: 'order-api',
-      service_name: '订单接口服务',
-      app_code: 'order-service',
-      biz_code: 'payment',
-    })
-  })
-
-  it('serviceDictApi.create omits unset relation fields (undefined, not empty string)', async () => {
-    mockFetch({ status: 'success', data: { service_code: 'pay-api', service_name: '支付服务', enabled: true } })
-
-    await serviceDictApi.create({ service_code: 'pay-api', service_name: '支付服务' })
-
-    const body = lastInitBody() as Record<string, unknown>
-    expect(Object.keys(body)).not.toContain('app_code')
-    expect(Object.keys(body)).not.toContain('biz_code')
-    expect(body.app_code).toBeUndefined()
-    expect(body.biz_code).toBeUndefined()
-  })
-
-  it('serviceDictApi.update PUTs relation fields and never service_code', async () => {
-    mockFetch({
-      status: 'success',
-      data: { service_code: 'order-api', service_name: '订单接口服务', app_code: null, biz_code: 'payment', enabled: true },
-    })
-
-    await serviceDictApi.update('order-api', {
-      service_name: '订单接口服务',
-      // null 表达「摘除」所属应用；biz_code 表达主归属
-      app_code: null,
-      biz_code: 'payment',
-      enabled: true,
-    })
-
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict/order-api')
-    expect(lastFetchCall()[1]?.method).toBe('PUT')
-    const body = lastInitBody() as Record<string, unknown>
-    expect(body).toMatchObject({ service_name: '订单接口服务', app_code: null, biz_code: 'payment', enabled: true })
-    expect(body).not.toHaveProperty('service_code')
-  })
-
-  it('serviceDictApi.list parses nullable relation fields', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        list: [
-          { service_code: 'order-api', service_name: '订单接口服务', app_code: 'order-service', biz_code: 'payment', enabled: true },
-          { service_code: 'orphan-api', service_name: '游离服务', app_code: null, biz_code: null, enabled: true },
-        ],
-        total: 2,
-      },
-    })
-
-    const res = await serviceDictApi.list()
-
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict')
-    expect(res.data.list[0].app_code).toBe('order-service')
-    expect(res.data.list[1].app_code).toBeNull()
-    expect(res.data.list[1].biz_code).toBeNull()
   })
 
   // ---- 决策 110：platform_code 为资源行一等字段（创建 / 更新输入通用）----

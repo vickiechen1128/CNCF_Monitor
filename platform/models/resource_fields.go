@@ -68,7 +68,6 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryApplication:
 		return map[string]string{
 			"service_name":      "service_name",
-			"service_code":      "service_code", // 决策 105：可选服务编码（svc label 取值）
 			"health_check_url":  "health_check_url",
 			"protocol":          "protocol",
 			"endpoint":          "endpoint",
@@ -88,7 +87,6 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryGenericTarget:
 		return map[string]string{
 			"target_name":       "target_name",
-			"service_code":      "service_code", // 决策 105：同 application（两类可挂服务）
 			"instance_ip":       "instance_ip",
 			"port":              "port",
 			"metrics_path":      "metrics_path",
@@ -103,6 +101,24 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"network_domain_id": "network_domain_id",
 			"status":            "status",
 			"owner":             "owner",
+			"resource_id":       "resource_id",
+			"source_type":       "source_type",
+		}
+	case ResourceCategoryInterfaceService:
+		// 第 6 类「接口服务」：类型专属字段 api_name / api_url。
+		// app_code 语义列沿用 ResourceBase.AppName（物理列 app_name）。
+		return map[string]string{
+			"api_name":          "api_name",
+			"api_url":           "api_url",
+			"app_code":          "app_name",
+			"platform_code":     "platform_code",
+			"cluster":           "cluster",
+			"env":               "env",
+			"biz_code":          "biz_code",
+			"network_domain_id": "network_domain_id",
+			"status":            "status",
+			"owner":             "owner",
+			"scrape_port":       "scrape_port",
 			"resource_id":       "resource_id",
 			"source_type":       "source_type",
 		}
@@ -125,6 +141,8 @@ func GetResourceField(res any, field string) (string, bool) {
 		return getApplicationField(r, field)
 	case *GenericTarget:
 		return getGenericTargetField(r, field)
+	case *InterfaceService:
+		return getInterfaceServiceField(r, field)
 	}
 	return "", false
 }
@@ -257,8 +275,6 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return string(a.SourceType), true
 	case "service_name":
 		return a.ServiceName, true
-	case "service_code":
-		return a.ServiceCode, true
 	case "health_check_url":
 		return a.HealthCheckURL, true
 	case "protocol":
@@ -297,8 +313,6 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return string(g.SourceType), true
 	case "target_name":
 		return g.TargetName, true
-	case "service_code":
-		return g.ServiceCode, true
 	case "instance_ip":
 		return g.InstanceIP, true
 	case "metrics_path":
@@ -311,6 +325,40 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return strconv.Itoa(g.Port), true
 	case "scrape_port":
 		return strconv.Itoa(g.ScrapePort), true
+	}
+	return "", false
+}
+
+// getInterfaceServiceField 读取「接口服务」资源的 PRD 规范字段值（第 6 类资源）。
+// 类型专属字段为 api_name / api_url，其余为 ResourceBase 公共列。
+func getInterfaceServiceField(o *InterfaceService, field string) (string, bool) {
+	switch field {
+	case "resource_id":
+		return o.GetResourceID(), true
+	case "network_domain_id":
+		return o.NetworkDomainID, true
+	case "biz_code":
+		return o.BizCode, true
+	case "app_code":
+		return o.GetAppCode(), true
+	case "platform_code":
+		return o.PlatformCode, true
+	case "cluster":
+		return o.GetCluster(), true
+	case "env":
+		return o.GetEnv(), true
+	case "status":
+		return o.GetStatus(), true
+	case "owner":
+		return o.Owner, true
+	case "source_type":
+		return string(o.SourceType), true
+	case "api_name":
+		return o.APIName, true
+	case "api_url":
+		return o.APIURL, true
+	case "scrape_port":
+		return strconv.Itoa(o.ScrapePort), true
 	}
 	return "", false
 }

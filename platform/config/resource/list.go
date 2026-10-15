@@ -56,12 +56,12 @@ func ListResources(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		categoryRaw := strings.TrimSpace(c.Query("resource_category"))
 		if categoryRaw == "" {
-			response.BadRequest(c, fmt.Errorf("resource_category 必填（host/database/middleware/application/generic_target）"))
+			response.BadRequest(c, fmt.Errorf("resource_category 必填（%s）", models.CategoriesHint()))
 			return
 		}
 		category := models.ResourceCategory(categoryRaw)
 		if !isValidCategory(category) {
-			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", categoryRaw))
+			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 %s", categoryRaw, models.CategoriesHint()))
 			return
 		}
 
@@ -101,6 +101,8 @@ func listCategory(db *gorm.DB, category models.ResourceCategory, f ListFilter) (
 		return listTyped[models.Application](db, category, f)
 	case models.ResourceCategoryGenericTarget:
 		return listTyped[models.GenericTarget](db, category, f)
+	case models.ResourceCategoryInterfaceService:
+		return listTyped[models.InterfaceService](db, category, f)
 	}
 	return nil, 0, fmt.Errorf("unsupported resource_category: %s", category)
 }
@@ -158,6 +160,8 @@ func networkDomainIDOf(res any) string {
 	case *models.Application:
 		return r.NetworkDomainID
 	case *models.GenericTarget:
+		return r.NetworkDomainID
+	case *models.InterfaceService:
 		return r.NetworkDomainID
 	}
 	return ""
@@ -229,8 +233,6 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["scrape_port"] = r.ScrapePort
 	case *models.Application:
 		item["service_name"] = r.ServiceName
-		// 决策 105：service_code 仅 application / generic_target 返回（其余三类不挂）。
-		item["service_code"] = r.ServiceCode
 		item["health_check_url"] = r.HealthCheckURL
 		item["protocol"] = r.Protocol
 		item["endpoint"] = r.Endpoint
@@ -238,13 +240,16 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["scrape_port"] = r.ScrapePort
 	case *models.GenericTarget:
 		item["target_name"] = r.TargetName
-		item["service_code"] = r.ServiceCode
 		item["instance_ip"] = r.InstanceIP
 		item["port"] = r.Port
 		item["metrics_path"] = r.MetricsPath
 		item["scheme"] = r.Scheme
 		item["exporter_type"] = r.ExporterType
 		item["custom_labels"] = r.CustomLabels
+		item["scrape_port"] = r.ScrapePort
+	case *models.InterfaceService:
+		item["api_name"] = r.APIName
+		item["api_url"] = r.APIURL
 		item["scrape_port"] = r.ScrapePort
 	}
 	return item

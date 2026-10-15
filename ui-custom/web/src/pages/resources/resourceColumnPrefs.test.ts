@@ -32,8 +32,10 @@ describe('resourceColumnPrefs（T01-P5）', () => {
       host: ['name', 'os_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
       database: ['instance_name', 'database_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
       middleware: ['instance_name', 'middleware_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
-      application: ['service_name', 'network_domain_id', 'status', 'monitor_state', 'service_code', 'actions'],
-      generic_target: ['target_name', 'network_domain_id', 'status', 'monitor_state', 'service_code', 'actions'],
+      application: ['service_name', 'network_domain_id', 'status', 'monitor_state', 'actions'],
+      generic_target: ['target_name', 'network_domain_id', 'status', 'monitor_state', 'actions'],
+      // 接口服务（第六类）：主标识接口名 + 接口地址（本类首要判别信息）+ 网域 + 运行/采集状态 + 操作
+      interface_service: ['api_name', 'api_url', 'network_domain_id', 'status', 'monitor_state', 'actions'],
     })
     expect(FIXED_COLUMN_KEYS).toEqual({
       host: ['name', 'actions'],
@@ -41,6 +43,7 @@ describe('resourceColumnPrefs（T01-P5）', () => {
       middleware: ['instance_name', 'actions'],
       application: ['service_name', 'actions'],
       generic_target: ['target_name', 'actions'],
+      interface_service: ['api_name', 'actions'],
     })
     // 默认集均不含 scrape_port（新列进入全量清单但不进默认可见列）
     for (const category of CATEGORIES) {
@@ -48,12 +51,14 @@ describe('resourceColumnPrefs（T01-P5）', () => {
     }
   })
 
-  it('各类列 meta 数量为 T01-P5 后的新基线（15/15/15/16/18，含操作列）', () => {
+  it('各类列 meta 数量为 T01-P5 后的新基线（15/15/15/15/17/11，含操作列）', () => {
     expect(RESOURCE_COLUMN_META.host).toHaveLength(15)
     expect(RESOURCE_COLUMN_META.database).toHaveLength(15)
     expect(RESOURCE_COLUMN_META.middleware).toHaveLength(15)
-    expect(RESOURCE_COLUMN_META.application).toHaveLength(16)
-    expect(RESOURCE_COLUMN_META.generic_target).toHaveLength(18)
+    expect(RESOURCE_COLUMN_META.application).toHaveLength(15)
+    expect(RESOURCE_COLUMN_META.generic_target).toHaveLength(17)
+    // 接口服务（第六类）：无 scrape_port / IP / 端口等主机语义列，仅接口名 + 地址 + 共享列
+    expect(RESOURCE_COLUMN_META.interface_service).toHaveLength(11)
   })
 
   it('orderColumnKeys：勾选 scrape_port 后按列序归一并保留固定列', () => {

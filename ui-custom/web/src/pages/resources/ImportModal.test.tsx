@@ -204,9 +204,9 @@ describe('ImportModal', () => {
     expect(screen.getAllByRole('img', { name: 'warning' }).length).toBeGreaterThanOrEqual(2)
   })
 
-  // 待登记清单五维度覆盖（业务/应用/服务/平台/网域）与排除项护栏。
+  // 待登记清单四维度覆盖（业务/应用/平台/网域）与排除项护栏。
   // 判定依据是错误字段 field + reason 语义（不再靠 reason 里是否含「业务/应用」二字），
-  // 因此服务/平台/网域三类未登记同样命中 warning 高亮与可执行指引。
+  // 因此平台/网域两类未登记同样命中 warning 高亮与可执行指引。
   const PENDING_HIT_CASES: { name: string; error: ImportError }[] = [
     {
       name: '业务未登记',
@@ -226,16 +226,6 @@ describe('ImportModal', () => {
         field: 'app_code',
         value: 'ghost-app',
         reason: '应用 ghost-app 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入',
-      },
-    },
-    {
-      name: '服务未登记',
-      error: {
-        row: 4,
-        resource_category: 'application',
-        field: 'service_code',
-        value: 'ghost-svc',
-        reason: '服务 ghost-svc 未登记且未在声明 sheet 声明，请在『服务管理』页登记，或在本文件『服务声明』sheet 补充后重新导入',
       },
     },
     {
@@ -279,16 +269,6 @@ describe('ImportModal', () => {
         field: 'platform_code',
         value: 'old-platform',
         reason: '平台 old-platform 已停用，请在『平台管理』页启用后重新导入',
-      },
-    },
-    {
-      name: '服务已停用（引导启用，非待登记）',
-      error: {
-        row: 9,
-        resource_category: 'application',
-        field: 'service_code',
-        value: 'old-svc',
-        reason: '服务 old-svc 已停用，请在『服务管理』页启用后重新导入',
       },
     },
     {

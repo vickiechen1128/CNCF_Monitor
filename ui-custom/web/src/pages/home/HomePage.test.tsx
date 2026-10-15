@@ -1562,8 +1562,8 @@ describe('HomePage', () => {
     expect(bar).toHaveAttribute('aria-valuenow', '75')
     expect((bar.firstElementChild as HTMLElement).style.width).toBe('75%')
 
-    // 副行：资源总数「五类台账合计」；已纳入监控「未纳管 32」（= 128 − 96）
-    expect(within(screen.getByTestId('metric-resource_count')).getByText('五类台账合计')).toBeInTheDocument()
+    // 副行：资源总数「六类台账合计」；已纳入监控「未纳管 32」（= 128 − 96）
+    expect(within(screen.getByTestId('metric-resource_count')).getByText('六类台账合计')).toBeInTheDocument()
     expect(within(screen.getByTestId('metric-monitored_count')).getByText('未下发 32')).toBeInTheDocument()
   })
 
@@ -1738,7 +1738,7 @@ describe('HomePage', () => {
 
     // L1：窄屏降为单卡一行（24 栅格 = 整行）——本卡内容更宽，两卡一行会压断子类 chip
     const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
-    expect(l1Cols).toHaveLength(5)
+    expect(l1Cols).toHaveLength(6)
     l1Cols.forEach((col) => {
       expect(col.className).toContain('ant-col-xs-24')
       expect((col as HTMLElement).style.flex).toBe('')
