@@ -141,6 +141,16 @@ func seedInterfaceService(t *testing.T, db *gorm.DB, resourceID, domainID, apiNa
 	}).Error)
 }
 
+func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceName, healthCheckURL, status string) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: resourceID, ResourceCategory: models.ResourceCategoryApplication,
+		NetworkDomainID: domainID, BizCode: "infra", Env: "prod", Status: status,
+		SourceType: models.SourceTypeManual,
+		ServiceName: serviceName, HealthCheckURL: healthCheckURL, Protocol: "http", Port: 8080,
+	}).Error)
+}
+
 func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string) {
 	t.Helper()
 	require.NoError(t, db.Create(&models.Database{
@@ -417,26 +427,15 @@ func TestCreateScrapeJobBlackbox(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "selected_instance_ids")
 
-	// 有实例但 target_field 为空 → bad_request。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"bb-nofield","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","selected_instance_ids":["is-1"]}`)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "target_field")
-
-	// target_field 不在该类别字段集内 → bad_request 并指出字段名。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"bb-badfield","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"not_a_field","selected_instance_ids":["is-1"]}`)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "not_a_field")
-
 	// 手填 blackbox_targets 一律拒绝（彻底禁用手填模式）。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
 		`{"job_name":"bb-handfill","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-1"],"blackbox_targets":[{"target":"api.example.com","protocol":"http"}]}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "不再支持手填 blackbox_targets")
 
-	// blackbox 合法：选类别 + 字段 + 实例；monitor_type/exporter 置空；ResourceType 保留用户所选。
-	body := `{"job_name":"bb-ok","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"api_url","selected_instance_ids":["is-1"]}`
+	// blackbox 合法：只选类别 + 实例（**不传 target_field**）；字段由类别推导；
+	// monitor_type/exporter 置空；ResourceType 保留用户所选。
+	body := `{"job_name":"bb-ok","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","selected_instance_ids":["is-1"]}`
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
@@ -447,9 +446,53 @@ func TestCreateScrapeJobBlackbox(t *testing.T) {
 	assert.Empty(t, out.Data.BlackboxTargets, "手填字段不落库")
 	assert.Equal(t, []string{"is-1"}, out.Data.SelectedInstanceIDs)
 	assert.Equal(t, models.ResourceTypeInterfaceService, out.Data.ResourceType)
-	assert.Equal(t, "api_url", out.Data.TargetField)
+	assert.Equal(t, "api_url", out.Data.TargetField, "接口服务固定取接口地址")
 	assert.Empty(t, out.Data.MonitorType, "blackbox 任务 monitor_type 置空")
 	assert.Empty(t, out.Data.ExporterTemplateID, "blackbox 任务 exporter 置空")
+}
+
+// TestCreateScrapeJobBlackboxTargetFieldDerived：探测地址字段不采信客户端传值 ——
+// 传什么都不做合法性校验，一律被类别推导值覆盖（接口服务→api_url、应用服务→health_check_url）。
+func TestCreateScrapeJobBlackboxTargetFieldDerived(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询接口", "https://api.example.com/orders", "online")
+
+	// 应用服务 → health_check_url（前端已不提供该字段，故客户端连传都不传）。
+	seedApplication(t, db, "app-1", "default", "订单服务", "https://app.example.com/health", "online")
+	cases := []struct {
+		name      string
+		body      string
+		wantField string
+	}{
+		{
+			name:      "接口服务不传 target_field",
+			body:      `{"job_name":"bb-derive-is","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","selected_instance_ids":["is-1"]}`,
+			wantField: "api_url",
+		},
+		{
+			name:      "接口服务传非法字段仍被覆盖",
+			body:      `{"job_name":"bb-derive-bad","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"interface_service","target_field":"not_a_field","selected_instance_ids":["is-1"]}`,
+			wantField: "api_url",
+		},
+		{
+			name:      "应用服务固定取健康检查 URL",
+			body:      `{"job_name":"bb-derive-app","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"application","target_field":"endpoint","selected_instance_ids":["app-1"]}`,
+			wantField: "health_check_url",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", tc.body)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var out struct {
+				Data models.ScrapeJob `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+			assert.Equal(t, tc.wantField, out.Data.TargetField)
+		})
+	}
 }
 
 // TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance：resource_type 指定类别与所选
@@ -466,23 +509,32 @@ func TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "不属于资源类别")
 }
 
-// TestCreateScrapeJobBlackboxNonInterfaceServiceCategory：核心判据——拨测不再与
-// interface_service 耦合：选 database 类别实例 + target_field=instance_ip → 创建成功。
-func TestCreateScrapeJobBlackboxNonInterfaceServiceCategory(t *testing.T) {
+// TestCreateScrapeJobBlackboxRejectsUnsupportedCategory：拨测类别口径收紧为
+// 「接口服务 / 应用服务」两类（2026-10-16）——其余四类一律 400，即便实例合法、
+// target_field 合法。此处 database 类别同时具备合法实例与合法字段，仍须被拦。
+func TestCreateScrapeJobBlackboxRejectsUnsupportedCategory(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 	seedEnabledDomain(t, db, "default")
 	seedDatabase(t, db, "db-1", "default", "10.0.2.7", "mysql", "online")
+	seedHost(t, db, "host-2", "default", "10.0.1.2", "online")
 
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"bb-db","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"database","target_field":"instance_ip","selected_instance_ids":["db-1"]}`)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var out struct {
-		Data models.ScrapeJob `json:"data"`
+	for _, tc := range []struct{ name, body string }{
+		{
+			name: "database 类别",
+			body: `{"job_name":"bb-db","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"database","target_field":"instance_ip","selected_instance_ids":["db-1"]}`,
+		},
+		{
+			name: "host 类别",
+			body: `{"job_name":"bb-h2","job_type":"blackbox","network_domain_id":"default","blackbox_module":"http_2xx","resource_type":"host","target_field":"instance_ip","selected_instance_ids":["host-2"]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", tc.body)
+			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+			assert.Contains(t, w.Body.String(), "资源类别只能是")
+		})
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
-	assert.Equal(t, models.ResourceTypeDatabase, out.Data.ResourceType)
-	assert.Equal(t, "instance_ip", out.Data.TargetField)
 }
 
 // TestCreateScrapeJobBlackboxCrossDomainRejected：跨网域接口服务 → 400。

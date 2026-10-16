@@ -54,3 +54,42 @@ func CategoriesHint() string {
 	}
 	return strings.Join(parts, "/")
 }
+
+// BlackboxProbeCategories 返回支持拨测（blackbox）的资源类别，顺序即前端下拉展示顺序。
+//
+// 只有这两类：二者的地址字段本身就是**完整 URL**，可直接当拨测目标；其余类别
+// （host/database/middleware/generic_target）的地址是 IP / 端点，要拨测得另拼协议与
+// 端口，且组件连通性拨测另有归属，故已退出拨测范围（2026-10-16 口径收紧，见
+// docs/05-execution-records/module-07/dev-feedback.md F-31）。
+func BlackboxProbeCategories() []ResourceCategory {
+	return []ResourceCategory{ResourceCategoryInterfaceService, ResourceCategoryApplication}
+}
+
+// BlackboxTargetField 返回拨测下某资源类别**固定**的探测地址字段键，ok=false 表示该
+// 类别不支持拨测。
+//
+// 字段不交给用户选：接口服务取「接口地址」api_url、应用服务取「健康检查 URL」
+// health_check_url。二者与 ResourceCategory 一对一，故无需（也不应）让客户端传
+// target_field —— 保存时由 validateJobRequest 按类别推导并覆盖。
+//
+// 返回的键必须存在于 LegacyFieldMap(cat)（models.GetResourceField 依赖其做名→列映射）。
+func BlackboxTargetField(cat ResourceCategory) (string, bool) {
+	switch cat {
+	case ResourceCategoryInterfaceService:
+		return "api_url", true
+	case ResourceCategoryApplication:
+		return "health_check_url", true
+	}
+	return "", false
+}
+
+// BlackboxCategoriesHint 返回支持拨测的类别清单（斜杠分隔），供错误提示文案使用。
+// 与 CategoriesHint 同理：必须从 BlackboxProbeCategories() 派生，避免新增类别时漏改文案。
+func BlackboxCategoriesHint() string {
+	cats := BlackboxProbeCategories()
+	parts := make([]string, 0, len(cats))
+	for _, c := range cats {
+		parts = append(parts, string(c))
+	}
+	return strings.Join(parts, "/")
+}

@@ -26,8 +26,9 @@ type InstanceCandidate struct {
 // 二选一**（都空 → bad_request；都给 → resource_category 优先）+ keyword + 分页。
 //
 // resource_category 直查入口：blackbox 拨测任务被强制清空 monitor_type（validate.go），
-// 已无法由 monitor_type 推导类别，故拨测以用户在表单选定的类别（六类任一）直查候选。
-// 候选第二列（InstanceIP）返回各类别真实的 IP/端点值（不预先绑定到某个探测字段）。
+// 已无法由 monitor_type 推导类别，故拨测以用户在表单选定的类别（现为接口服务 / 应用服务
+// 两类）直查候选。候选第二列（InstanceIP）默认返回类别固有的 IP/端点值；拨测入口下
+// 未指定 target_field 时，按类别推导出固定的探测地址字段（见下方 targetField 推导）。
 func ListInstanceCandidates(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		monitorType := strings.TrimSpace(c.Query("monitor_type"))
@@ -58,9 +59,17 @@ func ListInstanceCandidates(db *gorm.DB) gin.HandlerFunc {
 		}
 		p := common.ParsePageParams(c.Request.URL.Query())
 		keyword := strings.TrimSpace(c.Query("keyword"))
-		// target_field 可选：拨测表单把用户选定的「探测地址字段」传进来，候选第二列即
-		// 渲染该字段的值，使列表所见与实际探测地址一致。
+		// target_field 可选：候选第二列渲染该字段的值，使列表所见与实际探测地址一致。
 		targetField := strings.TrimSpace(c.Query("target_field"))
+		// 拨测两类可由类别**推导**出唯一字段（接口服务→api_url、应用服务→health_check_url），
+		// 故 resource_category 直查入口（= 拨测）下客户端不传也补上，免去前端重复维护
+		// 类别↔字段映射。**仅限该入口**：standard 采集也含 application 类别，但其第二列
+		// 应是采集端点（applicationTargetAddress 的 endpoint:port），不可换成健康检查 URL。
+		if targetField == "" && category != "" {
+			if f, ok := models.BlackboxTargetField(deriv.Category); ok {
+				targetField = f
+			}
+		}
 
 		candidates, total, err := queryInstanceCandidates(db, deriv, domainID, keyword, p, targetField)
 		if err != nil {

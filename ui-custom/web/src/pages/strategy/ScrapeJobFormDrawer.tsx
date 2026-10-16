@@ -30,30 +30,21 @@ import type { AuthType, CITypeExporterMapping, ExporterTemplate, JobType, Monito
 import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
-import { SCRAPE_PARAM_FIELDS, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, CATEGORY_MAP } from './strategyConstants'
-import { FIXED_COLUMN_KEYS, RESOURCE_COLUMN_META } from '../resources/resourceColumnPrefs'
+import {
+  SCRAPE_PARAM_FIELDS,
+  MONITOR_TYPE_CASCADE,
+  MONITOR_TYPE_MAP,
+  CATEGORY_MAP,
+  BLACKBOX_CATEGORIES,
+  BLACKBOX_TARGET_FIELD_LABEL,
+} from './strategyConstants'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 
-// 拨测模块（阶段5 起协议/目标不再手填：目标由「所选资源类别 + 所选探测地址字段」决定，
-// 协议由目标地址的 scheme 决定，故不再需要 BLACKBOX_PROTOCOLS）。
+// 拨测模块（协议/目标不再手填：目标由所选资源类别决定，协议由目标地址的 scheme 决定，
+// 故不再需要 BLACKBOX_PROTOCOLS）。
 const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
-
-// 拨测「探测地址字段」下拉中不再单列的列 key：
-// - monitor_state / actions：非资源业务字段（采集状态 / 操作列）；
-// - cloud_code / custom_labels：前端列清单有、但后端 LegacyFieldMap 无对应可读字段，
-//   选中会被后端 400 拒绝，故不提供。主标识列（name/instance_name/service_name/
-//   target_name/api_name）由 FIXED_COLUMN_KEYS 统一排除。
-const NON_TARGET_FIELD_KEYS = new Set(['monitor_state', 'cloud_code', 'custom_labels'])
-
-/** 按所选资源类别列出「探测地址字段」候选：资源列中文名展示、列 key 为值。 */
-function targetFieldOptions(category: ResourceCategory) {
-  const fixed = new Set(FIXED_COLUMN_KEYS[category])
-  return RESOURCE_COLUMN_META[category]
-    .filter((m) => !fixed.has(m.key) && !NON_TARGET_FIELD_KEYS.has(m.key))
-    .map((m) => ({ value: m.key, label: m.label }))
-}
 
 const { Text, Link } = Typography
 
@@ -154,16 +145,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     [monitorType],
   )
   const resourceCategorySelected = Form.useWatch('resource_category', form) as ResourceCategory | undefined
-  // 拨测（blackbox）分支：由用户直接选定的目标资源类别与探测地址字段（阶段5 解耦，
-  // 不再固定 interface_service / api_url）。
+  // 拨测（blackbox）分支：由用户选定目标资源类别（限接口服务 / 应用服务两类）。
+  // 探测地址字段不再由用户选：由类别写死推导（接口服务→接口地址、应用服务→健康检查 URL），
+  // 服务端保存时按同一映射落库，前端不提交 target_field。
   const blackboxCategory = Form.useWatch('resource_type', form) as ResourceCategory | undefined
-  // 用户选定的「探测地址字段」：传给候选列表，使其第二列渲染该字段的值（列表所见 =
-  // 实际探测地址），而不是该类别的固有 IP/端点。
-  const blackboxTargetField = Form.useWatch('target_field', form) as string | undefined
-  const blackboxTargetFieldOptions = useMemo(
-    () => (blackboxCategory ? targetFieldOptions(blackboxCategory) : []),
-    [blackboxCategory],
-  )
   // Q1a：登记采集器仅在「已选监控对象类型但无默认采集器」的空态展示（PRD §3.1 采集器选择器空态引导，L83）
   const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
@@ -228,11 +213,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         tls_skip_verify: record.tls_skip_verify,
         ca_file: record.ca_file,
         blackbox_module: record.blackbox_module,
-        // 拨测目标改走资源选择（阶段5 解耦）：回显用户选定的资源类别与探测地址字段，
-        // 目标清单由 selected_instance_ids 还原（见上方 setSelectedIds），
-        // 不再回填 blackbox_targets（手填入口已彻底禁用）。
+        // 拨测目标改走资源选择：回显用户选定的资源类别，目标清单由 selected_instance_ids
+        // 还原（见上方 setSelectedIds），不再回填 blackbox_targets（手填入口已彻底禁用）。
+        // target_field 无表单字段可回显 —— 它由 resource_type 写死推导（服务端落库）。
         resource_type: (record.resource_type || undefined) as ResourceCategory | undefined,
-        target_field: record.target_field || undefined,
         password: undefined,
       })
       setParamsState((record.mapping_overrides?.length ?? 0) > 0 ? 'pending' : 'none')
@@ -342,11 +326,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       }
       if (values.job_type === 'blackbox') {
         body.blackbox_module = values.blackbox_module
-        // 拨测目标改走资源选择（阶段5 解耦）：目标地址 = 所选实例在「所选探测地址字段」上
-        // 的值。资源类别与字段均由用户选定，不再固定 interface_service / api_url；
-        // 手填入口已彻底禁用（后端同样拒绝 blackbox_targets 写入）。
+        // 拨测目标改走资源选择：目标地址 = 所选实例在「该类别写死的探测地址字段」上的值
+        // （接口服务→接口地址、应用服务→健康检查 URL）。只提交类别，target_field 由服务端
+        // 推导；手填入口已彻底禁用（后端同样拒绝 blackbox_targets 写入）。
         body.resource_type = values.resource_type
-        body.target_field = values.target_field
         body.selected_instance_ids = selectedIds
       } else {
         body.monitor_type = values.monitor_type
@@ -734,10 +717,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 <Form.Item label="资源类别" name="resource_type" rules={[{ required: true, message: '请选择资源类别' }]}>
                   <Select
                     placeholder="请选择"
-                    options={(Object.keys(CATEGORY_MAP) as ResourceCategory[]).map((c) => ({ value: c, label: CATEGORY_MAP[c] }))}
+                    // 只列接口服务 / 应用服务两类（与后端 models.BlackboxProbeCategories 一致）
+                    options={BLACKBOX_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_MAP[c] }))}
                     onChange={() => {
-                      // 换类别 → 字段候选与已选实例都不再适用，一并清空
-                      form.setFieldsValue({ target_field: undefined })
+                      // 换类别 → 探测地址字段随之改变，已选实例不再适用，清空
                       setSelectedIds([])
                     }}
                   />
@@ -767,27 +750,20 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Select>
             </Form.Item>
             <Form.Item
-              label="探测地址字段"
-              name="target_field"
-              rules={[{ required: true, message: '请选择探测地址字段' }]}
-              extra="目标地址 = 所选实例在该字段上的值；从所选资源类别的字段中选择一个。"
-            >
-              <Select
-                placeholder={blackboxCategory ? '请选择探测地址字段' : '请先选择资源类别'}
-                disabled={!blackboxCategory}
-                options={blackboxTargetFieldOptions}
-              />
-            </Form.Item>
-            <Form.Item
               label="拨测目标"
               required
-              extra="从所选资源类别的台账中选择；拨测目标地址取所选实例在「探测地址字段」上的值，不再手工填写。"
+              extra={
+                blackboxCategory
+                  ? `从「${CATEGORY_MAP[blackboxCategory]}」台账中选择；目标地址固定取所选实例的${BLACKBOX_TARGET_FIELD_LABEL[blackboxCategory]}，不手工填写。`
+                  : '从所选资源类别的台账中选择；目标地址按资源类别固定取一个地址字段，不手工填写。'
+              }
             >
+              {/* 不传 targetField：探测地址字段由服务端按类别推导（接口服务→接口地址、
+                  应用服务→健康检查 URL），候选第二列渲染的即该字段的真实值。 */}
               <InstanceSelector
                 resourceCategory={blackboxCategory}
                 networkDomainId={networkDomainId}
                 addressColumnTitle="探测地址"
-                targetField={blackboxTargetField}
                 selectedIds={selectedIds}
                 onChange={setSelectedIds}
               />

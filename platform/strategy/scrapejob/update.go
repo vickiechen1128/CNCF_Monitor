@@ -34,6 +34,8 @@ type UpdateScrapeJobRequest struct {
 	BlackboxModule        *string                       `json:"blackbox_module"`
 	BlackboxTargets       []models.BlackboxTarget       `json:"blackbox_targets"`
 	// ResourceType / TargetField 仅 blackbox 拨测使用（拨测目标资源类别 + 探测地址字段）。
+	// ResourceType 限接口服务 / 应用服务；TargetField 已不由调用方决定（保留以兼容旧客户端，
+	// 落库前会被 validateJobRequest 按 ResourceType 推导覆盖）。
 	ResourceType          *models.ResourceType          `json:"resource_type"`
 	TargetField           *string                       `json:"target_field"`
 	MappingOverrides      []models.MappingOverride      `json:"mapping_overrides"`

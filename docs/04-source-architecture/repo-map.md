@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-15 23:33 · commit: `7e132c8`
+> 生成时间: 2026-10-16 10:30 · commit: `8b323ca`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -4131,6 +4131,9 @@
 - `type ResourceCategory = string`
 - `func ValidResourceCategories() []ResourceCategory`
 - `func CategoriesHint() string`
+- `func BlackboxProbeCategories() []ResourceCategory`
+- `func BlackboxTargetField(cat ResourceCategory) (string, bool)`
+- `func BlackboxCategoriesHint() string`
 
 ### `platform\models\resource_fields.go`
 
@@ -4809,6 +4812,7 @@
 - `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types []string) string`
 - `func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string)`
 - `func seedInterfaceService(t *testing.T, db *gorm.DB, resourceID, domainID, apiName, apiURL, status string)`
+- `func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceName, healthCheckURL, status string)`
 - `func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string)`
 - `func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T)`
 - `func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T)`
@@ -4819,8 +4823,9 @@
 - `func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T)`
 - `func TestCreateScrapeJobAuthValidation(t *testing.T)`
 - `func TestCreateScrapeJobBlackbox(t *testing.T)`
+- `func TestCreateScrapeJobBlackboxTargetFieldDerived(t *testing.T)`
 - `func TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance(t *testing.T)`
-- `func TestCreateScrapeJobBlackboxNonInterfaceServiceCategory(t *testing.T)`
+- `func TestCreateScrapeJobBlackboxRejectsUnsupportedCategory(t *testing.T)`
 - `func TestCreateScrapeJobBlackboxCrossDomainRejected(t *testing.T)`
 - `func TestListScrapeJobsFiltersAndLabelTemplateReverseLookup(t *testing.T)`
 - `func TestUpdateScrapeJobJobTypeSwitch(t *testing.T)`
@@ -5900,6 +5905,8 @@
 - `const MONITOR_TYPE_MAP`
 - `const CATEGORY_MAP`
 - `const MONITOR_TYPE_CASCADE`
+- `const BLACKBOX_CATEGORIES`
+- `const BLACKBOX_TARGET_FIELD_LABEL`
 - `const SCRAPE_PARAM_FIELDS`
 - `const JOB_TYPE_MAP`
 - `const CHANGE_STATUS_MAP`

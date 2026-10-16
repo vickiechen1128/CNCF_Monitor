@@ -822,3 +822,44 @@
 1. **`ResourceBase` 的结构性与业务性重切**。用户提出建模原则：**网域是结构性不变量**（建任何资源模型都必须带且必填，用于 agent 选址）；**其余字段的取舍与必填性由建模者自由指定**。现状 `ResourceBase` 把二者混在一起 —— `ScrapePort` / `CloudCode` / `PlatformCode` / `BizCode` / `AppName` / `Env` / `Cluster` / `Owner` / `Status` 这些业务字段被"结构性"地塞给每一类。另有一处不一致：`ResourceBase` 实际只被 `Database` / `GenericTarget` / `InterfaceService` 嵌入，`Host` / `Middleware` / `Application` 各自重抄了列（`ResourceBase` 注释自承"existing models keep their legacy layout"）。
 2. **Job 侧 target 拼接模式改造**。用户口径：采集端口本质是 Job 侧拼 target 的事，不是资源台账的事；资源侧的 `scrape_port` 只是"有些实例端口不统一"的让步产物。
 3. **`env` / `status` 被 `validateCommon` 全局强制**：按第 1 条原则属"平台替建模者做决定"。用户表示环境可以放过，故本轮未动。
+
+## 19. 新增登记（2026-10-16，拨测资源类别收敛两类 + 探测地址字段写死）
+
+> 本轮为用户拍板的功能改动（非缺陷），承接 §18 **F-29**「拨测改走资源选择」——把 F-29 留给
+> 用户的两个选择项各砍掉一个：类别由六类 → 两类，地址字段由「任选」→ 写死。
+
+### F-31. 拨测资源类别限「接口服务 / 应用服务」，探测地址字段写死
+
+- **类别**：② 决策已拍板、待设计侧回写 `Module_01`
+- **落点**：
+  - **权威映射**：`platform/models/resource_category.go` 新增 `BlackboxProbeCategories()` /
+    `BlackboxTargetField()` / `BlackboxCategoriesHint()`
+  - **后端**：`strategy/scrapejob/validate.go`（类别门禁 + 按类别推导 `TargetField`）、
+    `strategy/scrapejob/selection.go`（候选第二列按类别推导探测字段）
+  - **前端**：`ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`（类别下拉只列两类、
+    删除「探测地址字段」输入项）、`strategyConstants.ts`（展示文案常量）
+- **变更**：
+  1. `resource_type` 由「六类任一」收敛为 **interface_service / application** 两类；其余四类
+     一律 `bad_request`（`拨测任务的资源类别只能是 interface_service/application，当前 "database"`）。
+  2. 「探测地址字段」**不再由用户选择**：接口服务固定 `api_url`（接口地址）、应用服务固定
+     `health_check_url`（健康检查 URL）。前端移除输入项、**不再提交 `target_field`**；后端在
+     `validateJobRequest` 中按类别推导并**覆盖**客户端传值（原「字段须属该类别可读字段」的校验
+     随之删除 —— 推导值构造上必然合法）。
+- **理由（用户口径）**：只有这两类的地址字段本身就是**完整 URL**，可直接作为拨测目标；其余类别的
+  地址是 IP / 端点，拨测需另拼协议与端口。且字段与类别**一对一**，不存在需要用户裁决的自由度。
+- **兼容性**：
+  - `target_field` 仍保留在请求体与响应中（响应供回显 / 追溯），**传了不生效**（被推导值覆盖）；
+  - **存量 Job 生成侧不受影响**：`configcenter/generator/targets.go` 仍按 `job.TargetField` 原值解析，
+    已有的非两类拨测 Job 照常产出配置；但**下次编辑保存时会被新门禁拦下**，需改选两类之一。
+    按用户裁定**不做数据迁移**（存量仅 1 条接口服务 + 1 条应用服务，实际无受影响数据）。
+- **测试**：后端将原 `TestCreateScrapeJobBlackboxNonInterfaceServiceCategory`（旧口径断言
+  「database 类别可创建」）**反转为 400 拒绝**，并新增 `TestCreateScrapeJobBlackboxTargetFieldDerived`
+  （三例：不传字段 → 推导 api_url / 传非法字段 → 仍被覆盖 / 应用服务 → 固定 health_check_url）；
+  前端改写 3 条用例，新增「拨测类别只列两类」。
+- **待设计侧回写**：
+  1. `Module_01` §5.4 拨测表单口径（六类 → 两类；删除探测地址字段选择项）
+  2. API 契约快照 blackbox 段：`target_field` 标注为**派生只读**字段
+
+| 编号 | 事项 | 落点 | 状态 |
+| --- | --- | --- | --- |
+| F-31 | 拨测类别收敛两类 + 探测地址字段写死 | M01 / M07 | ✅ 已实现，待 PRD 回写 |

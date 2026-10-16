@@ -49,7 +49,8 @@ beforeEach(() => {
 })
 
 // 阶段5：拨测目标改走「从资源选择」——目标清单由 selected_instance_ids 承载
-// （指向所选 resource_type 资源），资源类别与探测地址字段由用户选定，手填入口已彻底禁用。
+// （指向所选 resource_type 资源）。资源类别限接口服务 / 应用服务两类，探测地址字段由
+// 类别写死推导（不提交 target_field）；手填入口已彻底禁用。
 const blackboxRecord = {
   id: 5,
   job_name: 'probe-edit-1',
@@ -102,9 +103,11 @@ describe('ScrapeJobFormDrawer blackbox edit echo (regression)', () => {
     expect(await screen.findByDisplayValue('probe-edit-1')).toBeInTheDocument()
     // 分支必须切到「拨测」，拨测模块应回显 http_2xx
     expect(await screen.findByText('http_2xx')).toBeInTheDocument()
-    // 阶段5 解耦：资源类别与探测地址字段均回显用户原选值
+    // 资源类别回显用户原选值；探测地址字段不再是输入项（由类别写死推导），
+    // 改由「拨测目标」的引导文案说明取哪个字段。
     expect(await screen.findByText('接口服务')).toBeInTheDocument()
-    expect(await screen.findByText('接口地址')).toBeInTheDocument()
+    expect(screen.queryByText('探测地址字段')).not.toBeInTheDocument()
+    expect(await screen.findByText(/目标地址固定取所选实例的接口地址/)).toBeInTheDocument()
     // 拨测目标不再手填：入口是「从资源选择」，旧的 target/url 输入框必须消失
     expect(screen.queryByText('添加拨测目标')).not.toBeInTheDocument()
     // 网域下拉应回显选中项（mc-a → 网域A），而非空值占位文案
@@ -124,9 +127,9 @@ describe('ScrapeJobFormDrawer blackbox edit echo (regression)', () => {
     expect(body.job_name).toBe('probe-edit-1')
     expect(body.job_type).toBe('blackbox')
     expect(body.blackbox_module).toBe('http_2xx')
-    // 目标改由资源选择承载：类别与字段原样回传，选中集原样回传
+    // 目标改由资源选择承载：只回传类别（探测地址字段由服务端按类别推导），选中集原样回传
     expect(body.resource_type).toBe('interface_service')
-    expect(body.target_field).toBe('api_url')
+    expect(body.target_field).toBeUndefined()
     expect(body.selected_instance_ids).toEqual(['api-1', 'api-2'])
     // 手填字段彻底不再提交（后端亦拒绝写入）
     expect(body.blackbox_targets).toBeUndefined()

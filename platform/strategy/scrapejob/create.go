@@ -32,8 +32,9 @@ type CreateScrapeJobRequest struct {
 	LabelTemplateID        string                    `json:"label_template_id"`
 	BlackboxModule         string                    `json:"blackbox_module"`
 	BlackboxTargets        []models.BlackboxTarget   `json:"blackbox_targets"`
-	// ResourceType（拨测目标资源类别）/ TargetField（探测地址字段）仅 blackbox 使用：
-	// 拨测目标 = 所选类别实例在 TargetField 上的值（validateJobRequest 校验）。
+	// ResourceType（拨测目标资源类别）仅 blackbox 使用，且只能是接口服务 / 应用服务；
+	// TargetField（探测地址字段）已不再由调用方决定 —— 保留 JSON 字段以兼容旧客户端，
+	// 但落库前会被 validateJobRequest 按 ResourceType 推导覆盖。
 	ResourceType           models.ResourceType       `json:"resource_type"`
 	TargetField            string                    `json:"target_field"`
 	MappingOverrides       []models.MappingOverride  `json:"mapping_overrides"`

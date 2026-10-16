@@ -42,8 +42,9 @@ export interface ScrapeJob {
   /** blackbox Job 的拨测目标（job_type=blackbox 必填，§5.4） */
   blackbox_targets?: BlackboxTarget[]
   /**
-   * blackbox Job 的探测地址字段（阶段5 解耦）：从 `resource_type` 该类别的字段中
-   * 选一个，生成时取所选实例在该字段上的值作为探测目标。仅 blackbox 使用。
+   * blackbox Job 的探测地址字段，**只读**：由 `resource_type` 写死推导
+   * （接口服务→`api_url`、应用服务→`health_check_url`），服务端保存时落库。
+   * 表单无对应输入项，前端不提交；存量旧 Job 可能仍是别的类别的字段键。
    */
   target_field?: string
   /** 认证TLS密文仅存储不回显明文，编辑回填一律置空（决策31） */

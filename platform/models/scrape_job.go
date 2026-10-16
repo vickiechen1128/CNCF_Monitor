@@ -101,10 +101,14 @@ type ScrapeJob struct {
 	FilterRules           string                `gorm:"type:text" json:"filter_rules"`
 	BlackboxModule        string                `gorm:"size:100" json:"blackbox_module,omitempty"` // job_type=blackbox
 	BlackboxTargets       []BlackboxTarget      `gorm:"serializer:json" json:"blackbox_targets"`   // job_type=blackbox 拨测目标
-	// TargetField 是拨测（job_type=blackbox）的探测地址字段键：从所选资源类别
-	// （ResourceType）的字段中选一个，生成时取该字段的值作为探测目标
-	// （复用 models.GetResourceField）。仅 blackbox 使用。不预设默认值——由用户在 Job 上选择。
-	TargetField string `gorm:"size:64" json:"target_field,omitempty"` // job_type=blackbox 探测地址字段
+	// TargetField 是拨测（job_type=blackbox）的探测地址字段键，生成时取该字段的值作为
+	// 探测目标（复用 models.GetResourceField）。仅 blackbox 使用。
+	//
+	// **由 ResourceType 推导、不接受客户端传值**（2026-10-16 口径收紧）：接口服务固定
+	// api_url、应用服务固定 health_check_url，见 models.BlackboxTargetField。保存时由
+	// validateJobRequest 覆盖写入，故本列只读不写；存量旧 Job 可能仍存着其它类别的字段键，
+	// 生成侧按本列原值解析，不受影响。
+	TargetField string `gorm:"size:64" json:"target_field,omitempty"` // job_type=blackbox 探测地址字段（由 resource_type 推导）
 	MappingOverrides      []MappingOverride     `gorm:"serializer:json" json:"mapping_overrides"`  // 手动覆盖映射默认值的参数字段（同步映射默认值时跳过，F-03）
 	DraftStatus           string                `gorm:"size:20;not null" json:"draft_status"`      // draft/ready
 	ChangeStatus          ChangeStatus          `gorm:"size:20;not null" json:"change_status"`

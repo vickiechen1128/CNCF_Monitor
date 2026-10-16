@@ -26,8 +26,9 @@ const (
 //     必须有可用采集器（内置目录/已登记模板声明支持，或有 is_default 默认采集配置
 //     兜底）；application_http 直采端点，留空 exporter_template_id 放行
 //   - 认证TLS：basic→username+password 必填；bearer→token 必填；password/token 仅存储
-//   - blackbox：blackbox_module 必填 + **从资源选择目标**（resource_type 合法类别 +
-//     target_field 为该类别可读字段 + selected_instance_ids 非空且逐条命中该类别资源表）；
+//   - blackbox：blackbox_module 必填 + **从资源选择目标**（resource_type ∈
+//     {interface_service, application} + selected_instance_ids 非空且逐条命中该类别资源表）；
+//     探测地址字段 target_field **由 resource_type 推导**（不接受客户端传值）；
 //     手填 blackbox_targets 一律拒绝；monitor_type / exporter_template_id 置空
 //   - instance_selection_mode 默认 manual
 //   - scrape_interval / scrape_timeout 非空时须为带单位的 Prometheus duration
@@ -77,14 +78,17 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		if !validResourceCategory(models.ResourceCategory(job.ResourceType)) {
 			return fmt.Errorf("拨测任务必须选择合法的资源类别 resource_type，当前 %q（可选 %s）", job.ResourceType, models.CategoriesHint())
 		}
+		// 拨测口径收紧（2026-10-16）：类别只留「接口服务 / 应用服务」，且探测地址字段
+		// 不交给用户选 —— 由类别固定推导（接口服务→api_url、应用服务→health_check_url）。
+		// 请求体里的 target_field 一律被推导值覆盖：字段与类别一对一，没有需要用户裁决
+		// 的自由度（旧口径为「六类 × 任意可读字段」）。
+		targetField, ok := models.BlackboxTargetField(models.ResourceCategory(job.ResourceType))
+		if !ok {
+			return fmt.Errorf("拨测任务的资源类别只能是 %s，当前 %q", models.BlackboxCategoriesHint(), job.ResourceType)
+		}
+		job.TargetField = targetField
 		if len(job.SelectedInstanceIDs) == 0 {
 			return fmt.Errorf("拨测任务必须选择探测实例（selected_instance_ids 不能为空）")
-		}
-		if strings.TrimSpace(job.TargetField) == "" {
-			return fmt.Errorf("拨测任务必须指定探测地址字段 target_field（从所选资源类别的字段中选择一个）")
-		}
-		if _, ok := models.LegacyFieldMap(models.ResourceCategory(job.ResourceType))[job.TargetField]; !ok {
-			return fmt.Errorf("target_field %q 不是资源类别 %q 的可读字段，请从该类别字段中选择", job.TargetField, job.ResourceType)
 		}
 	default:
 		// standard：monitor_type 合法即可。采集参数（scrape_interval/scrape_timeout/

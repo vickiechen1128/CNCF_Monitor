@@ -66,13 +66,15 @@ export interface ScrapeJobInput {
    */
   blackbox_targets?: BlackboxTarget[]
   /**
-   * 拨测 Job 的目标资源类别（阶段5 解耦）：由用户在表单选择，六类任一
-   * （host/database/middleware/application/generic_target/interface_service）。
+   * 拨测 Job 的目标资源类别：由用户在表单选择，**只有两类**
+   * （interface_service / application，见 `blackboxProbeCategories` 与后端
+   * `models.BlackboxProbeCategories()`）。
    */
   resource_type?: ResourceType
   /**
-   * 拨测 Job 的探测地址字段（阶段5 解耦）：从 `resource_type` 该类别的字段中选一个，
-   * 生成时取所选实例在该字段上的值作为探测目标（后端校验须属于该类别可读字段）。
+   * ⚠️ 已不再由前端提交：探测地址字段由 `resource_type` 写死推导
+   * （接口服务→api_url、应用服务→health_check_url），保存时后端按同一映射覆盖写入。
+   * 字段仅作兼容保留，传了也不生效（后端不再校验其合法性）。
    */
   target_field?: string
   enabled?: boolean
@@ -88,9 +90,13 @@ export interface ScrapeJobInput {
 export interface InstanceCandidateListParams extends Record<string, string | number | boolean | undefined> {
   /** 二选一（与 resource_category）：按 monitor_type 推导资源类别（standard 采集 Job） */
   monitor_type?: MonitorType
-  /** 二选一（与 monitor_type）：直接按资源类别收敛候选（拨测 Job = 用户在表单选定的类别，六类任一，阶段5） */
+  /** 二选一（与 monitor_type）：直接按资源类别收敛候选（拨测 Job = 用户在表单选定的类别，现为接口服务/应用服务两类） */
   resource_category?: ResourceCategory
-  /** 可选：候选第二列改渲染该字段的值（拨测传用户选定的「探测地址字段」，使列表所见=实际探测地址） */
+  /**
+   * 可选：候选第二列改渲染该字段的值。**拨测入口不必传** —— 后端按 `resource_category`
+   * 推导出该类别写死的探测地址字段（接口服务→api_url、应用服务→health_check_url），
+   * 使列表所见 = 实际探测地址。
+   */
   target_field?: string
   network_domain_id: string
   keyword?: string
