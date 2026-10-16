@@ -28,11 +28,11 @@ type jobInstanceItem struct {
 	PortSource string `json:"port_source"`
 }
 
-// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP（仅存活资源，
+// resolveResourceMeta 按 resource_id 跨六类资源表定位实例展示名与 IP（仅存活资源，
 // 受 GORM 软删过滤）。口径对齐 instance-candidates：host=InstanceName/PrivateIP，
 // database=ResourceID/InstanceIP，middleware=AppName/InstanceIP，
-// application=ServiceName/采集地址（endpoint:port），generic_target=TargetName/InstanceIP。
-// 未命中返回空串。
+// application=ServiceName/采集地址（endpoint:port），generic_target=TargetName/InstanceIP，
+// interface_service=APIName/APIURL。未命中返回空串。
 func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
 	name, ip, _, found = lookupResourceMeta(db, resourceID, false)
 	return
@@ -69,6 +69,10 @@ func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip
 		{&models.GenericTarget{}, func(m any) (string, string) {
 			r := m.(*models.GenericTarget)
 			return r.TargetName, r.InstanceIP
+		}},
+		{&models.InterfaceService{}, func(m any) (string, string) {
+			r := m.(*models.InterfaceService)
+			return r.APIName, r.APIURL
 		}},
 	}
 	for _, l := range lookups {

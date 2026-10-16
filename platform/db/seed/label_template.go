@@ -26,14 +26,9 @@ func runLabelTemplates(db *gorm.DB) error {
 		if err := ensureResourceIDMapping(db, tmpl.Name); err != nil {
 			return err
 		}
-		// 决策 115：platform 五类全覆盖；svc 仅 application / generic_target（决策 105）。
+		// 决策 115：platform 五类全覆盖。
 		if err := ensurePlatformMapping(db, tmpl.Name); err != nil {
 			return err
-		}
-		if cat == models.ResourceCategoryApplication || cat == models.ResourceCategoryGenericTarget {
-			if err := ensureSVCMapping(db, tmpl.Name); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -47,18 +42,6 @@ func ensurePlatformMapping(db *gorm.DB, name string) error {
 		SourceField: "platform_code",
 		SourceType:  models.LabelSourceTypeResourceField,
 		TargetLabel: "platform",
-		Enabled:     true,
-	})
-}
-
-// ensureSVCMapping 把 service_code → svc 映射补进已存在的默认模板（决策 105 /
-// 115，PRD §5.13）。仅对 application / generic_target 调用——host / database /
-// middleware 属基础设施，不挂服务维度。语义同 ensurePlatformMapping。
-func ensureSVCMapping(db *gorm.DB, name string) error {
-	return ensureLabelMapping(db, name, models.LabelMapping{
-		SourceField: "service_code",
-		SourceType:  models.LabelSourceTypeResourceField,
-		TargetLabel: "svc",
 		Enabled:     true,
 	})
 }

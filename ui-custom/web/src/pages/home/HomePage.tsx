@@ -799,8 +799,8 @@ export function HomePage() {
       key: 'resource_count',
       label: '资源总数',
       value: metricValue(dashboard?.resource_count),
-      sub: '五类台账合计',
-      tip: '已导入平台的监控资源总数（主机 / 数据库 / 中间件 / 应用服务 / 其他监控目标五类合计），拨测目标不计入。',
+      sub: '六类台账合计',
+      tip: '已导入平台的监控资源总数（主机 / 数据库 / 中间件 / 应用服务 / 其他监控目标 / 接口服务六类合计），拨测目标不计入。',
     },
     {
       key: 'monitored_count',

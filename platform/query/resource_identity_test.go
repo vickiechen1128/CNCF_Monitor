@@ -30,6 +30,7 @@ func openResourceIdentityTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 	))
 	return db
 }
@@ -220,8 +221,8 @@ func TestResolveResourceIdentitiesIsBatched(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 
-	assert.Equal(t, int64(5), atomic.LoadInt64(&counter.queries),
-		"3 个 resource_id 应只触发 5 条批量 SELECT（每类资源表一条），而非逐 id 查询")
+	assert.Equal(t, int64(6), atomic.LoadInt64(&counter.queries),
+		"3 个 resource_id 应只触发 6 条批量 SELECT（每类资源表一条），而非逐 id 查询")
 }
 
 // TestInstanceFieldsOf 覆盖实例展示字段组的组装口径（v1.15 决策 70）：

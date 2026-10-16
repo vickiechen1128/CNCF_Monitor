@@ -26,6 +26,7 @@ func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceC
 		{models.ResourceCategoryMiddleware, &models.Middleware{}},
 		{models.ResourceCategoryApplication, &models.Application{}},
 		{models.ResourceCategoryGenericTarget, &models.GenericTarget{}},
+		{models.ResourceCategoryInterfaceService, &models.InterfaceService{}},
 	}
 	for _, l := range lookups {
 		result := db.Where("resource_id = ?", resourceID).First(l.dest)
@@ -51,6 +52,8 @@ func sourceTypeOf(model any) models.SourceType {
 	case *models.Application:
 		return m.SourceType
 	case *models.GenericTarget:
+		return m.SourceType
+	case *models.InterfaceService:
 		return m.SourceType
 	}
 	return ""
@@ -80,12 +83,19 @@ func updatableColumns(category models.ResourceCategory) []string {
 	case models.ResourceCategoryApplication:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"service_name", "service_code", "health_check_url", "protocol", "endpoint", "port", "scrape_port",
+			"service_name", "health_check_url", "protocol", "endpoint", "port", "scrape_port",
 		}
 	case models.ResourceCategoryGenericTarget:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"target_name", "service_code", "instance_ip", "port", "metrics_path", "scheme", "exporter_type", "custom_labels", "scrape_port",
+			"target_name", "instance_ip", "port", "metrics_path", "scheme", "exporter_type", "custom_labels", "scrape_port",
+		}
+	case models.ResourceCategoryInterfaceService:
+		// H10：PUT 为全量替换语义，只列 UI 暴露列 + 必填列——刻意不含
+		// platform_code / cloud_code / env / cluster / owner / scrape_port，
+		// 否则前端未暴露的列会被请求体零值静默清零。
+		return []string{
+			"network_domain_id", "biz_code", "app_name", "status", "api_name", "api_url",
 		}
 	}
 	return nil
@@ -106,7 +116,7 @@ func updatableColumns(category models.ResourceCategory) []string {
 //  5. 成功返回更新后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
+func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resourceID := strings.TrimSpace(c.Param("resource_id"))
 		if resourceID == "" {
@@ -145,14 +155,12 @@ func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Applic
 		// 修改为新值/新选用停用条目仍被拒绝。
 		currentBiz, _ := GetResourceField(model, "biz_code")
 		currentApp, _ := GetResourceField(model, "app_code")
-		// 决策 105：编辑已属停用服务时允许保留历史值（§5.16.2 服务存在性口径）。
-		currentSvc, _ := GetResourceField(model, "service_code")
 		// 决策 110：编辑已属停用平台（或与应用平台集合不自洽的历史值）时允许保留
 		// 历史 platform_code；改为新值 / 新选停用平台仍被拒绝。
 		currentPlatform, _ := GetResourceField(model, "platform_code")
 		platform := &PlatformRefs{PlatformStore: platformStore, AppPlatformStore: appPlatformStore}
-		if err := ValidateResourceInputWithPlatformForUpdate(category, &in, bizStore, appStore, svcStore, networkDomainExistsFunc(db),
-			&KeepDisabledValues{BizCode: currentBiz, AppCode: currentApp, ServiceCode: currentSvc, PlatformCode: currentPlatform},
+		if err := ValidateResourceInputWithPlatformForUpdate(category, &in, bizStore, appStore, networkDomainExistsFunc(db),
+			&KeepDisabledValues{BizCode: currentBiz, AppCode: currentApp, PlatformCode: currentPlatform},
 			platform); err != nil {
 			response.BadRequest(c, err)
 			return

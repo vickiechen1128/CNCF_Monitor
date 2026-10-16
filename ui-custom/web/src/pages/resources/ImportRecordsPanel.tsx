@@ -29,8 +29,8 @@ import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
-/** 五类资源类别（Module_07 §5.1 / 决策 D19） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+/** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target', 'interface_service']
 
 /** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
 const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
@@ -39,6 +39,7 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /** 导入模式展示名（§6.1 / T07-10） */

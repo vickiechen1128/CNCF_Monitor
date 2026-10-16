@@ -16,7 +16,7 @@ type DomainImpact struct {
 	HasOnlineAgents     bool  `json:"has_online_agents"` // 决策 82-2：是否存在在线 Agent（供前端判断是否展示补强提示）
 }
 
-// resourceModels lists the five M07 resource tables that reference a network
+// resourceModels lists the M07 resource tables that reference a network
 // domain through their network_domain_id column.
 var resourceModels = []interface{}{
 	&models.Host{},
@@ -24,9 +24,10 @@ var resourceModels = []interface{}{
 	&models.Middleware{},
 	&models.Application{},
 	&models.GenericTarget{},
+	&models.InterfaceService{},
 }
 
-// countResources sums the rows referencing domainID across the five resource
+// countResources sums the rows referencing domainID across the resource
 // tables. Soft-deleted rows are excluded automatically (gorm.DeletedAt).
 func countResources(db *gorm.DB, domainID string) (int64, error) {
 	var total int64

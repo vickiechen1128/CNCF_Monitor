@@ -48,7 +48,6 @@ import {
   applicationDictApi,
   cloudDictApi,
   platformDictApi,
-  serviceDictApi,
 } from '../../api/resources'
 import type { ResourceReferenceJob, ResourceReferenceResponse } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
@@ -59,7 +58,6 @@ import type {
   CloudDict,
   PlatformDict,
   ResourceCategory,
-  ServiceDict,
 } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
@@ -152,8 +150,8 @@ function DeleteResourceConfirm({
   )
 }
 
-/** 五类资源类别（Module_07 §5.1 / 决策 D19） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+/** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target', 'interface_service']
 
 /** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
 const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
@@ -162,18 +160,13 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
-
-/**
- * 「服务」筛选器仅在这两类 Tab 出现（决策 105 / F-18）：只有 application /
- * generic_target 持有 service_code 列与服务字典归属，与「所属服务」列口径一致；
- * host / database / middleware 不挂服务，筛选器无意义且后端会忽略该条件。
- */
-const SERVICE_FILTER_CATEGORIES: ResourceCategory[] = ['application', 'generic_target']
 
 /** 子类取值字段（决策 91 首页 L1 各类型卡的子类口径）：
  * host=os_type / database=database_type / middleware=middleware_type /
- * generic_target=exporter_type；application 用 service_name（不设子类，仅供深链兜底）。
+ * generic_target=exporter_type；application 用 service_name、interface_service 用 api_name
+ * （二者均不设子类，仅供深链兜底）。
  */
 const SUBTYPE_FIELD: Record<ResourceCategory, keyof ResourceListItem> = {
   host: 'os_type',
@@ -181,6 +174,7 @@ const SUBTYPE_FIELD: Record<ResourceCategory, keyof ResourceListItem> = {
   middleware: 'middleware_type',
   application: 'service_name',
   generic_target: 'exporter_type',
+  interface_service: 'api_name',
 }
 
 /** 运行状态展示名（Module_07 §5.2 / 决策 32，UI 展示名「运行状态」） */const STATUS_MAP: Record<string, string> = {
@@ -213,6 +207,7 @@ function resourceDisplayName(record: ResourceListItem): string {
     record.instance_name ||
     record.service_name ||
     record.target_name ||
+    record.api_name ||
     record.resource_id ||
     '-'
   )
@@ -273,8 +268,6 @@ export function ResourcesPage() {
   const [applicationDomains, setApplicationDomains] = useState<ApplicationDict[]>([])
   // 决策 103：云字典（部署级只读，cloud_code → cloud_name 展示名解析）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
-  // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 承载）
-  const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
   // {v2026-09-28 决策 110} 平台字典（资源行 `platform_code` 一等字段的展示名解析：platform_code → platform_name）
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
   // F-18 / 决策 111：应用↔平台 M:N 关联，仅用于「应用」筛选器按所选平台**级联过滤**
@@ -354,15 +347,13 @@ export function ResourcesPage() {
       businessDomainApi.list(),
       applicationDictApi.list(),
       cloudDictApi.list(),
-      serviceDictApi.list(),
       platformDictApi.list(),
     ])
-      .then(([nd, bd, ad, cd, sd, pd]) => {
+      .then(([nd, bd, ad, cd, pd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setApplicationDomains(ad.data?.list ?? [])
         setCloudDicts(cd.data?.list ?? [])
-        setServiceDicts(sd.data?.list ?? [])
         setPlatformDicts(pd.data?.list ?? [])
       })
       .catch(() => {
@@ -407,9 +398,6 @@ export function ResourcesPage() {
     return applicationDomains.filter((d) => d.status === 'enabled' && relAppCodes.has(d.app_code))
   }, [applicationDomains, appPlatformRels, filters.platform_code])
 
-  /** F-18：「服务」筛选下拉选项——启用服务条目（决策 105 停用服务不可新引用） */
-  const filterServiceOptions = useMemo(() => serviceDicts.filter((d) => d.enabled), [serviceDicts])
-
   /** 网域 ID → 展示名（M06 网域清单），未匹配兜底展示 ID */
   const domainNameOf = (id: string) => networkDomains.find((d) => d.id === id)?.name ?? id
   /** 业务编码 → biz_name（Module_07 §11.2 业务列展示 biz_name） */
@@ -441,16 +429,6 @@ export function ResourcesPage() {
   const isCloudDisabled = (code: string) => {
     const c = cloudDicts.find((d) => d.cloud_code === code)
     return !!c && !c.enabled
-  }
-  /** 服务编码 → service_name（决策 105：服务列展示字典展示名，缺条目回退 service_code） */
-  const resolveServiceName = (code?: string) => {
-    if (!code) return '-'
-    return serviceDicts.find((s) => s.service_code === code)?.service_name ?? code
-  }
-  /** 服务是否停用（决策 105：停用条目以「服务名（已停用）」标识，存量资源保留历史值） */
-  const isServiceDisabled = (code: string) => {
-    const s = serviceDicts.find((d) => d.service_code === code)
-    return !!s && !s.enabled
   }
   /**
    * 平台展示名（{v2026-09-28 决策 110} / 契约快照 §11）：**资源行 `platform_code` 一等字段**为唯一权威，
@@ -621,31 +599,6 @@ export function ResourcesPage() {
           '-'
         ),
     }
-    // 决策 105「所属服务」列：仅 application / generic_target 承载 service_code（其余三类不挂服务），
-    // 展示服务字典 service_name（缺条目回退 service_code、停用「服务名（已停用）」、留空 '-'）。
-    // 列头「所属服务」与 application Tab 的「服务名」（实例名）区分：前者是服务字典归属维度。
-    const serviceColumn: ColumnsType<ResourceListItem>[number] = {
-      title: (
-        <span>
-          所属服务
-          <Tooltip title="该资源归属的服务字典条目（svc 标签取值）">
-            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
-          </Tooltip>
-        </span>
-      ),
-      dataIndex: 'service_code',
-      key: 'service_code',
-      width: 150,
-      render: (value?: string) =>
-        value ? (
-          <Tag color={isServiceDisabled(value) ? 'default' : 'purple'}>
-            {resolveServiceName(value)}
-            {isServiceDisabled(value) ? '（已停用）' : ''}
-          </Tag>
-        ) : (
-          '-'
-        ),
-    }
     // {v2026-09-28 决策 110}「平台」列：**读资源行 `platform_code` 一等字段**（登记期显式填写、可空），
     // 展示名经 GET /platform-dict 解析 platform_name（缺条目回退 platform_code、停用加「（已停用）」、留空 '-'）。
     // 不再经 app_code → 应用父级 platform_code 派生（决策 111 M:N 后该派生恒为「-」）。
@@ -741,7 +694,7 @@ export function ResourcesPage() {
     // 列序约定（M07 dev-feedback §13 F-13 撤销列头分组后的替代口径）：
     // 原按「技术属性 / 位置」与「业务归属」两组归并，现改为**平铺单层列**，但保留原分组的列序语义——
     // 技术属性 / 位置列在前（主标识 → 类型专属列 → 网域 → 运行状态 → 采集状态 → 录入方式 → 云），
-    // 业务归属列在后（平台 → 应用名称 → [所属服务] → 业务名称），即「应用名称在业务名称之前」。
+    // 业务归属列在后（平台 → 应用名称 → 业务名称），即「应用名称在业务名称之前」。
     // 撤销理由：antd 父列分组把表头变两行却一列未减，与 tablePresets.ts「列数 ≤ 8，超出字段下沉详情 Drawer」
     // 正面冲突；scroll.x='max-content' 横向滚动后组标题与下属列不同视口，分组语义归零；组名语义含混。
     // 替代出口为 F-17 列显隐配置（另轮实施）。固定列不参与任何分组：
@@ -882,7 +835,7 @@ export function ResourcesPage() {
           title: (
             <span>
               服务名
-              <Tooltip title="本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念">
+              <Tooltip title="本应用服务实例名，参与判重">
                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
               </Tooltip>
             </span>
@@ -951,8 +904,6 @@ export function ResourcesPage() {
           cloudColumn,
           platformColumn,
           appColumn,
-          // 决策 105：仅 application / generic_target 承载「所属服务」（host / database / middleware 不挂）
-          serviceColumn,
           businessColumn,
           actionColumn,
         ]
@@ -1000,8 +951,40 @@ export function ResourcesPage() {
           cloudColumn,
           platformColumn,
           appColumn,
-          // 决策 105：仅 application / generic_target 承载「所属服务」（host / database / middleware 不挂）
-          serviceColumn,
+          businessColumn,
+          actionColumn,
+        ]
+      }
+      case 'interface_service': {
+        // 主标识列 = 接口名（api_name），固定左侧（tablePresets 规则），长文本截断 + 悬浮全文。
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: '接口名',
+          dataIndex: 'api_name',
+          key: 'api_name',
+          fixed: 'left',
+          width: 180,
+          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+        }
+        const typeColumns: ColumnsType<ResourceListItem> = [
+          {
+            // 接口地址为完整 URL（含 ? 查询参数），拨测目标地址直接取该值；长 URL 截断 + 悬浮全文
+            title: '接口地址',
+            dataIndex: 'api_url',
+            key: 'api_url',
+            ellipsis: { showTitle: true },
+            render: (v?: string) => v || '-',
+          },
+        ]
+        return [
+          identifier,
+          ...typeColumns,
+          domainColumn,
+          statusColumn,
+          monitorColumn,
+          sourceColumn,
+          cloudColumn,
+          platformColumn,
+          appColumn,
           businessColumn,
           actionColumn,
         ]
@@ -1148,27 +1131,6 @@ export function ResourcesPage() {
                   ))}
                 </Select>
               </FilterItem>
-              {/* F-18 / 决策 105：服务筛选**仅 application / generic_target 出现**
-                  （与「所属服务」列同口径）；其余三类不持有 service_code，不渲染。 */}
-              {SERVICE_FILTER_CATEGORIES.includes(category) && (
-                <FilterItem label="服务" width={240}>
-                  <Select
-                    placeholder="全部服务"
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    style={{ width: 180 }}
-                    value={filters.service_code}
-                    onChange={(v) => setFilters({ ...filters, service_code: v })}
-                  >
-                    {filterServiceOptions.map((d) => (
-                      <Select.Option key={d.service_code} value={d.service_code} label={`${d.service_name} (${d.service_code})`}>
-                        {d.service_name} ({d.service_code})
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </FilterItem>
-              )}
               <FilterItem label="业务" width={240}>
                 <Select
                   placeholder="全部业务"
@@ -1329,13 +1291,7 @@ export function ResourcesPage() {
             <Tabs
               activeKey={category}
               onChange={(key) => {
-                const next = key as ResourceCategory
-                // F-18：service_code 仅 application / generic_target 有意义。切到其余三类时
-                // 必须清空，否则会带着一个下拉不可见的生效筛选器静默过滤行（用户无从感知/清除）。
-                if (!SERVICE_FILTER_CATEGORIES.includes(next) && filters.service_code) {
-                  setFilters({ ...filters, service_code: undefined })
-                }
-                setCategory(next)
+                setCategory(key as ResourceCategory)
               }}
               items={RESOURCE_TYPES.map((type) => ({ key: type, label: RESOURCE_TYPE_MAP[type] }))}
               style={{ marginBottom: 16 }}

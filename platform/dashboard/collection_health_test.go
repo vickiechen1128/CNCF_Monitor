@@ -58,8 +58,9 @@ func TestSummaryCollectionHealth(t *testing.T) {
 	db := newTestDB(t)
 	seed(t, db)
 
-	// seed 中 ready+enabled 标准 Job 覆盖 6 个资源：res-host-1/2、res-db-1、res-mw-1、res-app-1、res-gt-1。
-	// 构造：2 采集中 + 1 已下发未采到 + 1 回传延迟中 + 2 待采集。
+	// seed 中 ready+enabled Job 覆盖 9 个资源：标准 Job 6 个（res-host-1/2、res-db-1、
+	// res-mw-1、res-app-1、res-gt-1）+ 拨测资源模式 3 个接口服务（res-is-1/2/3，H9）。
+	// 构造：2 采集中 + 1 已下发未采到 + 1 回传延迟中 + 5 待采集。
 	idx := &UpHealthIndex{
 		upNow:   map[string]bool{"res-host-1": true, "res-host-2": true, "res-db-1": true},
 		upTrue:  map[string]bool{"res-host-1": true, "res-host-2": true},
@@ -69,12 +70,12 @@ func TestSummaryCollectionHealth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, s.CollectionHealth)
 
-	assert.Equal(t, 6, s.MonitoredCount)
-	assert.Equal(t, 6, s.CollectionHealth.DispatchedCount, "分母 = 已下发资源数")
+	assert.Equal(t, 9, s.MonitoredCount)
+	assert.Equal(t, 9, s.CollectionHealth.DispatchedCount, "分母 = 已下发资源数")
 	assert.Equal(t, 2, s.CollectionHealth.CollectingCount)
 	assert.Equal(t, 1, s.CollectionHealth.DownCount)
 	assert.Equal(t, 1, s.CollectionHealth.StaleCount)
-	assert.Equal(t, 2, s.CollectionHealth.PendingCount)
+	assert.Equal(t, 5, s.CollectionHealth.PendingCount, "app-1/gt-1 + 3 个接口服务" )
 }
 
 // TestSummaryCollectionHealthDegradesOnError 查询失败时聚合接口不失败，collection_health 留空
@@ -86,8 +87,8 @@ func TestSummaryCollectionHealthDegradesOnError(t *testing.T) {
 	s, err := Build(db, WithUpHealthQuerier(&fakeUpHealthQuerier{err: errors.New("prometheus unreachable")}))
 	require.NoError(t, err)
 	assert.Nil(t, s.CollectionHealth)
-	// 其余聚合不受影响。
-	assert.Equal(t, 6, s.MonitoredCount)
+	// 其余聚合不受影响（含拨测资源模式的 3 个接口服务）。
+	assert.Equal(t, 9, s.MonitoredCount)
 }
 
 // TestSummaryCollectionHealthOmittedWhenNotInjected 未注入 querier 时 collection_health 留空

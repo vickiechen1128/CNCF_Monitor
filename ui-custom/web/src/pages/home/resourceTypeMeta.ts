@@ -13,10 +13,11 @@ export type ResourceCategoryKey =
   | 'middleware'
   | 'application'
   | 'generic_target'
+  | 'interface_service'
 
 /**
- * L1 五类卡的**固定渲染顺序**（不随接口返回顺序变化）。
- * `dashboard.by_category` 后端已按此顺序返回且五类齐全，前端仍显式排序，
+ * L1 六类卡的**固定渲染顺序**（不随接口返回顺序变化）。
+ * `dashboard.by_category` 后端已按此顺序返回且六类齐全，前端仍显式排序，
  * 避免接口顺序变化导致版式漂移。
  */
 export const L1_CATEGORY_ORDER: ResourceCategoryKey[] = [
@@ -25,6 +26,7 @@ export const L1_CATEGORY_ORDER: ResourceCategoryKey[] = [
   'middleware',
   'application',
   'generic_target',
+  'interface_service',
 ]
 
 interface CategoryMeta {
@@ -74,6 +76,16 @@ export const L1_CATEGORY_META: Record<ResourceCategoryKey, CategoryMeta> = {
     // 本类的 SNMP / K8s 端点 / 自定义 HTTP 都是「拉指标」端点，拨测走 Blackbox 采集任务
     footnote: '拨测走 blackbox Job，不录入资源台账',
   },
+  interface_service: {
+    label: '接口服务',
+    badge: '接',
+    unit: '',
+    // 与 application 同构：不设子类（接口服务统一由 blackbox 拨测采集任务承载，不按子类拆分）
+    subtypeTitle: null,
+    subtypeNote: '单一采集类型 · 不按子类拆',
+    // 接口服务是拨测目标的资源台账对象，拨测目标地址取自本类资源的接口地址
+    footnote: '拨测目标取自本类资源的接口地址 ↓',
+  },
 }
 
 /** 应用服务「不拆子类」的理由（chip Tooltip 文案） */
@@ -82,6 +94,25 @@ export const APPLICATION_SUBTYPE_TIP =
 
 /** 应用服务卡内 `application_http` 子类 chip 的展示名 */
 export const APPLICATION_SUBTYPE_LABEL = 'application_http'
+
+/** 接口服务「不拆子类」的理由（chip Tooltip 文案）：由 blackbox 拨测承接 */
+export const INTERFACE_SERVICE_SUBTYPE_TIP =
+  '接口服务由 blackbox 拨测采集任务承载：拨测目标地址直接取本类资源的接口地址，不按子类拆分采集类型'
+
+/** 接口服务卡内单条 chip 的展示名（blackbox 拨测采集类型） */
+export const INTERFACE_SERVICE_SUBTYPE_LABEL = 'blackbox_probe'
+
+/**
+ * 「不设子类」（`subtypeTitle === null`）类别卡内**单条 chip** 的展示名与说明 Tooltip。
+ *
+ * `ResourceTypeGrid` 的 null 分支据此**按 category 分派**——原先写死了
+ * application 的文案，接口服务卡会出现「应用服务」的说明（错显）。新增不设子类
+ * 的类别时，在此登记即可。
+ */
+export const SINGLE_SUBTYPE_CHIP: Partial<Record<ResourceCategoryKey, { label: string; tip: string }>> = {
+  application: { label: APPLICATION_SUBTYPE_LABEL, tip: APPLICATION_SUBTYPE_TIP },
+  interface_service: { label: INTERFACE_SERVICE_SUBTYPE_LABEL, tip: INTERFACE_SERVICE_SUBTYPE_TIP },
+}
 
 /** 子类覆盖率低于该阈值时用橙色语义底警示（PRD §「视觉 Token 规范」） */
 export const SUBTYPE_COVERAGE_WARN_THRESHOLD = 70

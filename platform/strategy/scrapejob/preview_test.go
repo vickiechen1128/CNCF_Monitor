@@ -226,19 +226,19 @@ func TestPreviewTargetsApplicationPortBypassesChain(t *testing.T) {
 		"application 不进映射链，类型默认端口 9999 不得生效")
 }
 
-// T01-P4 + D3 矩阵：blackbox 分支在资源解析前短路、无端口解析概念，
-// port/port_source 保持零值（port=0、port_source=""）。
+// T01-P4 + D3 矩阵：blackbox 资源模式无端口解析概念，port/port_source 保持零值
+// （port=0、port_source=""）；目标地址 = 所选实例在 target_field 上的值。
 func TestPreviewTargetsBlackboxNoPortChain(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 	seedEnabledDomain(t, db, "default")
+	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health?token=x", "online")
 	bb := &models.ScrapeJob{
-		JobName: "bb-prod", JobType: models.JobTypeBlackbox, NetworkDomainID: "default",
+		JobName: "bb-prod", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeInterfaceService,
+		TargetField: "api_url",
+		NetworkDomainID: "default",
 		InstanceSelectionMode: models.InstanceSelectionManual, AuthType: models.AuthTypeNone,
-		BlackboxModule: "http_2xx",
-		BlackboxTargets: []models.BlackboxTarget{
-			{Target: "api.example.com", Protocol: models.BlackboxTargetProtocolHTTP},
-		},
+		BlackboxModule: "http_2xx", SelectedInstanceIDs: []string{"is-1"},
 		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
 	}
 	require.NoError(t, db.Create(bb).Error)
@@ -247,7 +247,32 @@ func TestPreviewTargetsBlackboxNoPortChain(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, code)
 	require.Len(t, out.Data.Targets, 1)
-	assert.Equal(t, "api.example.com", out.Data.Targets[0].Address)
+	assert.Equal(t, "https://api.example.com/health?token=x", out.Data.Targets[0].Address, "target = api_url 字段值，逐字节原样")
 	assert.Equal(t, 0, out.Data.Targets[0].Port)
 	assert.Equal(t, "", out.Data.Targets[0].PortSource, "blackbox 不进端口解析链")
+}
+
+// TestPreviewTargetsBlackboxNonInterfaceService：拨测不再与 interface_service 耦合——
+// 选 database 类别实例 + target_field=instance_ip → 预览地址等于该实例的 IP。
+func TestPreviewTargetsBlackboxNonInterfaceService(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedDatabase(t, db, "db-1", "default", "10.0.2.7", "mysql", "online")
+	bb := &models.ScrapeJob{
+		JobName: "bb-db", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeDatabase,
+		TargetField:            "instance_ip",
+		NetworkDomainID:        "default",
+		InstanceSelectionMode:  models.InstanceSelectionManual, AuthType: models.AuthTypeNone,
+		BlackboxModule: "http_2xx", SelectedInstanceIDs: []string{"db-1"},
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(bb).Error)
+
+	out, code := postPreviewTargets(t, r, jobIDString(bb))
+
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, out.Data.Targets, 1)
+	assert.Equal(t, "10.0.2.7", out.Data.Targets[0].Address, "target = 所选类别实例在 target_field 上的值")
+	assert.Equal(t, "", out.Data.Targets[0].Protocol, "非 URL 字段无 scheme")
 }

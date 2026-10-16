@@ -26,8 +26,10 @@ const (
 //     必须有可用采集器（内置目录/已登记模板声明支持，或有 is_default 默认采集配置
 //     兜底）；application_http 直采端点，留空 exporter_template_id 放行
 //   - 认证TLS：basic→username+password 必填；bearer→token 必填；password/token 仅存储
-//   - blackbox：blackbox_module 必填 + blackbox_targets 非空且 protocol ∈ 限定集；
-//     monitor_type / exporter_template_id 置空
+//   - blackbox：blackbox_module 必填 + **从资源选择目标**（resource_type ∈
+//     {interface_service, application} + selected_instance_ids 非空且逐条命中该类别资源表）；
+//     探测地址字段 target_field **由 resource_type 推导**（不接受客户端传值）；
+//     手填 blackbox_targets 一律拒绝；monitor_type / exporter_template_id 置空
 //   - instance_selection_mode 默认 manual
 //   - scrape_interval / scrape_timeout 非空时须为带单位的 Prometheus duration
 //     字面量（裸数字如 "180" 会被 promtool check config 拒绝，2026-10-12 诊断）
@@ -59,22 +61,34 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 
 	switch job.JobType {
 	case models.JobTypeBlackbox:
-		// blackbox：不绑定 monitor_type / exporter；必须配置 blackbox 拨测字段。
+		// blackbox：不绑定 monitor_type / exporter，二者保持置空——H13：重新填
+		// MonitorType 会触发 validateExporterForMonitorType / LoadExporterPort 副作用。
+		// 拨测与采集同构：由用户选资源类别（ResourceType）+ 探测地址字段（TargetField）+
+		// 实例（SelectedInstanceIDs）。类别不预设、字段不预设，一律由用户选择。
 		job.MonitorType = ""
 		job.ExporterTemplateID = ""
 		if strings.TrimSpace(job.BlackboxModule) == "" {
 			return fmt.Errorf("job_type=blackbox 时 blackbox_module 必填")
 		}
-		if len(job.BlackboxTargets) == 0 {
-			return fmt.Errorf("job_type=blackbox 时 blackbox_targets 不能为空")
+		// 手填模式彻底禁用：任何非空 blackbox_targets 一律拒绝（不做存量迁移，
+		// 见实施计划 D2）。
+		if len(job.BlackboxTargets) > 0 {
+			return fmt.Errorf("拨测任务已改为从资源选择，不再支持手填 blackbox_targets；请清空后改用 selected_instance_ids")
 		}
-		for _, t := range job.BlackboxTargets {
-			if strings.TrimSpace(t.Target) == "" {
-				return fmt.Errorf("blackbox_targets 中 target 必填")
-			}
-			if !models.ValidBlackboxTargetProtocol(string(t.Protocol)) {
-				return fmt.Errorf("blackbox target 协议 %q 非法，可选 http/https/tcp/icmp/dns", t.Protocol)
-			}
+		if !validResourceCategory(models.ResourceCategory(job.ResourceType)) {
+			return fmt.Errorf("拨测任务必须选择合法的资源类别 resource_type，当前 %q（可选 %s）", job.ResourceType, models.CategoriesHint())
+		}
+		// 拨测口径收紧（2026-10-16）：类别只留「接口服务 / 应用服务」，且探测地址字段
+		// 不交给用户选 —— 由类别固定推导（接口服务→api_url、应用服务→health_check_url）。
+		// 请求体里的 target_field 一律被推导值覆盖：字段与类别一对一，没有需要用户裁决
+		// 的自由度（旧口径为「六类 × 任意可读字段」）。
+		targetField, ok := models.BlackboxTargetField(models.ResourceCategory(job.ResourceType))
+		if !ok {
+			return fmt.Errorf("拨测任务的资源类别只能是 %s，当前 %q", models.BlackboxCategoriesHint(), job.ResourceType)
+		}
+		job.TargetField = targetField
+		if len(job.SelectedInstanceIDs) == 0 {
+			return fmt.Errorf("拨测任务必须选择探测实例（selected_instance_ids 不能为空）")
 		}
 	default:
 		// standard：monitor_type 合法即可。采集参数（scrape_interval/scrape_timeout/
@@ -130,6 +144,55 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 	// 已选实例须属于同一网域（非同域 bad_request）。
 	if err := validateSelectedInstancesDomain(db, job); err != nil {
 		return err
+	}
+
+	// 黑盒拨测：所选实例必须属于 job.ResourceType 指定的资源类别。放在 reclaim / 网域
+	// 校验之后：失效引用已回收、跨网域已拦下，此处再对存活引用做类别归属判定。
+	if job.JobType == models.JobTypeBlackbox {
+		if err := validateBlackboxSelectedInstances(db, job); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateBlackboxSelectedInstances 逐条校验黑盒拨测任务所选实例均命中
+// job.ResourceType（资源类别）对应的资源表——拨测目标 = 该类别实例在 job.TargetField
+// 上的值，选到别类别资源会导致生成侧解析不到该字段（拨测必失败）。
+func validateBlackboxSelectedInstances(db *gorm.DB, job *models.ScrapeJob) error {
+	model := resourceModelForCategory(models.ResourceCategory(job.ResourceType))
+	if model == nil {
+		return fmt.Errorf("拨测任务资源类别 %q 非法", job.ResourceType)
+	}
+	for _, id := range job.SelectedInstanceIDs {
+		var count int64
+		if err := db.Model(model).
+			Where("resource_id = ?", id).Count(&count).Error; err != nil {
+			return fmt.Errorf("check %s %q: %w", job.ResourceType, id, err)
+		}
+		if count == 0 {
+			return fmt.Errorf("所选实例 %q 不属于资源类别 %q；拨测任务必须选择该类别下的实例", id, job.ResourceType)
+		}
+	}
+	return nil
+}
+
+// resourceModelForCategory 返回某个资源类别对应的 GORM 模型（用于按类别归属判定），
+// 未知类别返回 nil。六类与 models.ValidResourceCategories() 一一对应。
+func resourceModelForCategory(cat models.ResourceCategory) interface{} {
+	switch cat {
+	case models.ResourceCategoryHost:
+		return &models.Host{}
+	case models.ResourceCategoryDatabase:
+		return &models.Database{}
+	case models.ResourceCategoryMiddleware:
+		return &models.Middleware{}
+	case models.ResourceCategoryApplication:
+		return &models.Application{}
+	case models.ResourceCategoryGenericTarget:
+		return &models.GenericTarget{}
+	case models.ResourceCategoryInterfaceService:
+		return &models.InterfaceService{}
 	}
 	return nil
 }
@@ -216,7 +279,7 @@ func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string 
 }
 
 // resourceInDomain 报告 resourceID 资源是否存在于指定网域（host/database/
-// middleware/application/generic_target 五类任一命中）。
+// middleware/application/generic_target/interface_service 六类任一命中）。
 func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error) {
 	checks := []struct {
 		model interface{}
@@ -226,6 +289,7 @@ func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error) {
 		{&models.Middleware{}},
 		{&models.Application{}},
 		{&models.GenericTarget{}},
+		{&models.InterfaceService{}},
 	}
 	for _, c := range checks {
 		var count int64

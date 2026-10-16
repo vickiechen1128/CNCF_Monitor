@@ -36,14 +36,14 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 		&models.BusinessDomain{},
 		&models.ApplicationDict{},
 		&models.CloudDict{},
-		// 平台 / 服务字典（决策 104/105：声明 sheet 与资源同库事务内可见）
+		// 平台字典（决策 104：声明 sheet 与资源同库事务内可见）
 		&models.PlatformDict{},
-		&models.ServiceDict{},
 		&models.Host{},
 		&models.Database{},
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.InterfaceService{},
 		&models.NetworkDomain{},
 		&models.ImportRecord{},
 	))
@@ -62,7 +62,7 @@ func mountImport(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db), NewPlatformDictStore(db), NewServiceDictStore(db), NewAppPlatformStore(db)))
+	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db), NewPlatformDictStore(db), NewAppPlatformStore(db)))
 	r.GET("/api/v2/platform/imports", ListImports(db))
 	r.GET("/api/v2/platform/imports/:import_id", GetImportRecord(db))
 	return r
@@ -382,6 +382,73 @@ func TestImportResource_Upsert_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, 1, rec.Updated)
 	assert.Equal(t, 0, rec.Success)
 	assert.Equal(t, models.ImportStatusSuccess, rec.Status)
+}
+
+// TestImportResource_Upsert_InterfaceService 守护接口服务的导入判重与来源标记：
+// 判重键为 (network_domain_id, api_url)（与 DedupKey(interface_service) 同源）；
+// 新建行的 source_type 必须置为 import，而非创建辅助固定的 manual。
+//
+// 该用例同时是两个静默缺陷的回归护栏：findExistingByDedupKey / setSourceType
+// 漏掉新类别时，前者会让 upsert 恒新建重复行、后者会让来源误标「手工登记」。
+func TestImportResource_Upsert_InterfaceService(t *testing.T) {
+	db := openImportTestDB(t)
+	r := mountImport(t, db)
+
+	const seedURL = "https://api.example.com/health?token=x"
+	require.NoError(t, db.Create(&models.InterfaceService{
+		ResourceBase: models.ResourceBase{
+			ResourceID:       "api-seed-1",
+			ResourceCategory: models.ResourceCategoryInterfaceService,
+			NetworkDomainID:  "default",
+			BizCode:          "infra",
+			Env:              "prod",
+			Status:           "online",
+			SourceType:       models.SourceTypeManual,
+		},
+		APIName:      "health-check",
+		APIURL:       seedURL,
+		ResourceType: models.ResourceTypeInterfaceService,
+	}).Error)
+
+	// 1. 同判重键（default + api_url）、api_name 改名 → 命中覆盖更新，不新建。
+	vals := baseValues(models.ResourceCategoryInterfaceService)
+	vals["api_name"] = "health-check-renamed"
+	xlsx := buildXLSX(t, models.ResourceCategoryInterfaceService, [][]string{
+		makeRow(models.ResourceCategoryInterfaceService, vals),
+	})
+	w, out := doImportUpload(t, r, "interface_service", xlsx, map[string]string{
+		"resource_category": "interface_service",
+		"mode":              "upsert",
+	})
+	require.Equal(t, http.StatusOK, w.Code, "导入应成功：%s", out.Error)
+	assert.Equal(t, 0, out.Data.Success, "命中判重键不新建")
+	assert.Equal(t, 1, out.Data.Updated, "命中判重键覆盖更新")
+	assert.Equal(t, 0, out.Data.Failed)
+
+	var matched models.InterfaceService
+	require.NoError(t, db.Where("resource_id = ?", "api-seed-1").First(&matched).Error)
+	assert.Equal(t, "health-check-renamed", matched.APIName, "判重命中须覆盖更新")
+	assert.Equal(t, seedURL, matched.APIURL, "判重键字段保持原值")
+
+	// 2. 新 api_url → 新建，且 source_type 必须标记为 import。
+	const newURL = "https://api.example.com/orders?token=y"
+	vals2 := baseValues(models.ResourceCategoryInterfaceService)
+	vals2["api_name"] = "order-query"
+	vals2["api_url"] = newURL
+	xlsx2 := buildXLSX(t, models.ResourceCategoryInterfaceService, [][]string{
+		makeRow(models.ResourceCategoryInterfaceService, vals2),
+	})
+	w2, out2 := doImportUpload(t, r, "interface_service", xlsx2, map[string]string{
+		"resource_category": "interface_service",
+		"mode":              "upsert",
+	})
+	require.Equal(t, http.StatusOK, w2.Code, "导入应成功：%s", out2.Error)
+	assert.Equal(t, 1, out2.Data.Success, "新判重键应新建")
+	assert.Equal(t, 0, out2.Data.Updated)
+
+	var created models.InterfaceService
+	require.NoError(t, db.Where("api_url = ?", newURL).First(&created).Error)
+	assert.Equal(t, models.SourceTypeImport, created.SourceType, "导入新建必须标记 source_type=import")
 }
 
 func TestImportResource_Upsert_Mixed(t *testing.T) {

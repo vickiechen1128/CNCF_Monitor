@@ -114,7 +114,7 @@ func CreateLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !validResourceCategory(req.ResourceCategory) {
-			response.BadRequest(c, fmt.Errorf("resource_category %q 非法，必须是 host/database/middleware/application/generic_target 之一", req.ResourceCategory))
+			response.BadRequest(c, fmt.Errorf("resource_category %q 非法，必须是 %s 之一", req.ResourceCategory, models.CategoriesHint()))
 			return
 		}
 		if len(req.Mappings) > 0 {
@@ -144,6 +144,9 @@ func CreateLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 			IsDefault:        false, // 创建模板恒非默认（PRD §6.3 / §6.6.3）
 			Mappings:         req.Mappings,
 		}
+		// 不传映射时落库为空切片而非 NULL —— 否则读回来序列化成 `mappings: null`，
+		// 前端列表按数组消费会抛 TypeError 白屏。
+		tmpl.NormalizeMappings()
 		// 模板创建与快照写入置于同一事务（dev-feedback L-1）：快照失败时回滚
 		// 模板创建，避免「模板已建但快照缺失」的审计缺口。
 		err = db.Transaction(func(tx *gorm.DB) error {

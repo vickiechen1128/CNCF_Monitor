@@ -15,11 +15,10 @@ const removeLabelMock = vi.fn()
 const listTemplateMock = vi.fn()
 const cloudDictListMock = vi.fn()
 const zoneTypeListMock = vi.fn()
-// 决策 105 / 110：详情「服务」「平台」展示经服务 / 平台字典解析展示名
+// 决策 110：详情「平台」展示经平台字典解析展示名
 // mock 一律声明为无参 vi.fn()，默认返回值在 beforeEach 里 mockResolvedValue 给出——
 // 若用 `vi.fn(() => Promise.resolve(...))` 声明，TS 会把 mock 推断成零参函数，
 // 既 spread 不进 `(...args) => mock(...args)` 的代理，也把 resolved value 锁成 never。
-const serviceDictListMock = vi.fn()
 const platformDictListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -32,10 +31,6 @@ vi.mock('../../api/resources', () => ({
   // 决策 103：详情「云」展示经云字典解析 cloud_name（部署级只读，仅 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
-  },
-  // 决策 105：详情「服务」展示经服务字典解析 service_name（仅 application / generic_target）
-  serviceDictApi: {
-    list: (...args: unknown[]) => serviceDictListMock(...args),
   },
   // 决策 110：详情「平台」读资源行 platform_code 一等字段，经平台字典解析展示名。
   // 不再消费应用字典（其单值 platform_code 已废弃，决策 111 M:N / 118-3）。
@@ -218,9 +213,7 @@ describe('ResourceDetailDrawer', () => {
         { id: 2, code: 'extranet', display_name: '政务外网区', description: '', enabled: true, created_at: '', updated_at: '' },
       ],
     })
-    // 决策 105 / 110：服务 / 平台字典默认空列表，用例内按需覆盖
-    serviceDictListMock.mockReset()
-    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    // 决策 110：平台字典默认空列表，用例内按需覆盖
     platformDictListMock.mockReset()
     platformDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })

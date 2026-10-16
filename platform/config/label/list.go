@@ -79,6 +79,9 @@ func ListLabelTemplates(db *gorm.DB) gin.HandlerFunc {
 
 		list := make([]templateListItem, 0, len(templates))
 		for _, t := range templates {
+			// 归一 mappings：serializer:json 列在「从未写过映射」时读出为 nil，
+			// 直接序列化会让前端拿到 `mappings: null`，按数组消费即白屏（实测）。
+			t.NormalizeMappings()
 			list = append(list, templateListItem{
 				LabelTemplate: t,
 				InstanceCount: counts[t.ResourceCategory],
@@ -129,6 +132,8 @@ func countCategoryResources(db *gorm.DB, cat models.ResourceCategory) (int64, er
 		target = &models.Application{}
 	case models.ResourceCategoryGenericTarget:
 		target = &models.GenericTarget{}
+	case models.ResourceCategoryInterfaceService:
+		target = &models.InterfaceService{}
 	default:
 		return 0, nil
 	}

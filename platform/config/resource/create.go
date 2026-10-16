@@ -102,6 +102,16 @@ func newTypedModel(category models.ResourceCategory, resourceID string) (any, er
 			},
 			ResourceType: models.ResourceTypeGenericTarget,
 		}, nil
+	case models.ResourceCategoryInterfaceService:
+		return &models.InterfaceService{
+			ResourceBase: models.ResourceBase{
+				ResourceID:       resourceID,
+				ResourceCategory: category,
+				SourceType:       models.SourceTypeManual,
+				TenantID:         models.PlatformAdminTenantID,
+			},
+			ResourceType: models.ResourceTypeInterfaceService,
+		}, nil
 	}
 	return nil, fmt.Errorf("unsupported resource_category: %s", category)
 }
@@ -136,6 +146,8 @@ func applyInputToModel(category models.ResourceCategory, model any, in *Resource
 		applyApplicationInput(m, in)
 	case *models.GenericTarget:
 		applyGenericTargetInput(m, in)
+	case *models.InterfaceService:
+		applyInterfaceServiceInput(m, in)
 	}
 }
 
@@ -214,7 +226,6 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.Owner = in.Owner
 	a.Status = in.Status
 	a.ServiceName = in.ServiceName
-	a.ServiceCode = in.ServiceCode // 决策 105：可选服务编码（svc label 取值）
 	a.HealthCheckURL = in.HealthCheckURL
 	a.Protocol = in.Protocol
 	a.Endpoint = in.Endpoint
@@ -232,7 +243,6 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.Owner = in.Owner
 	g.Status = in.Status
 	g.TargetName = in.TargetName
-	g.ServiceCode = in.ServiceCode // 决策 105：同 application（两类可挂服务）
 	g.InstanceIP = in.InstanceIP
 	g.Port = in.Port
 	g.MetricsPath = in.MetricsPath
@@ -240,6 +250,24 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.ExporterType = in.ExporterType
 	g.CustomLabels = in.CustomLabels
 	g.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
+}
+
+// applyInterfaceServiceInput 将输入映射到 InterfaceService 模型列（第 6 类资源）。
+// 处理方式与 applyGenericTargetInput 一致：app_code 经 strPtr 写入 ResourceBase.AppName
+// （物理列 app_name，可空 *string）、cluster 经 strPtr 写入 ResourceBase.Cluster。
+// 类型专属字段为 APIName / APIURL。scrape_port 等未暴露列保留模型默认值。
+func applyInterfaceServiceInput(o *models.InterfaceService, in *ResourceInput) {
+	o.NetworkDomainID = in.NetworkDomainID
+	o.BizCode = in.BizCode
+	o.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
+	o.PlatformCode = in.PlatformCode // 决策 110
+	o.Cluster = strPtr(in.Cluster)
+	o.Env = in.Env
+	o.Owner = in.Owner
+	o.Status = in.Status
+	o.APIName = in.APIName
+	o.APIURL = in.APIURL
+	o.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 // CreateResource 是 POST /api/v2/platform/resources 的创建 handler。
@@ -256,7 +284,7 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 //  5. 成功返回创建后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
+func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var in ResourceInput
 		if err := c.ShouldBindJSON(&in); err != nil {
@@ -265,11 +293,11 @@ func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Applic
 		}
 		category := models.ResourceCategory(strings.TrimSpace(in.ResourceCategory))
 		if !isValidCategory(category) {
-			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", in.ResourceCategory))
+			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 %s", in.ResourceCategory, models.CategoriesHint()))
 			return
 		}
 		platform := &PlatformRefs{PlatformStore: platformStore, AppPlatformStore: appPlatformStore}
-		if err := ValidateResourceInputWithPlatform(category, &in, bizStore, appStore, svcStore, networkDomainExistsFunc(db), platform); err != nil {
+		if err := ValidateResourceInputWithPlatform(category, &in, bizStore, appStore, networkDomainExistsFunc(db), platform); err != nil {
 			response.BadRequest(c, err)
 			return
 		}

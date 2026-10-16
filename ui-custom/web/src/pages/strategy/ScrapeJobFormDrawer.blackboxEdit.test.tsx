@@ -48,11 +48,16 @@ beforeEach(() => {
   labelListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
 })
 
+// 阶段5：拨测目标改走「从资源选择」——目标清单由 selected_instance_ids 承载
+// （指向所选 resource_type 资源）。资源类别限接口服务 / 应用服务两类，探测地址字段由
+// 类别写死推导（不提交 target_field）；手填入口已彻底禁用。
 const blackboxRecord = {
   id: 5,
   job_name: 'probe-edit-1',
   job_type: 'blackbox',
   monitor_type: '',
+  resource_type: 'interface_service',
+  target_field: 'api_url',
   network_domain_id: 'mc-a',
   scrape_interval: '15s',
   scrape_timeout: '10s',
@@ -61,10 +66,7 @@ const blackboxRecord = {
   auth_type: 'none',
   tls_skip_verify: false,
   blackbox_module: 'http_2xx',
-  blackbox_targets: [
-    { target: 'https://example.com', protocol: 'https', url: 'https://example.com' },
-    { target: '1.2.3.4:80', protocol: 'tcp' },
-  ],
+  selected_instance_ids: ['api-1', 'api-2'],
 }
 
 function renderDrawer(open: boolean, record?: unknown) {
@@ -101,16 +103,18 @@ describe('ScrapeJobFormDrawer blackbox edit echo (regression)', () => {
     expect(await screen.findByDisplayValue('probe-edit-1')).toBeInTheDocument()
     // 分支必须切到「拨测」，拨测模块应回显 http_2xx
     expect(await screen.findByText('http_2xx')).toBeInTheDocument()
-    // 拨测目标应回显两条（target 与 url 各一个输入框，值为 https://example.com 出现两次）
-    await waitFor(() => {
-      expect(screen.getAllByDisplayValue('https://example.com').length).toBe(2)
-    })
-    expect(screen.getByDisplayValue('1.2.3.4:80')).toBeInTheDocument()
+    // 资源类别回显用户原选值；探测地址字段不再是输入项（由类别写死推导），
+    // 改由「拨测目标」的引导文案说明取哪个字段。
+    expect(await screen.findByText('接口服务')).toBeInTheDocument()
+    expect(screen.queryByText('探测地址字段')).not.toBeInTheDocument()
+    expect(await screen.findByText(/目标地址固定取所选实例的接口地址/)).toBeInTheDocument()
+    // 拨测目标不再手填：入口是「从资源选择」，旧的 target/url 输入框必须消失
+    expect(screen.queryByText('添加拨测目标')).not.toBeInTheDocument()
     // 网域下拉应回显选中项（mc-a → 网域A），而非空值占位文案
     expect(await screen.findByText('网域A')).toBeInTheDocument()
   })
 
-  it('submits edit with echoed blackbox payload', async () => {
+  it('submits edit with echoed resource targets (selected_instance_ids)', async () => {
     updateMock.mockResolvedValue({ status: 'success', data: { ...blackboxRecord } })
     renderDrawer(true, blackboxRecord)
 
@@ -123,6 +127,11 @@ describe('ScrapeJobFormDrawer blackbox edit echo (regression)', () => {
     expect(body.job_name).toBe('probe-edit-1')
     expect(body.job_type).toBe('blackbox')
     expect(body.blackbox_module).toBe('http_2xx')
-    expect((body.blackbox_targets as { target: string }[]).length).toBe(2)
+    // 目标改由资源选择承载：只回传类别（探测地址字段由服务端按类别推导），选中集原样回传
+    expect(body.resource_type).toBe('interface_service')
+    expect(body.target_field).toBeUndefined()
+    expect(body.selected_instance_ids).toEqual(['api-1', 'api-2'])
+    // 手填字段彻底不再提交（后端亦拒绝写入）
+    expect(body.blackbox_targets).toBeUndefined()
   })
 })

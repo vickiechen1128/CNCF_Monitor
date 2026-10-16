@@ -103,7 +103,7 @@ func openTargetsTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&models.EdgeTargetSnapshot{}, &models.ScrapeJob{},
 		&models.Host{}, &models.Database{}, &models.Middleware{},
-		&models.Application{}, &models.GenericTarget{},
+		&models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
 	))
 	return db
 }

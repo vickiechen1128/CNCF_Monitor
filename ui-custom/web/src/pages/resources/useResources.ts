@@ -60,20 +60,21 @@ export interface ResourceListItem {
   health_check_url?: string
   protocol?: string
   endpoint?: string
-  /** {v2.45 决策 105} 可选服务归属（application / generic_target；「服务」列按 service_code 解析 service_name 展示） */
-  service_code?: string
   // generic_target
   target_name?: string
   metrics_path?: string
   scheme?: string
   exporter_type?: string
   custom_labels?: string
+  // interface_service
+  api_name?: string
+  api_url?: string
 }
 
 /**
  * 资源列表筛选参数。
  *
- * 全部筛选（网域 / 业务 / 运行状态 / 平台 / 应用 / 服务 / 关键字）均**走后端**列表接口，
+ * 全部筛选（网域 / 业务 / 运行状态 / 平台 / 应用 / 关键字）均**走后端**列表接口，
  * 不在当前页数据上做前端过滤——否则筛选只对当页生效、与分页总数不一致（PRD §11.1）。
  * F-18 起 biz_code / status 由前端过滤下沉为后端等值条件（K-1 闭环）。
  */
@@ -85,8 +86,6 @@ export interface ResourceFilters {
   platform_code?: string
   /** 应用归属编码（决策 92），五类均支持；下拉按所选 platform_code 级联 */
   app_code?: string
-  /** 服务归属编码（决策 105），**仅 application / generic_target 两类支持** */
-  service_code?: string
   is_monitored?: boolean
   keyword?: string
 }
@@ -178,12 +177,9 @@ export function useResources(initialCategory: ResourceCategory = 'host'): UseRes
         // 使筛选作用于全量数据且分页总数与筛选一致。
         biz_code: filters.biz_code,
         status: filters.status,
-        // F-18：四层模型查询侧（决策 110/111/112）——平台 → 应用 → 服务三维筛选。
+        // F-18：四层模型查询侧（决策 110/111）——平台 → 应用两维筛选。
         platform_code: filters.platform_code,
         app_code: filters.app_code,
-        // service_code 后端按 category 条件化（仅 application / generic_target 有该列）；
-        // 其余三类即便传了该参数也会被后端忽略，不会 SQL 报错。
-        service_code: filters.service_code,
         // 未监控筛选：M01 维护、M07 只读透传（决策 31-M1），M01 未实现时后端不生效
         is_monitored: filters.is_monitored,
       }

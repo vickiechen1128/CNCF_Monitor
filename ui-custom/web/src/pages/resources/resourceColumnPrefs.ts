@@ -10,7 +10,7 @@ import type { ResourceCategory } from '../../types/resource'
  *
  * 三条实现口径：
  * 1. **列的稳定标识直接用列 `key`**（不新增 `meta` 字段）：已复核五类列 key 各自唯一
- *    （共享列 `status` / `source_type` / `service_code` / `platform_code` / `network_domain_id` /
+ *    （共享列 `status` / `source_type` / `platform_code` / `network_domain_id` /
  *    `monitor_state` / `cloud_code` / `biz_code` / `app_code` / `actions` 全唯一，
  *    类别专属列在各自分支内亦唯一），故可安全用作持久化标识与勾选项 value；
  * 2. **偏好为纯前端视图态**（F-17 风险约束）：按 `resource_category` 分区存localStorage，
@@ -44,7 +44,7 @@ export interface ResourceColumnMeta {
  *
  * 「技术属性 / 位置」与「业务归属」的划分沿用 F-13 撤销前的原口径：
  * 主标识 → 类型专属列 → 网域 → 运行状态 → 采集状态 → 录入方式 → 云为技术属性 / 位置，
- * 平台 → 应用名称 → [所属服务] → 业务名称 为业务归属。
+ * 平台 → 应用名称 → 业务名称 为业务归属。
  */
 export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]> = {
   host: [
@@ -112,7 +112,6 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'cloud_code', label: '云', group: '技术属性 / 位置' },
     { key: 'platform_code', label: '平台', group: '业务归属' },
     { key: 'app_code', label: '应用名称', group: '业务归属' },
-    { key: 'service_code', label: '所属服务', group: '业务归属' },
     { key: 'biz_code', label: '业务名称', group: '业务归属' },
     { key: 'actions', label: '操作', group: '固定列' },
   ],
@@ -132,7 +131,19 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'cloud_code', label: '云', group: '技术属性 / 位置' },
     { key: 'platform_code', label: '平台', group: '业务归属' },
     { key: 'app_code', label: '应用名称', group: '业务归属' },
-    { key: 'service_code', label: '所属服务', group: '业务归属' },
+    { key: 'biz_code', label: '业务名称', group: '业务归属' },
+    { key: 'actions', label: '操作', group: '固定列' },
+  ],
+  interface_service: [
+    { key: 'api_name', label: '接口名', group: '固定列' },
+    { key: 'api_url', label: '接口地址', group: '技术属性 / 位置' },
+    { key: 'network_domain_id', label: '网域', group: '技术属性 / 位置' },
+    { key: 'status', label: '运行状态', group: '技术属性 / 位置' },
+    { key: 'monitor_state', label: '采集状态', group: '技术属性 / 位置' },
+    { key: 'source_type', label: '录入方式', group: '技术属性 / 位置' },
+    { key: 'cloud_code', label: '云', group: '技术属性 / 位置' },
+    { key: 'platform_code', label: '平台', group: '业务归属' },
+    { key: 'app_code', label: '应用名称', group: '业务归属' },
     { key: 'biz_code', label: '业务名称', group: '业务归属' },
     { key: 'actions', label: '操作', group: '固定列' },
   ],
@@ -150,6 +161,7 @@ export const FIXED_COLUMN_KEYS: Record<ResourceCategory, string[]> = {
   middleware: ['instance_name', 'actions'],
   application: ['service_name', 'actions'],
   generic_target: ['target_name', 'actions'],
+  interface_service: ['api_name', 'actions'],
 }
 
 /**
@@ -161,14 +173,15 @@ export const FIXED_COLUMN_KEYS: Record<ResourceCategory, string[]> = {
  *   「操作系统」位由各自的**类型专属列**（数据库类型 / 中间件类型）承担，
  *   否则该Tab 默认列集只剩 5 列且丢失「这是个什么库」的首要判别信息；
  * - application / generic_target：主标识（服务名 / 目标名称）+ 网域 + 运行状态
- *   + 采集状态 + 所属服务 + 操作。
+ *   + 采集状态 + 操作。
  */
 export const DEFAULT_VISIBLE_COLUMN_KEYS: Record<ResourceCategory, string[]> = {
   host: ['name', 'os_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
   database: ['instance_name', 'database_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
   middleware: ['instance_name', 'middleware_type', 'network_domain_id', 'status', 'monitor_state', 'actions'],
-  application: ['service_name', 'network_domain_id', 'status', 'monitor_state', 'service_code', 'actions'],
-  generic_target: ['target_name', 'network_domain_id', 'status', 'monitor_state', 'service_code', 'actions'],
+  application: ['service_name', 'network_domain_id', 'status', 'monitor_state', 'actions'],
+  generic_target: ['target_name', 'network_domain_id', 'status', 'monitor_state', 'actions'],
+  interface_service: ['api_name', 'api_url', 'network_domain_id', 'status', 'monitor_state', 'actions'],
 }
 
 /** 偏好存储键前缀：按 `resource_category` 分区，切换 Tab 各自恢复 */

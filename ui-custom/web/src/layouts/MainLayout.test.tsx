@@ -406,10 +406,10 @@ describe('MainLayout', () => {
   })
 
   /**
-   * F-12 修复：监控对象管理二级导航中「平台 → 应用 → 服务」按归属层级相邻成组
-   * （平台承载应用、服务归入应用），「业务管理」作为横切分类维度单独置后。
+   * F-12 修复：监控对象管理二级导航中「平台 → 应用」按归属层级相邻成组
+   * （平台承载应用），「业务管理」作为横切分类维度单独置后。
    */
-  it('orders 监控对象管理 sub-items: 平台 → 应用 → 服务 as a consecutive group, 业务 last (F-12)', async () => {
+  it('orders 监控对象管理 sub-items: 平台 → 应用 as a consecutive group, 业务 last (F-12)', async () => {
     render(
       <MemoryRouter initialEntries={['/resources']}>
         <Routes>
@@ -426,14 +426,12 @@ describe('MainLayout', () => {
       .map((el) => el.textContent ?? '')
     const platformIdx = siderTexts.findIndex((t) => t.includes('平台管理'))
     const applicationIdx = siderTexts.findIndex((t) => t.includes('应用管理'))
-    const serviceIdx = siderTexts.findIndex((t) => t.includes('服务管理'))
     const businessIdx = siderTexts.findIndex((t) => t.includes('业务管理'))
-    expect([platformIdx, applicationIdx, serviceIdx, businessIdx]).not.toContain(-1)
-    // 组成链相邻：平台 → 应用 → 服务 连续排列
+    expect([platformIdx, applicationIdx, businessIdx]).not.toContain(-1)
+    // 组成链相邻：平台 → 应用 连续排列
     expect(applicationIdx).toBe(platformIdx + 1)
-    expect(serviceIdx).toBe(applicationIdx + 1)
-    // 「业务管理」不与组成链交错，置后（位于服务之后）
-    expect(businessIdx).toBeGreaterThan(serviceIdx)
+    // 「业务管理」不与组成链交错，置后（位于应用之后）
+    expect(businessIdx).toBeGreaterThan(applicationIdx)
   })
 
   /**

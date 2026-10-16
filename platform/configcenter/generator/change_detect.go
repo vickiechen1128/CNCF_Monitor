@@ -19,6 +19,9 @@ var sourceTableScopes = []struct {
 	{&models.Middleware{}, true},
 	{&models.Application{}, true},
 	{&models.GenericTarget{}, true},
+	// 第 6 类「接口服务」：资源行变更须推高 SourceDataVersion，否则变更检测静默不触发
+	// （见实施计划高危点 H2）。
+	{&models.InterfaceService{}, true},
 	{&models.MonitoringRule{}, false},
 	{&models.LabelTemplate{}, false},
 	{&models.CITypeExporterMapping{}, false},

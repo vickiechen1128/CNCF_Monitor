@@ -20,8 +20,6 @@ const businessDomainListMock = vi.fn()
 // 既 spread 不进 `(...a) => mock(...a)` 的代理，也把 resolved value 锁成 never。
 const applicationDictListMock = vi.fn()
 const cloudDictListMock = vi.fn()
-// 决策 105：表单「服务编码」下拉经服务字典启用项解析（仅 application / generic_target 渲染）
-const serviceDictListMock = vi.fn()
 // 决策 110：「平台归属」下拉经平台字典启用项解析（资源行一等字段）
 const platformDictListMock = vi.fn()
 // 决策 111：应用↔平台 M:N 关联（app_platform_rel），应用下拉按所选平台过滤的数据源
@@ -42,10 +40,6 @@ vi.mock('../../api/resources', () => ({
   // 决策 92：表单「应用」字段改为应用字典启用条目下拉
   applicationDictApi: {
     list: (...a: unknown[]) => applicationDictListMock(...a),
-  },
-  // 决策 105：表单「服务编码」下拉（仅 application / generic_target）
-  serviceDictApi: {
-    list: (...a: unknown[]) => serviceDictListMock(...a),
   },
   // 云字典 mock：决策 103 scheme-B 后资源表单不再消费云字典（无「云」录入项），
   // 此处保留仅为字典类 mock 的兼容性，不被本文件用例断言。
@@ -295,13 +289,11 @@ describe('ResourceFormDrawer', () => {
     })
     cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: cloudDicts, total: 2 } })
     applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: applicationDicts, total: 3 } })
-    serviceDictListMock.mockReset()
-    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     platformDictListMock.mockResolvedValue({ status: 'success', data: { list: platformDicts, total: 2 } })
     appPlatformRelListMock.mockResolvedValue({ status: 'success', data: { list: appPlatformRels, total: 2 } })
   })
 
-  // ---- 决策 110 / 118-4：平台归属录入 + 「平台 → 应用 → 服务」级联 ----
+  // ---- 决策 110 / 118-4：平台归属录入 + 「平台 → 应用」级联 ----
 
   it('决策 110：「平台归属」下拉取平台字典启用条目（停用平台不供新引用）', async () => {
     renderDrawer({ category: 'host' })
@@ -390,29 +382,6 @@ describe('ResourceFormDrawer', () => {
     openSelectBySelectedText('电商平台 (ecommerce)')
     fireEvent.click(await screen.findByText('财务平台 (finance)'))
     await waitFor(() => expect(selectedItemTexts()).not.toContain('订单应用 (order)'))
-  })
-
-  it('决策 112：服务编码下拉随所选应用过滤（应用↔服务 1:N 关系权威）', async () => {
-    serviceDictListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          { service_code: 'order-svc', service_name: '订单服务', app_code: 'order', enabled: true },
-          { service_code: 'billing-svc', service_name: '计费服务', app_code: 'billing', enabled: true },
-          { service_code: 'shared-svc', service_name: '公共组件', app_code: null, enabled: true },
-        ],
-        total: 3,
-      },
-    })
-    renderDrawer({ category: 'application' })
-    await waitForDicts()
-    openSelect('请选择应用')
-    fireEvent.click(await screen.findByText('订单应用 (order)'))
-    openSelect('请选择服务编码（可选）')
-    expect(await screen.findByText('订单服务 (order-svc)')).toBeInTheDocument()
-    expect(screen.queryByText('计费服务 (billing-svc)')).toBeNull()
-    // 无所属应用的游离服务不参与过滤，始终可选
-    expect(screen.getByText('公共组件 (shared-svc)')).toBeInTheDocument()
   })
 
   it('submits create with shared + host fields and calls onSuccess/onCancel', async () => {

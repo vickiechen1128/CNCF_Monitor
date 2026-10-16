@@ -8,6 +8,7 @@
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
+import type { ResourceCategory, ResourceType } from '../types/resource'
 import type {
   BlackboxTarget,
   ExporterInstallationRecord,
@@ -59,7 +60,23 @@ export interface ScrapeJobInput {
   mapping_overrides?: ScrapeJobMappingOverrideInput[]
   job_type?: JobType
   blackbox_module?: string
+  /**
+   * ⚠️ 已废弃（阶段5）：拨测目标改走「从接口服务资源选择」，手填入口彻底禁用，
+   * 后端亦拒绝写入本字段。仅 `ScrapeJob`（记录类型）保留它做历史数据读取。
+   */
   blackbox_targets?: BlackboxTarget[]
+  /**
+   * 拨测 Job 的目标资源类别：由用户在表单选择，**只有两类**
+   * （interface_service / application，见 `blackboxProbeCategories` 与后端
+   * `models.BlackboxProbeCategories()`）。
+   */
+  resource_type?: ResourceType
+  /**
+   * ⚠️ 已不再由前端提交：探测地址字段由 `resource_type` 写死推导
+   * （接口服务→api_url、应用服务→health_check_url），保存时后端按同一映射覆盖写入。
+   * 字段仅作兼容保留，传了也不生效（后端不再校验其合法性）。
+   */
+  target_field?: string
   enabled?: boolean
   /**
    * 创建时直接指定为草稿或提交生效（方案 C，决策 D28-2）。
@@ -71,7 +88,16 @@ export interface ScrapeJobInput {
 
 /** 实例候选列表分页与筛选参数（§6，GET /scrape-jobs/instance-candidates） */
 export interface InstanceCandidateListParams extends Record<string, string | number | boolean | undefined> {
-  monitor_type: MonitorType
+  /** 二选一（与 resource_category）：按 monitor_type 推导资源类别（standard 采集 Job） */
+  monitor_type?: MonitorType
+  /** 二选一（与 monitor_type）：直接按资源类别收敛候选（拨测 Job = 用户在表单选定的类别，现为接口服务/应用服务两类） */
+  resource_category?: ResourceCategory
+  /**
+   * 可选：候选第二列改渲染该字段的值。**拨测入口不必传** —— 后端按 `resource_category`
+   * 推导出该类别写死的探测地址字段（接口服务→api_url、应用服务→health_check_url），
+   * 使列表所见 = 实际探测地址。
+   */
+  target_field?: string
   network_domain_id: string
   keyword?: string
   page?: number

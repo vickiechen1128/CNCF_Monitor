@@ -1,18 +1,24 @@
 /**
  * 资源领域类型
  *
- * 与 Module_07 §5 数据模型对齐。Phase 0 引入五类权威枚举 `ResourceCategory`
- * （host / database / middleware / application / generic_target），
+ * 与 Module_07 §5 数据模型对齐。Phase 0 引入权威枚举 `ResourceCategory`
+ * （host / database / middleware / application / generic_target / interface_service），
  * `ResourceType` 保留为过渡别名（resource_type 字段仍用于向后兼容）。
  */
 
-/** 五类资源权威枚举（Phase 0） */
-export type ResourceCategory = 'host' | 'database' | 'middleware' | 'application' | 'generic_target'
+/** 六类资源权威枚举（Phase 0 五类 + 接口服务） */
+export type ResourceCategory =
+  | 'host'
+  | 'database'
+  | 'middleware'
+  | 'application'
+  | 'generic_target'
+  | 'interface_service'
 
 /** 过渡别名，与后端 resource_type 字段一致（保留兼容） */
 export type ResourceType = ResourceCategory
 
-/** 共享基座字段（ResourceBase），五类资源共同承载 */
+/** 共享基座字段（ResourceBase），六类资源共同承载 */
 export interface ResourceBaseShape {
   id: number
   resource_id: string
@@ -27,7 +33,7 @@ export interface ResourceBaseShape {
   cloud_code?: string
   /**
    * 网络分区（决策 103 scheme-B）：**只读派生**——值 = 所属网域 `zone_type`，
-   * 五类资源均返回（不再仅限 host）；资源侧无写入口。
+   * 六类资源均返回（不再仅限 host）；资源侧无写入口。
    */
   zone_type?: string
   /**
@@ -35,7 +41,7 @@ export interface ResourceBaseShape {
    * 平台归属是登记期第一个确定的业务信息，`platform` 标签取值由本字段唯一确定
    * （经标签模板 `platform_code → platform` 映射注入）；未显式填写时兜底取所属应用主平台
    * （`app_platform_rel.is_primary`），仍未确定则不注入 `platform`。
-   * 可空（五类通用），与只读派生的 `cloud_code` / `zone_type` 不同——创建 / 更新均可显式填写。
+   * 可空（六类通用），与只读派生的 `cloud_code` / `zone_type` 不同——创建 / 更新均可显式填写。
    */
   platform_code?: string
   biz_code: string
@@ -108,8 +114,6 @@ export interface Application extends ResourceBaseShape {
   protocol: string
   endpoint: string
   port: number
-  /** {v2.45 决策 105} 可选服务归属（列表/详情「服务」列按 service_code 解析展示） */
-  service_code?: string
 }
 
 export interface GenericTarget extends ResourceBaseShape {
@@ -125,11 +129,27 @@ export interface GenericTarget extends ResourceBaseShape {
   scheme: string
   exporter_type: string
   custom_labels: Record<string, string>
-  /** {v2.45 决策 105} 可选服务归属（同 application，留空不注入 `svc`） */
-  service_code?: string
 }
 
-export type Resource = Host | Database | Middleware | Application | GenericTarget
+/**
+ * 接口服务（第 6 类资源，标识符 `interface_service`）：对外提供接口的台账，
+ * 由 blackbox 拨测采集任务承载（拨测目标地址即 `api_url`）。
+ *
+ * 类型专属字段仅 2 个（§D1）：`api_name`（接口名，展示名）、`api_url`
+ * （接口地址，**完整 URL 含 `?` 查询参数**）；其余公共字段（网域 / 业务 / 应用 /
+ * 环境 / 运行状态等）沿用 `ResourceBaseShape`。「采集状态」为派生列（覆盖率接口派生）。
+ */
+export interface InterfaceService extends ResourceBaseShape {
+  resource_type: 'interface_service'
+  resource_category: 'interface_service'
+  app_code: string
+  cluster: string | null
+  source_type: 'manual' | 'import' | 'cmdb'
+  api_name: string
+  api_url: string
+}
+
+export type Resource = Host | Database | Middleware | Application | GenericTarget | InterfaceService
 
 /**
  * 资源写请求 / 导入 / 业务字典 / 标签相关类型（T07-F1）
@@ -189,21 +209,16 @@ export interface MiddlewareResourceFields {
   version?: string
 }
 
-/** 应用服务差异化字段（§5.8 / 决策 105：service_code 可选，`svc` 标签取值来源） */
+/** 应用服务差异化字段（§5.8） */
 export interface ApplicationResourceFields {
   service_name: string
   endpoint: string
   health_check_url?: string
   protocol?: string
   port?: number
-  /**
-   * {v2.45 决策 105} 可选服务归属（`svc` label 取值 = `service_code`）：
-   * 仅 application / generic_target 适用，留空合法（不注入 `svc` 标签）。
-   */
-  service_code?: string
 }
 
-/** 通用指标目标差异化字段（§5.9 / 决策 105：service_code 可选） */
+/** 通用指标目标差异化字段（§5.9） */
 export interface GenericTargetResourceFields {
   target_name: string
   instance_ip: string
@@ -212,8 +227,12 @@ export interface GenericTargetResourceFields {
   scheme?: string
   exporter_type?: string
   custom_labels?: Record<string, string>
-  /** {v2.45 决策 105} 可选服务归属（同 application，留空不注入 `svc`） */
-  service_code?: string
+}
+
+/** 接口服务差异化字段（第 6 类）：接口名 + 接口地址（完整 URL 含 `?` 参数） */
+export interface InterfaceServiceResourceFields {
+  api_name: string
+  api_url: string
 }
 
 /** 资源创建输入（按 resource_category 判别联合；biz_code 必填，resource_category 创建必传） */
@@ -223,6 +242,7 @@ export type ResourceCreateInput =
   | ({ resource_category: 'middleware' } & ResourceCreateBaseShape & MiddlewareResourceFields)
   | ({ resource_category: 'application' } & ResourceCreateBaseShape & ApplicationResourceFields)
   | ({ resource_category: 'generic_target' } & ResourceCreateBaseShape & GenericTargetResourceFields)
+  | ({ resource_category: 'interface_service' } & ResourceCreateBaseShape & InterfaceServiceResourceFields)
 
 /** 资源更新公共字段（resource_category/source_type 创建后不可改，不随请求体，§6.1/T07-06） */
 export interface ResourceUpdateBaseShape {
@@ -250,6 +270,7 @@ export type ResourceUpdateInput =
   | (ResourceUpdateBaseShape & Partial<MiddlewareResourceFields>)
   | (ResourceUpdateBaseShape & Partial<ApplicationResourceFields>)
   | (ResourceUpdateBaseShape & Partial<GenericTargetResourceFields>)
+  | (ResourceUpdateBaseShape & Partial<InterfaceServiceResourceFields>)
 
 /** 业务分组字典条目（§3.1 / T07-02，MVP 只读接口） */
 export interface BusinessDomain {
@@ -306,29 +327,6 @@ export interface AppPlatformRel {
 export interface PlatformDict {
   platform_code: string
   platform_name: string
-  description?: string
-  enabled: boolean
-}
-
-/**
- * 服务字典条目（§5.22 / 决策 105；契约快照 §5D）：四层实体层级的第三层
- * `platform(1) → app(N) → service(M) → instance(K)`，一个应用可含多个服务。
- *
- * `service_code` 为**不可变**编码（`svc` label 的唯一取值来源），`service_name` 为必填展示名；
- * 启用状态按契约快照 §5D 以 `enabled` 布尔承载（停用不删除、无删除入口）。
- *
- * **{v2.49 决策 112} 关系字段（推翻原「本字典不设父子字段」口径）**：字典承载
- * 应用↔服务（1:N，`app_code`）与服务↔业务（N:1 主归属，`biz_code`）的**关系权威**——
- * 跨实例的实体关系无法从资源行稳定推导（某服务当前无实例时关系即丢失）；
- * 资源行 `app_code` / `service_code` 仅为**实例归属的镜像**。
- */
-export interface ServiceDict {
-  service_code: string
-  service_name: string
-  /** 所属应用（应用字典主键，可空）——应用↔服务 1:N 的关系权威 */
-  app_code?: string | null
-  /** 主业务（业务分组字典主键，可空）——服务↔业务 N:1 的主归属权威 */
-  biz_code?: string | null
   description?: string
   enabled: boolean
 }

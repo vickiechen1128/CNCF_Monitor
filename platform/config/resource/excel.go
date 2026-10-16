@@ -55,7 +55,7 @@ func (e *ImportRowError) Error() string {
 func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow, error) {
 	expected, ok := TemplateColumns[category]
 	if !ok {
-		return nil, fmt.Errorf("未知资源类型：%s，可选 host/database/middleware/application/generic_target", category)
+		return nil, fmt.Errorf("未知资源类型：%s，可选 %s", category, models.CategoriesHint())
 	}
 
 	f, err := excelize.OpenReader(bytes.NewReader(fileBytes))
@@ -194,9 +194,6 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.Version = val
 		case "service_name":
 			in.ServiceName = val
-		case "service_code":
-			// 决策 105：可选服务编码列（仅 application / generic_target 模板存在）。
-			in.ServiceCode = val
 		case "health_check_url":
 			in.HealthCheckURL = val
 		case "protocol":
@@ -213,6 +210,10 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.ExporterType = val
 		case "custom_labels":
 			row.CustomLabelsRaw = val // 解析与校验在 ValidateImportRow 中完成
+		case "api_name":
+			in.APIName = val
+		case "api_url":
+			in.APIURL = val
 		case "zone_env":
 			// 决策 101 后续：该列已从模板废弃（分区权威值为所属网域 zone_type），
 			// 存量 Excel 可能仍带此列——静默忽略，值不落库、不报错。
@@ -280,23 +281,21 @@ func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool
 //   - status 允许业务语言，经 MapStatus（T07-04）映射为 online/offline/maintenance，
 //     映射失败行返回错误（由调用方计入 failed）；
 //   - biz_code 必填、编码合法且对应启用字典条目，未登记/停用给出 §5.16.1 引导文案；
-//   - 可选 service_code（仅 application / generic_target）：留空不校验，填值须落在
-//     「已启用服务字典 ∪ 本次导入「服务声明」sheet」（决策 105 / 97 延伸）；
 //   - generic_target 的 custom_labels 解析为 key=value;key2=value2 格式的 map；
 //   - 其余字段校验复用 T07-03 ValidateResourceInput（必填/IP/端口范围/URL/
 //     env/protocol/scheme），失败时把错误消息映射回 §5.16.3 的 field/value；
 //   - 校验通过后生成 DedupKey（T07-03）到 row.DedupKey 供 upsert 定位。
 //
 // 失败返回 *ImportRowError（携带完整 row/field/value/reason），成功返回 nil。
-func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
-	return ValidateImportRowWithPlatform(row, bizStore, appStore, svcStore, networkDomainExists, extraRules, nil)
+func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
+	return ValidateImportRowWithPlatform(row, bizStore, appStore, networkDomainExists, extraRules, nil)
 }
 
 // ValidateImportRowWithPlatform 与 ValidateImportRow 同校验，并追加资源行
 // platform_code 一等字段校验（决策 110 / §5.16.2）：platform 为 nil 时行为与
 // ValidateImportRow 完全一致（跳过平台校验）。校验失败落**行级错误**
 // （field=platform_code），只阻断当前行、不影响其余行导入。
-func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) error {
+func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) error {
 	if row == nil {
 		return &ImportRowError{Detail: models.ImportErrorDetail{Field: "resource", Reason: "导入行为空"}}
 	}
@@ -331,6 +330,13 @@ func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore
 	case models.ResourceCategoryGenericTarget:
 		if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {
 			return fieldErr(row, "app_code", "", "generic_target 的 app_code 与 biz_code 至少填写一个（决策 95 二选一）")
+		}
+	case models.ResourceCategoryInterfaceService:
+		if strings.TrimSpace(in.BizCode) == "" {
+			return fieldErr(row, "biz_code", in.BizCode, "biz_code 必填（接口服务须归属业务分组）")
+		}
+		if strings.TrimSpace(in.AppCode) == "" {
+			return fieldErr(row, "app_code", in.AppCode, "app_code 必填")
 		}
 	}
 	if strings.TrimSpace(in.BizCode) != "" {
@@ -378,34 +384,7 @@ func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore
 		}
 	}
 
-	// 3.6 决策 105：可选服务编码 service_code——仅 application / generic_target 适用，
-	// 留空不校验（纯自由文本、向后兼容）；填值须对应已启用服务字典条目（或本次导入文件
-	// 「服务声明」sheet 申报，决策 97 延伸，口径同 biz_code / app_code）。
-	if category == models.ResourceCategoryApplication || category == models.ResourceCategoryGenericTarget {
-		if strings.TrimSpace(in.ServiceCode) != "" {
-			if !models.ValidServiceCode.MatchString(in.ServiceCode) {
-				return fieldErr(row, "service_code", in.ServiceCode, "service_code 只能包含小写字母、数字和连字符，长度不超过 64")
-			}
-			svcEnabled, err := svcStore.GetEnabledMap()
-			if err != nil {
-				return fieldErr(row, "service_code", in.ServiceCode, fmt.Sprintf("服务字典加载失败：%v", err))
-			}
-			if _, ok := svcEnabled[in.ServiceCode]; !ok {
-				_, found, lerr := svcStore.Lookup(in.ServiceCode)
-				if lerr != nil {
-					return fieldErr(row, "service_code", in.ServiceCode, fmt.Sprintf("查询服务 %s 失败：%v", in.ServiceCode, lerr))
-				}
-				if found {
-					return fieldErr(row, "service_code", in.ServiceCode,
-						fmt.Sprintf("服务 %s 已停用，请在『服务管理』页启用后重新导入", in.ServiceCode))
-				}
-				return fieldErr(row, "service_code", in.ServiceCode,
-					fmt.Sprintf("服务 %s 未登记且未在声明 sheet 声明，请在『服务管理』页登记，或在本文件『服务声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.ServiceCode))
-			}
-		}
-	}
-
-	// 3.7 决策 110：可选列 platform_code——留空不校验（走所属应用主平台兜底）；
+	// 3.6 决策 110：可选列 platform_code——留空不校验（走所属应用主平台兜底）；
 	//     填值须为启用平台字典条目且与所属 app_code 的平台集合自洽。失败落行级
 	//     错误（field=platform_code），不阻断其余行。
 	if err := validatePlatformCode(in, platform, nil); err != nil {
@@ -431,7 +410,7 @@ func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore
 	// 移至 M06 网域登记层，此处不再处理。
 
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
-	if err := ValidateResourceInputWithPlatform(category, in, bizStore, appStore, svcStore, networkDomainExists, platform); err != nil {
+	if err := ValidateResourceInputWithPlatform(category, in, bizStore, appStore, networkDomainExists, platform); err != nil {
 		field := fieldFromResourceInputError(err.Error())
 		return fieldErr(row, field, valueFromField(in, field, row.PortRaw), err.Error())
 	}
@@ -485,10 +464,10 @@ var resourceInputFieldPrefixes = []string{
 	"network_domain_id", "biz_code", "env", "status",
 	"instance_ip", "instance_name", "hostname", "os_type",
 	"database_type", "middleware_type", "port", "version",
-	"service_name", "service_code", "health_check_url", "protocol", "endpoint",
+	"service_name", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
 	"app_code", "platform_code", "cluster", "resource_category",
-	"scrape_port",
+	"scrape_port", "api_name", "api_url",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -544,8 +523,6 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.Version
 	case "service_name":
 		return in.ServiceName
-	case "service_code":
-		return in.ServiceCode
 	case "health_check_url":
 		return in.HealthCheckURL
 	case "protocol":
@@ -560,6 +537,10 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.Scheme
 	case "exporter_type":
 		return in.ExporterType
+	case "api_name":
+		return in.APIName
+	case "api_url":
+		return in.APIURL
 	}
 	return ""
 }
@@ -567,16 +548,16 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 // ValidateRows 逐行执行 ValidateImportRow，返回校验通过的合法行（已含映射后
 // Status 与 DedupKey）与失败明细（§5.16.3 结构，row 从 2 起始）。T07-10 导入
 // 执行在 ParseExcel 之后调用本函数，作为行级校验与错误行收集的统一入口。
-func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
-	return ValidateRowsWithPlatform(rows, bizStore, appStore, svcStore, networkDomainExists, extraRules, nil)
+func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
+	return ValidateRowsWithPlatform(rows, bizStore, appStore, networkDomainExists, extraRules, nil)
 }
 
 // ValidateRowsWithPlatform 与 ValidateRows 同口径，逐行调用
 // ValidateImportRowWithPlatform（决策 110：platform 非 nil 时校验 platform_code）。
 // Excel 导入执行层（import.go）经本入口注入平台字典与应用↔平台关联 store。
-func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) (valid []ImportRow, errs []models.ImportErrorDetail) {
+func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) (valid []ImportRow, errs []models.ImportErrorDetail) {
 	for i := range rows {
-		if err := ValidateImportRowWithPlatform(&rows[i], bizStore, appStore, svcStore, networkDomainExists, extraRules, platform); err != nil {
+		if err := ValidateImportRowWithPlatform(&rows[i], bizStore, appStore, networkDomainExists, extraRules, platform); err != nil {
 			var rerr *ImportRowError
 			if errors.As(err, &rerr) {
 				errs = append(errs, rerr.Detail)

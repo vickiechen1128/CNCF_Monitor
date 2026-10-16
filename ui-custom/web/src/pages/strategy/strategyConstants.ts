@@ -28,6 +28,7 @@ export const CATEGORY_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /** 资源类别 → 细粒度 monitor_type 级联（§9 MONITOR_TYPE_DERIVATION_MAP） */
@@ -38,6 +39,27 @@ export const MONITOR_TYPE_CASCADE: { category: ResourceCategory; types: MonitorT
   { category: 'application', types: ['application_http'] },
   { category: 'generic_target', types: ['snmp'] },
 ]
+
+/**
+ * 拨测（blackbox）可选的资源类别，顺序即下拉展示顺序。
+ *
+ * 只有这两类：二者的地址字段本身就是**完整 URL**，可直接当拨测目标；其余类别的地址是
+ * IP / 端点，拨测需另拼协议与端口，已退出拨测范围（2026-10-16 口径收紧）。
+ * 权威来源是后端 `models.BlackboxProbeCategories()`，后端同样会拒绝其余类别。
+ */
+export const BLACKBOX_CATEGORIES: ResourceCategory[] = ['interface_service', 'application']
+
+/**
+ * 拨测资源类别 → 探测地址字段展示名。
+ *
+ * 字段**写死、用户不可选**：接口服务取「接口地址」(`api_url`)、应用服务取「健康检查 URL」
+ * (`health_check_url`)。权威映射在后端 `models.BlackboxTargetField()` —— 保存时由服务端
+ * 按类别推导落库，前端**不再提交 `target_field`**，此表只用于表单提示文案与列表列头。
+ */
+export const BLACKBOX_TARGET_FIELD_LABEL: Record<string, string> = {
+  interface_service: '接口地址',
+  application: '健康检查 URL',
+}
 
 /** 采集参数列可覆盖字段（§5.4 参数同步） */
 export const SCRAPE_PARAM_FIELDS = [

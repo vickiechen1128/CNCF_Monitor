@@ -1,9 +1,10 @@
 // label_write.go 提供资源标签写接口（POST/PUT/DELETE
 // /api/v2/platform/resources/:resource_id/labels[/:label_id]，T07-12）：
 //
-//   - POST 添加 user 标签：仅 resource_category=application 资源可写（双场景治理，
-//     §3.3/§6.2），静态资源返回 403；key 校验（ValidateLabelKey）、禁止覆盖
-//     Prometheus 内置 label 与 system 保护标签（§8.2），重复 key 返回 conflict；
+//   - POST 添加 user 标签：仅 resource_category∈{application, interface_service}
+//     资源可写（双场景治理，§3.3/§6.2），静态资源返回 403；key 校验
+//     （ValidateLabelKey）、禁止覆盖 Prometheus 内置 label 与 system 保护标签
+//     （§8.2），重复 key 返回 conflict；
 //   - PUT 编辑值 / DELETE 删除：仅 source=user 标签可操作（§6.6.2），非 user 来源
 //     forbidden；写接口边界（仅 application）同样覆盖 PUT/DELETE（§6.2）；
 //   - 资源/标签未命中返回 not_found。
@@ -40,14 +41,25 @@ type labelValueRequest struct {
 // staticResourceForbiddenMsg 是静态资源写 user 标签的 403 文案（§11.1 页面状态矩阵）。
 const staticResourceForbiddenMsg = "该资源为静态资源，标签由 CMDB/Excel 带入，不支持手动打标"
 
+// writableUserLabelCategories 是允许实例级自定义（user）标签编辑的类别集合：
+// application 与 interface_service（第 6 类资源，与 application 同级权限）。
+// 其余类别为静态资源，标签由 CMDB/Excel 带入，写端返回 403（§3.3/§6.2）。
+func canWriteUserLabels(category models.ResourceCategory) bool {
+	switch category {
+	case models.ResourceCategoryApplication, models.ResourceCategoryInterfaceService:
+		return true
+	}
+	return false
+}
+
 // CreateResourceLabel 是 POST /api/v2/platform/resources/:resource_id/labels 的
 // 添加 handler（§6.6.2）。
 //
 // 流程：
 //  1. 按 resource_id 定位资源（复用 T07-06 findResourceByID）；不存在/已软删
 //     → not_found；
-//  2. 仅 application 可写 user 标签：host/database/middleware/generic_target
-//     返回 403（静态资源只读，标签由 CMDB/Excel 带入，§3.3/§6.2/§11.1）；
+//  2. 仅 application / interface_service 可写 user 标签：host/database/middleware/
+//     generic_target 返回 403（静态资源只读，标签由 CMDB/Excel 带入，§3.3/§6.2/§11.1）；
 //  3. key 校验：ValidateLabelKey（小写/下划线/禁 __ 开头/≤128）；
 //  4. key ∈ PROTECTED_PROMETHEUS_LABELS 拒绝（禁止覆盖内置 label，§5.3）；
 //  5. key ∈ 该资源 system 标签拒绝（user 不可覆盖 system，§8.2）；
@@ -77,7 +89,7 @@ func CreateResourceLabel(db *gorm.DB) gin.HandlerFunc {
 			response.NotFound(c, fmt.Sprintf("资源 %s 不存在或已删除", resourceID))
 			return
 		}
-		if category != models.ResourceCategoryApplication {
+		if !canWriteUserLabels(category) {
 			response.Forbidden(c, staticResourceForbiddenMsg)
 			return
 		}
@@ -164,7 +176,7 @@ func UpdateResourceLabel(db *gorm.DB) gin.HandlerFunc {
 			response.NotFound(c, fmt.Sprintf("资源 %s 不存在或已删除", resourceID))
 			return
 		}
-		if category != models.ResourceCategoryApplication {
+		if !canWriteUserLabels(category) {
 			response.Forbidden(c, staticResourceForbiddenMsg)
 			return
 		}
@@ -227,7 +239,7 @@ func DeleteResourceLabel(db *gorm.DB) gin.HandlerFunc {
 			response.NotFound(c, fmt.Sprintf("资源 %s 不存在或已删除", resourceID))
 			return
 		}
-		if category != models.ResourceCategoryApplication {
+		if !canWriteUserLabels(category) {
 			response.Forbidden(c, staticResourceForbiddenMsg)
 			return
 		}

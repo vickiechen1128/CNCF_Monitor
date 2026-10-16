@@ -10,7 +10,7 @@ import (
 )
 
 // legacyLabelMappingSet 返回 2026-10-03 之前存量库里 default-* 模板实际持有的
-// 旧映射集（决策 115 证据 ①）：无 platform_code→platform、无 service_code→svc。
+// 旧映射集（决策 115 证据 ①）：无 platform_code→platform。
 // application 另有 service_name / health_check_url。
 func legacyLabelMappingSet(cat models.ResourceCategory) []models.LabelMapping {
 	if cat == models.ResourceCategoryApplication {
@@ -34,8 +34,8 @@ func legacyLabelMappingSet(cat models.ResourceCategory) []models.LabelMapping {
 	}
 }
 
-// seedLegacyLabelTemplates 预置「旧版 default-* 模板」模拟存量库（5 条全量，
-// 均缺 platform；application / generic_target 另缺 svc）。
+// seedLegacyLabelTemplates 预置「旧版 default-* 模板」模拟存量库（全量，
+// 均缺 platform）。
 func seedLegacyLabelTemplates(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	for _, cat := range models.ValidResourceCategories() {
@@ -67,11 +67,9 @@ func countTargetLabel(mappings []models.LabelMapping, target string) int {
 	return n
 }
 
-// TestRunLabelTemplatesBackfillsPlatformAndSVC 覆盖**存量库路径**（决策 115 防回归）：
-// 预置旧版 default-* 模板后跑种子，五类均应补出 platform_code→platform，
-// application / generic_target 应补出 service_code→svc，
-// 而 host / database / middleware 不得出现 svc（决策 105：基础设施不挂服务维度）。
-func TestRunLabelTemplatesBackfillsPlatformAndSVC(t *testing.T) {
+// TestRunLabelTemplatesBackfillsPlatform 覆盖**存量库路径**（决策 115 防回归）：
+// 预置旧版 default-* 模板后跑种子，五类均应补出 platform_code→platform。
+func TestRunLabelTemplatesBackfillsPlatform(t *testing.T) {
 	db := newTestDB(t)
 	seedLegacyLabelTemplates(t, db)
 
@@ -82,24 +80,6 @@ func TestRunLabelTemplatesBackfillsPlatformAndSVC(t *testing.T) {
 		tmpl := loadLabelTemplate(t, db, name)
 		assert.Equal(t, 1, countTargetLabel(tmpl.Mappings, "platform"),
 			"%s 应补出唯一的 platform 映射", name)
-	}
-
-	for _, cat := range []models.ResourceCategory{
-		models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget,
-	} {
-		name := "default-" + string(cat)
-		tmpl := loadLabelTemplate(t, db, name)
-		assert.Equal(t, 1, countTargetLabel(tmpl.Mappings, "svc"),
-			"%s 应补出唯一的 svc 映射", name)
-	}
-
-	for _, cat := range []models.ResourceCategory{
-		models.ResourceCategoryHost, models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware,
-	} {
-		name := "default-" + string(cat)
-		tmpl := loadLabelTemplate(t, db, name)
-		assert.Equal(t, 0, countTargetLabel(tmpl.Mappings, "svc"),
-			"%s 属基础设施，不应注入 svc 映射", name)
 	}
 }
 
@@ -149,20 +129,12 @@ func TestRunLabelTemplatesBackfillIdempotent(t *testing.T) {
 		tmpl := loadLabelTemplate(t, db, name)
 		assert.Equal(t, 1, countTargetLabel(tmpl.Mappings, "platform"),
 			"%s 的 platform 映射重复执行后仍应为 1 条", name)
-		switch cat {
-		case models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
-			assert.Equal(t, 1, countTargetLabel(tmpl.Mappings, "svc"),
-				"%s 的 svc 映射重复执行后仍应为 1 条", name)
-		default:
-			assert.Equal(t, 0, countTargetLabel(tmpl.Mappings, "svc"),
-				"%s 不应出现 svc 映射", name)
-		}
 	}
 }
 
-// TestEnsurePlatformMappingAndSVCMappingAppendOnce 在单个模板上直接验证两个
-// 回填函数的追加语义与源字段 / 源类型契约（PRD §5.12.1 / §5.13）。
-func TestEnsurePlatformMappingAndSVCMappingAppendOnce(t *testing.T) {
+// TestEnsurePlatformMappingAppendOnce 在单个模板上直接验证回填函数的追加语义
+// 与源字段 / 源类型契约（PRD §5.12.1）。
+func TestEnsurePlatformMappingAppendOnce(t *testing.T) {
 	db := newTestDB(t)
 	require.NoError(t, db.Create(&models.LabelTemplate{
 		Name:             "default-middleware",
@@ -180,14 +152,4 @@ func TestEnsurePlatformMappingAndSVCMappingAppendOnce(t *testing.T) {
 	assert.Equal(t, "platform_code", platform.SourceField)
 	assert.Equal(t, models.LabelSourceTypeResourceField, platform.SourceType)
 	assert.True(t, platform.Enabled)
-
-	// svc 由决策 105 限定为 application / generic_target，此处仅验证函数语义。
-	require.NoError(t, ensureSVCMapping(db, "default-middleware"))
-	require.NoError(t, ensureSVCMapping(db, "default-middleware"))
-	tmpl = loadLabelTemplate(t, db, "default-middleware")
-	require.Equal(t, 1, countTargetLabel(tmpl.Mappings, "svc"))
-	svc := tmpl.Mappings[len(tmpl.Mappings)-1]
-	assert.Equal(t, "service_code", svc.SourceField)
-	assert.Equal(t, models.LabelSourceTypeResourceField, svc.SourceType)
-	assert.True(t, svc.Enabled)
 }

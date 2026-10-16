@@ -133,7 +133,11 @@ describe('ScrapeJobFormDrawer', () => {
     fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
     // antd Select 的 placeholder 以文本呈现而非 placeholder 属性，按文本查询
     expect(await screen.findByText('选择拨测模块')).toBeInTheDocument()
+    // 资源类别与拨测目标仍是用户可见项
+    expect(screen.getByText('资源类别')).toBeInTheDocument()
     expect(screen.getByText('拨测目标')).toBeInTheDocument()
+    // 探测地址字段已写死（接口服务→接口地址、应用服务→健康检查 URL），不再是输入项
+    expect(screen.queryByText('探测地址字段')).toBeNull()
     expect(screen.queryByText('监控对象类型')).toBeNull()
   })
 
@@ -150,7 +154,7 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.getByPlaceholderText('密文仅存储，不回显')).toBeInTheDocument()
   })
 
-  it('submits a blackbox job with required fields', async () => {
+  it('submits a blackbox job with resource-based targets (阶段5：手填已禁用)', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 9, job_name: 'probe-x', job_type: 'blackbox' } })
     renderDrawer()
 
@@ -168,9 +172,13 @@ describe('ScrapeJobFormDrawer', () => {
     const moduleOption = await screen.findByText('http_2xx', { selector: '.ant-select-item-option-content' })
     await userEvent.click(moduleOption)
 
-    // 添加一个拨测目标并填 target
-    fireEvent.click(screen.getByText('添加拨测目标'))
-    await userEvent.type(await screen.findByPlaceholderText('目标地址'), 'https://example.com')
+    // 只选资源类别：探测地址字段写死推导（接口服务→接口地址），用户无需（也不能）再选
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    await selectAntdOption('接口服务')
+    expect(await screen.findByText(/目标地址固定取所选实例的接口地址/)).toBeInTheDocument()
+
+    // 拨测目标改走「从资源选择」：旧的手填入口必须彻底消失
+    expect(screen.queryByText('添加拨测目标')).not.toBeInTheDocument()
 
     // 新增态 footer：提交生效（完整校验进入 M09 管线）
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
@@ -181,7 +189,28 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.job_type).toBe('blackbox')
     expect(body.blackbox_module).toBe('http_2xx')
     expect(body.network_domain_id).toBe('mc-a')
-    expect((body.blackbox_targets as { target: string }[])[0].target).toBe('https://example.com')
+    // 目标由资源选择承载：只提交类别（target_field 由服务端推导），且不再提交 blackbox_targets
+    expect(body.resource_type).toBe('interface_service')
+    expect(body.target_field).toBeUndefined()
+    expect(body.blackbox_targets).toBeUndefined()
+  })
+
+  it('blackbox：资源类别只提供接口服务 / 应用服务两类', async () => {
+    renderDrawer()
+    fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
+
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    // 只列两类（与后端 models.BlackboxProbeCategories 一致）
+    expect(await screen.findByText('接口服务', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    expect(screen.getByText('应用服务', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    // 其余四类不可选
+    for (const gone of ['主机', '数据库', '中间件', '其他监控目标']) {
+      expect(screen.queryByText(gone, { selector: '.ant-select-item-option-content' })).not.toBeInTheDocument()
+    }
+
+    // 选应用服务 → 引导文案指明取「健康检查 URL」
+    await selectAntdOption('应用服务')
+    expect(await screen.findByText(/目标地址固定取所选实例的健康检查 URL/)).toBeInTheDocument()
   })
 
   it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {

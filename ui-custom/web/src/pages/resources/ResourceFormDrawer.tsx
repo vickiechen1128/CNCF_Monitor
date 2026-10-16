@@ -22,7 +22,6 @@ import {
   osOptionApi,
   platformDictApi,
   resourceApi,
-  serviceDictApi,
 } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
@@ -35,7 +34,6 @@ import type {
   ResourceCreateInput,
   ResourceStatus,
   ResourceUpdateInput,
-  ServiceDict,
 } from '../../types/resource'
 import type { ResourceListItem } from './useResources'
 
@@ -59,6 +57,7 @@ const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
   middleware: '中间件',
   application: '应用服务',
   generic_target: '其他监控目标',
+  interface_service: '接口服务',
 }
 
 /** 数据来源展示名（§5.2；cmdb 为 v0.4+ 预留） */
@@ -205,8 +204,6 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         health_check_url: values.health_check_url ? String(values.health_check_url) : undefined,
         protocol: values.protocol ? String(values.protocol) : undefined,
         port: Number(values.port),
-        // 决策 105：可选服务归属，留空合法（不注入 svc 标签）
-        service_code: values.service_code ? String(values.service_code) : undefined,
       }
     case 'generic_target':
       return {
@@ -217,8 +214,13 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         scheme: values.scheme ? String(values.scheme) : undefined,
         exporter_type: values.exporter_type ? String(values.exporter_type) : undefined,
         custom_labels: parseCustomLabels(values.custom_labels ? String(values.custom_labels) : undefined),
-        // 决策 105：可选服务归属，留空合法（不注入 svc 标签）
-        service_code: values.service_code ? String(values.service_code) : undefined,
+      }
+    case 'interface_service':
+      // 接口服务差异化字段：接口名（展示名）+ 接口地址（完整 URL，含 ? 查询参数）。
+      // 无采集端口语义，**不提交 scrape_port**（后端 validateScrapePort 仅在填值时校验）。
+      return {
+        api_name: String(values.api_name),
+        api_url: String(values.api_url),
       }
   }
 }
@@ -271,8 +273,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     scheme: record.scheme,
     exporter_type: record.exporter_type,
     custom_labels: customLabelsToFormString(record.custom_labels),
-    // 决策 105：可选服务归属（仅 application / generic_target）
-    service_code: record.service_code,
+    api_name: record.api_name,
+    api_url: record.api_url,
   }
 }
 
@@ -341,8 +343,6 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   // 应用字典（决策 92）：app_code 必填下拉取启用条目；展示名 app_name 由字典解析
   const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
-  // 服务字典（决策 105）：service_code 可选下拉取启用条目，仅 application / generic_target 渲染
-  const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
   // {v2026-09-28 决策 110} 平台字典：「平台归属」可选下拉取启用条目（资源行一等字段）
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
   // 决策 111：应用↔平台 M:N 关联（app_platform_rel）——应用下拉按所选平台过滤的数据源。
@@ -358,24 +358,29 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const enabledBizDomains = businessDomains.filter((d) => d.enabled)
   // {v2026-09-28 决策 110} 平台字典：下拉仅列启用条目（停用平台禁止新引用，§5C 红线④）
   const enabledPlatformDicts = platformDicts.filter((d) => d.enabled)
-  // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
+  // §5.2 必填口径：application / database / middleware / interface_service 必填，host / generic_target 可空
   const appCodeRequired =
-    displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
-  // 决策 F（§5.2）：cluster 必填规则同 app_code —— application / database / middleware 必填，
-  // host / generic_target 放开为可空（SNMP 交换机等设备类无集群归属，强制必填会逼填假数据污染
-  // cluster 标签；空值不注入标签，见 5.15 规则 4）。与后端 validate.go 的三处 cluster 必填校验同口径，
+    displayCategory === 'application' ||
+    displayCategory === 'database' ||
+    displayCategory === 'middleware' ||
+    displayCategory === 'interface_service'
+  // 决策 F（§5.2）：cluster 必填规则 —— application / database / middleware 必填，
+  // host / generic_target / interface_service 放开为可空（SNMP 交换机等设备类无集群归属，
+  // 强制必填会逼填假数据污染 cluster 标签；接口服务后端 validateInterfaceService 亦不要求
+  // cluster；空值不注入标签，见 5.15 规则 4）。与后端 validate.go 的三处 cluster 必填校验同口径，
   // 否则用户在必填类提交空 cluster 会撞后端 400 且前端无任何提示（静默失败）。
-  const clusterRequired = appCodeRequired
+  // 刻意与 appCodeRequired 解耦——interface_service 要求 app_code 但不要求 cluster。
+  const clusterRequired =
+    displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
 
   /**
-   * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**。
+   * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）**。
    *
    * 平台→应用的过滤依据**只能**是 `app_platform_rel`（决策 111 M:N）：应用字典条目上的
    * 单值 `platform_code` 已废弃（决策 118-3 全仓生产消费者归零），不可用于派生。
    * 未选平台时不做过滤（保持全量启用应用可选，避免「先选平台」成为硬前置）。
    */
   const selectedPlatformCode = Form.useWatch('platform_code', form) as string | undefined
-  const selectedAppCode = Form.useWatch('app_code', form) as string | undefined
 
   /** 关联到所选平台的应用编码集合（未选平台时为 null，表示「不按平台过滤」） */
   const appCodesOnSelectedPlatform = useMemo(() => {
@@ -398,21 +403,6 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   // 应用下拉实际渲染时用（已按平台过滤）；未选平台时退化为全部启用应用
   const enabledAppDicts = appDictOptions
 
-  /**
-   * 服务下拉选项（决策 110 ④「再选服务」）：`ServiceDict.app_code` 是应用↔服务 1:N 的
-   * 关系权威（决策 112），故按**所选应用**过滤；未选应用时不按应用过滤。
-   */
-  const enabledServiceDicts = useMemo(
-    () =>
-      serviceDicts.filter((d) => {
-        if (!d.enabled) return false
-        if (!selectedAppCode) return true
-        // 字典未声明所属应用（游离服务）不参与过滤，避免关系缺失即无法选择
-        return !d.app_code || d.app_code === selectedAppCode
-      }),
-    [serviceDicts, selectedAppCode],
-  )
-
   useEffect(() => {
     if (!open) return
     // 打开抽屉时同步重置提交错误；沿用本模块既有 set-state-in-effect 模式（异步请求回调内才异步 setState）
@@ -434,15 +424,13 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       businessDomainApi.list(),
       osOptionApi.list(),
       applicationDictApi.list(),
-      serviceDictApi.list(),
       platformDictApi.list(),
     ])
-      .then(([nd, bd, os, ad, sd, pd]) => {
+      .then(([nd, bd, os, ad, pd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setOsOptions(os.data?.list ?? [])
         setApplicationDicts(ad.data?.list ?? [])
-        setServiceDicts(sd.data?.list ?? [])
         setPlatformDicts(pd.data?.list ?? [])
         setDictError(null)
       })
@@ -495,7 +483,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       if (!platform || !appCode) return
       const stillValid = appPlatformRels.some((r) => r.platform_code === platform && r.app_code === appCode)
       if (!stillValid) {
-        form.setFieldsValue({ app_code: undefined, service_code: undefined })
+        form.setFieldsValue({ app_code: undefined })
       }
     })
   }
@@ -797,20 +785,6 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             <Form.Item label="服务名" name="service_name" rules={[{ required: true, message: '请输入服务名' }]}>
               <Input placeholder="例如：order-service" maxLength={64} />
             </Form.Item>
-            {/* 决策 105：可选服务归属（仅 application / generic_target 渲染） */}
-            <Form.Item
-              label="服务编码"
-              name="service_code"
-              extra="可选：取服务字典启用条目，留空表示不注入服务标签"
-            >
-              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择服务编码（可选）">
-                {enabledServiceDicts.map((d) => (
-                  <Select.Option key={d.service_code} value={d.service_code} label={`${d.service_name} (${d.service_code})`}>
-                    {d.service_name} ({d.service_code})
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
             <Form.Item
               label="健康检查 URL"
               name="health_check_url"
@@ -896,20 +870,6 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
             </Row>
-            {/* 决策 105：可选服务归属（仅 application / generic_target 渲染） */}
-            <Form.Item
-              label="服务编码"
-              name="service_code"
-              extra="可选：取服务字典启用条目，留空表示不注入服务标签"
-            >
-              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择服务编码（可选）">
-                {enabledServiceDicts.map((d) => (
-                  <Select.Option key={d.service_code} value={d.service_code} label={`${d.service_name} (${d.service_code})`}>
-                    {d.service_name} ({d.service_code})
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
             <Form.Item
               label="自定义标签"
               name="custom_labels"
@@ -917,6 +877,24 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
               rules={[{ pattern: CUSTOM_LABELS_RE, message: '格式为 key1=value1;key2=value2' }]}
             >
               <Input placeholder="如 device_type=snmp_switch;vendor=h3c" maxLength={512} />
+            </Form.Item>
+          </>
+        )
+      case 'interface_service':
+        // 接口服务差异化字段：接口名 + 接口地址。**不渲染采集端口**（无采集端口语义）——
+        // 该类由 blackbox 拨测采集任务承载，拨测目标地址直接取接口地址。
+        return (
+          <>
+            <Form.Item label="接口名" name="api_name" rules={[{ required: true, message: '请输入接口名' }]}>
+              <Input placeholder="例如：订单查询接口" maxLength={200} />
+            </Form.Item>
+            <Form.Item
+              label="接口地址"
+              name="api_url"
+              extra="必填：填完整 URL（含 ? 查询参数），如 https://api.example.com/health?token=xxx"
+              rules={[{ required: true, message: '请输入接口地址' }]}
+            >
+              <Input placeholder="例如：https://api.example.com/health?token=xxx" maxLength={500} />
             </Form.Item>
           </>
         )

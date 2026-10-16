@@ -106,6 +106,12 @@ function resourceDisplay(r: Resource): string {
     const a = r as { service_name?: string }
     return a.service_name || '-'
   }
+  if (cat === 'interface_service') {
+    // 接口服务：展示名取 api_name，括号补接口地址（完整 URL）
+    const s = r as { api_name?: string; api_url?: string }
+    const name = s.api_name || s.api_url || '-'
+    return s.api_url && s.api_url !== name ? `${name}（${s.api_url}）` : name
+  }
   const g = r as { target_name?: string; instance_ip?: string; port?: number }
   const name = g.target_name || g.instance_ip || '-'
   const addr = g.port ? `${g.instance_ip}:${g.port}` : g.instance_ip || ''
@@ -134,6 +140,7 @@ const CI_TYPE_OPTIONS: { value: ResourceCategory; label: string }[] = [
   { value: 'middleware', label: '中间件' },
   { value: 'application', label: '应用服务' },
   { value: 'generic_target', label: '其他监控目标' },
+  { value: 'interface_service', label: '接口服务' },
 ]
 
 type CiType = ResourceCategory

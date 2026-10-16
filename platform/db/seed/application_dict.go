@@ -93,6 +93,17 @@ func ApplicationDict(db *gorm.DB) error {
 			}
 		}
 	}
+	if db.Migrator().HasTable(&models.InterfaceService{}) {
+		var apis []models.InterfaceService
+		if err := db.Find(&apis).Error; err != nil {
+			return fmt.Errorf("seed application dict: scan interface services: %w", err)
+		}
+		for _, a := range apis {
+			if a.AppName != nil {
+				collect([]string{*a.AppName})
+			}
+		}
+	}
 
 	// 按归一化后的 AppCode 去重，保留首个原始取值作为展示名。
 	type pair struct {

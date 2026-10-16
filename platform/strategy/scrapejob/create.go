@@ -32,6 +32,11 @@ type CreateScrapeJobRequest struct {
 	LabelTemplateID        string                    `json:"label_template_id"`
 	BlackboxModule         string                    `json:"blackbox_module"`
 	BlackboxTargets        []models.BlackboxTarget   `json:"blackbox_targets"`
+	// ResourceType（拨测目标资源类别）仅 blackbox 使用，且只能是接口服务 / 应用服务；
+	// TargetField（探测地址字段）已不再由调用方决定 —— 保留 JSON 字段以兼容旧客户端，
+	// 但落库前会被 validateJobRequest 按 ResourceType 推导覆盖。
+	ResourceType           models.ResourceType       `json:"resource_type"`
+	TargetField            string                    `json:"target_field"`
 	MappingOverrides       []models.MappingOverride  `json:"mapping_overrides"`
 	Enabled                bool                      `json:"enabled"`
 	// DraftStatus = "draft" 时仅做基础校验并保存为草稿（MVP 方案 C，决策 D28-2）；
@@ -87,6 +92,8 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 		job := &models.ScrapeJob{
 			JobName:               req.JobName,
 			JobType:               req.JobType,
+			ResourceType:          req.ResourceType,
+			TargetField:           req.TargetField,
 			MonitorType:           req.MonitorType,
 			ExporterTemplateID:    req.ExporterTemplateID,
 			NetworkDomainID:       req.NetworkDomainID,

@@ -195,6 +195,100 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 	assert.Equal(t, "pay", groups[0].Labels["app"])
 }
 
+// TestResolveTargetsBlackboxResourceMode：拨测与采集同构——目标 = 所选资源类别实例
+// 在 job.TargetField 上的字段值（类别不预设、字段不预设，均由用户选择）。本用例
+// 类别 = interface_service、字段 = api_url：目标地址与 api_url 逐字节相等（不拼端口），
+// 并注入 system 层标签 resource_id / network_domain / cloud / zone（与 standard 同源）。
+func TestResolveTargetsBlackboxResourceMode(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.NetworkDomain{}, &models.InterfaceService{}, &models.LabelTemplate{}))
+
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "bb-nd", Name: "网域一", DomainType: models.DomainTypeEdge,
+		ZoneType: "internet", CloudCode: "aliyun", TenantID: models.PlatformAdminTenantID,
+		Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&models.InterfaceService{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "bb-is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
+			NetworkDomainID: "bb-nd", BizCode: "pay", Env: "prod", Status: "online",
+			SourceType: models.SourceTypeManual,
+		},
+		APIName: "订单查询", APIURL: "https://api.example.com/health?token=x",
+		ResourceType: models.ResourceTypeInterfaceService,
+	}).Error)
+
+	job := models.ScrapeJob{
+		JobName: "bb", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeInterfaceService,
+		TargetField: "api_url", NetworkDomainID: "bb-nd", SelectedInstanceIDs: []string{"bb-is-1"},
+	}
+	groups, skipped, err := ResolveJobTargets(db, job, nil, 0)
+	require.NoError(t, err)
+	require.Empty(t, skipped)
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Targets, 1)
+	assert.Equal(t, "https://api.example.com/health?token=x", groups[0].Targets[0],
+		"target = 所选字段 api_url 的值（逐字节原样，不拼端口）")
+	assert.Equal(t, "bb-is-1", groups[0].Labels["resource_id"], "system 层身份标签注入")
+	assert.Equal(t, "bb-nd", groups[0].Labels["network_domain"])
+	assert.Equal(t, "aliyun", groups[0].Labels["cloud"])
+	assert.Equal(t, "internet", groups[0].Labels["zone"])
+}
+
+// TestResolveTargetsBlackboxNonInterfaceServiceCategory：**核心判据**——拨测不再与
+// interface_service / api_url 耦合。选非 interface_service 类别（database）实例 +
+// target_field=instance_ip → 生成成功，target 等于该实例的 IP，且标签仍注入。
+func TestResolveTargetsBlackboxNonInterfaceServiceCategory(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Database{}, &models.LabelTemplate{}))
+
+	require.NoError(t, db.Create(&models.Database{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "bb-db-1", ResourceCategory: models.ResourceCategoryDatabase,
+			NetworkDomainID: "d", Status: "online", SourceType: models.SourceTypeManual,
+		},
+		DatabaseType: "mysql", InstanceIP: "10.0.2.7", Port: 3306,
+		ResourceType: models.ResourceTypeDatabase,
+	}).Error)
+
+	job := models.ScrapeJob{
+		JobName: "bb-db", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeDatabase,
+		TargetField: "instance_ip", NetworkDomainID: "d", SelectedInstanceIDs: []string{"bb-db-1"},
+	}
+	groups, skipped, err := ResolveJobTargets(db, job, nil, 0)
+	require.NoError(t, err)
+	require.Empty(t, skipped)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "10.0.2.7", groups[0].Targets[0], "target = 所选类别实例在 target_field 上的值")
+	assert.Equal(t, "bb-db-1", groups[0].Labels["resource_id"], "标签仍注入")
+}
+
+// TestResolveTargetsBlackboxFieldValueEmpty：字段值缺失/为空 → 记 address_empty 归因，
+// 不产出 target（复用既有 SkipReasonAddressEmpty）。
+func TestResolveTargetsBlackboxFieldValueEmpty(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Database{}, &models.LabelTemplate{}))
+	require.NoError(t, db.Create(&models.Database{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "bb-db-2", ResourceCategory: models.ResourceCategoryDatabase,
+			NetworkDomainID: "d", Status: "online", SourceType: models.SourceTypeManual,
+		},
+		DatabaseType: "mysql", InstanceIP: "", Port: 3306,
+		ResourceType: models.ResourceTypeDatabase,
+	}).Error)
+
+	job := models.ScrapeJob{
+		JobName: "bb-empty", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeDatabase,
+		TargetField: "instance_ip", NetworkDomainID: "d", SelectedInstanceIDs: []string{"bb-db-2"},
+	}
+	groups, skipped, err := ResolveJobTargets(db, job, nil, 0)
+	require.NoError(t, err)
+	require.Empty(t, groups)
+	require.Len(t, skipped, 1)
+	assert.Equal(t, "bb-db-2", skipped[0].ResourceID)
+	assert.Equal(t, SkipReasonAddressEmpty, skipped[0].Reason)
+}
+
 // TestResolveTargetsUnconfirmedIncluded（决策 47-1：安装确认拆闸门）：
 // 已选实例即使是 unconfirmed（存在未确认登记记录），也必须同样进入 target 组——
 // configgen 只消费 selected_instance_ids（+ offline 排除 + enabled + draft_status），
@@ -723,7 +817,8 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	db := newMemDB(t)
 	// 源数据版本聚合会横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
-		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
+		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
+		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
 		&models.NotifyChannel{}, &models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
@@ -748,7 +843,8 @@ func newSourceVersionDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	// 源数据版本聚合横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
-		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
+		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
+		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.NotifyChannel{},
 		&models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
 	return db
@@ -934,6 +1030,15 @@ func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T) {
 		Mode:            models.RouteModeManaged,
 	}
 	require.NoError(t, db.Create(setting).Error)
+
+	// 先把该行的 updated_at 钉在基准时刻（UpdateColumn 避开 GORM 的 autoUpdateTime），
+	// 再删——否则「建行」与「软删」在同一次时钟刻度内完成时（Windows 时钟粒度可达
+	// 亚毫秒，两次 time.Now() 逐字节相同），deleted_at 与前一刻的 updated_at 相等，
+	// 版本不推进，断言假失败。与 seedVersionHost 同法：让断言只依赖「删除推进
+	// deleted_at」，不依赖墙钟先后与执行速度。
+	require.NoError(t, db.Model(&models.AlertmanagerRouteSetting{}).
+		Where("id = ?", setting.ID).
+		UpdateColumn("updated_at", hostVersionSeedAt).Error)
 
 	// 造一个更早的版本起点，便于观察删除是否推进。
 	seedVersionHost(t, db, "other-domain", "srv-o", "res-o")
@@ -1207,92 +1312,20 @@ func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T) {
 	assert.NotContains(t, edge.PrometheusYML, "alerting")
 }
 
-// TestResolveTargetsInjectsServiceCodeLabel（决策 105）：application /
-// generic_target 默认模板内置 `service_code → svc` 映射行，资源 service_code 取值
-// 注入 svc 标签；留空时不注入（空值不注入语义）。
-func TestResolveTargetsInjectsServiceCodeLabel(t *testing.T) {
-	db := newMemDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Application{}, &models.GenericTarget{}, &models.LabelTemplate{}))
-	require.NoError(t, db.Create(&models.Application{
-		ResourceID: "app-1", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
-		BizCode: "payment", AppName: "pay", Env: "prod", Status: "online",
-		ServiceName: "pay-service", ServiceCode: "order-api", Endpoint: "10.0.0.20", Port: 8080,
-	}).Error)
-	require.NoError(t, db.Create(&models.Application{
-		ResourceID: "app-2", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
-		BizCode: "payment", AppName: "pay", Env: "prod", Status: "online",
-		ServiceName: "pay-free", ServiceCode: "", Endpoint: "10.0.0.21", Port: 8080,
-	}).Error)
-	require.NoError(t, db.Create(&models.GenericTarget{
-		ResourceBase: models.ResourceBase{
-			ResourceID: "gt-1", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "d",
-			BizCode: "infra", Env: "prod", Status: "online",
-		},
-		TargetName: "snmp-01", ServiceCode: "pay-api", InstanceIP: "10.0.0.30", Port: 161,
-	}).Error)
-
-	// 默认模板（由 models.DefaultMappingBuilders 产出）application / generic_target 各一份。
-	appTmpl := &models.LabelTemplate{Name: "default-application", ResourceCategory: models.ResourceCategoryApplication,
-		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryApplication)}
-	gtTmpl := &models.LabelTemplate{Name: "default-generic_target", ResourceCategory: models.ResourceCategoryGenericTarget,
-		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryGenericTarget)}
-	require.NoError(t, db.Create(appTmpl).Error)
-	require.NoError(t, db.Create(gtTmpl).Error)
-
-	t.Run("application svc 注入", func(t *testing.T) {
-		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-1"}}
-		groups, _, err := ResolveJobTargets(db, job, appTmpl, 0)
-		require.NoError(t, err)
-		require.Len(t, groups, 1)
-		assert.Equal(t, "order-api", groups[0].Labels["svc"], "svc 标签恒取 service_code 编码")
-		assert.Equal(t, "pay", groups[0].Labels["app"], "app 标签不受影响")
-	})
-
-	t.Run("application service_code 空值不注入", func(t *testing.T) {
-		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-2"}}
-		groups, _, err := ResolveJobTargets(db, job, appTmpl, 0)
-		require.NoError(t, err)
-		require.Len(t, groups, 1)
-		_, exists := groups[0].Labels["svc"]
-		assert.False(t, exists, "service_code 留空时不注入 svc 标签（向后兼容）")
-	})
-
-	t.Run("generic_target svc 注入", func(t *testing.T) {
-		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"gt-1"}}
-		groups, _, err := ResolveJobTargets(db, job, gtTmpl, 0)
-		require.NoError(t, err)
-		require.Len(t, groups, 1)
-		assert.Equal(t, "pay-api", groups[0].Labels["svc"])
-	})
-}
-
-// TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes 固化「svc 映射只加给
-// application / generic_target」口径：host / database / middleware 默认模板不得出现
-// svc 映射行（基础设施非服务，避免服务维度污染，决策 105）。
-func TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes(t *testing.T) {
+// TestDefaultMappingBuildersPlatformMapping 固化「platform_code → platform 映射」
+// 口径：五类默认模板各含且仅含一条 platform 映射（资源行一等字段经模板注入）。
+func TestDefaultMappingBuildersPlatformMapping(t *testing.T) {
 	for _, cat := range []models.ResourceCategory{
 		models.ResourceCategoryHost, models.ResourceCategoryDatabase,
 		models.ResourceCategoryMiddleware, models.ResourceCategoryGenericTarget,
 		models.ResourceCategoryApplication,
 	} {
 		mappings := models.DefaultMappingBuilders(cat)
-		var svcMappings, platformMappings []models.LabelMapping
+		var platformMappings []models.LabelMapping
 		for _, m := range mappings {
-			if m.TargetLabel == "svc" || m.SourceField == "service_code" {
-				svcMappings = append(svcMappings, m)
-			}
 			if m.TargetLabel == "platform" || m.SourceField == "platform_code" {
 				platformMappings = append(platformMappings, m)
 			}
-		}
-		switch cat {
-		case models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
-			require.Len(t, svcMappings, 1, "%s 默认模板应含 1 条 service_code → svc 映射", cat)
-			assert.Equal(t, "service_code", svcMappings[0].SourceField)
-			assert.Equal(t, "svc", svcMappings[0].TargetLabel)
-			assert.Equal(t, models.LabelSourceTypeResourceField, svcMappings[0].SourceType)
-		default:
-			assert.Empty(t, svcMappings, "%s 默认模板不得含 svc 映射（基础设施不挂服务）", cat)
 		}
 		require.Len(t, platformMappings, 1, "%s 默认模板应含 1 条 platform_code → platform 映射", cat)
 		assert.Equal(t, "platform_code", platformMappings[0].SourceField)

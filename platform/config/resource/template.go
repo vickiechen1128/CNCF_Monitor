@@ -51,16 +51,23 @@ var TemplateColumns = map[models.ResourceCategory][]string{
 		"scrape_port",
 	},
 	models.ResourceCategoryApplication: {
-		// 决策 105：service_code 为可选列，排在 service_name 之后（§5.16.1）。
-		"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
+		"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
 		"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
 		"scrape_port",
 	},
 	models.ResourceCategoryGenericTarget: {
-		// 决策 105：service_code 为可选列（§5.16.1 其他监控目标列序）。
 		"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
-		"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+		"exporter_type", "custom_labels", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 		"scrape_port",
+	},
+	// 第 6 类「接口服务」：类型专属字段 api_name / api_url + 公共字段
+	// 网域/业务/应用/环境/运行状态；刻意不含 platform_code / cluster / owner。
+	// env 必须保留：validateCommon 对全部类别强制 env ∈ {dev,test,staging,prod}，
+	// 模板缺该列会导致导入恒失败。
+	// **不含 scrape_port**：拨测目标是完整 URL（端口已在 URL 内），该类别不存在
+	// 「另有一个 exporter 采集端口」的语义 —— 是全类别里唯一不追加该尾列的。
+	models.ResourceCategoryInterfaceService: {
+		"network_domain", "api_name", "api_url", "biz_code", "app_code", "env", "status",
 	},
 }
 
@@ -103,7 +110,6 @@ var templateColumnDocs = map[string]templateColumnDoc{
 	"port":             {"端口", "端口，1~65535"},
 	"version":          {"版本", "版本号"},
 	"service_name":     {"服务名", "应用服务名"},
-	"service_code":     {"所属服务", "所属服务编码（可选）"},
 	"health_check_url": {"健康检查 URL", "业务健康检查地址（非采集地址），协议 http/https/tcp"},
 	"protocol":         {"协议", "协议：http/https/tcp"},
 	"endpoint":         {"端点", "应用采集地址主机（IPv4 或域名）"},
@@ -112,6 +118,8 @@ var templateColumnDocs = map[string]templateColumnDoc{
 	"scheme":           {"协议", "协议：http/https"},
 	"exporter_type":    {"Exporter 类型", "Exporter 类型，如 snmp_exporter / gpu_exporter / oracle_exporter"},
 	"custom_labels":    {"自定义标签", "key1=value1;key2=value2"},
+	"api_name":         {"接口名", "接口名称（展示名），≤200"},
+	"api_url":          {"接口地址", "完整 URL（含 ? 查询参数），协议须为 http/https，如 https://api.example.com/health?token=xxx"},
 }
 
 // templateOptionalColumns 是**五类通用**的选填列（不随类别变化）。
@@ -119,7 +127,7 @@ var templateOptionalColumns = map[string]bool{
 	"hostname": true, "version": true, "owner": true, "protocol": true,
 	"health_check_url": true, "metrics_path": true, "scheme": true,
 	"exporter_type": true, "custom_labels": true, "scrape_port": true,
-	"platform_code": true, "service_code": true,
+	"platform_code": true,
 }
 
 // valueSheetHeaderRow 是 sheet2「取值说明」的表头行（F-23-② 拆出「中文含义」列、
@@ -145,16 +153,16 @@ const (
 // 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），appStore 提供
 // 应用字典启用项（决策 92/96，F-7 ①：取值说明实时注入 app_code 可取值），listDomains
 // 由调用方提供 M06 网域清单查询（T07-18 路由注册时注入 db 查询）。
-func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
+func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		typeName := c.Param("type")
 		category := models.ResourceCategory(typeName)
 		if _, ok := TemplateColumns[category]; !ok {
-			response.NotFound(c, fmt.Sprintf("未知资源类型：%s，可选 host/database/middleware/application/generic_target", typeName))
+			response.NotFound(c, fmt.Sprintf("未知资源类型：%s，可选 %s", typeName, models.CategoriesHint()))
 			return
 		}
 
-		valueRows, err := buildValueSheet(category, bizStore, appStore, platformStore, svcStore, listDomains)
+		valueRows, err := buildValueSheet(category, bizStore, appStore, platformStore, listDomains)
 		if err != nil {
 			response.InternalServerError(c, fmt.Errorf("生成「取值说明」失败：%w", err))
 			return
@@ -180,9 +188,9 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 //     完全一致（逐列对读），不存在其他类别独有的列（如 host 不出现 custom_labels）；
 //   - 每行给出中文含义（对齐页面列名）与必填口径（必填 / 可留空 / 二选一）；
 //   - 字典实时注入保留：network_domain（M06 网域清单）、biz_code / app_code /
-//     platform_code / service_code（对应字典启用项，停用项不进入），且只对该类别
+//     platform_code（对应字典启用项，停用项不进入），且只对该类别
 //     实际存在的列查询与输出。
-func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
+func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
 	columns := TemplateColumns[category]
 	present := make(map[string]bool, len(columns))
 	for _, col := range columns {
@@ -266,26 +274,6 @@ func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainS
 		liveDesc["platform_code"] = platformDesc
 	}
 
-	if present["service_code"] {
-		// 服务字典启用项（决策 105，可选列的合法取值；与 app_code 同构
-		// `code（名称）`，停用项不进入）。
-		svcDesc := "可选列，留空不填"
-		if svcStore != nil {
-			svcList, err := svcStore.EnabledList()
-			if err != nil {
-				return nil, fmt.Errorf("读取服务字典失败：%w", err)
-			}
-			items := make([]string, 0, len(svcList))
-			for _, s := range svcList {
-				items = append(items, fmt.Sprintf("%s（%s）", s.ServiceCode, s.ServiceName))
-			}
-			if len(items) > 0 {
-				svcDesc += "；" + strings.Join(items, "；")
-			}
-		}
-		liveDesc["service_code"] = svcDesc
-	}
-
 	if present["env"] {
 		liveDesc["env"] = strings.Join(models.ValidEnvs, "；")
 	}
@@ -320,7 +308,7 @@ func templateColumnRequiredLabel(category models.ResourceCategory, col string) s
 		return "可留空（留空按 default 网域导入）"
 	case "biz_code":
 		switch category {
-		case models.ResourceCategoryApplication:
+		case models.ResourceCategoryApplication, models.ResourceCategoryInterfaceService:
 			return "必填"
 		case models.ResourceCategoryGenericTarget:
 			return "二选一（与 app_code 至少填一个）"
@@ -329,7 +317,8 @@ func templateColumnRequiredLabel(category models.ResourceCategory, col string) s
 		}
 	case "app_code":
 		switch category {
-		case models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware, models.ResourceCategoryApplication:
+		case models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware,
+			models.ResourceCategoryApplication, models.ResourceCategoryInterfaceService:
 			return "必填"
 		case models.ResourceCategoryGenericTarget:
 			return "二选一（与 biz_code 至少填一个）"
@@ -401,6 +390,11 @@ func templateExampleRow(category models.ResourceCategory) []string {
 		values["target_name"] = "示例-snmp-switch-01"
 		values["instance_ip"] = "192.0.2.30"
 		values["biz_code"] = "example-biz"
+	case models.ResourceCategoryInterfaceService:
+		values["api_name"] = "示例-健康检查接口"
+		values["api_url"] = "https://api.example.com/health"
+		values["biz_code"] = "example-biz"
+		values["app_code"] = "example-app"
 	}
 	columns := TemplateColumns[category]
 	row := make([]string, len(columns))

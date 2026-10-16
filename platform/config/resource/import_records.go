@@ -31,7 +31,7 @@ func ListImports(db *gorm.DB) gin.HandlerFunc {
 		if raw := strings.TrimSpace(c.Query("resource_category")); raw != "" {
 			category := models.ResourceCategory(raw)
 			if !isValidCategory(category) {
-				response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", raw))
+				response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 %s", raw, models.CategoriesHint()))
 				return
 			}
 			q = q.Where("resource_category = ?", category)

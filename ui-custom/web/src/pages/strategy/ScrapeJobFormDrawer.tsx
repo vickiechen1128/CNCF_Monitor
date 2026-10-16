@@ -18,7 +18,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
@@ -26,23 +26,25 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
+import type { AuthType, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
 import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
-import { SCRAPE_PARAM_FIELDS, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, CATEGORY_MAP } from './strategyConstants'
+import {
+  SCRAPE_PARAM_FIELDS,
+  MONITOR_TYPE_CASCADE,
+  MONITOR_TYPE_MAP,
+  CATEGORY_MAP,
+  BLACKBOX_CATEGORIES,
+  BLACKBOX_TARGET_FIELD_LABEL,
+} from './strategyConstants'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 
+// 拨测模块（协议/目标不再手填：目标由所选资源类别决定，协议由目标地址的 scheme 决定，
+// 故不再需要 BLACKBOX_PROTOCOLS）。
 const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
-const BLACKBOX_PROTOCOLS: { value: BlackboxTargetProtocol; label: string }[] = [
-  { value: 'http', label: 'HTTP' },
-  { value: 'https', label: 'HTTPS' },
-  { value: 'tcp', label: 'TCP' },
-  { value: 'icmp', label: 'ICMP' },
-  { value: 'dns', label: 'DNS' },
-]
 
 const { Text, Link } = Typography
 
@@ -143,6 +145,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     [monitorType],
   )
   const resourceCategorySelected = Form.useWatch('resource_category', form) as ResourceCategory | undefined
+  // 拨测（blackbox）分支：由用户选定目标资源类别（限接口服务 / 应用服务两类）。
+  // 探测地址字段不再由用户选：由类别写死推导（接口服务→接口地址、应用服务→健康检查 URL），
+  // 服务端保存时按同一映射落库，前端不提交 target_field。
+  const blackboxCategory = Form.useWatch('resource_type', form) as ResourceCategory | undefined
   // Q1a：登记采集器仅在「已选监控对象类型但无默认采集器」的空态展示（PRD §3.1 采集器选择器空态引导，L83）
   const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
@@ -207,7 +213,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         tls_skip_verify: record.tls_skip_verify,
         ca_file: record.ca_file,
         blackbox_module: record.blackbox_module,
-        blackbox_targets: record.blackbox_targets,
+        // 拨测目标改走资源选择：回显用户选定的资源类别，目标清单由 selected_instance_ids
+        // 还原（见上方 setSelectedIds），不再回填 blackbox_targets（手填入口已彻底禁用）。
+        // target_field 无表单字段可回显 —— 它由 resource_type 写死推导（服务端落库）。
+        resource_type: (record.resource_type || undefined) as ResourceCategory | undefined,
         password: undefined,
       })
       setParamsState((record.mapping_overrides?.length ?? 0) > 0 ? 'pending' : 'none')
@@ -317,7 +326,11 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       }
       if (values.job_type === 'blackbox') {
         body.blackbox_module = values.blackbox_module
-        body.blackbox_targets = values.blackbox_targets?.filter((t): t is BlackboxTarget => !!t && !!t.target)
+        // 拨测目标改走资源选择：目标地址 = 所选实例在「该类别写死的探测地址字段」上的值
+        // （接口服务→接口地址、应用服务→健康检查 URL）。只提交类别，target_field 由服务端
+        // 推导；手填入口已彻底禁用（后端同样拒绝 blackbox_targets 写入）。
+        body.resource_type = values.resource_type
+        body.selected_instance_ids = selectedIds
       } else {
         body.monitor_type = values.monitor_type
         body.exporter_template_id = values.exporter_template_id
@@ -688,46 +701,32 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           </>
         ) : (
           <>
-            <Form.Item label="拨测模块" name="blackbox_module" rules={[{ required: true, message: '请选择拨测模块' }]}>
-              <Select placeholder="选择拨测模块">
-                {BLACKBOX_MODULES.map((m) => (
-                  <Select.Option key={m} value={m}>
-                    {m}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item label="拨测目标" required>
-              <Form.List name="blackbox_targets">
-                {(fields, { add, remove }) => (
-                  <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                    {fields.map((field) => (
-                      <Space key={field.key} align="baseline" wrap>
-                        <Form.Item name={[field.name, 'protocol']} noStyle rules={[{ required: true, message: '协议必填' }]}>
-                          <Select placeholder="协议" style={{ width: 110 }}>
-                            {BLACKBOX_PROTOCOLS.map((p) => (
-                              <Select.Option key={p.value} value={p.value}>
-                                {p.label}
-                              </Select.Option>
-                            ))}
-                          </Select>
-                        </Form.Item>
-                        <Form.Item name={[field.name, 'target']} noStyle rules={[{ required: true, message: '目标必填' }]}>
-                          <Input placeholder="目标地址" style={{ width: 200 }} maxLength={128} />
-                        </Form.Item>
-                        <Form.Item name={[field.name, 'url']} noStyle>
-                          <Input placeholder="URL（可选）" style={{ width: 180 }} maxLength={512} />
-                        </Form.Item>
-                        <Button type="text" icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
-                      </Space>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="拨测模块" name="blackbox_module" rules={[{ required: true, message: '请选择拨测模块' }]}>
+                  <Select placeholder="选择拨测模块">
+                    {BLACKBOX_MODULES.map((m) => (
+                      <Select.Option key={m} value={m}>
+                        {m}
+                      </Select.Option>
                     ))}
-                    <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ protocol: 'http' })}>
-                      添加拨测目标
-                    </Button>
-                  </Space>
-                )}
-              </Form.List>
-            </Form.Item>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="资源类别" name="resource_type" rules={[{ required: true, message: '请选择资源类别' }]}>
+                  <Select
+                    placeholder="请选择"
+                    // 只列接口服务 / 应用服务两类（与后端 models.BlackboxProbeCategories 一致）
+                    options={BLACKBOX_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_MAP[c] }))}
+                    onChange={() => {
+                      // 换类别 → 探测地址字段随之改变，已选实例不再适用，清空
+                      setSelectedIds([])
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
             <Form.Item
               label="网域"
               name="network_domain_id"
@@ -749,6 +748,25 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   </Select.Option>
                 ))}
               </Select>
+            </Form.Item>
+            <Form.Item
+              label="拨测目标"
+              required
+              extra={
+                blackboxCategory
+                  ? `从「${CATEGORY_MAP[blackboxCategory]}」台账中选择；目标地址固定取所选实例的${BLACKBOX_TARGET_FIELD_LABEL[blackboxCategory]}，不手工填写。`
+                  : '从所选资源类别的台账中选择；目标地址按资源类别固定取一个地址字段，不手工填写。'
+              }
+            >
+              {/* 不传 targetField：探测地址字段由服务端按类别推导（接口服务→接口地址、
+                  应用服务→健康检查 URL），候选第二列渲染的即该字段的真实值。 */}
+              <InstanceSelector
+                resourceCategory={blackboxCategory}
+                networkDomainId={networkDomainId}
+                addressColumnTitle="探测地址"
+                selectedIds={selectedIds}
+                onChange={setSelectedIds}
+              />
             </Form.Item>
           </>
         )}
