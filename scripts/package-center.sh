@@ -28,10 +28,13 @@
 # 用法：
 #   bash scripts/package-center.sh                    # 本机平台产物
 #   CROSS=linux/amd64 bash scripts/package-center.sh  # 交叉编译为 Ubuntu x86_64
+#   CROSS=linux/arm64 DEPLOY_ENV=prod TARGET_OS_NAME=kylin-v10 bash scripts/package-center.sh
 #
 # 环境变量：
 #   DIST_DIR          产物输出目录（默认 ./dist）
-#   BUNDLE_NAME       自定义包名（默认自动生成）
+#   BUNDLE_NAME       自定义包名（默认按 环境-OS-架构 自动生成）
+#   DEPLOY_ENV        部署环境标识，进入包名（默认 prod；开发环境传 dev）
+#   TARGET_OS_NAME    目标操作系统标识，进入包名（默认按架构推断：arm64→kylin-v10、amd64→ubuntu）
 #   CROSS             交叉编译目标，如 linux/amd64、linux/arm64
 #   WITH_ALERTMANAGER 默认 1：随包交付 alertmanager + amtool（M08 依赖）。除 bin/ 外还会：
 #                     ① 写入 config/alertmanager.yml（＋ .example 模板）；
@@ -100,7 +103,17 @@ esac
 IS_CROSS=0
 [ "$TARGET_OS/$TARGET_ARCH" != "$HOST_OS/$HOST_ARCH" ] && IS_CROSS=1
 
-BUNDLE_NAME=${BUNDLE_NAME:-"metric-center-bundle-${TARGET_OS}-${TARGET_ARCH}-${TIMESTAMP}"}
+# 包名承载「环境 + 操作系统 + 架构」三重区分，避免生产/开发、多平台产物互相误用：
+#   metric-center-bundle-prod-linux-arm64-kylin-v10-<ts>.tar.gz
+#   metric-center-bundle-dev-linux-amd64-ubuntu-<ts>.tar.gz
+DEPLOY_ENV=${DEPLOY_ENV:-prod}
+if [ -z "$TARGET_OS_NAME" ]; then
+    case "$TARGET_ARCH" in
+        arm64) TARGET_OS_NAME="kylin-v10" ;;
+        *) TARGET_OS_NAME="ubuntu" ;;
+    esac
+fi
+BUNDLE_NAME=${BUNDLE_NAME:-"metric-center-bundle-${DEPLOY_ENV}-${TARGET_OS}-${TARGET_ARCH}-${TARGET_OS_NAME}-${TIMESTAMP}"}
 BUNDLE_DIR="$DIST_DIR/$BUNDLE_NAME"
 TARBALL="$DIST_DIR/${BUNDLE_NAME}.tar.gz"
 
@@ -137,10 +150,16 @@ build_metric_center() {
         make -C "$PROJECT_ROOT" build-metric-center
     else
         cd "$PROJECT_ROOT"
-        # mattn/go-sqlite3 依赖 CGO；使用 zig 作为交叉 C 工具链
-        # Go 的 amd64 在 zig target 中对应 x86_64
-        local zig_arch="$TARGET_ARCH"
-        [ "$zig_arch" = "amd64" ] && zig_arch="x86_64"
+        # mattn/go-sqlite3 依赖 CGO；使用 zig 作为交叉 C 工具链。
+        # Go 架构名与 zig target 名不一致，必须显式映射：
+        #   amd64 → x86_64、arm64 → aarch64（zig 只认后者，arm64-linux-gnu 会直接报
+        #   "unknown target"）。麒麟 V10 / aarch64 交付包依赖此映射。
+        local zig_arch
+        case "$TARGET_ARCH" in
+            amd64) zig_arch="x86_64" ;;
+            arm64) zig_arch="aarch64" ;;
+            *) zig_arch="$TARGET_ARCH" ;;
+        esac
         local zig_target="${zig_arch}-${TARGET_OS}-gnu"
         CC="zig cc -target $zig_target" \
         CXX="zig c++ -target $zig_target" \
