@@ -34,6 +34,14 @@
 #   EDGE_AGENT_VERSION  版本号（Makefile 注入，默认 v0.2.0）
 #   DIST_DIR           产物根目录（默认 $PROJECT_ROOT/dist）
 #   EDGE_SRC_DIST      二进制目录（默认 $PROJECT_ROOT/platform/edge-sync-agent/dist）
+#   DEPLOY_ENV         部署环境标识，进入包名（默认 prod；开发环境传 dev）
+#   TARGET_ARCH        编排架构标签，进入包名（默认 amd64）。注意：离线包内始终含
+#                      amd64 + arm64 双架构二进制，此处仅决定包名标签，部署机按
+#                      uname -m 自动选装；生产 x86 用 amd64、生产 ARM（麒麟 V10）
+#                      用 arm64、开发环境按实际部署机填。
+#   TARGET_OS_NAME     目标操作系统标识，进入包名（默认按架构推断：arm64→kylin-v10、amd64→ubuntu）
+#   PKG_ROOT_OVERRIDE  产物子目录（默认 $DIST_DIR/edge-package）；多环境并存时可分别落到
+#                      不同子目录，避免同名包互相覆盖
 
 set -e
 
@@ -41,12 +49,23 @@ PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 EDGE_AGENT_VERSION=${EDGE_AGENT_VERSION:-v0.2.0}
 DIST_DIR=${DIST_DIR:-"$PROJECT_ROOT/dist"}
 EDGE_SRC_DIST=${EDGE_SRC_DIST:-"$PROJECT_ROOT/platform/edge-sync-agent/dist"}
-PKG_ROOT="$DIST_DIR/edge-package"
+PKG_ROOT=${PKG_ROOT_OVERRIDE:-"$DIST_DIR/edge-package"}
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
-# 编排架构：默认以 x86_64 命名（离线包内含 amd64 + arm64 双架构二进制，部署机按需选装）。
+# 编排架构：仅作为包名标签，离线包内含 amd64 + arm64 双架构二进制。
 TARGET_ARCH=${TARGET_ARCH:-"amd64"}
-PACK_NAME="edge-sync-agent-${EDGE_AGENT_VERSION}-linux-${TARGET_ARCH}-${TIMESTAMP}"
+DEPLOY_ENV=${DEPLOY_ENV:-prod}
+if [ -z "$TARGET_OS_NAME" ]; then
+    case "$TARGET_ARCH" in
+        arm64) TARGET_OS_NAME="kylin-v10" ;;
+        *) TARGET_OS_NAME="ubuntu" ;;
+    esac
+fi
+# 包名承载「环境 + 操作系统 + 架构」三重区分，避免生产/开发、多平台产物互相误用：
+#   edge-sync-agent-v0.2.0-prod-linux-arm64-kylin-v10-<ts>.tar.gz
+#   edge-sync-agent-v0.2.0-prod-linux-amd64-ubuntu-<ts>.tar.gz
+#   edge-sync-agent-v0.2.0-dev-linux-amd64-ubuntu-<ts>.tar.gz
+PACK_NAME="edge-sync-agent-${EDGE_AGENT_VERSION}-${DEPLOY_ENV}-linux-${TARGET_ARCH}-${TARGET_OS_NAME}-${TIMESTAMP}"
 PACK_DIR="$PKG_ROOT/$PACK_NAME"
 TARBALL="$PKG_ROOT/${PACK_NAME}.tar.gz"
 
@@ -75,14 +94,16 @@ for doc in "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.ser
 done
 
 rm -rf "$PACK_DIR"
-# 只保留最新一份产物：清理同目录的历史 tarball 与历史解压目录（用户要求「只要一个最新版本」）。
+# 只保留「同一 环境+OS+架构」组合下的最新一份产物：清理范围限定在本包名作用域
+# （edge-sync-agent-<版本>-<环境>-linux-<架构>-<OS>-*），不同环境/平台的并存包互不干扰。
 # 放在二进制检查之后执行，避免检查失败退出时反而清掉了上一份可用产物。
-for old in "$PKG_ROOT"/edge-sync-agent-*.tar.gz; do
+PACK_SCOPE="edge-sync-agent-${EDGE_AGENT_VERSION}-${DEPLOY_ENV}-linux-${TARGET_ARCH}-${TARGET_OS_NAME}-"
+for old in "$PKG_ROOT"/${PACK_SCOPE}*.tar.gz; do
     [ -e "$old" ] || continue
     [ "$old" = "$TARBALL" ] && continue
     rm -f "$old"
 done
-for olddir in "$PKG_ROOT"/edge-sync-agent-v*; do
+for olddir in "$PKG_ROOT"/${PACK_SCOPE}*; do
     [ -d "$olddir" ] || continue
     [ "$olddir" = "$PACK_DIR" ] && continue
     rm -rf "$olddir"
@@ -186,9 +207,15 @@ ls -lh "$TARBALL"
 # 生成发布元数据（字段对齐中心 PackageArtifact / PackageComponent；三件套版本注入）
 SIZE_BYTES=$(wc -c < "$TARBALL" | tr -d ' ')
 SHA256=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
-cat > "$PKG_ROOT/release_meta.json" <<EOF
+# 双写：包名作用域内的一份（多环境/多平台并存时互不覆盖）+ 根目录 latest 一份
+# （中心 --edge-packages.dir 默认读 dist/edge-package/release_meta.json）。
+write_meta() {
+cat > "$1" <<EOF
 {
   "version": "$EDGE_AGENT_VERSION",
+  "deploy_env": "$DEPLOY_ENV",
+  "target_arch": "$TARGET_ARCH",
+  "target_os": "$TARGET_OS_NAME",
   "file": "${PACK_NAME}.tar.gz",
   "size_bytes": $SIZE_BYTES,
   "sha256": "$SHA256",
@@ -199,5 +226,8 @@ cat > "$PKG_ROOT/release_meta.json" <<EOF
   ]
 }
 EOF
+}
+write_meta "$PKG_ROOT/release_meta-${DEPLOY_ENV}-${TARGET_ARCH}-${TARGET_OS_NAME}.json"
+write_meta "$PKG_ROOT/release_meta.json"
 echo ">>> release_meta.json (对齐 PackageArtifact/PackageComponent 契约):"
 cat "$PKG_ROOT/release_meta.json"
