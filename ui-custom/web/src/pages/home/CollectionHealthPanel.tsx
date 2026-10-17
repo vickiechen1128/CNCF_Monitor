@@ -1,24 +1,39 @@
 /**
- * 「采集健康」独立面板（M05 反馈 10，路线 B）。
+ * 「采集健康」面板（M05 反馈 10，路线 B；2026-10-17 走查：解释文案整合；
+ * 第五轮走查：上移与告警状态 2:1 并排）。
  *
- * 工程师视角：回答「已下发的这批数据采到了吗、哪些没在采」，与领导视角的 L0「纳管覆盖率」
- * （下发进度）**分开展示**。位置固定在「告警状态」区块之前（HomePage 中位于 L3 拨测面板之后、
- * L4/L5 告警 + 使用指引行之前）。
+ * 工程师视角：回答「已下发的这批数据采到了吗、哪些没在采」，与领导视角的 04 段
+ * 「监控对象纳管进度」（下发配置进度）分开展示。
+ *
+ * **位置（2026-10-17 第六轮走查定）**：与拨测态势并排（home-health-probe-row，
+ * 采集 1 : 拨测 2）。这与反馈 11 §11.2 ⑧「采集健康不与 04 相邻」的原约定冲突——
+ * 产品负责人重新裁定：并排后两者仍是不同卡、不同口径、有 Tooltip 分隔，
+ * 「分开展示」的实质不变；且工程师视角的「数据到没到」与「探测通不通」同属
+ * 采集链路运行态，并排阅读更顺（裁定记录见 design-proposal §7）。
+ * 与 04 的口径分工文案（可见副标题）保持原状，未随位置改动。
  *
  * 口径（见 dev-feedback 反馈 10 §10.5 / `api/dashboard.ts` 的 `CollectionHealth`）：
- * - 分母 = **已下发资源数**（= `monitored_count`），**不含未下发**——未下发进度归 L0「纳管覆盖率」；
+ * - 分母 = **已下发资源数**（= `monitored_count`），**不含未下发**——未下发进度归 04 段；
  * - 四态 = 采集中 / 回传延迟中（stale，独立一态）/ 已下发未采到 / 待采集；**拨测目标不参与**；
  * - 判定由后端一次聚合（`collection_health`），前端零聚合逻辑；字段缺失 → 按「不可用」呈现，
  *   绝不误报 0（决策 68-2）。
  *
- * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：分布条整宽；图例由一行折为多行；标题行
- * 的「查看资源明细 →」保持右对齐（短文本不溢出）。
+ * **解释整合（2026-10-17 走查，产品负责人裁定）**：原面板「顶部副标题 + 底部脚注」
+ * 两段长解释讲的是同一件事（与上方纳管率的口径分工），上下夹击信息过载。
+ * 现只保留**一行可见副标题**讲清分工；「拨测目标不参与统计」等次要口径进**标题
+ * Tooltip**；「回传延迟中是什么」进各图例项的 Tooltip（原本就在）。
+ *
+ * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：分布条整宽；四态四行版式在
+ * 窄屏不变（行式本就窄屏友好）；标题行的「查看资源明细 →」保持右对齐（短文本不
+ * 溢出）。与拨测的并排行在窄容器（≈936px 以下）经 flex-wrap 自动折为上下堆叠，
+ * 堆叠后卡高即内容高、四行回到自然行高（minHeight），无需额外断点。
  */
 import { Link } from 'react-router-dom'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip, Typography, theme } from 'antd'
 import { SurfaceCard } from './SurfaceCard'
+import { HOME_FONT, HOME_WEIGHT } from './homeTypography'
 import type { CollectionHealth } from '../../api/dashboard'
-import { useNarrowLayout } from './homeResponsive'
 
 const { Text } = Typography
 
@@ -26,6 +41,11 @@ const { Text } = Typography
 const RESOURCE_LIST_HREF = '/resources'
 /** 无已下发资源时的引导入口：建采集 Job */
 const SCRAPE_JOB_HREF = '/scrape-jobs'
+
+/** 标题 Tooltip：只讲**边界**（分母、四态窗口、谁不参与），
+ *  「与 04 的分工」由可见副标题一句话说完——两处不重复同一段口径（第六轮走查） */
+const HEALTH_SCOPE_TIP =
+  '分母＝已配置采集任务的资源；四态按上报样本时间窗口判定（5 分钟 / 1 小时）；拨测目标不参与统计。'
 
 interface CollectionHealthPanelProps {
   /** 后端采集健康四态聚合；缺失（后端未实现 / 查询失败）时为 undefined */
@@ -48,31 +68,31 @@ const STATE_METAS: StateMeta[] = [
     key: 'collecting_count',
     label: '采集中',
     color: (t) => t.colorSuccess,
-    hint: '5 分钟内有 up 样本且采集成功（=1）。',
+    // Tooltip 用人话（2026-10-17 走查）：原先写「5 分钟内有 up 样本且采集成功（=1）」，领导读不懂
+    hint: '5 分钟内有数据上报，采集正常。',
   },
   {
     key: 'stale_count',
     label: '回传延迟中',
     color: (t) => t.colorWarning,
-    hint: '5 分钟内无样本、但 1 小时内有历史样本：样本在途（边缘回传积压），非采集失败，请查采集节点回传状态。',
+    hint: '5 分钟内没有新数据，但 1 小时内有：数据还在回传路上（边缘节点积压），不是采集失败。',
   },
   {
     key: 'down_count',
     label: '已下发未采到',
     color: (t) => t.colorError,
-    hint: '5 分钟内有 up 样本且采集失败（=0）：已下发但未采到数据。',
+    hint: '5 分钟内有数据上报，但采集失败：已配置采集任务，却没采到数据。',
   },
   {
     key: 'pending_count',
     label: '待采集',
     color: (t) => t.colorTextQuaternary,
-    hint: '1 小时内无任何样本：下发生效后尚未首采，或采集器未产生样本。',
+    hint: '1 小时内没有任何数据：刚配置还没跑起来，或采集器没有产生数据。',
   },
 ]
 
 export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
   const { token } = theme.useToken()
-  const narrow = useNarrowLayout()
 
   const unavailable = health === undefined
   const dispatched = health?.dispatched_count ?? 0
@@ -80,31 +100,49 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
   return (
     <SurfaceCard
       data-testid="collection-health-panel"
-      title="采集健康"
+      // 与拨测态势并排（home-health-probe-row，flex 1 1 360px）：行内 stretch 对齐，
+      // 撑满行高；窄容器折行后 height:100% 解析为 auto（同 02/03 面板模式）。
+      // 卡根 display:flex + 卡体 flex:1：四态图例的 flex:1 才生效（卡根非 flex 时
+      // body 的 flex:1 不生效——卡高满而内容悬在卡顶）。第六轮四行化见下方图注。
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: { padding: 20, display: 'flex', flexDirection: 'column', flex: 1 } }}
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          采集健康
+          <Tooltip title={HEALTH_SCOPE_TIP}>
+            <InfoCircleOutlined
+              aria-label="采集健康口径说明"
+              style={{ fontSize: 12, color: token.colorTextTertiary, cursor: 'help' }}
+            />
+          </Tooltip>
+        </span>
+      }
       extra={
-        <Link to={RESOURCE_LIST_HREF} data-testid="ch-detail-link">
-          查看资源明细 →
+        <Link to={RESOURCE_LIST_HREF} data-testid="ch-detail-link" style={{ fontSize: HOME_FONT.label }}>
+          查看资源采集健康状态 →
         </Link>
       }
     >
-      {/* 口径副标题：与 L0「纳管覆盖率」（下发进度）明确区分 */}
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        仅统计**已下发资源**（被启用采集任务覆盖）的实际采集情况，与上方「纳管覆盖率」口径不同
-        （该值为下发进度、不代表已采到）；拨测目标不参与。
+      {/* 口径副标题（2026-10-17 整合后**唯一**的可见解释）：只讲与上方 04 段的分工，
+          一句话说完；其余口径（拨测不参与 / 回传延迟中是什么）进 Tooltip，不再上下两段夹击。 */}
+      <Text type="secondary" style={{ fontSize: HOME_FONT.body }}>
+        这里看的是实际采集情况；上方「监控对象纳管完成率」看的是配置完成度，两者口径不同。
       </Text>
 
       {unavailable ? (
         <div
           data-testid="ch-unavailable"
-          style={{ marginTop: 16, padding: '20px 0', textAlign: 'center', color: token.colorTextTertiary, fontSize: 13 }}
+          style={{ marginTop: 16, padding: '20px 0', textAlign: 'center', color: token.colorTextTertiary, fontSize: HOME_FONT.label }}
         >
           采集健康数据暂不可用
         </div>
       ) : dispatched === 0 ? (
         <div style={{ marginTop: 16, padding: '20px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>暂无已下发资源</div>
-          <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
-            建立并下发采集任务后，这里将展示已下发资源的实际采集健康度。
+          <div style={{ fontSize: HOME_FONT.title, fontWeight: HOME_WEIGHT.title }}>
+            暂无已配置采集任务的资源
+          </div>
+          <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: HOME_FONT.body }}>
+            创建并下发采集任务后，这里会展示这些资源的实际采集情况。
           </Text>
           <Link to={SCRAPE_JOB_HREF} style={{ display: 'inline-block', marginTop: 10 }} data-testid="ch-empty-link">
             去建采集任务 →
@@ -144,13 +182,19 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
             })}
           </div>
 
-          {/* 图例计数：窄屏自动折行 */}
+          {/* 图例计数（第六轮走查：一行四格 → **2×2 两行两列**）：每格色点 + 状态名（左）、
+              计数（右，14px/700）。四行太占高度（产品负责人走查要求更紧凑），2×2 用横向
+              空间换高度；格子 flex 双向拉伸，卡被行拉伸时两行分摊剩余高度、不留底部空白，
+              卡未被拉伸时（窄屏堆叠）回到 minHeight 自然高度。
+              每项 Tooltip 自带口径（「回传延迟中」等解释在这里，不再需要面板底部脚注）。 */}
           <div
             data-testid="ch-legend"
             style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: narrow ? '8px 16px' : '8px 24px',
+              gap: 8,
+              flex: 1,
+              alignContent: 'stretch',
               marginTop: 14,
             }}
           >
@@ -158,29 +202,44 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
               <div
                 key={m.key}
                 data-testid={`ch-legend-${m.key}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                style={{
+                  flex: '1 1 45%',
+                  minWidth: 0,
+                  minHeight: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
               >
                 <span
                   aria-hidden
                   style={{ width: 8, height: 8, borderRadius: '50%', background: m.color(token), flexShrink: 0 }}
                 />
                 <Tooltip title={m.hint}>
-                  <span style={{ fontSize: 12, color: token.colorTextSecondary, cursor: 'help' }}>{m.label}</span>
+                  <span
+                    style={{
+                      fontSize: HOME_FONT.body,
+                      color: token.colorTextSecondary,
+                      cursor: 'help',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {m.label}
+                  </span>
                 </Tooltip>
-                <span style={{ fontSize: 14, fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: HOME_FONT.title,
+                    fontWeight: HOME_WEIGHT.number,
+                    color: token.colorText,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
                   {health[m.key]}
                 </span>
               </div>
             ))}
-          </div>
-
-          {/* 底部口径说明 */}
-          <div
-            data-testid="ch-footnote"
-            style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${token.colorBorderSecondary}`, fontSize: 11, color: token.colorTextTertiary }}
-          >
-            本面板只表达已下发资源内部的采集健康度；未下发资源的纳管进度见上方「纳管覆盖率」。
-            「回传延迟中」为独立一态——样本在途（边缘回传积压），不代表采集失败。
           </div>
         </>
       )}

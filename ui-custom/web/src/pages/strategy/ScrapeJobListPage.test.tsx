@@ -14,6 +14,7 @@ function vector(result: PromVectorItem[]) {
 const updateMock = vi.fn()
 const removeMock = vi.fn()
 const instancesMock = vi.fn()
+const previewTargetsMock = vi.fn()
 const domainListMock = vi.fn()
 const tmplListMock = vi.fn()
 const labelListMock = vi.fn()
@@ -26,6 +27,7 @@ vi.mock('../../api/scrapeJobs', () => ({
     update: (...args: unknown[]) => updateMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
     instances: (...args: unknown[]) => instancesMock(...args),
+    previewTargets: (...args: unknown[]) => previewTargetsMock(...args),
   },
 }))
 
@@ -96,6 +98,7 @@ beforeEach(() => {
   updateMock.mockReset()
   removeMock.mockReset()
   instancesMock.mockReset()
+  previewTargetsMock.mockReset()
   domainListMock.mockReset()
   tmplListMock.mockReset()
   labelListMock.mockReset()
@@ -526,11 +529,7 @@ describe('ScrapeJobListPage', () => {
             job_type: 'blackbox',
             change_status: 'deployed',
             enabled: true,
-            selected_instance_ids: [],
-            blackbox_targets: [
-              { target: 'http://1.1.1.1:3000/login', protocol: 'http' },
-              { target: 'http://2.2.2.2:3000/login', protocol: 'http' },
-            ],
+            selected_instance_ids: ['res-1', 'res-2'],
           }),
         ],
         total: 1,
@@ -538,10 +537,20 @@ describe('ScrapeJobListPage', () => {
         page_size: 20,
       },
     })
+    // F-12：拨测目标来自 selected_instance_ids 经 preview-targets 解析
+    previewTargetsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        targets: [
+          { resource_id: 'res-1', address: 'http://1.1.1.1:3000/login', protocol: 'http' },
+          { resource_id: 'res-2', address: 'http://2.2.2.2:3000/login', protocol: 'http' },
+        ],
+      },
+    })
     queryMock.mockResolvedValue(
       vector([
-        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://1.1.1.1:3000/login' }, value: [0, '1'] },
-        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://2.2.2.2:3000/login' }, value: [0, '0'] },
+        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://1.1.1.1:3000/login', resource_id: 'res-1' }, value: [0, '1'] },
+        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://2.2.2.2:3000/login', resource_id: 'res-2' }, value: [0, '0'] },
       ]),
     )
 

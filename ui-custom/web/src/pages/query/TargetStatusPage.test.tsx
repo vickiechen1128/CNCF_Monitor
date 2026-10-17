@@ -34,9 +34,9 @@ function target(resource_id: string, health: 'up' | 'down' | 'unknown', over: Re
   }
 }
 
-function renderPage() {
+function renderPage(initialPath = '/targets') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath]}>
       <TargetStatusPage />
     </MemoryRouter>,
   )
@@ -92,8 +92,7 @@ describe('TargetStatusPage', () => {
     fireEvent.click(await screen.findByText('离线'))
     await waitFor(() =>
       expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'down' })),
-    )
-  })
+    )  })
 
   it('renders backend-resolved instance name column', async () => {
     targetsListMock.mockResolvedValue({
@@ -147,5 +146,31 @@ describe('TargetStatusPage', () => {
     await waitFor(() =>
       expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ search: undefined })),
     )
+  })
+
+  it('pre-filters to abnormal targets when the deep link carries health=down', async () => {
+    // 首页拨测卡「查看异常拨测目标 →」→ /targets?health=down：落页即只看异常节点
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [target('res-2', 'down')], droppedTargets: [], targetsByJob: {} },
+    })
+    renderPage('/targets?health=down')
+    await waitFor(() =>
+      expect(targetsListMock).toHaveBeenCalledWith(expect.objectContaining({ health: 'down' })),
+    )
+    expect(await screen.findByText('10.0.0.2:9104')).toBeInTheDocument()
+  })
+
+  it('ignores an invalid health param instead of erroring', async () => {
+    // 深链是展示入口，非法枚举不报错、按不过滤处理（与接口 bad_request 口径区分）
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [target('res-1', 'up')], droppedTargets: [], targetsByJob: {} },
+    })
+    renderPage('/targets?health=bogus')
+    await waitFor(() =>
+      expect(targetsListMock).toHaveBeenCalledWith(expect.objectContaining({ health: undefined })),
+    )
+    expect(await screen.findByText('10.0.0.1:9104')).toBeInTheDocument()
   })
 })

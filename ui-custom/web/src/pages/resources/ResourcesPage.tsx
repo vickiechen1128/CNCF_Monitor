@@ -151,7 +151,7 @@ function DeleteResourceConfirm({
 }
 
 /** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target', 'interface_service']
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']
 
 /** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
 const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
@@ -227,12 +227,15 @@ function resourceDisplayName(record: ResourceListItem): string {
 export function ResourcesPage() {
   /**
    * 首页下钻深链参数（M05 §3.1 决策 91）：`resource_category` 决定首屏 Tab，
-   * `subtype` / `app_code` 做客户端预筛，`import=1` 直接打开导入弹窗。
+   * `subtype` / `app_code` / `cloud` 做客户端预筛，`import=1` 直接打开导入弹窗。
    *
    * 实现口径：**只在当前页数据上做客户端过滤**，不改后端列表接口契约
    * （子类字段各类型不同，且 MVP 分页从简，与既有 biz/status 客户端过滤同一模式）。
    * 用 `useResources(initialCategory)` 与 `useState(初始化函数)` 承接，避免在 effect 里
    * 同步 setState（react-hooks/set-state-in-effect）。
+   *
+   * `cloud`（design-proposal §2.1 第 1~3 条）：云卡口径仅主机，故无 `resource_category`
+   * 时默认 Tab 落 `host`；过滤按 item 的 `cloud_code`（后端网域派生，五类均有）比对。
    */
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -242,7 +245,8 @@ export function ResourcesPage() {
   const deepLinkCategory = searchParams.get('resource_category') as ResourceCategory | null
   const deepLinkSubtype = searchParams.get('subtype')
   const deepLinkAppCode = searchParams.get('app_code')
-  const hasDeepLinkFilter = Boolean(deepLinkSubtype || deepLinkAppCode)
+  const deepLinkCloud = searchParams.get('cloud')
+  const hasDeepLinkFilter = Boolean(deepLinkSubtype || deepLinkAppCode || deepLinkCloud)
   const deepLinkInitialCategory =
     deepLinkCategory && RESOURCE_TYPES.includes(deepLinkCategory) ? deepLinkCategory : undefined
 
@@ -259,7 +263,8 @@ export function ResourcesPage() {
     pageSize,
     onPageSizeChange,
     reload,
-  } = useResources(deepLinkInitialCategory)
+    // 云卡深链（§2.1 第 2 条）不带 resource_category：云口径仅主机，默认 Tab 落 host
+  } = useResources(deepLinkInitialCategory ?? 'host')
 
   const { tokens } = useSkin()
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
@@ -295,12 +300,14 @@ export function ResourcesPage() {
   const visibleList = useMemo(() => {
     let list = coveredList
     if (deepLinkAppCode) list = list.filter((r) => r.app_code === deepLinkAppCode)
+    // 云卡下钻（§2.1 第 3 条）：cloud_code 由后端按所属网域派生，缺失按空串参与比对
+    if (deepLinkCloud) list = list.filter((r) => (r.cloud_code ?? '') === deepLinkCloud)
     if (deepLinkSubtype) {
       const field = SUBTYPE_FIELD[category]
       list = list.filter((r) => String(r[field] ?? '') === deepLinkSubtype)
     }
     return list
-  }, [coveredList, deepLinkAppCode, deepLinkSubtype, category])
+  }, [coveredList, deepLinkAppCode, deepLinkCloud, deepLinkSubtype, category])
 
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -1297,8 +1304,9 @@ export function ResourcesPage() {
               style={{ marginBottom: 16 }}
             />
 
-            {/* 下钻来源提示（决策 91）：从首页子类行 / 应用行跳转而来时说明筛选条件，
-                并提供一键清除（清除后回落到本页自己的筛选条件，不做导航）。 */}
+            {/* 下钻来源提示（决策 91）：从首页子类行 / 应用行 / 云卡跳转而来时说明筛选条件，
+                并提供一键清除（清除后回落到本页自己的筛选条件，不做导航）。
+                云名展示名经云字典解析（缺条目回落 cloud_code，§2.1 第 4 条）。 */}
             {hasDeepLinkFilter && (
               <div data-testid="deep-link-hint" style={{ marginBottom: 12 }}>
                 <Alert
@@ -1307,10 +1315,21 @@ export function ResourcesPage() {
                   message={
                     <span>
                       已按首页下钻条件预筛选：
+                      {deepLinkCloud
+                        ? ` 云 ${resolveCloudName(deepLinkCloud ?? undefined)}（${deepLinkCloud}）`
+                        : ''}
                       {deepLinkAppCode ? ` 应用 ${deepLinkAppCode}` : ''}
                       {deepLinkSubtype ? ` 子类 ${deepLinkSubtype}` : ''}
                       （共 {visibleList.length} 条）
                     </span>
+                  }
+                  /* 与「采集状态」同源的当页限制（§2.1 第 5 条）：下钻条件一律为前端过滤，
+                     分页 total 仍来自后端统计，不随该条件变化——此前该限制完全静默，
+                     用户会以为看到的是全量筛选结果。 */
+                  description={
+                    <Text style={{ fontSize: 12 }}>
+                      该条件为前端过滤，仅作用于当前页；分页总数为未按此条件过滤的总数。
+                    </Text>
                   }
                   action={
                     <Button size="small" type="link" onClick={() => setSearchParams({})}>

@@ -32,7 +32,6 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
-const STATUS_PATH = '/api/v1/status'
 const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
 const PROM_ALERTS_PATH = '/api/v1/alerts'
 const AM_ALERTS_PATH = '/api/v2/platform/alertmanager/alerts'
@@ -40,14 +39,11 @@ const AM_ALERTS_PATH = '/api/v2/platform/alertmanager/alerts'
 const HISTORY_PATH = '/api/v1/alerts/history'
 
 /**
- * L0 五张 KPI 卡的 key（决策 93：由 4 张扩为 5 张，新增「拨测」）。
- * 第 4 张「当前未恢复告警」取 `/api/v1/alerts` 的 firing 条数，
- * 第 5 张「拨测」取 dashboard.probe_target_abnormal_count，其余三张由 dashboard/summary 供数。
+ * 已下线的 L0 五张 KPI 卡的 key（反馈 11 已整块删除该区块）。
+ * 常量保留为「反面清单」：用 `queryByTestId` 反向断言这些卡不再出现在首页，
+ * 防止后续开发把已被裁定删除的版式悄悄加回来。
  */
 const METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage', 'firing_count', 'probe']
-
-/** L0 中由 dashboard/summary 供数的四张卡（该接口失败时统一降级为 '-'） */
-const DASHBOARD_METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage', 'probe']
 
 /** 页面引导语：页内首行文案（决策 72-2；页面归属由导航表达，不重复「MetricCenter 概览」大标题）。
  *  产品名取自当前外观设置，测试中用默认名常量拼装，改名后不必逐处搜索字面量。 */
@@ -69,6 +65,14 @@ const isoAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000).t
  */
 const isoToday = () => dayjs().startOf('day').add(30, 'minute').toISOString()
 
+/**
+ * 今日 0 点后 N 分钟（无上界，允许落在「未来」）：
+ * 「当日告警」计数只与今日 0 点边界比较（`fired_at >= 今日0点`），未来时间戳同样计入
+ * 当日——用它构造**当日**样例可彻底摆脱运行时刻依赖（旧样例用 isoAgo(120)，
+ * 在纽约时间 00:00–02:30 跑会落到昨天，当日计数少 1，2026-10-17 实测 flaky）。
+ */
+const isoTodayAt = (minutes: number) => dayjs().startOf('day').add(minutes, 'minute').toISOString()
+
 function setupMock(byPath: Record<string, unknown>) {
   mockGet.mockImplementation((path: string) => {
     if (path in byPath) {
@@ -80,18 +84,12 @@ function setupMock(byPath: Record<string, unknown>) {
 
 function setupHomeMock(overrides: Record<string, unknown> = {}) {
   setupMock({
-    [STATUS_PATH]: STATUS_OK,
     [DASHBOARD_PATH]: DASHBOARD_OK,
     [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
     [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
     [HISTORY_PATH]: HISTORY_EMPTY,
     ...overrides,
   })
-}
-
-const STATUS_OK = {
-  status: 'success',
-  data: { version: 'v0.1.0', mode: 'standalone' },
 }
 
 /**
@@ -161,6 +159,80 @@ const DASHBOARD_OK = {
         ],
       },
     ],
+    /**
+     * 02「不同云的主机数量」样例（反馈 11 §11.2 ②③）：仅主机口径，云归属由
+     * `Host.NetworkDomainID → NetworkDomain.CloudCode → CloudDict.CloudName` 派生（M06 权威链路）。
+     * 自洽约束：各云 `resource_count` 之和 = host 类总数（42）。
+     */
+    by_cloud: [
+      { cloud_code: 'PUB-TX', cloud_name: '腾讯云', resource_count: 30, monitored_count: 28, coverage_rate: 93 },
+      { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', resource_count: 12, monitored_count: 8, coverage_rate: 67 },
+    ],
+    /**
+     * 03「平台与应用的主机分布」样例（反馈 11 §11.4）：仅统计 host。
+     * 自洽约束（行列合计均等于主机总数 42 = `by_category[host].resource_count`）：
+     * - 行合计：19 + 11 + 5 + 3 + 2 + 2 = 42
+     * - 列合计：支付 16 + 用户 16 + 数据网关 7 + 未指定应用 3 = 42
+     */
+    by_platform_app: [
+      {
+        platform_code: 'k8s-prod',
+        platform_name: '私有云A平台（容器云）',
+        host_count: 19,
+        cells: [
+          { app_code: 'payment', app_name: '支付平台', host_count: 8 },
+          { app_code: 'user', app_name: '用户中心', host_count: 7 },
+          { app_code: 'data-api', app_name: '数据网关', host_count: 3 },
+          { app_code: '', app_name: '未指定应用', host_count: 1 },
+        ],
+      },
+      {
+        platform_code: 'openstack',
+        platform_name: '私有云B平台',
+        host_count: 11,
+        cells: [
+          { app_code: 'payment', app_name: '支付平台', host_count: 5 },
+          { app_code: 'user', app_name: '用户中心', host_count: 3 },
+          { app_code: 'data-api', app_name: '数据网关', host_count: 2 },
+          { app_code: '', app_name: '未指定应用', host_count: 1 },
+        ],
+      },
+      {
+        platform_code: 'aliyun',
+        platform_name: '公有云A平台',
+        host_count: 5,
+        cells: [
+          { app_code: 'payment', app_name: '支付平台', host_count: 2 },
+          { app_code: 'user', app_name: '用户中心', host_count: 2 },
+          { app_code: 'data-api', app_name: '数据网关', host_count: 1 },
+        ],
+      },
+      {
+        platform_code: 'aws',
+        platform_name: '公有云B平台',
+        host_count: 3,
+        cells: [
+          { app_code: 'payment', app_name: '支付平台', host_count: 1 },
+          { app_code: 'user', app_name: '用户中心', host_count: 1 },
+          { app_code: 'data-api', app_name: '数据网关', host_count: 1 },
+        ],
+      },
+      {
+        platform_code: '__other__',
+        platform_name: '其他',
+        host_count: 2,
+        cells: [{ app_code: 'user', app_name: '用户中心', host_count: 2 }],
+      },
+      {
+        platform_code: '',
+        platform_name: '未指定平台',
+        host_count: 2,
+        cells: [
+          { app_code: 'user', app_name: '用户中心', host_count: 1 },
+          { app_code: '', app_name: '未指定应用', host_count: 1 },
+        ],
+      },
+    ],
     by_app: [
       { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
       { app_code: 'user', app_name: '用户中心', biz_code: 'user', biz_name: '用户业务', resource_count: 24, monitored_count: 16 },
@@ -170,15 +242,17 @@ const DASHBOARD_OK = {
     unclassified_monitored_count: 36,
     probe_target_count: 12,
     probe_target_abnormal_count: 1,
-    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」「归属网域」与 >5 行分页分支
+    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」「归属网域」与短名单上限分支。
+    // 按拨测对象分卡（2026-10-17 走查）：接口服务卡 6 条（2 down）+ 应用服务卡 2 条。
     probe_targets: [
-      { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
-      { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
-      { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { service_name: '支付平台', resource_category: 'interface_service', url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { service_name: '官网证书', resource_category: 'interface_service', url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+      { service_name: '官网', resource_category: 'interface_service', url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { service_name: '数据平台', resource_category: 'interface_service', url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { service_name: '订单中心', resource_category: 'interface_service', url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { service_name: '库存服务', resource_category: 'interface_service', url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { service_name: '大模型应用', platform_names: '私有云A平台、私有云B平台', resource_category: 'application', url: 'http://10.0.0.5/health', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { service_name: '网关应用', platform_names: '公有云C平台', resource_category: 'application', url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
     // 采集健康四态（反馈 10）：分母 = monitored_count = 96，四态之和 = 96
     collection_health: {
@@ -342,7 +416,8 @@ const HISTORY_OK = {
         instance: '10.0.0.13:9100',
         network_domain: 'default',
         state: 'resolved',
-        fired_at: isoAgo(120),
+        // 今日 01:30（确定性当日，不用 isoAgo——凌晨跑会落到昨天导致当日计数 flaky）
+        fired_at: isoTodayAt(90),
         duration_seconds: 600,
         summary: '5xx 占比 4.2%，已恢复',
         value: '4.2',
@@ -396,44 +471,39 @@ describe('HomePage', () => {
 
   beforeEach(() => {
     mockGet.mockReset()
+    // 首页「资源管理」组隐藏偏好：跨测试隔离（localStorage 在同一测试文件内共享，
+    // 不清则上一测试的隐藏态会污染后续测试的初值断言）
+    window.localStorage.removeItem('metriccenter.home.resource-panels.collapsed')
   })
 
-  it('renders system status and dashboard overview from API response', async () => {
+  it('renders the dashboard overview from API response', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByText('版本 v0.1.0')).toBeInTheDocument()
-    })
-    expect(screen.getByText('模式 standalone')).toBeInTheDocument()
-
     // 页面引导语（决策 72-2：页面归属由左侧导航/面包屑表达，页内不再重复大标题）
     expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
 
-    // L0 四张 KPI 卡各自的数字（限定在卡片内断言，避免跨卡数字串扰）
-    await waitFor(() => {
-      expect(screen.getByText('资源总数')).toBeInTheDocument()
-    })
-    expect(within(screen.getByTestId('metric-resource_count')).getByText('128')).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-monitored_count')).getByText('96')).toBeInTheDocument()
-    // 纳管覆盖率 = 已下发监控 96 ÷ 资源总数 128 = 75%
-    expect(within(screen.getByTestId('metric-coverage')).getByText('75%')).toBeInTheDocument()
-    // 第 4 卡：/api/v1/alerts 的 firing 条数（样例中 3 条，pending 不计）
-    // 排版定版：标签「告警」+ 副行「当前未恢复」（口径写在副行，不与「当日 / 近 7 天」混淆）
-    const firingCard = screen.getByTestId('metric-firing_count')
-    expect(within(firingCard).getByText('告警')).toBeInTheDocument()
-    expect(within(firingCard).getByText('当前未恢复')).toBeInTheDocument()
-    expect(within(firingCard).getByText('3')).toBeInTheDocument()
+    // 反馈 11：L0「全局态势感知」5 卡已整块删除，首屏不再出现任何孤立 KPI 数字
+    expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
+    for (const key of METRIC_KEYS) {
+      expect(screen.queryByTestId(`metric-${key}`)).not.toBeInTheDocument()
+    }
 
-    // 第 5 卡「拨测」：值 = probe_target_abnormal_count（1），副行带拨测目标总数
-    const probeCard = screen.getByTestId('metric-probe')
-    expect(within(probeCard).getByText('拨测')).toBeInTheDocument()
-    expect(within(probeCard).getByText('1')).toBeInTheDocument()
-    expect(probeCard).toHaveTextContent('/ 12 个拨测目标 · 异常数')
+    // 整体纳管完成率归口到 04 区块（首页唯一呈现点）：96 ÷ 128 = 75%
+    await waitFor(() => {
+      expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 96 / 共 128')
+    })
+    // 第五轮：百分比改圆环呈现——圆心文字（overall-coverage-percent）+ 圆环 aria-valuenow
+    expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('75%')
+    expect(screen.getByTestId('overall-coverage-bar')).toHaveAttribute('aria-valuenow', '75')
+    // 第五轮：页头「版本 / 模式」系统状态已按产品负责人要求去除（/api/v1/status 不再请求）
+    expect(screen.queryByText(/^版本 /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^模式 /)).not.toBeInTheDocument()
+    expect(mockGet).not.toHaveBeenCalledWith('/api/v1/status', expect.anything())
   })
 
-  it('renders the six-section layout in order: L0 → L1 → L2 → L3 probe → L4 alert + L5 guide (same row)', async () => {
+  it('renders the layout in order: 02+03 row → 04 coverage → alert + health row → 05 probe → 06 guide', async () => {
     setupHomeMock()
 
     renderPage()
@@ -442,56 +512,79 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // L0：恰 5 张 KPI 卡
-    for (const key of METRIC_KEYS) {
-      expect(screen.getByTestId(`metric-${key}`)).toBeInTheDocument()
-    }
-    expect(within(screen.getByTestId('metric-resource_count')).getByText('资源总数')).toBeInTheDocument()
-    expect(
-      within(screen.getByTestId('metric-monitored_count')).getByText('已下发监控'),
-    ).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-coverage')).getByText('纳管覆盖率')).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-probe')).getByText('拨测')).toBeInTheDocument()
-
-    // 旧版式的两处已按决策 91 移除
+    // 旧版式的入口卡 / 最近下发记录已按决策 91 移除
     expect(screen.queryByTestId('quick-access-card')).not.toBeInTheDocument()
     expect(screen.queryByText('最近下发记录')).not.toBeInTheDocument()
     expect(screen.queryByText('系统快速入口')).not.toBeInTheDocument()
-    // L0 不再出现采集 Job / 已纳管网域 / 待确认草稿
-    expect(screen.queryByTestId('metric-scrape_job_count')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('metric-domain_count')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('metric-pending_draft_count')).not.toBeInTheDocument()
 
-    // L1 采集覆盖区 + L2 应用覆盖表 + L3 拨测态势 + L4 告警状态卡 + L5 使用指引
-    expect(screen.getByTestId('l1-grid')).toBeInTheDocument()
-    expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
-    expect(screen.getByTestId('probe-panel')).toBeInTheDocument()
-    expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
-    expect(screen.getByTestId('onboarding-steps-card')).toBeInTheDocument()
+    // 反馈 11：L0 整块删除，首屏无任何孤立 KPI 卡
+    expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
+    for (const key of METRIC_KEYS) {
+      expect(screen.queryByTestId(`metric-${key}`)).not.toBeInTheDocument()
+    }
 
-    // 自上而下顺序：引导语 → L0 → L1 → L2 → L3 →（L4 + L5 同排）
+    // 八个区块锚点齐备
+    expect(screen.getByTestId('cloud-distribution-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('platform-app-matrix-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('coverage-section')).toBeInTheDocument()
+    expect(screen.getByTestId('home-alert-section')).toBeInTheDocument()
+    expect(screen.getByTestId('home-collection-health-section')).toBeInTheDocument()
+    expect(screen.getByTestId('home-probe-section')).toBeInTheDocument()
+    expect(screen.getByTestId('collection-health-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('home-onboarding-section')).toBeInTheDocument()
+    // design-proposal §2.4：应用覆盖明细表**已删除**（`l2-app-table` 不再出现在首页）
+    expect(screen.queryByTestId('l2-app-table')).not.toBeInTheDocument()
+    expect(screen.queryByText('应用覆盖明细表')).not.toBeInTheDocument()
+
+    // 自上而下顺序（第六轮走查）：引导语 → 资源管理行（02 云 → 03 矩阵）→
+    // 「04 纳管进度 + 告警」行 → 「采集健康 + 拨测」行 → 06 使用指引
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-    const title = screen.getByText(PAGE_INTRO)
-    const l0 = screen.getByTestId('l0-section')
-    const l1 = screen.getByTestId('l1-grid')
-    const l2 = screen.getByTestId('l2-app-table')
-    const probe = screen.getByTestId('probe-panel')
-    const l45 = screen.getByTestId('home-l45-row')
-    const alertCard = screen.getByTestId('alert-status-card')
-    const onboarding = screen.getByTestId('onboarding-steps-card')
-    expect(following(title, l0)).toBe(true)
-    expect(following(l0, l1)).toBe(true)
-    expect(following(l1, l2)).toBe(true)
-    expect(following(l2, probe)).toBe(true)
-    expect(following(probe, l45)).toBe(true)
-    // L4 / L5 同排：告警卡与使用指引在同一 flex 行容器内（等高渲染）
-    expect(l45.contains(alertCard)).toBe(true)
-    expect(l45.contains(onboarding)).toBe(true)
-    expect(following(alertCard, onboarding)).toBe(true)
+    const ordered = [
+      screen.getByText(PAGE_INTRO),
+      screen.getByTestId('cloud-distribution-panel'),
+      screen.getByTestId('platform-app-matrix-panel'),
+      screen.getByTestId('coverage-section'),
+      screen.getByTestId('home-alert-section'),
+      screen.getByTestId('home-collection-health-section'),
+      screen.getByTestId('home-probe-section'),
+      screen.getByTestId('home-onboarding-section'),
+    ]
+    ordered.slice(0, -1).forEach((node, i) => {
+      expect(following(node, ordered[i + 1])).toBe(true)
+    })
+
+    // 资源管理行：02 + 03 两块同处一行（home-resource-row），云在前、矩阵在后；
+    // **04 不在本行**（第六轮：04 改与告警并排）
+    const resourceRow = screen.getByTestId('home-resource-row')
+    expect(resourceRow).toContainElement(screen.getByTestId('cloud-distribution-panel'))
+    expect(resourceRow).toContainElement(screen.getByTestId('platform-app-matrix-panel'))
+    expect(resourceRow).not.toContainElement(screen.getByTestId('coverage-section'))
+
+    // 「04 纳管进度 + 告警状态」一行；「采集健康 + 拨测态势」一行
+    const coverageAlertRow = screen.getByTestId('home-coverage-alert-row')
+    expect(coverageAlertRow).toContainElement(screen.getByTestId('coverage-section'))
+    expect(coverageAlertRow).toContainElement(screen.getByTestId('home-alert-section'))
+    const healthProbeRow = screen.getByTestId('home-health-probe-row')
+    expect(healthProbeRow).toContainElement(screen.getByTestId('home-collection-health-section'))
+    expect(healthProbeRow).toContainElement(screen.getByTestId('home-probe-section'))
+    expect(
+      following(
+        screen.getByTestId('home-alert-section'),
+        screen.getByTestId('home-collection-health-section'),
+      ),
+    ).toBe(true)
+
+    // 告警卡与指引仍是两个独立块（反馈 11 §11.2 ⑦：不同排），旧同行容器已不存在
+    expect(screen.queryByTestId('home-l45-row')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('home-alert-health-row')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('home-cloud-matrix-row')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('home-runtime-row')).not.toBeInTheDocument()
+    expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-steps-card')).toBeInTheDocument()
   })
 
-  it('renders the 按云分布 block between L1 and L2, with cloud rows and click-through to filtered resources', async () => {
+  it('renders one compact row per cloud with the host count only, between the intro and the 03 matrix', async () => {
     setupHomeMock()
 
     renderPage()
@@ -500,12 +593,15 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // 区块标题 + 口径附注（本期仅主机）
+    // 区块标题（2026-10-17 走查改标题：「按云主机数」不专业 →「不同云的主机数量」）。
+    // 第六轮走查：口径速记（「按云分组 · 仅统计主机」）从卡头 extra 移入标题 Tooltip——
+    // 02 收窄为 260px 窄列后「标题 + extra」同行放不下，标题被截断；移入 Tooltip 后
+    // 标题完整可见（与 03 矩阵 / 04 卡头的 Tooltip 模式一致）
     const panel = screen.getByTestId('cloud-distribution-panel')
-    expect(within(panel).getByText('按云分布')).toBeInTheDocument()
-    expect(within(panel).getByText(/本期仅主机/)).toBeInTheDocument()
+    expect(within(panel).getByText('不同云的主机数量')).toBeInTheDocument()
+    expect(within(panel).getByLabelText('不同云的主机数量口径说明')).toBeInTheDocument()
 
-    // 云名点击穿资源清单并按云预筛选（静态样例 PUB-TX / GM-CU）
+    // 云名点击穿资源清单并按云预筛选（样例 PUB-TX / GM-CU）
     expect(within(panel).getByRole('link', { name: /腾讯云/ })).toHaveAttribute(
       'href',
       '/resources?cloud=PUB-TX',
@@ -515,23 +611,93 @@ describe('HomePage', () => {
       '/resources?cloud=GM-CU',
     )
 
-    // 主机数 / 已采数 / 覆盖率（样例 30/28/93%、12/8/67%）
-    expect(within(panel).getByText('30')).toBeInTheDocument()
-    expect(within(panel).getByText('28')).toBeInTheDocument()
-    expect(within(panel).getByText('93%')).toBeInTheDocument()
-    expect(within(panel).getByText('12')).toBeInTheDocument()
-    expect(within(panel).getByText('67%')).toBeInTheDocument()
+    // 每云一行（第五轮：KPI 卡 → 紧凑统计行）：云名 + 编码在左、台数在右（样例 30 / 12）
+    expect(within(panel).getByTestId('cloud-cards')).toBeInTheDocument()
+    expect(within(panel).queryByRole('table')).not.toBeInTheDocument()
+    // 紧凑行是普通 div（不再走 antd Row/Col 栅格）：云数 = 行数，宽窄屏同版式
+    expect(panel.querySelectorAll('.ant-col')).toHaveLength(0)
+    expect(within(panel).getAllByTestId(/^cloud-card-/)).toHaveLength(2)
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('腾讯云')
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('PUB-TX')
+    expect(screen.getByTestId('cloud-host-count-PUB-TX')).toHaveTextContent('30')
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('台主机')
+    expect(screen.getByTestId('cloud-host-count-GM-CU')).toHaveTextContent('12')
 
-    // 位置：整宽区块位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前（M05 v1.11 §5.1）
+    // 合计行（第六轮走查新增）：各云主机台数之和 30 + 12 = 42，与 03 矩阵「合计」列同口径
+    expect(screen.getByTestId('cloud-total-row')).toHaveTextContent('合计')
+    expect(screen.getByTestId('cloud-total-count')).toHaveTextContent('42')
+    expect(screen.getByTestId('cloud-total-row')).toHaveTextContent('台主机')
+
+    // 反馈 11 §11.2 ⑤：云分布不再出现已下发 / 纳管率 / 进度条——首页唯一纳管率在 04 区块
+    const panelText = panel.textContent ?? ''
+    expect(panelText).not.toContain('已下发')
+    expect(panelText).not.toContain('纳管率')
+    expect(panelText).not.toContain('%')
+    expect(within(panel).queryByRole('progressbar')).not.toBeInTheDocument()
+
+    // 资源管理行（第六轮走查）：云分布 / 矩阵两块同处一行（flex-wrap 容器），
+    // DOM 序云在前、矩阵在后——并排时矩阵在云右侧，堆叠时矩阵在云下方。
+    // 04 纳管进度已移出本行（改与告警并排），但 DOM 序上仍紧随资源行之后
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-    const l1 = screen.getByTestId('l1-grid')
-    const l2 = screen.getByTestId('l2-app-table')
-    expect(following(l1, panel)).toBe(true)
-    expect(following(panel, l2)).toBe(true)
+    expect(following(screen.getByText(PAGE_INTRO), panel)).toBe(true)
+    expect(screen.getByTestId('home-resource-row')).toBeInTheDocument()
+    expect(following(panel, screen.getByTestId('platform-app-matrix-panel'))).toBe(true)
+    expect(following(screen.getByTestId('platform-app-matrix-panel'), screen.getByTestId('coverage-section'))).toBe(true)
   })
 
-  it('renders the 按云分布 empty state guiding to host import when by_cloud is empty', async () => {
+  it('closes the 03 matrix row and column totals on the same host grand total', async () => {
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pam-table')).toBeInTheDocument()
+    })
+
+    const panel = screen.getByTestId('platform-app-matrix-panel')
+    // 2026-10-17 走查改标题：「平台 × 应用 · 主机数」的「×」与字段式写法领导读不懂
+    expect(within(panel).getByText('平台与应用的主机分布')).toBeInTheDocument()
+    // 度量单位为主机台数：行合计 = 列合计 = 主机总数 = 42（= host 类 resource_count）
+    expect(screen.getByTestId('pam-grand-total')).toHaveTextContent('42')
+    const rowTotals = ['k8s-prod', 'openstack', 'aliyun', 'aws', '__other__', 'unset'].map((code) =>
+      Number(screen.getByTestId(`pam-row-total-${code}`).textContent),
+    )
+    expect(rowTotals).toEqual([19, 11, 5, 3, 2, 2])
+    expect(rowTotals.reduce((a, b) => a + b, 0)).toBe(42)
+    const colTotals = ['payment', 'user', 'data-api', 'unset'].map((code) =>
+      Number(screen.getByTestId(`pam-col-total-${code}`).textContent),
+    )
+    expect(colTotals).toEqual([16, 16, 7, 3])
+    expect(colTotals.reduce((a, b) => a + b, 0)).toBe(42)
+
+    // 0 是有效计量值，照常渲染 0（不显示 '-'）
+    expect(screen.getByTestId('pam-cell-aliyun-unset')).toHaveTextContent('0')
+    // 「其他」聚合行与「未指定平台」兜底行附口径角标，且平台行不下钻（资源页不支持 platform_code）
+    expect(within(screen.getByTestId('pam-row-__other__')).getByText('聚合')).toBeInTheDocument()
+    expect(within(screen.getByTestId('pam-row-unset')).getByText('待补录')).toBeInTheDocument()
+    // 矩阵行不可下钻；面板内唯一链接 = 脚注的台账补录引导（§2.4 遗留补偿，指向资源页导入）
+    const panelLinks = within(panel).queryAllByRole('link')
+    expect(panelLinks).toHaveLength(1)
+    expect(panelLinks[0]).toHaveAttribute('href', '/resources?import=1')
+  })
+
+  it('renders the matrix unavailable state instead of an all-zero table when by_platform_app is missing', async () => {
+    const dataWithoutMatrix: Record<string, unknown> = { ...DASHBOARD_OK.data }
+    delete dataWithoutMatrix.by_platform_app
+    setupHomeMock({ [DASHBOARD_PATH]: { ...DASHBOARD_OK, data: dataWithoutMatrix } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('platform-app-matrix-panel')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
+    // 绝不渲染全 0 矩阵：0 与「取数失败」必须区分
+    expect(screen.queryByTestId('pam-table')).not.toBeInTheDocument()
+  })
+
+  it('renders the cloud panel empty state guiding to host import when by_cloud is empty', async () => {
     setupHomeMock({
       [DASHBOARD_PATH]: { ...DASHBOARD_OK, data: { ...DASHBOARD_OK.data, by_cloud: [] } },
     })
@@ -547,7 +713,7 @@ describe('HomePage', () => {
     expect(within(panel).getByRole('link', { name: /去导入主机资源/ })).toHaveAttribute('href', '/resources')
   })
 
-  it('prefers backend by_cloud over the static sample and keeps coverage values consistent', async () => {
+  it('prefers backend by_cloud over the static sample and drops the removed coverage figures', async () => {
     setupHomeMock({
       [DASHBOARD_PATH]: {
         ...DASHBOARD_OK,
@@ -568,15 +734,53 @@ describe('HomePage', () => {
     })
 
     const panel = screen.getByTestId('cloud-distribution-panel')
-    // 后端数据覆盖静态样例（不出现样例的 GM-CU 12/8/67%）
+    // 后端数据覆盖静态样例（不出现样例的 GM-CU 政务云 12）
     expect(within(panel).getByText('行业云（腾讯）')).toBeInTheDocument()
-    expect(within(panel).getByText('98%')).toBeInTheDocument()
-    expect(within(panel).getByText('50%')).toBeInTheDocument()
+    expect(screen.getByTestId('cloud-host-count-PUB-TX')).toHaveTextContent('40')
+    expect(screen.getByTestId('cloud-host-count-IND-TX')).toHaveTextContent('2')
     expect(within(panel).queryByText('政务云（联通）')).not.toBeInTheDocument()
-    expect(within(panel).queryByText('67%')).not.toBeInTheDocument()
+    // coverage_rate 仍在响应里，但云卡不呈现（纳管率唯一呈现点在 04）
+    const panelText = panel.textContent ?? ''
+    expect(panelText).not.toContain('98%')
+    expect(panelText).not.toContain('50%')
+    expect(panelText).not.toContain('67%')
   })
 
-  it('renders the 采集健康 panel (four states) before the alert status card', async () => {
+  it('renders the 未指定云 cloud card without a drill-down link', async () => {
+    // §2.1 第 6 条：`cloud_code` 为空串的「未指定云」卡不可下钻——空参与无参在资源页
+    // 不可区分，链过去等于「点了却没按云筛」的假动作，与矩阵「未指定平台」行同口径。
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        ...DASHBOARD_OK,
+        data: {
+          ...DASHBOARD_OK.data,
+          by_cloud: [
+            { cloud_code: 'PUB-TX', cloud_name: '腾讯云', resource_count: 30, monitored_count: 28, coverage_rate: 93 },
+            { cloud_code: '', cloud_name: '未指定云', resource_count: 12, monitored_count: 8, coverage_rate: 67 },
+          ],
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cloud-card-')).toBeInTheDocument()
+    })
+
+    // 有云编码的卡仍深链 /resources?cloud=<code>
+    expect(screen.getByTestId('cloud-card-PUB-TX').querySelector('a')).toHaveAttribute(
+      'href',
+      '/resources?cloud=PUB-TX',
+    )
+    // 未指定云卡：卡内**无链接**（云名降级为普通文本 + 说明），主机台数照常呈现
+    const unsetCard = screen.getByTestId('cloud-card-')
+    expect(unsetCard.querySelector('a')).toBeNull()
+    expect(unsetCard).toHaveTextContent('未指定云')
+    expect(screen.getByTestId('cloud-host-count-')).toHaveTextContent('12')
+  })
+
+  it('renders the 采集健康 panel (four states) in the health-probe row, beside the probe panel', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
     renderPage()
@@ -596,15 +800,25 @@ describe('HomePage', () => {
     expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('2')
     expect(screen.getByTestId('ch-legend-pending_count')).toHaveTextContent('2')
 
-    // 分布条 + 深链 M07 资源明细
+    // 分布条 + 深链 M07 资源明细（第六轮走查：入口文案改「查看资源采集健康状态」）
     expect(screen.getByTestId('ch-bar')).toBeInTheDocument()
+    expect(within(panel).getByTestId('ch-detail-link')).toHaveTextContent('查看资源采集健康状态')
     expect(within(panel).getByTestId('ch-detail-link')).toHaveAttribute('href', '/resources')
 
-    // 位置：固定在「告警状态」区块之前（拨测面板之后 → 采集健康 → L4/L5 行）
+    // 第六轮走查：四态图例 **2×2**（四行改两行两列，用横向空间换高度；
+    // 格子 flex 双向拉伸，卡被行拉伸时两行分摊剩余高度）
+    expect(screen.getByTestId('ch-legend').style.flexWrap).toBe('wrap')
+    expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(4)
+
+    // 位置（第六轮走查定）：与拨测态势同处 home-health-probe-row（采集左、拨测右），
+    // 整行之上是「04 + 告警」行，整行之下是 06 使用指引
+    const row = screen.getByTestId('home-health-probe-row')
+    expect(row).toContainElement(panel)
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(following(screen.getByTestId('probe-panel'), panel)).toBe(true)
-    expect(following(panel, screen.getByTestId('home-l45-row'))).toBe(true)
+    expect(following(screen.getByTestId('home-alert-section'), panel)).toBe(true)
+    expect(following(panel, screen.getByTestId('probe-panel'))).toBe(true)
+    expect(following(screen.getByTestId('probe-panel'), screen.getByTestId('home-onboarding-section'))).toBe(true)
   })
 
   it('renders the 采集健康 unavailable state (never a false 0) when collection_health is absent', async () => {
@@ -648,7 +862,7 @@ describe('HomePage', () => {
     expect(screen.queryByTestId('ch-bar')).not.toBeInTheDocument()
   })
 
-  it('renders 按云分布 and 应用覆盖 as stacked cards on the mobile viewport', async () => {
+  it('stacks the cloud rows and the matrix keeps its table on the mobile viewport', async () => {
     stubNarrowViewport()
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
@@ -658,22 +872,30 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // 按云分布：窄屏改为卡片列表（不渲染表格），云名与数值仍在
+    // 02 按云主机数 → 已改名「不同云的主机数量」：窄屏仍是紧凑统计行（一行一云），不渲染表格。
+    // 第五轮起云分布宽窄屏同版式（竖排行不依赖横向空间），故不再有 ant-col 栅格分支
     const cloudPanel = screen.getByTestId('cloud-distribution-panel')
     expect(within(cloudPanel).getByTestId('cloud-cards')).toBeInTheDocument()
     expect(within(cloudPanel).queryByRole('table')).not.toBeInTheDocument()
+    expect(cloudPanel.querySelectorAll('.ant-col')).toHaveLength(0)
+    expect(within(cloudPanel).getAllByTestId(/^cloud-card-/)).toHaveLength(2)
     expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('腾讯云')
-    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('主机 30 · 已下发 28')
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('台主机')
 
-    // 应用覆盖：窄屏改为竖排卡片（不渲染表格），含「实例 · 已下发」与业务域
-    const appTable = screen.getByTestId('l2-app-table')
-    expect(within(appTable).getByTestId('l2-app-cards')).toBeInTheDocument()
-    expect(within(appTable).queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByTestId('l2-app-row-user')).toHaveTextContent('用户中心')
-    expect(screen.getByTestId('l2-app-row-user')).toHaveTextContent('实例 24 · 已下发 16')
+    // 03 矩阵：**不卡片化**——保留二维表格（纵向滚动 + 首列固定），否则失去行列可比性
+    const matrix = screen.getByTestId('platform-app-matrix-panel')
+    expect(within(matrix).getByRole('table')).toBeInTheDocument()
+    // 面板内唯一链接 = 脚注的台账补录引导（§2.4 遗留补偿），平台行本身不下钻
+    const matrixLinks = within(matrix).queryAllByRole('link')
+    expect(matrixLinks).toHaveLength(1)
+    expect(matrixLinks[0]).toHaveAttribute('href', '/resources?import=1')
+
+    // 应用覆盖明细表已删除：窄屏也不再有应用覆盖卡片
+    expect(screen.queryByTestId('l2-app-table')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('l2-app-cards')).not.toBeInTheDocument()
   })
 
-  it('renders L1 as a row of 5 category cards, no entry card or alert capsules', async () => {
+  it('renders the L1 coverage table inside the 04 card, one row per category, no entry card or alert capsules', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
     renderPage()
@@ -682,56 +904,83 @@ describe('HomePage', () => {
       expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
     })
 
-    // 决策 93：一行五卡，无「按应用查看」入口卡
-    for (const cat of ['host', 'database', 'middleware', 'application', 'generic_target']) {
+    // 第五轮：六张平级卡 → 04 卡片内的一张六行表格（与整体圆环同卡，构成共同体）
+    for (const cat of ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']) {
       expect(screen.getByTestId(`l1-card-${cat}`)).toBeInTheDocument()
     }
     expect(screen.queryByTestId('l1-app-entry')).not.toBeInTheDocument()
+    const coverageCard = screen.getByTestId('coverage-card')
+    expect(coverageCard).toContainElement(screen.getByTestId('l1-card-host'))
+    expect(coverageCard).toContainElement(screen.getByTestId('overall-coverage-bar'))
+    // 采集任务入口（第六轮走查）：深链预筛 job_type=standard（采集类型，与拨测 blackbox 分开）
+    expect(within(coverageCard).getByRole('link', { name: '查看采集任务 →' })).toHaveAttribute(
+      'href',
+      '/scrape-jobs?job_type=standard',
+    )
 
-    // 已下发数 / 总数 + 量词（视觉定版）：主机写「台」，其余类型不写量词
-    expect(within(screen.getByTestId('l1-card-host')).getByText('/ 42 台已下发')).toBeInTheDocument()
-    expect(within(screen.getByTestId('l1-card-database')).getByText('/ 26 已下发')).toBeInTheDocument()
+    // 列值：已配置采集 36 / 总数 42；纳管率 86%；未配置采集 6
     expect(screen.getByTestId('l1-monitored-host')).toHaveTextContent('36')
-    // 纳管率 36/42 = 86%；未下发 6
-    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('纳管率 86%')
-    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('未下发 6')
+    // 单位已去除（第六轮走查）：表头已说明是「采集」，列内只留数字
+    expect(screen.getByTestId('l1-monitored-host').textContent).not.toContain('台')
+    expect(screen.getByTestId('l1-total-host')).toHaveTextContent('42')
+    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('86%')
+    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('6')
+    // 非主机类同样只留数字
+    expect(screen.getByTestId('l1-monitored-database')).toHaveTextContent('21')
+    expect(screen.getByTestId('l1-monitored-database').textContent).not.toContain('台')
+    // 未登记该类对象（mock 无 interface_service）→ 计数列一律 '-',不写 0（第六轮走查）
+    expect(screen.getByTestId('l1-monitored-interface_service')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-total-interface_service')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-uncovered-interface_service')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-coverage-interface_service')).toHaveTextContent('-')
 
     // 决策 93：告警胶囊已删，L1 各卡不渲染「未恢复」数字
     expect(screen.queryByTestId('l1-alert-capsule-host')).not.toBeInTheDocument()
 
-    // 子类明细：host 有，应用服务**没有**（不按语言 / 框架拆子类）
-    expect(screen.getByTestId('l1-subtypes-host')).toBeInTheDocument()
-    expect(screen.queryByTestId('l1-subtypes-application')).not.toBeInTheDocument()
-    expect(within(screen.getByTestId('l1-card-application')).queryByText('采集类型子类')).toBeNull()
-    // 不设子类的类型在**子类标题位**给一行规则说明，避免卡片留白且讲清「为什么不拆」
-    expect(screen.getByTestId('l1-card-application')).toHaveTextContent('单一采集类型 · 不按语言拆')
-    // 该类型仍给一个同口径的指标 chip（`application_http` 聚合），由 l1-no-subtype-* 标记
-    expect(screen.getByTestId('l1-no-subtype-application')).toHaveTextContent('22/34 · 65%')
-    const applicationCard = screen.getByTestId('l1-card-application')
-    expect(applicationCard).toHaveTextContent('application_http')
-    expect(applicationCard).toHaveTextContent('22/34 · 65%')
-    // 决策 93：不再渲染采集形态示例 chip
-    expect(applicationCard).not.toHaveTextContent('Java Spring / Go / Python')
-    // 卡内脚注：只给容易被误读成成员的两类写
-    expect(screen.getByTestId('l1-footnote-application')).toHaveTextContent('拨测目标不计入本类')
-    expect(screen.getByTestId('l1-footnote-generic_target')).toHaveTextContent(
-      '拨测走 blackbox Job，不录入资源台账',
-    )
+    // 2026-10-17 走查：「采集方式细分」子类区**整块去除**——子类 chip、规则说明、
+    // 卡内脚注、子类深链一并移除；类型行只留总数口径（已下发数 + 纳管率）。
+    // 子类下钻动线归资源清单页（/resources 自带类型 / 子类筛选），不在首页重复。
+    for (const cat of ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']) {
+      const row = screen.getByTestId(`l1-card-${cat}`)
+      expect(row).not.toHaveTextContent('采集方式细分')
+      expect(row).not.toHaveTextContent('linux')
+      expect(row).not.toHaveTextContent('application_http')
+      expect(row).not.toHaveTextContent('拨测')
+      expect(within(row).queryByTestId(`l1-subtypes-${cat}`)).not.toBeInTheDocument()
+      expect(within(row).queryByTestId(`l1-no-subtype-${cat}`)).not.toBeInTheDocument()
+      expect(within(row).queryByTestId(`l1-footnote-${cat}`)).not.toBeInTheDocument()
+    }
+    // 子类 chip 的深链动线一并移除：卡内不再出现 /resources?resource_category=...&subtype=...
+    expect(screen.queryByRole('link', { name: /linux/ })).not.toBeInTheDocument()
 
-    // 子类行文案「已采/总数 · 覆盖率」+ 低于 70% 的橙色语义底
-    const linuxRow = screen.getByTestId('l1-subtype-host-linux')
-    expect(linuxRow).toHaveTextContent('30/34 · 88%')
-    const nginxRow = screen.getByTestId('l1-subtype-middleware-nginx')
-    expect(nginxRow).toHaveTextContent('4/6 · 67%')
-    // 低于 70% 的子类 chip 给橙色语义底（颜色不作为唯一语义——行内仍并列百分数）
-    expect(screen.getByTestId('l1-subtype-chip-middleware-nginx').style.background).not.toBe('')
-
-    // 决策 93：入口卡与拨测附注已删（拨测口径由 L0 第 5 卡 + L3 拨测面板承载）
+    // 决策 93：入口卡与拨测附注已删（拨测口径由 05 段两张拨测卡承载）
     expect(screen.queryByTestId('l1-probe-note')).not.toBeInTheDocument()
     expect(screen.queryByTestId('l1-unclassified-alert-note')).not.toBeInTheDocument()
   })
 
-  it('aggregates subtypes beyond 3 into a more chip (决策 93)', async () => {
+  it('orders 接口服务 above 其他监控目标 in the L1 table', async () => {
+    // 第五轮产品负责人裁定：「其他监控目标」是兜底聚合类（snmp / k8s / custom_http 混排），
+    // 与「未指定」同类属读表居末的收尾类；具体的「接口服务」应排在它之上。
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('l1-card-interface_service')).toBeInTheDocument()
+    })
+
+    const following = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    // 完整顺序：主机 → 数据库 → 中间件 → 应用服务 → 接口服务 → 其他监控目标
+    const order = ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']
+    order.slice(0, -1).forEach((cat, i) => {
+      expect(following(screen.getByTestId(`l1-card-${cat}`), screen.getByTestId(`l1-card-${order[i + 1]}`))).toBe(true)
+    })
+  })
+
+  it('drops the subtype breakdown from the L1 rows even when the API returns subtypes', async () => {
+    // 2026-10-17 走查：契约字段 by_subtype 仍在（后端不变、样例返回 4 条），
+    // 但首页类型行不再消费——防止「子类全量展示」旧口径被悄悄加回来。
     const many = {
       ...DASHBOARD_OK,
       data: {
@@ -758,101 +1007,22 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
     })
-    // host 子类封顶 3 条：前 3 张（linux/windows/docker）正常渲染，第 4 条 k8s 不再单独渲染
-    expect(screen.getByTestId('l1-subtype-host-linux')).toBeInTheDocument()
-    expect(screen.getByTestId('l1-subtype-host-docker')).toBeInTheDocument()
-    expect(screen.queryByTestId('l1-subtype-host-k8s')).not.toBeInTheDocument()
-    // 第 4 条起聚合为「更多 +N」虚线 chip
-    expect(screen.getByTestId('l1-subtype-more-host')).toHaveTextContent('更多 +1')
+
+    const hostRow = screen.getByTestId('l1-card-host')
+    // 任何子类名 / 子类标题 / 子类锚点都不再出现在类型行上
+    for (const sub of ['linux', 'windows', 'docker', 'k8s']) {
+      expect(hostRow).not.toHaveTextContent(sub)
+    }
+    expect(hostRow).not.toHaveTextContent('采集方式细分')
+    expect(within(hostRow).queryByTestId('l1-subtypes-host')).not.toBeInTheDocument()
+    // 总数口径照常：已配置采集 36 / 总数 42（单位已去除，列内只留数字）
+    expect(hostRow).toHaveTextContent('36')
+    expect(hostRow).not.toHaveTextContent('36 台')
+    expect(screen.getByTestId('l1-total-host')).toHaveTextContent('42')
+    expect(screen.getByTestId('l1-monitored-host')).toHaveTextContent('36')
   })
 
-  it('renders L2 app detail table sorted by coverage ascending with the unclassified row last', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
-    })
-
-    const table = screen.getByTestId('l2-app-table')
-    // 决策 93：标题「应用覆盖」（不再叫「应用明细」）
-    expect(within(table).getByText('应用覆盖')).toBeInTheDocument()
-    const rows = within(table).getAllByRole('row')
-    // 表头 1 行 + 3 个应用行 + 未归类行 1 行
-    expect(rows).toHaveLength(5)
-
-    // 决策 93：删除「未恢复」「应用简称」两列
-    expect(within(table).queryByText('未恢复')).not.toBeInTheDocument()
-    expect(within(table).queryByText('应用简称')).not.toBeInTheDocument()
-
-    // 覆盖率升序：用户中心 16/24=67% → 数据网关 20/26=77% → 支付平台 24/30=80% → 未归类应用置底
-    expect(rows[1]).toHaveTextContent('用户中心')
-    expect(rows[2]).toHaveTextContent('数据网关')
-    expect(rows[3]).toHaveTextContent('支付平台')
-    expect(rows[4]).toHaveTextContent('未归类应用')
-
-    // 应用名称 = 字典展示名，app_code 内联其后（次要小字）作应用简称
-    expect(rows[1]).toHaveTextContent('user')
-    expect(rows[1]).toHaveTextContent('67%')
-    expect(rows[1]).toHaveTextContent('16')
-    expect(rows[1]).toHaveTextContent('24')
-
-    // 未归类行：实例 48 / 已采 36 / 去补填（置底且不看覆盖率）
-    expect(rows[4]).toHaveTextContent('48')
-    expect(rows[4]).toHaveTextContent('36')
-    expect(within(rows[4]).getByRole('link', { name: '去补填' })).toHaveAttribute(
-      'href',
-      '/resources?import=1',
-    )
-
-    // 「看明细」深链带 app_code 预筛
-    expect(within(rows[1]).getByRole('link', { name: '看明细' })).toHaveAttribute(
-      'href',
-      '/resources?app_code=user',
-    )
-  })
-
-  it('renders the L2 biz domain column with biz_name and a dash for empty values', async () => {
-    // by_app biz 维度为多数归因（决策 92/93/95）：biz_name 直接展示；
-    // biz_code / biz_name 均为空（旧后端或未归因）时业务域列显示 '-'
-    setupHomeMock({
-      [DASHBOARD_PATH]: {
-        status: 'success',
-        data: {
-          ...DASHBOARD_OK.data,
-          by_app: [
-            { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
-            // 空 biz 字段 → 业务域列 '-'（不回落成 app 名，也不臆造业务归属）
-            { app_code: 'legacy', app_name: '遗留系统', biz_code: '', biz_name: '', resource_count: 5, monitored_count: 5 },
-          ],
-          unclassified_resource_count: 0,
-          unclassified_monitored_count: 0,
-        },
-      },
-    })
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
-    })
-
-    const table = screen.getByTestId('l2-app-table')
-    const rows = within(table).getAllByRole('row')
-    // 表头 1 行 + 2 个应用行（无未归类行）
-    expect(rows).toHaveLength(3)
-
-    // 支付平台 24/30=80% 排前：业务域列显示 biz_name「支付业务」
-    expect(rows[1]).toHaveTextContent('支付平台')
-    expect(rows[1]).toHaveTextContent('支付业务')
-    // 遗留系统 5/5=100% 排后：biz 字段为空 → 业务域列显示 '-'
-    expect(rows[2]).toHaveTextContent('遗留系统')
-    expect(rows[2]).toHaveTextContent('-')
-    expect(rows[2].textContent).not.toContain('遗留系统业务')
-  })
-
-  it('renders the L3 probe panel with abnormal targets first and pagination when >5 rows', async () => {
+  it('renders the probe area as one card with two sub-sections, overall stats and a /scrape-jobs link', async () => {
     setupHomeMock()
 
     renderPage()
@@ -861,36 +1031,156 @@ describe('HomePage', () => {
       expect(screen.getByTestId('probe-panel')).toBeInTheDocument()
     })
 
-    // 整宽卡标题 + extra 汇总（DASHBOARD_OK.probe_targets 7 条：正常 5 · 异常 2）
+    // 区头（第六轮走查后进卡头）：标题 + 深链；原「拨测目标 N · 正常 X · 异常 Y · 未知 Z」
+    // 汇总行按产品负责人要求移除，整体情况改由卡内左列「正常率」圆环承载
     const panel = screen.getByTestId('probe-panel')
     expect(within(panel).getByText('拨测态势')).toBeInTheDocument()
-    expect(panel).toHaveTextContent('拨测目标 7 · 正常 5 · 异常 2')
+    expect(within(panel).getByRole('link', { name: '查看异常拨测目标 →' })).toBeInTheDocument()
+    expect(panel).not.toHaveTextContent('拨测目标 8 · 正常 6 · 异常 2')
+    // 整体健康度「正常率」圆环（仿 04 整体圆环样式）：6/8 = 75%
+    expect(screen.getByTestId('probe-health-rate-percent')).toHaveTextContent('75%')
+    expect(screen.getByTestId('probe-health-rate')).toHaveAttribute('aria-label', '拨测正常率 75%')
+    expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 6 / 共 8')
+    expect(within(panel).getByText('正常率')).toBeInTheDocument()
 
-    // 异常排最前：首行拨测目标为 down 的 pay-api，状态「异常」
-    const dataRows = within(panel).getAllByRole('row')
-    expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
-    expect(dataRows[1]).toHaveTextContent('异常')
-    // 归属网域列展示网域展示名（决策 93 归属口径：网域为主）
-    expect(dataRows[1]).toHaveTextContent('生产内网域')
+    // 第六轮走查：区头与两个子版面**合为一张卡**——子版面是卡内浅底分区（不再是独立 SurfaceCard），
+    // 分区标题 + 一句自解释 hint 保留
+    const ifaceSection = screen.getByTestId('probe-section-interface_service')
+    const appSection = screen.getByTestId('probe-section-application')
+    expect(within(ifaceSection).getByText('接口服务拨测')).toBeInTheDocument()
+    expect(ifaceSection).toHaveTextContent('业务接口能否正常访问')
+    expect(within(appSection).getByText('应用服务拨测')).toBeInTheDocument()
+    expect(appSection).toHaveTextContent('应用健康检查地址能否正常访问')
+    // 分区不再是独立卡片：卡内不出现嵌套 .ant-card
+    expect(panel.querySelectorAll('.ant-card')).toHaveLength(0)
+    // 但 probe-panel 本身是张卡（SurfaceCard）
+    expect(panel.className).toContain('ant-card')
 
-    // 7 条 > 每页 5 行 → 分页器出现
-    expect(panel.querySelector('.ant-pagination')).not.toBeNull()
+    // 每卡四格总体数字：共 N · 正常 X · 异常 Y · 未知 Z（接口 6 条：4 正常 2 异常；应用 2 条全正常）
+    expect(screen.getByTestId('probe-stat-interface_service-total')).toHaveTextContent('6')
+    expect(screen.getByTestId('probe-stat-interface_service-normal')).toHaveTextContent('4')
+    expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('2')
+    expect(screen.getByTestId('probe-stat-interface_service-unknown')).toHaveTextContent('0')
+    expect(screen.getByTestId('probe-stat-application-total')).toHaveTextContent('2')
+    expect(screen.getByTestId('probe-stat-application-normal')).toHaveTextContent('2')
+    expect(screen.getByTestId('probe-stat-application-abnormal')).toHaveTextContent('0')
+
+    // §2.7：不渲染任何完整明细表与分页器
+    expect(within(panel).queryByRole('table')).not.toBeInTheDocument()
+    expect(panel.querySelector('.ant-pagination')).toBeNull()
+
+    // 第六轮走查：**异常明细不在首页展示**（产品负责人裁定），首页只给计数；
+    // 逐条明细走各分区深链到资源清单，按拨测类型预筛（resource_category 决定首屏 Tab）
+    expect(screen.queryByTestId('probe-abnormal-list-interface_service')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('probe-abnormal-interface_service-0')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('probe-footnote')).not.toBeInTheDocument()
+    expect(screen.getByTestId('probe-section-link-interface_service')).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('probe-section-link-interface_service')).getByRole('link', {
+        name: '查看接口服务采集对象 →',
+      }),
+    ).toHaveAttribute('href', '/resources?resource_category=interface_service')
+    expect(
+      within(screen.getByTestId('probe-section-link-application')).getByRole('link', {
+        name: '查看应用服务采集对象 →',
+      }),
+    ).toHaveAttribute('href', '/resources?resource_category=application')
+
+    // 卡头深链（第六轮走查改版）：原「拨测任务管理 →」改为**异常明细入口**——
+    // M09 监控目标状态（/targets）预筛「离线」，落页即只看异常节点
+    expect(within(panel).getByRole('link', { name: '查看异常拨测目标 →' })).toHaveAttribute(
+      'href',
+      '/targets?health=down',
+    )
   })
 
-  it('renders backend probe_targets with unknown status, domain ownership and dash degradation', async () => {
-    // 「真实款」明细：后端 status 无 probe_success 样本时为空串（未知）、归属为网域、
-    // last_probe_at 为 nil。断言未知态中性呈现、归属网域列展示、空字段 '-' 降级。
+  it('keeps probe counts on the homepage without listing abnormal details', async () => {
+    // 5 条 down：首页只给计数（异常 5）+ 正常率圆环，明细走资源清单深链（第六轮走查）
+    const downs = Array.from({ length: 5 }, (_, i) => ({
+      service_name: `异常服务-${i}`,
+      resource_category: 'interface_service',
+      url: `https://down-${i}.example.cn/health`,
+      status: 'down',
+      network_domain_name: '生产内网域',
+      last_probe_at: isoAgo(i + 1),
+    }))
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        status: 'success',
+        data: { ...DASHBOARD_OK.data, probe_targets: downs },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      // 汇总行已移除，整体情况看正常率圆环：0/5 = 0%
+      expect(screen.getByTestId('probe-health-rate-percent')).toHaveTextContent('0%')
+    })
+    expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 0 / 共 5')
+
+    // 计数照常（异常 5），但**不列任何异常明细**——首页只报数，明细走分区深链
+    expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('5')
+    expect(screen.queryByTestId('probe-abnormal-interface_service-0')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('probe-abnormal-more-interface_service')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('probe-section-link-interface_service')).getByRole('link', {
+        name: '查看接口服务采集对象 →',
+      }),
+    ).toHaveAttribute('href', '/resources?resource_category=interface_service')
+  })
+
+  it('renders both probe cards (zero-stat for the empty category) when one category has no targets', async () => {
+    // 2026-10-17 走查：双卡并排版式下，藏掉空类别的那半会出现版面空缺；
+    // 故应用服务卡照常渲染——统计条全 0 + 一行空提示，接口服务卡短名单照常。
     setupHomeMock({
       [DASHBOARD_PATH]: {
         status: 'success',
         data: {
           ...DASHBOARD_OK.data,
           probe_targets: [
-            // 两条未知（status '' + 空 last_probe_at），同未知态保持原序（不强制前置）
-            { url: 'https://gw.example.cn/ping', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
-            // 明确 down 强制排最前，仍正常呈现「异常」
-            { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'default', network_domain_name: '管理网域', last_probe_at: isoAgo(5) },
-            { url: 'https://www.example.cn/a', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
+            { service_name: '支付平台', resource_category: 'interface_service', url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: isoAgo(5) },
+          ],
+        },
+      },
+    })
+
+    renderPage()
+
+    const panel = screen.getByTestId('probe-panel')
+    await waitFor(() => {
+      // 汇总行已移除：1 条 down → 正常率 0%
+      expect(screen.getByTestId('probe-health-rate-percent')).toHaveTextContent('0%')
+    })
+    expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 0 / 共 1')
+    expect(within(panel).getByText('接口服务拨测')).toBeInTheDocument()
+    // 应用服务卡在，但总体数字全 0、无异常短名单、有空提示
+    const appSection = screen.getByTestId('probe-section-application')
+    expect(appSection).toHaveTextContent('应用服务拨测')
+    expect(screen.getByTestId('probe-stat-application-total')).toHaveTextContent('0')
+    expect(screen.getByTestId('probe-stat-application-abnormal')).toHaveTextContent('0')
+    expect(appSection).toHaveTextContent('暂无应用服务拨测目标')
+    // 接口服务分区计数照常（1 条 down → 异常 1），但不列明细（第六轮走查）
+    expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('1')
+    expect(screen.queryByTestId('probe-abnormal-interface_service-0')).not.toBeInTheDocument()
+    expect(screen.getByTestId('probe-section-link-application')).toBeInTheDocument()
+  })
+
+  it('counts backend probe_targets by status without rendering the detail rows', async () => {
+    // 「真实款」数据：status 空串（无 probe_success 样本）计未知态、down 计异常；
+    // 第六轮走查后首页只报数（不出现明细行），明细走资源清单深链。
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        status: 'success',
+        data: {
+          ...DASHBOARD_OK.data,
+          probe_targets: [
+            // 两条未知（status '' + 空 last_probe_at）
+            { service_name: '网关服务', resource_category: 'interface_service', url: 'https://gw.example.cn/ping', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
+            // 明确 down → 计异常
+            { service_name: '支付平台', resource_category: 'interface_service', url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'default', network_domain_name: '管理网域', last_probe_at: isoAgo(5) },
+            // service_name 缺失不影响计数
+            { service_name: '', resource_category: 'interface_service', url: 'https://www.example.cn/a', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
           ],
         },
       },
@@ -901,54 +1191,80 @@ describe('HomePage', () => {
     const panel = screen.getByTestId('probe-panel')
     // down 1 条被明确数出，未知不参与「正常 / 异常」计数
     await waitFor(() => {
-      expect(panel).toHaveTextContent('拨测目标 3 · 正常 0 · 异常 1')
+      // 汇总行已移除：3 条目标（1 down + 2 未知）→ 正常率 0%
+      expect(screen.getByTestId('probe-health-rate-percent')).toHaveTextContent('0%')
     })
+    expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 0 / 共 3')
 
-    // 3 条 ≤ 每页 5 行 → 无分页器
+    // §2.7：明细表、分页器与明细行都已移除（首页只报数）
+    expect(within(panel).queryByRole('table')).not.toBeInTheDocument()
     expect(panel.querySelector('.ant-pagination')).toBeNull()
+    expect(screen.queryByTestId('probe-abnormal-interface_service-0')).not.toBeInTheDocument()
 
-    const dataRows = within(panel).getAllByRole('row')
-    // 明确 down 排最前
-    expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
-    expect(dataRows[1]).toHaveTextContent('异常')
-    // 归属网域列展示网域展示名（替代原业务域 / 应用两列）
-    expect(dataRows[1]).toHaveTextContent('管理网域')
-    expect(dataRows[2]).toHaveTextContent('边缘网域A')
-    // 两条未知保持原序（gw 在前、www 在后），渲染「未知」态而非 正常/异常 绿红
-    expect(dataRows[2]).toHaveTextContent('https://gw.example.cn/ping')
-    expect(dataRows[2]).toHaveTextContent('未知')
-    expect(dataRows[3]).toHaveTextContent('https://www.example.cn/a')
-    expect(dataRows[3]).toHaveTextContent('未知')
-    // 空 last_probe_at → '-' 降级（未知行含 '-'）
-    for (const row of [dataRows[2], dataRows[3]]) {
-      expect(row.textContent).toContain('-')
-    }
-    // 页面不渲染非法的 up/down 红绿措辞（只有 1 条明确异常）
-    expect(within(panel).getAllByText('异常')).toHaveLength(1)
-    expect(within(panel).getAllByText('未知')).toHaveLength(2)
-    expect(within(panel).queryByText('正常')).toBeNull()
+    // 未知态在统计条里如实计数：共 3 · 正常 0 · 异常 1 · 未知 2
+    expect(screen.getByTestId('probe-stat-interface_service-total')).toHaveTextContent('3')
+    expect(screen.getByTestId('probe-stat-interface_service-normal')).toHaveTextContent('0')
+    expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('1')
+    expect(screen.getByTestId('probe-stat-interface_service-unknown')).toHaveTextContent('2')
+    // 明细深链仍在（按接口服务类型预筛）
+    expect(
+      within(screen.getByTestId('probe-section-link-interface_service')).getByRole('link', {
+        name: '查看接口服务采集对象 →',
+      }),
+    ).toHaveAttribute('href', '/resources?resource_category=interface_service')
   })
 
-  it('renders the L2 empty state pointing at the resource import flow', async () => {
+  it('renders placeholder instead of 0% for the coverage big number when there are no resources', async () => {
     setupHomeMock({ [DASHBOARD_PATH]: DASHBOARD_EMPTY })
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
+      expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 0 / 共 0')
     })
 
-    const table = screen.getByTestId('l2-app-table')
-    expect(within(table).getByText(/暂无资源/)).toBeInTheDocument()
-    expect(within(table).getByRole('link', { name: /去导入资源/ })).toHaveAttribute(
-      'href',
-      '/resources?import=1',
-    )
-    // 无资源时纳管覆盖率显示 '-'，不渲染 0%
-    expect(within(screen.getByTestId('metric-coverage')).getByText('-')).toBeInTheDocument()
-    // 五类卡仍按 0 值渲染（缺则补 0 值条目）
+    // 无资源时已下发 / 资源总数按真实 0 值报出（0 是有效计量值，不等同取数失败），
+    // 百分比无分母故显示 '-'，绝不渲染 0%（R1：归口到 04 区块圆环）
+    expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
+    expect(screen.getByTestId('overall-coverage-percent').textContent).not.toContain('0%')
+    expect(screen.getByTestId('overall-coverage-bar')).toHaveAttribute('aria-valuenow', '0')
+    // 03 矩阵无主机数据 → 不可用态，绝不渲染全 0 矩阵
+    expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
+    // 六类行仍渲染（缺则补条目），但**没登记过该类对象时各计数列为 '-'**（第六轮走查：
+    // 0 是「登记了但没配置采集」的有效值，与「压根没有这类对象」必须区分）
     expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
-    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('纳管率 -')
+    expect(screen.getByTestId('l1-monitored-host')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-total-host')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('-')
+    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('-')
+    // 应用覆盖明细表已删除：其「去导入资源」动线由 03 矩阵脚注的补录引导承接（§2.4）
+    expect(screen.queryByTestId('l2-app-table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /去导入资源/ })).not.toBeInTheDocument()
+  })
+
+  it('shows a prominent all-clear block in the latest-alert column when nothing needs handling', async () => {
+    // AM 无通知中告警、Prom 无触发，但 history 有近 7 天记录 → 不走空态引导，
+    // 两栏区渲染、右栏「最新告警」为空 → 醒目成功块（不是 12px 灰字一行）
+    setupHomeMock({
+      [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
+      [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
+      [HISTORY_PATH]: HISTORY_OK,
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('latest-alert-empty')).toBeInTheDocument()
+    })
+    const block = screen.getByTestId('latest-alert-empty')
+    expect(block).toHaveTextContent('当前没有需要处理的告警')
+    // 醒目：成功色语义块 + 16px/600 标题（原 12px 灰字常在扫读时被当成没加载出来）；
+    // 第七轮走查把 15px 并入 title 级 16px——首页所有空态标题同尺寸
+    expect(within(block).getByText('当前没有需要处理的告警').style.fontSize).toBe('16px')
+    expect(within(block).getByText('当前没有需要处理的告警').style.fontWeight).toBe('600')
+    expect(block.getAttribute('style') ?? '').toContain('background')
+    // 标题不带「近 8 条」：上限是内部实现，带条数与「没有告警」自相矛盾
+    expect(screen.queryByText(/近 8 条/)).not.toBeInTheDocument()
   })
 
   it('renders the 查看全部 deep link on the alert card', async () => {
@@ -1014,31 +1330,29 @@ describe('HomePage', () => {
     expect(screen.getByTestId('latest-alert-3-line2')).toHaveTextContent('-')
   })
 
-  it('renders a scope note on every metric card with user-facing wording', async () => {
+  it('states the 下发口径 next to the overall coverage figure instead of on per-card tips', async () => {
     setupHomeMock()
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('资源总数')).toBeInTheDocument()
+      expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 96 / 共 128')
     })
 
+    // 反馈 11：L0 指标卡与逐卡 ⓘ 口径提示整块删除，口径改由 04 区块脚注一次性说明
+    expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
     for (const key of METRIC_KEYS) {
-      expect(screen.getByTestId(`metric-tip-${key}`)).toBeInTheDocument()
+      expect(screen.queryByTestId(`metric-${key}`)).not.toBeInTheDocument()
+      expect(screen.queryByTestId(`metric-tip-${key}`)).not.toBeInTheDocument()
     }
 
-    // 悬浮 ⓘ 可读出中文口径说明（不得出现字段名 / 模块代号）
-    fireEvent.mouseEnter(screen.getByTestId('metric-tip-monitored_count'))
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          '至少被一个已启用的采集任务【下发覆盖】到的资源数（含尚未采到的）；其余为尚未下发监控任务的资源。本卡统计下发口径，不代表已采到数据。',
-        ),
-      ).toBeInTheDocument()
-    })
+    // 脚注必须用用户口径说明「配置进度 ≠ 已采到数据」，且不出现字段名
+    const footnote = screen.getByTestId('overall-coverage-footnote')
+    expect(footnote).toHaveTextContent('只反映配置进度，不代表数据已采到')
+    expect(footnote.textContent).not.toContain('monitored_count')
   })
 
-  it('keeps L0 to exactly five cards, with the fourth being the firing count and the fifth the probe count', async () => {
+  it('keeps every alert figure inside the alert card, and shows the Prom firing count only in the reference line', async () => {
     setupHomeMock({
       [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
@@ -1051,22 +1365,28 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    const grid = screen.getByTestId('l0-section')
-    // KPI 卡恰为 5 张（决策 93：新增「拨测」；排除 ⓘ / 图标容器子节点）
-    expect(within(grid).queryAllByTestId(/^metric-(?!tip-|icon-)/)).toHaveLength(5)
-    // L0 唯一的告警数字是第 4 卡的 firing 条数（=3）；AM 治理态数字（通知中 / 已静默）只在告警卡内
-    expect(within(screen.getByTestId('metric-firing_count')).getByText('3')).toBeInTheDocument()
-    expect(grid.textContent).not.toContain('通知中')
-    expect(grid.textContent).not.toContain('已静默')
-    expect(grid.textContent).not.toContain('Prometheus')
-    expect(screen.queryByTestId('metric-notifying')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('metric-silenced')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('metric-prom_firing')).not.toBeInTheDocument()
+    // 反馈 11：告警数字不再拆散在首页 KPI 卡，只在独立整宽的告警卡内呈现
+    const alertCard = screen.getByTestId('alert-status-card')
+    expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
+
+    // Prometheus firing（=3）降级为告警卡左统计块底部 11px 参考行，不是首页主数字
+    // （第六轮走查：参考行从右栏页脚上移至统计块空挡）
+    expect(screen.getByTestId('prom-reference-line')).toHaveTextContent('已触发 3 · 观察中 1')
+    expect(screen.getByTestId('alert-stat-column')).toContainElement(
+      screen.getByTestId('prom-reference-line'),
+    )
+    expect(alertCard).toHaveTextContent('通知中')
+
+    // 02 云卡与 04 覆盖率区都不得出现任何告警数字（跨区块串味防线）
+    const cloudPanel = screen.getByTestId('cloud-distribution-panel')
+    expect(cloudPanel.textContent).not.toContain('告警')
+    const coverage = screen.getByTestId('coverage-section')
+    expect(coverage.textContent).not.toContain('告警')
   })
 
-  it('renders placeholder instead of NaN when summary omits the new count fields', async () => {
+  it('renders placeholder instead of NaN when summary omits the by_cloud and by_platform_app fields', async () => {
     setupHomeMock({
-      // 旧后端：响应缺少 monitored_count / scrape_job_count / scrape_job_enabled_count
+      // 旧后端：响应缺少 monitored_count / by_cloud / by_platform_app
       [DASHBOARD_PATH]: {
         status: 'success',
         data: {
@@ -1080,21 +1400,27 @@ describe('HomePage', () => {
 
     renderPage()
 
+    // 新字段缺失时 02 / 03 走诚实降级态：02 空态、03 不可用态；
+    // 绝不用静态样例云卡或全 0 矩阵伪造真实数据（决策 68-2）
     await waitFor(() => {
-      expect(within(screen.getByTestId('metric-resource_count')).getByText('10')).toBeInTheDocument()
+      expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 - / 共 -')
     })
+    expect(screen.queryByTestId('cloud-cards')).not.toBeInTheDocument()
+    expect(screen.getByTestId('cloud-distribution-panel')).toHaveTextContent('暂无主机数据')
+    expect(screen.queryByTestId('cloud-card-PUB-TX')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('pam-table')).not.toBeInTheDocument()
 
-    // 字段缺失不得渲染 NaN% / undefined；新分组字段缺失时 L1 / L2 按空数据降级
-    const grid = screen.getByTestId('l0-section')
-    expect(grid.textContent).not.toContain('NaN')
-    expect(grid.textContent).not.toContain('undefined')
-    expect(within(screen.getByTestId('metric-monitored_count')).getByText('-')).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-coverage')).getByText('-')).toBeInTheDocument()
+    // 字段缺失不得渲染 NaN% / undefined；分组字段缺失时 L1 / L2 按空数据降级
+    const page = screen.getByTestId('overall-coverage-value').closest('body') as HTMLElement
+    expect(page.textContent).not.toContain('NaN')
+    expect(page.textContent).not.toContain('undefined')
+    expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
+    expect(screen.getByTestId('overall-coverage-bar')).toHaveAttribute('aria-valuenow', '0')
     expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
-    expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
   })
 
-  it('shows placeholder instead of 0 for the firing card when the Prom source fails', async () => {
+  it('shows placeholder instead of 0 for the Prom firing reference line when the Prom source fails', async () => {
     setupHomeMock({
       [PROM_ALERTS_PATH]: { status: 'error', data: null, error: 'prom unreachable' },
     })
@@ -1102,14 +1428,14 @@ describe('HomePage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('metric-firing_count')).toBeInTheDocument()
+      expect(screen.getByTestId('prom-reference-line')).toBeInTheDocument()
     })
 
-    // 取数失败显示 '-'（0 是「确实没有未恢复告警」的有效取值，必须与失败区分）
-    expect(within(screen.getByTestId('metric-firing_count')).getByText('-')).toBeInTheDocument()
+    // 取数失败显示 '-'（0 是「确实没有已触发告警」的有效取值，必须与失败区分）
+    expect(screen.getByTestId('prom-reference-line')).toHaveTextContent('已触发 - · 观察中 -')
   })
 
-  it('shows placeholder for every metric card when dashboard summary fails', async () => {
+  it('shows placeholder for the overall coverage figures when dashboard summary fails', async () => {
     setupHomeMock({
       [DASHBOARD_PATH]: { status: 'error', data: null, error: 'dashboard service unreachable' },
     })
@@ -1121,24 +1447,20 @@ describe('HomePage', () => {
     })
 
     // 取数失败统一显示 '-'，不把失败静默成 0（告警卡数字独立取数，不随 summary 失败降级）
-    for (const key of DASHBOARD_METRIC_KEYS) {
-      expect(within(screen.getByTestId(`metric-${key}`)).getByText('-')).toBeInTheDocument()
-    }
-  })
-
-  it('renders error message when status API returns error status', async () => {
-    setupHomeMock({
-      [STATUS_PATH]: { status: 'error', data: null, error: 'status service unreachable' },
-    })
-
-    renderPage()
-
+    expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 - / 共 -')
+    expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
+    expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('cloud-cards')).not.toBeInTheDocument()
+    // 告警卡独立取数：本例三个告警源均为空且均成功 → 渲染空态引导，
+// 证明它由自己的取数结果驱动，不随 summary 失败一并降级
     await waitFor(() => {
-      expect(screen.getByText('状态加载失败：status service unreachable')).toBeInTheDocument()
+      expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
     })
+    expect(screen.getByTestId('alert-status-card')).toHaveTextContent('当前无通知中的告警')
   })
 
-  it('renders error message when request throws', async () => {
+  it('renders error message when the dashboard request throws', async () => {
+    // 全链路 reject：summary 取数失败进 Alert（不静默成 0），告警三链路各自局部降级
     mockGet.mockRejectedValue(new Error('network failure'))
 
     renderPage()
@@ -1217,6 +1539,12 @@ describe('HomePage', () => {
 
     const alertCard = screen.getByTestId('alert-status-card')
     const strip = screen.getByTestId('alert-stat-strip')
+    // §2.3 两栏化后：四格统计块在左列、最新告警列表在右列，两者都仍在告警卡内
+    expect(screen.getByTestId('alert-stat-column').contains(strip)).toBe(true)
+    expect(
+      screen.getByTestId('alert-list-column').contains(screen.getByTestId('latest-alert-region')),
+    ).toBe(true)
+    expect(alertCard.contains(screen.getByTestId('alert-card-columns'))).toBe(true)
     // 主数字：当日 2 / 近 7 天 3（M02 history 按 fired_at 计数，含已恢复）
     expect(within(strip).getByTestId('alert-today-count')).toHaveTextContent('2')
     expect(within(strip).getByTestId('alert-week-count')).toHaveTextContent('3')
@@ -1226,14 +1554,18 @@ describe('HomePage', () => {
     for (const label of ['当日告警', '近 7 天告警', '通知中', '已静默 · 已抑制']) {
       expect(within(strip).getByText(label)).toBeInTheDocument()
     }
-    // 四格数字统一 24px/700（等宽数字）
+    // 四格数字统一 20px/600（等宽数字）：第七轮走查字号阶梯——
+    // 首页只留两个 24px 圆环作 hero，告警四格降到 primary 档，24px 的 700 在
+    // 大屏上偏粗黑，数字统一 600 后与两个圆环并排时笔画粗细一致
     const todayCount = screen.getByTestId('alert-today-count')
-    expect(todayCount.style.fontSize).toBe('24px')
-    expect(todayCount.style.fontWeight).toBe('700')
+    expect(todayCount.style.fontSize).toBe('20px')
+    expect(todayCount.style.fontWeight).toBe('600')
     expect(todayCount.style.fontVariantNumeric).toBe('tabular-nums')
 
     // 最新告警：近 8 条上限，标题与取数共用常量；两行制不再需要表头
-    expect(within(alertCard).getByText('最新告警（近 8 条）')).toBeInTheDocument()
+    expect(within(alertCard).getByText('最新告警')).toBeInTheDocument()
+    // 标题不再带「近 8 条」（第六轮走查：上限是内部实现，标题带条数有歧义）
+    expect(within(alertCard).queryByText(/近 8 条/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('latest-alert-header')).not.toBeInTheDocument()
 
     expect(within(screen.getByTestId('latest-alert-0')).getByText('主机 CPU 使用率过高')).toBeInTheDocument()
@@ -1260,16 +1592,15 @@ describe('HomePage', () => {
     )
 
     // Prom 求值态仅作参考小字，且页面不再出现「待处理」歧义词
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('触发中 3')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('求值中 1')
+    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
+    expect(screen.getByTestId('prom-reference-line').textContent).toContain('观察中 1')
     expect(screen.queryByText(/待处理/)).not.toBeInTheDocument()
 
-    // 卡内深链：告警中心入口已由标题右侧「查看全部 →」承担，底部不再重复（用户反馈 2026-09-14）
+    // 卡内深链：告警中心入口已由标题右侧「查看全部 →」承担，底部不再重复（用户反馈 2026-09-14）；
+    // 第六轮走查：「配置告警通知」深链按产品负责人要求移除——通知配置入口收敛到
+    // 告警状态页与首页使用指引，告警卡不再背配置动作
     expect(within(alertCard).queryByRole('link', { name: '查看告警中心 →' })).not.toBeInTheDocument()
-    expect(within(alertCard).getByRole('link', { name: '配置告警通知' })).toHaveAttribute(
-      'href',
-      '/alert-config',
-    )
+    expect(within(alertCard).queryByRole('link', { name: '配置告警通知' })).not.toBeInTheDocument()
   })
 
   it('caps the latest alert pool at 8 and paginates it at the fixed page size', async () => {
@@ -1411,8 +1742,8 @@ describe('HomePage', () => {
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
     expect(screen.getByTestId('alert-week-count')).toHaveTextContent('3')
     // Prom 侧成功 → 参考行仍展示真实数字（局部降级不整片归零）
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('触发中 3')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('求值中 1')
+    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
+    expect(screen.getByTestId('prom-reference-line').textContent).toContain('观察中 1')
   })
 
   it('shows placeholder instead of 0 for today / week when the history source fails', async () => {
@@ -1433,7 +1764,7 @@ describe('HomePage', () => {
     expect(screen.getByTestId('alert-week-count')).toHaveTextContent('-')
     expect(screen.getByTestId('alert-active-count')).toHaveTextContent('3')
     expect(screen.getByTestId('alert-governed-count')).toHaveTextContent('1 · 1')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('触发中 3')
+    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
     // 历史链路是辅助链路：不并入「告警状态加载失败」整卡错误态
     expect(screen.queryByText('告警状态加载失败')).not.toBeInTheDocument()
   })
@@ -1485,7 +1816,7 @@ describe('HomePage', () => {
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
-  it('renders the alert card and the onboarding guide in the same flex row with equal height', async () => {
+  it('renders the alert card and the onboarding guide as two independent full-width blocks', async () => {
     setupHomeMock()
 
     renderPage()
@@ -1494,77 +1825,112 @@ describe('HomePage', () => {
       expect(screen.getByTestId('onboarding-steps-card')).toBeInTheDocument()
     })
 
-    // 决策 93：告警卡（L4）与使用指引（L5）同排等高（左告警 flex:1.6 : 右指引 flex:1，
-    // align-items:stretch）。不再各占一根整宽行。旧版「系统快速入口 + 最近下发记录」双列区已整体移除。
-    const row = screen.getByTestId('home-l45-row')
-    expect(row.style.display).toBe('flex')
-    expect(row.style.alignItems).toBe('stretch')
-    const alertCard = screen.getByTestId('alert-status-card')
-    const onboarding = screen.getByTestId('onboarding-steps-card')
-    // 两卡都在同一 flex 行容器内，且 alert 在前、guide 在后
-    expect(row.contains(alertCard)).toBe(true)
-    expect(row.contains(onboarding)).toBe(true)
-    // 卡片自身不再落在 antd 栅格列
-    expect(alertCard.closest('.ant-col')).toBeNull()
-    expect(onboarding.closest('.ant-col')).toBeNull()
+    // 反馈 11 §11.2 ⑦⑧：告警状态从原06 段（与使用指引同排）上移到 04 正下方，
+    // 两块各自独立整宽，不再有 home-l45-row 这根 flex 行容器。
+    expect(screen.queryByTestId('home-l45-row')).not.toBeInTheDocument()
     expect(screen.queryByTestId('quick-access-card')).not.toBeInTheDocument()
-    // 使用指引卡被拉伸到与告警卡等高（height:100% + 卡体纵向 flex）
-    expect(onboarding.style.height || onboarding.querySelector('.ant-card-body')).toBeTruthy()
 
+    const alertSection = screen.getByTestId('home-alert-section')
+    const guideSection = screen.getByTestId('home-onboarding-section')
+    // 每块自己包住自己的卡，块自身不落在栅格列上（= 整宽，不是半宽并排）
+    expect(alertSection.contains(screen.getByTestId('alert-status-card'))).toBe(true)
+    expect(guideSection.contains(screen.getByTestId('onboarding-steps-card'))).toBe(true)
+    expect(alertSection.closest('.ant-col')).toBeNull()
+    expect(guideSection.closest('.ant-col')).toBeNull()
+
+    // 告警在指引之前（顺序与裁定一致）
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(following(alertCard, onboarding)).toBe(true)
+    expect(following(alertSection, guideSection)).toBe(true)
   })
 
-  it('renders metric cards as label → 30px value → sub line, with no icon container', async () => {
+  it('renders the cloud host count as a compact row (16px/600) and the L1 figures in the coverage table', async () => {
     setupHomeMock()
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('资源总数')).toBeInTheDocument()
+      expect(screen.getByTestId('cloud-card-PUB-TX')).toBeInTheDocument()
     })
 
-    const card = screen.getByTestId('metric-resource_count')
-    const value = within(card).getByText('128')
-    // 数字 30px/800 + 等宽数字（决策 73：提高数字醒目度）
-    expect(value.style.fontSize).toBe('30px')
-    expect(value.style.fontWeight).toBe('800')
+    // 第五轮：云分布是紧凑统计行——台数 + 「台主机」量词（旧 32px/800 KPI 卡已下线，
+    // 2 朵云时左卡不再被撑高）；无图标容器、无已下发 / 纳管率。
+    // 第七轮走查：18px/700 → **16px/600**——「行级计数」在首页一律 16/600（云台数、
+    // 采集四态、拨测四格同尺寸），横向扫读时三张卡的数字等高
+    const card = screen.getByTestId('cloud-card-PUB-TX')
+    const value = screen.getByTestId('cloud-host-count-PUB-TX')
+    expect(value).toHaveTextContent('30')
+    expect(value.style.fontSize).toBe('16px')
+    expect(value.style.fontWeight).toBe('600')
     expect(value.style.fontVariantNumeric).toBe('tabular-nums')
-    // 排版定版：L0 卡内**不放图标容器**（数字是卡内唯一视觉主体，图标只会与它争权重）
-    expect(within(card).queryByTestId('metric-icon-resource_count')).toBeNull()
-    // 卡内边距 14px 16px（决策 73 §4）；标签在数字之前（纵向排版）
-    const cardBody = card.querySelector('.ant-card-body') as HTMLElement
-    expect(cardBody.getAttribute('style')).toContain('padding: 14px 16px')
-    expect(
-      Boolean(
-        within(card)
-          .getByText('资源总数')
-          .compareDocumentPosition(within(card).getByText('128')) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ),
-    ).toBe(true)
+    expect(card).toHaveTextContent('台主机')
+
+    // 04 六类表格：已配置采集 36 / 总数 42 / 纳管率 86% / 未配置采集 6（与旧卡同口径，表格化呈现）
+    expect(screen.getByTestId('l1-monitored-host')).toHaveTextContent('36')
+    // 单位已去除（第六轮走查）：表头已说明是「采集」，列内只留数字
+    expect(screen.getByTestId('l1-monitored-host').textContent).not.toContain('台')
+    expect(screen.getByTestId('l1-total-host')).toHaveTextContent('42')
+    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('86%')
+    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('6')
   })
 
-  it('renders the L0 coverage progress bar and the sub line values from dashboard summary', async () => {
+  it('renders the overall coverage donut and the 下发 figures from dashboard summary', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('纳管覆盖率')).toBeInTheDocument()
+      expect(screen.getByText('监控对象纳管完成率')).toBeInTheDocument()
     })
 
-    // 区块标题：全局态势（L0 四卡的分区标题，与 L1「按资源类型」同级）
-    expect(screen.getByText('全局态势')).toBeInTheDocument()
+    // 2026-10-17 走查：区块标题由「纳管覆盖率」通俗化为「监控对象纳管完成率」
+    // （「纳管覆盖率」是平台内部说法，领导读不懂；精确口径由 Tooltip + 脚注承载）；
+    // 全局态势感知不再呈现给领导
+    expect(screen.getByText('监控对象纳管完成率')).toBeInTheDocument()
+    expect(screen.queryByText('全局态势')).not.toBeInTheDocument()
 
-    // 覆盖率卡：数字 75% + 进度条（宽度 = 75%，品牌色，不随 <70% 阈值变橙）
-    const bar = screen.getByTestId('l0-bar-coverage')
-    expect(bar).toHaveAttribute('aria-valuenow', '75')
-    expect((bar.firstElementChild as HTMLElement).style.width).toBe('75%')
+    // 第五轮：8px 进度条 → 百分比圆环。aria-valuenow 75（96 ÷ 128）+ 品牌色弧 + 圆心 75%
+    const donut = screen.getByTestId('overall-coverage-bar')
+    expect(donut).toHaveAttribute('aria-valuenow', '75')
+    expect(donut).toHaveAttribute('aria-label', '监控对象纳管完成率 75%')
+    expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('75%')
 
-    // 副行：资源总数「六类台账合计」；已纳入监控「未纳管 32」（= 128 − 96）
-    expect(within(screen.getByTestId('metric-resource_count')).getByText('六类台账合计')).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-monitored_count')).getByText('未下发 32')).toBeInTheDocument()
+    // 副行：已下发 96 / 共 128（= 六类台账合计），未下发数由六类表格「未下发」列承接
+    expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 96 / 共 128')
+    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('6')
+  })
+
+  it('renders the 04 coverage donut at 24px/500 with the arc and the percent in the brand color', async () => {
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('75%')
+    })
+
+    // 第五轮圆环：圆心文字 24px，字重第七轮走查由 500 收到 600（数字统一 600，
+    // 与拨测正常率圆环同几何同心字号），色值与进度弧同源（token.colorPrimary，
+    // 不写死色值，避免换肤 / 主题变更即失败）
+    const percent = screen.getByTestId('overall-coverage-percent')
+    expect(percent.getAttribute('font-size')).toBe('24')
+    expect(percent.getAttribute('font-weight')).toBe('600')
+    const arcs = screen.getByTestId('overall-coverage-bar').querySelectorAll('circle')
+    expect(arcs).toHaveLength(2)
+    expect(percent.getAttribute('fill')).toBe(arcs[1].getAttribute('stroke'))
+    expect(screen.getByText('整体纳管完成率')).toBeInTheDocument()
+    // 第六轮走查改词：「已下发」表述不清（产品负责人：「是采集策略已下发吗」）→「已配置」
+    expect(screen.getByTestId('overall-coverage-value')).toHaveTextContent('已配置 96 / 共 128')
+    // 圆环在六类表格之前（左整体 → 右明细，同卡共同体）；脚注通俗化：明示计算公式 + 与「采集健康」的分工。
+    // 第六轮走查定稿：脚注在**卡底左对齐**（曾放圆环块内——140px 窄列放长句太挤），
+    // 位于 coverage-body 之后
+    const following = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(following(screen.getByTestId('overall-coverage-bar'), screen.getByTestId('l1-card-host'))).toBe(true)
+    expect(following(screen.getByTestId('coverage-body'), screen.getByTestId('overall-coverage-footnote'))).toBe(true)
+    expect(screen.getByTestId('overall-coverage-footnote')).toHaveTextContent(
+      '按「已配置采集任务的资源数 ÷ 资源总数」计算，只反映配置进度，不代表数据已采到；实际采集情况见下方「采集健康」。',
+    )
   })
 
   it('renders L1 category badges as single characters', async () => {
@@ -1593,9 +1959,10 @@ describe('HomePage', () => {
       expect(screen.getByText('使用指引')).toBeInTheDocument()
     })
 
-    // 决策 93：使用指引为纵向六步 Steps（与告警卡同排等高）
+    // 2026-10-17 走查：使用指引为**一行横排**六步 Steps（窄屏卡内横向滚动）
     const onboarding = screen.getByTestId('onboarding-steps-card')
     expect(onboarding.querySelector('.ant-steps')).not.toBeNull()
+    expect(onboarding.querySelector('.ant-steps-horizontal')).not.toBeNull()
 
     expect(within(onboarding).getByRole('link', { name: '登记网域' })).toHaveAttribute(
       'href',
@@ -1644,7 +2011,7 @@ describe('HomePage', () => {
     expect(page.getAttribute('style') ?? '').not.toContain('min-height: 0')
   })
 
-  it('keeps the 5-rows-per-page contract on the now full-width alert card', async () => {
+  it('keeps the 5-rows-per-page contract on the side-by-side alert card', async () => {
     // 有真实告警数据（否则走空态引导，页脚不渲染）
     setupHomeMock({ [AM_ALERTS_PATH]: AM_ALERTS_OK })
 
@@ -1654,18 +2021,25 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 决策 91：告警卡整宽后，「5 行/页 ↔ 下发 6 条」的左右列等高手段失效并已移除，
-    // 5 行/页从此只是告警卡自身的定稿硬契约（homeLayout.ALERT_PAGE_SIZE）。
+    // 决策 91：告警卡整宽后，「5 行/页 ↔ 下发 6 条」的左右列等高手段失效并已移除；
+    // 第五轮方案 A 改为与采集健康 2:1 并排，卡体两栏在 2/3 宽度（桌面约 776px+）下
+    // 原样保留，5 行/页仍只是告警卡自身的定稿硬契约（homeLayout.ALERT_PAGE_SIZE）。
     expect(ALERT_PAGE_SIZE).toBe(5)
     const alertCard = screen.getByTestId('alert-status-card')
+    // 并排容器是 flex 分区而非栅格列：告警卡的直接宿主是 home-alert-section，
+    // 其上再没有 .ant-col（不落 24 栅格）
     expect(alertCard.closest('.ant-col')).toBeNull()
     expect(screen.queryByText('最近下发记录')).not.toBeInTheDocument()
 
-    // 告警卡：卡体为纵向 flex，页脚 margin-top:auto 贴卡底
+    // 告警卡：卡体为纵向 flex；第六轮起右栏不再有页脚——Prometheus 参考行移到
+    // 左统计块内、margin-top:auto 沉底，吸收卡被拉伸时的残余落差
     const alertBody = alertCard.querySelector('.ant-card-body') as HTMLElement
     expect(alertBody.style.display).toBe('flex')
     expect(alertBody.style.flexDirection).toBe('column')
-    expect(screen.getByTestId('alert-card-footer').style.marginTop).toBe('auto')
+    expect(screen.queryByTestId('alert-card-footer')).not.toBeInTheDocument()
+    const statColumn = screen.getByTestId('alert-stat-column')
+    expect(statColumn).toContainElement(screen.getByTestId('prom-reference-line'))
+    expect(screen.getByTestId('prom-reference-line').style.marginTop).toBe('auto')
   })
 
   it('paginates the latest alerts at a fixed page size, independent of the viewport', async () => {
@@ -1716,7 +2090,7 @@ describe('HomePage', () => {
     expect(screen.queryByText('进入可视化大屏')).not.toBeInTheDocument()
   })
 
-  it('adapts to the mobile viewport: L0 two per row, L1 one per row, L4/L5 stacked, stat strip 2×2', async () => {
+  it('adapts to the mobile viewport: cloud compact rows, L1 table rows, matrix keeps its table, stat strip 2×2', async () => {
     stubNarrowViewport()
     // Prom 有 firing 告警 → 告警卡不落入空态，四格统计条会真实渲染（用于断言 2×2）
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
@@ -1727,38 +2101,86 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // L0：窄屏降为两卡一行（xs / sm 双档 12 栅格），不再走桌面 flex:1 等宽
-    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
-    expect(l0Cols).toHaveLength(5)
-    l0Cols.forEach((col) => {
-      expect(col.className).toContain('ant-col-xs-12')
-      expect(col.className).toContain('ant-col-sm-12')
-      expect((col as HTMLElement).style.flex).toBe('')
-    })
+    // 反馈 11 §11.6：L0 已删除，无「两卡一行」分支
+    expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
 
-    // L1：窄屏降为单卡一行（24 栅格 = 整行）——本卡内容更宽，两卡一行会压断子类 chip
-    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
-    expect(l1Cols).toHaveLength(6)
-    l1Cols.forEach((col) => {
-      expect(col.className).toContain('ant-col-xs-24')
-      expect((col as HTMLElement).style.flex).toBe('')
-    })
+    // 02 云卡：第五轮改为「一行一朵云」紧凑统计行（无栅格列），窄宽屏同一版式
+    const cloudCards = screen.getByTestId('cloud-cards')
+    expect(cloudCards.querySelectorAll('.ant-col')).toHaveLength(0)
+    expect(screen.getAllByTestId(/^cloud-card-/)).toHaveLength(2)
 
-    // L4 / L5：由同排 1.6:1 改为纵向堆叠；display 仍为 flex、alignItems 仍 stretch（等高语义不破）
-    const row = screen.getByTestId('home-l45-row')
-    expect(row.style.display).toBe('flex')
-    expect(row.style.flexDirection).toBe('column')
-    expect(row.style.alignItems).toBe('stretch')
-    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe('')
+    // L1：第五轮改为表格（一行一类型），窄屏六类六行 + 横向滚动，不再是单卡一行栅格
+    const l1Grid = screen.getByTestId('l1-grid')
+    expect(l1Grid.querySelectorAll('.ant-col')).toHaveLength(0)
+    expect(within(l1Grid).getAllByTestId(/^l1-card-/)).toHaveLength(6)
+    // 窄屏徽标列隐藏，列宽收窄（列宽走 prop 而非断点类，jsdom 不断言像素）
+    expect(within(l1Grid).getByTestId('l1-table')).toBeInTheDocument()
 
-    // 告警卡四格统计条：窄屏 2×2（每格半宽 + 换行），避免长标签溢出到相邻格
+    // 04 覆盖率：窄屏圆环与表格上下堆叠（coverage-body 纵排）
+    const coverageBody = screen.getByTestId('coverage-body')
+    expect(coverageBody.style.flexDirection).toBe('column')
+    // **第七轮走查手机端修复的回归锚点**：纵排时必须 stretch。
+    // 走查前恒为 `center`——纵轴布局里 center = 横向居中 + 按内容收缩，表格容器被压到
+    // flex-basis 260px 居中，卡内剩余宽度只能靠表内横滚消化，末列「未配置」被裁（截图问题）。
+    expect(coverageBody.style.alignItems).toBe('stretch')
+
+    // 窄屏表格基础宽必须能在 360px 竖屏机型里放下（内容区 360 − 24 − 24 = 312）：
+    // 列宽合计 300 是 ResourceTypeGrid 的窄屏常量，超了就会重新出现横向滚动 + 末列被切
+    const l1NarrowTable = within(l1Grid)
+      .getByTestId('l1-table')
+      .querySelector('.ant-table-content table') as HTMLElement
+    expect(parseFloat(l1NarrowTable.style.width)).toBeLessThanOrEqual(300)
+
+    // 资源管理行（第六轮）：02 + 03 两块仍在同一 flex-wrap 容器内，
+    // 窄屏各自整宽堆叠（折行由容器宽度决定，jsdom 不断言像素）
+    const resourceRow = screen.getByTestId('home-resource-row')
+    expect(resourceRow).toContainElement(screen.getByTestId('cloud-distribution-panel'))
+    expect(resourceRow).toContainElement(screen.getByTestId('platform-app-matrix-panel'))
+
+    // 03 矩阵：窄屏**保留二维表格 + 横向滚动 + 固定首列**，不降级为卡片列表
+    expect(screen.getByTestId('pam-table')).toBeInTheDocument()
+    // 矩阵行不下钻；面板内唯一链接为脚注的台账补录引导（§2.4 遗留补偿）
+    const matrixLinks = within(screen.getByTestId('platform-app-matrix-panel')).queryAllByRole('link')
+    expect(matrixLinks).toHaveLength(1)
+    expect(matrixLinks[0]).toHaveAttribute('href', '/resources?import=1')
+    expect(within(screen.getByTestId('platform-app-matrix-panel')).queryAllByRole('table')).toHaveLength(1)
+
+    // 两个运行态行（第六轮）：「04 + 告警」行 + 「采集健康 + 拨测」行，
+    // 窄容器下 flex-wrap 折行各自整宽堆叠（不再有告警↔指引同排的 home-l45-row）
+    expect(screen.queryByTestId('home-l45-row')).not.toBeInTheDocument()
+    expect(screen.getByTestId('home-coverage-alert-row')).toContainElement(
+      screen.getByTestId('home-alert-section'),
+    )
+    expect(screen.getByTestId('home-health-probe-row')).toContainElement(
+      screen.getByTestId('home-collection-health-section'),
+    )
+    expect(screen.getByTestId('home-health-probe-row')).toContainElement(
+      screen.getByTestId('home-probe-section'),
+    )
+    const narrowFollowing = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(
+      narrowFollowing(
+        screen.getByTestId('home-collection-health-section'),
+        screen.getByTestId('home-probe-section'),
+      ),
+    ).toBe(true)
+    expect(
+      narrowFollowing(
+        screen.getByTestId('home-probe-section'),
+        screen.getByTestId('home-onboarding-section'),
+      ),
+    ).toBe(true)
+
+    // §2.3：告警卡卡体两栏在窄屏**上下堆叠**，左栏统计条维持 2×2（每格半宽 + 换行）
+    expect(screen.getByTestId('alert-card-columns').style.flexDirection).toBe('column')
     expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('wrap')
     expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
       '0 0 50%',
     )
   })
 
-  it('keeps the desktop five-per-row grids and the side-by-side alert row on wide viewports', async () => {
+  it('keeps the desktop resource row (02+03), the coverage+alert split and the health-probe row on wide viewports', async () => {
     // 默认 matchMedia 全部 matches:false（setupAntdTest）→ 宽屏分支
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
@@ -1768,30 +2190,165 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // L0 / L1 仍为 Col flex:1 五卡一行（桌面版式逐字不变）。
-    // 断言值取 jsdom 归一化后的 `1 1 0%`（`flex: 1` 简写被展开），而非字面量 '1'
-    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
-    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
-    ;[...l0Cols, ...l1Cols].forEach((col) => {
-      expect((col as HTMLElement).style.flex).toBe('1 1 0%')
-      expect(col.className).not.toContain('ant-col-xs-12')
-      expect(col.className).not.toContain('ant-col-xs-24')
+    // 02 云卡 / L1：均不再走 24 栅格 Col——云为紧凑统计行、L1 为表格，
+    // 宽窄屏同一 DOM 结构（响应式差异只在 L1 列宽 prop 与 04 圆环纵排）
+    expect(screen.getByTestId('cloud-cards').querySelectorAll('.ant-col')).toHaveLength(0)
+    const l1Grid = screen.getByTestId('l1-grid')
+    expect(l1Grid.querySelectorAll('.ant-col')).toHaveLength(0)
+    expect(within(l1Grid).getAllByTestId(/^l1-card-/)).toHaveLength(6)
+
+    // 资源管理行（第六轮）：02 收窄为 0 1 260px 固定窄列（原 1 1 460px「过长」），
+    // 03 分享剩余宽度；两者基础宽之和 ≈696px，1440 视口一行放得下
+    const resourceRow = screen.getByTestId('home-resource-row')
+    expect(resourceRow.style.flexWrap).toBe('wrap')
+    const cloudWrapper = screen.getByTestId('cloud-distribution-panel').parentElement as HTMLElement
+    const matrixWrapper = screen.getByTestId('platform-app-matrix-panel').parentElement as HTMLElement
+    expect(cloudWrapper.style.flex).toBe('0 1 260px')
+    expect(matrixWrapper.style.flex).toBe('1 1 420px')
+
+    // 「04 + 告警」行：对分（flex 1:1，各 ≈568px @1440）；
+    // 「采集 + 拨测」行：grow 填满整行（采集 1 : 拨测 2）
+    expect(screen.queryByTestId('home-l45-row')).not.toBeInTheDocument()
+    const alertSection = screen.getByTestId('home-alert-section')
+    const healthSection = screen.getByTestId('home-collection-health-section')
+    const probeSection = screen.getByTestId('home-probe-section')
+    expect(screen.getByTestId('coverage-section').style.flex).toBe('1 1 460px')
+    expect(alertSection.style.flex).toBe('1 1 460px')
+    expect(healthSection.style.flex).toBe('1 1 360px')
+    expect(probeSection.style.flex).toBe('2 1 560px')
+    expect(screen.getByTestId('home-coverage-alert-row')).toContainElement(
+      screen.getByTestId('coverage-section'),
+    )
+    expect(screen.getByTestId('home-coverage-alert-row')).toContainElement(alertSection)
+    expect(screen.getByTestId('home-health-probe-row')).toContainElement(healthSection)
+    expect(screen.getByTestId('home-health-probe-row')).toContainElement(probeSection)
+    expect(alertSection.contains(screen.getByTestId('alert-status-card'))).toBe(true)
+    expect(healthSection.contains(screen.getByTestId('collection-health-panel'))).toBe(true)
+    expect(probeSection.contains(screen.getByTestId('probe-panel'))).toBe(true)
+    expect(alertSection.closest('.ant-col')).toBeNull()
+    expect(healthSection.closest('.ant-col')).toBeNull()
+    expect(probeSection.closest('.ant-col')).toBeNull()
+
+    // §2.3：宽屏卡体两栏——左统计块（四格**纵排**，flexDirection column）
+    // ≠ 窄屏的一行四格横向变体（后者保留给 2×2 断点）。第六轮走查：统计块 280 → 220px
+    // （对分半幅卡里原列宽过宽，产品负责人走查要求收窄）
+    expect(screen.getByTestId('alert-card-columns').style.flexDirection).toBe('row')
+    expect(screen.getByTestId('alert-stat-strip').style.flexDirection).toBe('column')
+    expect(screen.getByTestId('alert-stat-column').style.flex).toBe('0 0 220px')
+  })
+
+  it('splits the coverage card and the alert card evenly, and stretches the health-probe row to full width', async () => {
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // L4 / L5：同排（row），左告警 flex 1.6、右指引 flex 1（jsdom 将简写归一化为 `N 1 0%`）
-    const row = screen.getByTestId('home-l45-row')
-    expect(row.style.flexDirection).toBe('row')
-    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe(
-      '1.6 1 0%',
-    )
-    expect(
-      (screen.getByTestId('onboarding-steps-card').parentElement as HTMLElement).style.flex,
-    ).toBe('1 1 0%')
+    // 「04 + 告警」行：对分——两节 flex 值逐字相同（1 1 460px），1440 视口下各 ≈568px
+    const coverageAlertRow = screen.getByTestId('home-coverage-alert-row')
+    expect(coverageAlertRow.style.flexWrap).toBe('wrap')
+    expect(coverageAlertRow.style.gap).toBe('16px')
+    expect(screen.getByTestId('coverage-section').style.flex).toBe('1 1 460px')
+    expect(screen.getByTestId('home-alert-section').style.flex).toBe('1 1 460px')
 
-    // 四格统计条维持一行四格（不换行）
-    expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('')
-    expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
-      '1 1 0%',
+    // 「采集 + 拨测」行：两者均带 flex-grow，grow 拉伸填满整行（不留右侧空白）
+    const healthProbeRow = screen.getByTestId('home-health-probe-row')
+    expect(healthProbeRow.style.flexWrap).toBe('wrap')
+    const healthFlex = screen.getByTestId('home-collection-health-section').style.flex
+    const probeFlex = screen.getByTestId('home-probe-section').style.flex
+    expect(healthFlex).toBe('1 1 360px')
+    expect(probeFlex).toBe('2 1 560px')
+    expect(healthProbeRow).toContainElement(screen.getByTestId('collection-health-panel'))
+    expect(healthProbeRow).toContainElement(screen.getByTestId('probe-panel'))
+    const following = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(
+      following(screen.getByTestId('home-collection-health-section'), screen.getByTestId('home-probe-section')),
+    ).toBe(true)
+
+    // 两行仍位于使用指引之前
+    expect(following(coverageAlertRow, screen.getByTestId('home-onboarding-section'))).toBe(true)
+    expect(following(healthProbeRow, screen.getByTestId('home-onboarding-section'))).toBe(true)
+  })
+
+  it('keeps the matrix footnote to a single merged line with the full scope in the title tooltip', async () => {
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // 第五轮缩减 + 第六轮合并为一行：完整口径（按主机台数统计、行=列=总数合计关系）
+    // 在标题 Tooltip；可见版面只有一行——速记与补录引导合并同一行（不再分两行占高度）
+    const footnote = screen.getByTestId('pam-footnote')
+    expect(footnote).toHaveTextContent(
+      '「其他」= 主机较少的平台合并；「未指定」= 还没填归属。归属未填的主机，可到 资源清单 补填或重新导入。',
     )
+    expect(footnote.textContent ?? '').not.toContain('横竖合计')
+    // 补录引导链接仍在同一行内（面板内唯一链接）
+    expect(
+      within(screen.getByTestId('platform-app-matrix-panel')).getByTestId(
+        'pam-footnote-supplement-link',
+      ),
+    ).toHaveAttribute('href', '/resources?import=1')
+  })
+
+  it('hides the whole resource-management group (02+03) from the header toggle without leaving panel titles', async () => {
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cloud-card-PUB-TX')).toBeInTheDocument()
+    })
+
+    // 默认显示：资源管理行在，页头开关文案为「隐藏资源分布」
+    expect(screen.getByTestId('home-resource-row')).toBeInTheDocument()
+    expect(screen.getByTestId('resource-panels-toggle')).toHaveTextContent('隐藏资源分布')
+
+    // 第六轮走查：整组隐藏——home-resource-row 整体不渲染，**面板标题也不露出**
+    // （藏得干净；恢复入口是页头行开关，不随面板一起消失）
+    fireEvent.click(screen.getByTestId('resource-panels-toggle'))
+    expect(screen.queryByTestId('home-resource-row')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cloud-distribution-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('platform-app-matrix-panel')).not.toBeInTheDocument()
+    expect(screen.queryByText('不同云的主机数量')).not.toBeInTheDocument()
+    expect(screen.queryByText('平台与应用的主机分布')).not.toBeInTheDocument()
+    // 偏好即写 localStorage（跨会话保留）
+    expect(window.localStorage.getItem('metriccenter.home.resource-panels.collapsed')).toBe('1')
+
+    // 运行态两行与使用指引不受影响
+    expect(screen.getByTestId('home-coverage-alert-row')).toBeInTheDocument()
+    expect(screen.getByTestId('home-health-probe-row')).toBeInTheDocument()
+    expect(screen.getByTestId('home-onboarding-section')).toBeInTheDocument()
+
+    // 再点一次恢复
+    fireEvent.click(screen.getByTestId('resource-panels-toggle'))
+    expect(screen.getByTestId('home-resource-row')).toBeInTheDocument()
+    expect(screen.getByTestId('cloud-distribution-panel')).toBeInTheDocument()
+    expect(window.localStorage.getItem('metriccenter.home.resource-panels.collapsed')).toBe('0')
+  })
+
+  it('starts with the resource-management group hidden when the persisted preference says so', async () => {
+    // 模拟「上次隐藏了」的会话：初值读 localStorage，不渲染资源行，开关文案为「显示资源分布」
+    window.localStorage.setItem('metriccenter.home.resource-panels.collapsed', '1')
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('home-resource-row')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resource-panels-toggle')).toHaveTextContent('显示资源分布')
+    // 其余区块照常渲染
+    expect(screen.getByTestId('coverage-card')).toBeInTheDocument()
+    expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
+    expect(screen.getByTestId('probe-panel')).toBeInTheDocument()
   })
 })

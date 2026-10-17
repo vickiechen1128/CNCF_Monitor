@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Badge, Button, Card, Empty, Input, Select, Table, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
+import { useSearchParams } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
@@ -35,7 +36,18 @@ export function TargetStatusPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([])
-  const [health, setHealth] = useState<TargetHealth | undefined>()
+  /**
+   * 深链预筛（2026-10-17 第六轮走查）：首页拨测卡的「查看异常拨测目标 →」带
+   * `?health=down` 进来，落页即只看异常节点，不必再手动点一次筛选。
+   * 只认三枚举合法值，非法 / 缺省一律不过滤（与接口的 bad_request 口径区分开：
+   * 深链是展示入口，不报错）。
+   */
+  const [searchParams] = useSearchParams()
+  const initialHealth = ((): TargetHealth | undefined => {
+    const raw = searchParams.get('health')
+    return raw === 'up' || raw === 'down' || raw === 'unknown' ? raw : undefined
+  })()
+  const [health, setHealth] = useState<TargetHealth | undefined>(initialHealth)
   const [networkDomain, setNetworkDomain] = useState<string | undefined>()
   /** 实例名 / 实例IP 模糊搜索（后端匹配 M07 台账实例名与 target 实例地址） */
   const [search, setSearch] = useState<string | undefined>()

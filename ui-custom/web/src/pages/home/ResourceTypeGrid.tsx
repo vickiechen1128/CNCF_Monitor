@@ -1,334 +1,264 @@
 /**
- * L1 采集覆盖区（Module_05 §3.1 决策 93 / PRD v1.8；版式按**排版定版**对齐原型）。
+ * L1 采集覆盖表（Module_05 §3.1 决策 93 / PRD v1.8；2026-10-17 第五轮走查：
+ * 一行六卡 → **04 卡片内的一张六行表格**，与左侧整体圆环构成共同体）。
  *
- * 一行五卡（5 列 Flex，5 卡等宽不溢出）：前 5 格为 `dashboard.by_category` 的五类资源卡
- * （**固定顺序**：主机 / 数据库 / 中间件 / 应用服务 / 其他监控目标）。决策 93 **删除**旧版
- * 的「按应用查看」入口卡（L2 应用覆盖区前移承接跳转）与每卡右上角「未恢复」告警胶囊
- * （告警信息收口 L0 告警卡 + L4 告警状态卡，本区只体现采集覆盖口径）。
+ * 改表格的缘由（第五轮反馈）：旧版六张类型卡与 04 区块头部的整体进度大数字
+ * 平级排布，用户「看不出是一个共同的关系」——六类本是同一整体的六个组成部分，
+ * 拆成六张平级卡后整体感消失。改为单卡内表格：**圆环（整体）在左、六类明细在右**，
+ * 一行一类，列 = 资源类型 / 已配置采集 / 总数 / 纳管率 / 未配置采集。
  *
- * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：由 5 卡一行降为**单卡一行**——
- * 本卡比 L0 指标卡更宽（32px 已下发数 + 纳管率进度条 + 子类 chip 左右两栏），
- * 手机上两卡一行会把子类 chip 的「已下发/总数 · 纳管率」压到截断，故直接单列排布。
+ * 列口径（第六轮走查改词 + 改版）：
+ * - `monitored_count` 为**下发口径**：禁用「已采 / 覆盖率」（反馈 10 §10.4 正名）；
+ *   但「已下发 / 未下发」被产品负责人指出「下发什么说不清」（2026-10-17 走查原话：
+ *   「是采集策略已下发吗」），改为**「已配置采集 / 未配置采集」**——明确是采集任务
+ *   配置，与卡内注解「已配置采集任务的资源数 ÷ 资源总数」同词；
+ * - 「纳管率」沿用（与面板标题「监控对象纳管完成率」同词，构成 整体↔部分 共同体）；
+ * - 量词只给主机（「台」，仅出现在已配置采集列）；`未配置采集 N` 不重复量词；
+ * - 纳管率 < 70% 百分数转橙（第六轮起行内进度条已去除——与百分数信息重复、占半列宽，
+ *   整体比例由左侧圆环承担；颜色不是唯一语义，数字本身可读）；
+ * - 接口未返回某类型时按 **0 值行**渲染（0 是有效计量值，不缺行、不补样例）。
  *
- * 卡片自上而下：单字徽标 + 类型名 → 32px 已下发数 + `/ N 量词已下发` → 纳管率进度条 +
- * 「纳管率 X%」/「未下发 N」→ 细分隔线 → 子类小标题 + 子类 chip 列表（+ 卡内脚注）。
+ * `by_category[].by_subtype` 契约字段保留（后端不变），前端不消费——
+ * 子类明细动线归资源清单页（第四轮已去除卡内子类区，防旧口径加回的测试在
+ * HomePage.test.tsx「drops the subtype breakdown…」）。
  *
- * 版式要点（视觉定版 v3，决策 93）：
- * - **徽标用类型首字**而非线性图标（见 resourceTypeMeta 注释）；
- * - **量词只给主机**（「台」）；`未下发 N` 不重复量词；
- * - 文案口径（反馈 10 §10.4 正名）：`monitored_count` 为**下发口径**，一律称「已下发」/「纳管率」，禁用「已采 / 覆盖率」；
- * - **子类封顶 3 条**：第 4 条起聚合为「更多 +N」虚线品牌青 chip（`more` 态），
- *   行高有确定性上界，同行五卡等高不再被子类数量拉爆（一行五卡布局的前提）；
- * - **应用服务不设子类**：渲染一行规则说明 + `application_http` 指标 chip，**不再**渲染采集
- *   形态示例 chip（空态减负，决策 93）；「为什么不拆」由规则说明 + Tooltip 自解释。
+ * 移动适配（≤767px，见 homeResponsive.ts）：表格保留（行式信息比六卡堆叠更省高度），
+ * 列宽收窄（总宽 ≈328px，横向滚动兜底）、徽标隐藏、表头改 3 字短名（已配置 / 未配置）；
+ * 圆环与表格在 04 卡片内纵向堆叠（堆叠由 HomePage 的 coverage-body 控制）。
  */
-import { Col, Row, Tooltip, Typography, theme } from 'antd'
-import { Link } from 'react-router-dom'
+import { Table, Typography, theme } from 'antd'
+import type { TableColumnsType } from 'antd'
+import type { HTMLAttributes } from 'react'
 import type { CategorySummary } from '../../api/dashboard'
-import { SurfaceCard } from './SurfaceCard'
 import {
   coveragePercent,
   coverageText,
   L1_CATEGORY_META,
   L1_CATEGORY_ORDER,
-  resourceListHref,
-  SINGLE_SUBTYPE_CHIP,
   SUBTYPE_COVERAGE_WARN_THRESHOLD,
   uncoveredCount,
 } from './resourceTypeMeta'
 import type { ResourceCategoryKey } from './resourceTypeMeta'
+import { HOME_FONT } from './homeTypography'
+import { TableHeaderText } from './TableHeaderText'
 import { useNarrowLayout } from './homeResponsive'
 
-/** 子类取值为空串时（该资源未填细分类型）的展示占位 */
-const EMPTY_SUBTYPE_LABEL = '未标注'
+/** 列宽（桌面 / 窄屏两档；scroll.x 取总宽，与 03 矩阵同一模式——窄容器内横向滚动而非压扁）。
+ *  第六轮走查 sizing（产品负责人：「列太宽，尤其纳管率」「我想看到纳管率这列，资源类型
+ *  再窄一点」）：
+ *  - **纳管率去掉行内进度条**，只留百分数（<70% 百分数转橙，语义不变）——进度条与百分数
+ *    信息重复，却占了列宽一半；整体比例由左侧圆环承担，行级只报数；
+ *  - 资源类型 130 → 124（徽标 22 + 间距 8 + 最长标签「其他监控目标」78 + 内边距 16）；
+ *  - 桌面总宽 704 → 428，圆环块 120 下 04 半幅卡（≈528 内容宽）可见
+ *    类型 + 已配置采集 + 总数 + 纳管率 四列完整，末列「未配置采集」半露 + 横向滚动兜底；
+ *  - 「已配置采集 / 未配置采集」5 字表头 @14px 需 86px（含 cell 内边距），故取 86；
+ *    窄屏改 3 字短表头（已配置 / 未配置）+ 60px 列宽。 */
+const COL_TYPE_WIDTH = 124
+const COL_TYPE_WIDTH_NARROW = 92
+const COL_NUM_WIDTH = 86
+const COL_NUM_WIDTH_NARROW = 54
+const COL_TOTAL_WIDTH = 68
+const COL_TOTAL_WIDTH_NARROW = 46
+const COL_COVERAGE_WIDTH = 64
+const COL_COVERAGE_WIDTH_NARROW = 54
+const COL_UNCOVERED_WIDTH = 86
+const COL_UNCOVERED_WIDTH_NARROW = 54
 
-/** 子类明细最多展示 3 条，第 4 条起聚合为「更多 +N」（决策 93） */
-const MAX_SUBTYPES = 3
+/**
+ * 窄屏列宽合计（**手机端不再横滚**，2026-10-17 第七轮走查修复）：
+ * 92 + 54 + 46 + 54 + 54 = **300px**。
+ *
+ * 走查前的 328 在真机上必然溢出——iPhone 390 宽时卡片内容区只有
+ * `390 − 内容区 padding 24 − 卡内 padding 40 = 326`，328 已经超 2px；
+ * 375 / 360 机型（内容区 311 / 296）超出更多。表现就是产品负责人截图里的
+ * 「未配置」列被卡片右边缘切掉一截 + 表内横向滚动。
+ *
+ * 修复两条一起做：① 本组列宽收到 300；② 手机端卡内边距 20 → 12（App.css 移动端块），
+ * 内容区从 326 提到 **342（390 机型）/ 312（360 机型）**，300 < 312 留 12px 余量，
+ * 360 以上所有竖屏机型零横滚；更窄的机型（≤340）才回落到横向滚动兜底。
+ * 12px 表头 3 字（已配置 / 未配置）需 36 + cell padding 16 = 52 ≤ 54，不会折行。
+ */
 
 interface ResourceTypeGridProps {
-  /** `dashboard.by_category`；接口未返回某类型时按 0 值卡渲染 */
+  /** `dashboard.by_category`；接口未返回某类型时按 0 值行渲染 */
   byCategory: CategorySummary[]
 }
 
 /**
- * 子类明细 chip（与原型同款）：白底细边，左子类名、右「已下发/总数 · 纳管率」。
- * 纳管率 <70% 换橙底橙边；纯说明性 chip（`muted`）用浅灰底且不渲染右侧数值；
- * 聚合 chip（`more`，决策 93）用虚线品牌青边——子类封顶后第 4 条起收进「更多 +N」。
+ * 行锚点（onRow）：`l1-card-<category>` testid 沿用旧六卡时代的容器锚点，
+ * HomePage.test 的 within(...) 断言逐字复用。rc-table 的 GetComponentProps
+ * 返回 HTMLAttributes & TdHTMLAttributes（不含 data-*），双重断言挂载——
+ * rc-table 会把 onRow 返回值原样 spread 到 <tr>，data-testid 可达。
  */
-function SubtypeChip({
-  label,
-  value,
-  warn,
-  muted,
-  more,
-  testId,
-}: {
-  label: string
-  value?: string
-  warn?: boolean
-  muted?: boolean
-  /** 聚合态：虚线品牌青边（决策 93「更多 +N」） */
-  more?: boolean
-  /** 行级测试锚点：橙色语义底挂在 chip 本身（外层 Link 只负责跳转，不承载底色） */
-  testId?: string
-}) {
-  const { token } = theme.useToken()
-  return (
-    <div
-      data-testid={testId}
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 8,
-        padding: '5px 8px',
-        borderRadius: 6,
-        fontSize: 12,
-        color: more ? token.colorPrimary : undefined,
-        background: more ? token.colorBgContainer : muted ? token.colorFillQuaternary : warn ? token.colorWarningBg : token.colorBgContainer,
-        border: `1px ${more ? 'dashed' : 'solid'} ${
-          more ? token.colorPrimaryBorder : !muted && warn ? token.colorWarningBorder : token.colorBorderSecondary
-        }`,
-      }}
-    >
-      <span
-        style={{
-          color: more ? token.colorPrimary : muted ? token.colorTextTertiary : token.colorTextSecondary,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {label}
-      </span>
-      {value && (
-        <span
-          style={{
-            color: more ? token.colorPrimary : warn ? token.colorWarningText : token.colorTextTertiary,
-            fontVariantNumeric: 'tabular-nums',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {value}
-        </span>
-      )}
-    </div>
-  )
-}
-
-/** 单张资源类型卡 */
-function CategoryCard({
-  category,
-  summary,
-}: {
-  category: ResourceCategoryKey
-  summary: CategorySummary | undefined
-}) {
-  const { token } = theme.useToken()
-  const meta = L1_CATEGORY_META[category]
-  const total = summary?.resource_count ?? 0
-  const monitored = summary?.monitored_count ?? 0
-  const subtypes = summary?.by_subtype ?? []
-  const percent = coveragePercent(monitored, total)
-  const warn = percent !== null && percent < SUBTYPE_COVERAGE_WARN_THRESHOLD
-  const extraSubtypes = Math.max(0, subtypes.length - MAX_SUBTYPES)
-
-  return (
-    <SurfaceCard
-      hoverShadow
-      data-testid={`l1-card-${category}`}
-      style={{ height: '100%', borderRadius: 12 }}
-      styles={{ body: { padding: 16, display: 'flex', flexDirection: 'column' } }}
-    >
-      {/* 单字徽标 + 类型名（决策 93：告警胶囊已删，徽标行不再混排告警口径） */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 7,
-            background: token.colorPrimaryBg,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <span style={{ fontSize: 13, lineHeight: 1, fontWeight: 700, color: token.colorPrimary }}>
-            {meta.badge}
-          </span>
-        </span>
-        <Typography.Text strong style={{ fontSize: 16 }}>
-          {meta.label}
-        </Typography.Text>
-      </div>
-
-      {/* 已下发数 / 总数（量词只给主机；非主机不写量词，故 unit 为空串时自然成 `/ 26 已下发`） */}
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span
-          data-testid={`l1-monitored-${category}`}
-          style={{
-            fontSize: 32,
-            fontWeight: 800,
-            lineHeight: 1.1,
-            color: token.colorText,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {monitored}
-        </span>
-        <span style={{ fontSize: 13, color: token.colorTextSecondary }}>
-          / {total} {meta.unit}已下发
-        </span>
-      </div>
-
-      {/* 纳管率进度条 + 纳管率 / 未下发 */}
-      <div style={{ marginTop: 10 }}>
-        <CoverageBar percent={percent} />
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 5,
-            fontSize: 12,
-            color: token.colorTextSecondary,
-          }}
-        >
-          <span data-testid={`l1-coverage-${category}`}>纳管率 {coverageText(monitored, total)}</span>
-          <span data-testid={`l1-uncovered-${category}`} style={{ color: token.colorTextTertiary }}>
-            未下发 {uncoveredCount(total, monitored)}
-          </span>
-        </div>
-      </div>
-
-      {/* 采集类型子类 / 单一采集类型说明 + 卡内脚注 */}
-      <div
-        style={{
-          marginTop: 12,
-          paddingTop: 10,
-          borderTop: `1px solid ${token.colorBorderSecondary}`,
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 600, color: token.colorTextTertiary }}>
-          {meta.subtypeTitle ?? meta.subtypeNote}
-        </div>
-        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {meta.subtypeTitle === null ? (
-            // 不设子类：单条采集类型 chip + 说明 Tooltip。**按 category 分派**——
-            // 原先写死 application 的文案，接口服务卡会错显应用服务的说明。
-            <Tooltip title={SINGLE_SUBTYPE_CHIP[category]?.tip}>
-              <span data-testid={`l1-no-subtype-${category}`}>
-                <SubtypeChip
-                  label={SINGLE_SUBTYPE_CHIP[category]?.label ?? ''}
-                  value={`${monitored}/${total} · ${coverageText(monitored, total)}`}
-                  warn={warn}
-                />
-              </span>
-            </Tooltip>
-          ) : subtypes.length === 0 ? (
-            <div style={{ fontSize: 12, color: token.colorTextTertiary }}>暂无子类数据</div>
-          ) : (
-            <div data-testid={`l1-subtypes-${category}`}>
-              {subtypes.slice(0, MAX_SUBTYPES).map((s) => {
-                const subWarn =
-                  (coveragePercent(s.monitored_count, s.resource_count) ?? 100) <
-                  SUBTYPE_COVERAGE_WARN_THRESHOLD
-                return (
-                  <Link
-                    key={s.subtype || EMPTY_SUBTYPE_LABEL}
-                    to={resourceListHref(category, s.subtype || undefined)}
-                    data-testid={`l1-subtype-${category}-${s.subtype || 'empty'}`}
-                    style={{ display: 'block', marginBottom: 6 }}
-                  >
-                    <SubtypeChip
-                      label={s.subtype || EMPTY_SUBTYPE_LABEL}
-                      value={`${s.monitored_count}/${s.resource_count} · ${coverageText(s.monitored_count, s.resource_count)}`}
-                      warn={subWarn}
-                      testId={`l1-subtype-chip-${category}-${s.subtype || 'empty'}`}
-                    />
-                  </Link>
-                )
-              })}
-              {extraSubtypes > 0 && (
-                <Tooltip title={`其余 ${extraSubtypes} 个采集类型，点击查看资源清单`}>
-                  <Link
-                    to={resourceListHref(category)}
-                    data-testid={`l1-subtype-more-${category}`}
-                    style={{ display: 'block' }}
-                  >
-                    <SubtypeChip label={`更多 +${extraSubtypes}`} value="→" more />
-                  </Link>
-                </Tooltip>
-              )}
-            </div>
-          )}
-        </div>
-        {meta.footnote && (
-          <div
-            data-testid={`l1-footnote-${category}`}
-            style={{ marginTop: 'auto', paddingTop: 8, fontSize: 10, color: token.colorTextTertiary }}
-          >
-            {meta.footnote}
-          </div>
-        )}
-      </div>
-    </SurfaceCard>
-  )
-}
-
-/** 纳管率进度条：<70% 换橙色（与子类 chip 同一阈值，颜色不作为唯一语义——下方仍有百分数） */
-function CoverageBar({ percent }: { percent: number | null }) {
-  const { token } = theme.useToken()
-  const value = percent ?? 0
-  const warn = percent !== null && percent < SUBTYPE_COVERAGE_WARN_THRESHOLD
-  return (
-    <div
-      role="progressbar"
-      aria-valuenow={value}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      style={{
-        height: 6,
-        borderRadius: 3,
-        background: token.colorFillSecondary,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          width: `${Math.min(100, Math.max(0, value))}%`,
-          height: '100%',
-          borderRadius: 3,
-          background: percent === null ? 'transparent' : warn ? token.colorWarning : token.colorPrimary,
-          transition: 'width 0.2s',
-        }}
-      />
-    </div>
-  )
+function rowTestIdProps(category: ResourceCategoryKey): HTMLAttributes<HTMLTableRowElement> {
+  return { 'data-testid': `l1-card-${category}` } as unknown as HTMLAttributes<HTMLTableRowElement>
 }
 
 export function ResourceTypeGrid({ byCategory }: ResourceTypeGridProps) {
-  const summaryOf = new Map(byCategory.map((c) => [c.resource_category, c]))
-  // 窄屏（≤767px）版式开关：桌面 5 卡一行，手机竖屏单卡一行
+  const { token } = theme.useToken()
   const narrow = useNarrowLayout()
+  const typeWidth = narrow ? COL_TYPE_WIDTH_NARROW : COL_TYPE_WIDTH
+  const numWidth = narrow ? COL_NUM_WIDTH_NARROW : COL_NUM_WIDTH
+  const totalWidth = narrow ? COL_TOTAL_WIDTH_NARROW : COL_TOTAL_WIDTH
+  const coverageWidth = narrow ? COL_COVERAGE_WIDTH_NARROW : COL_COVERAGE_WIDTH
+  const uncoveredWidth = narrow ? COL_UNCOVERED_WIDTH_NARROW : COL_UNCOVERED_WIDTH
+  // 表头文案：桌面用全称（列宽放得下 5 字），窄屏用 3 字短表头（60px 列宽放 5 字会换行）
+  const monitoredTitle = narrow ? '已配置' : '已配置采集'
+  const uncoveredTitle = narrow ? '未配置' : '未配置采集'
+  // 表内正文统一 label 级（桌面 13 / 窄屏 12）：antd 表体默认 14px 比表头（现 12px）还大，
+  // 且与类型列显式设置的 13px 不一致——同一行里两种字号，扫读时数字会「跳」
+  const cellFontSize = narrow ? HOME_FONT.body : HOME_FONT.label
+
+  const summaryOf = new Map(byCategory.map((c) => [c.resource_category, c]))
+  // 固定六类顺序，缺类补 0 值行（L1_CATEGORY_ORDER：主机/数据库/中间件/应用服务/接口服务/其他监控目标）。
+  // 2026-10-17 第六轮走查（产品负责人）：**没登记过该类对象时各计数列显示 '-'，不写 0**——
+  // 0 是「登记了但一台都没配置采集」的有效计量值，与「压根没有这类对象」不是一回事，
+  // 用 0 会让人以为有对象但没纳管。`registered = total > 0` 作为两者的分界。
+  const dataSource = L1_CATEGORY_ORDER.map((category) => {
+    const summary = summaryOf.get(category) as CategorySummary | undefined
+    const total = summary?.resource_count ?? 0
+    const monitored = summary?.monitored_count ?? 0
+    return {
+      category,
+      total,
+      monitored,
+      percent: coveragePercent(monitored, total),
+      registered: total > 0,
+    }
+  })
+  const columns: TableColumnsType<(typeof dataSource)[number]> = [
+    {
+      title: <TableHeaderText>资源类型</TableHeaderText>,
+      dataIndex: 'category',
+      key: 'category',
+      width: typeWidth,
+      render: (category: ResourceCategoryKey) => {
+        const meta = L1_CATEGORY_META[category]
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {/* 单字徽标（视觉定版）：窄屏隐藏——96px 列宽下徽标会把类型名挤成省略号 */}
+            {!narrow && (
+              <span
+                aria-hidden
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  background: token.colorPrimaryBg,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ fontSize: 12, lineHeight: 1, fontWeight: 700, color: token.colorPrimary }}>
+                  {meta.badge}
+                </span>
+              </span>
+            )}
+            <Typography.Text style={{ fontSize: narrow ? HOME_FONT.body : HOME_FONT.label }}>
+              {meta.label}
+            </Typography.Text>
+          </span>
+        )
+      },
+    },
+    {
+      title: <TableHeaderText>{monitoredTitle}</TableHeaderText>,
+      dataIndex: 'monitored',
+      key: 'monitored',
+      width: numWidth,
+      align: 'right',
+      render: (monitored: number, row) => (
+        <span
+          data-testid={`l1-monitored-${row.category}`}
+          style={{ fontSize: cellFontSize, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        >
+          {/* 未登记该类对象 → '-'；量词已去除（2026-10-17 第六轮走查：表头已说明是「采集」，
+              列内只留数字，与右侧「总数 / 纳管率 / 未配置采集」同为纯数字列，扫读更齐） */}
+          {row.registered ? monitored : '-'}
+        </span>
+      ),
+    },
+    {
+      title: <TableHeaderText>总数</TableHeaderText>,
+      dataIndex: 'total',
+      key: 'total',
+      width: totalWidth,
+      align: 'right',
+      render: (total: number, row) => (
+        <span
+          data-testid={`l1-total-${row.category}`}
+          style={{
+            fontSize: cellFontSize,
+            color: token.colorTextSecondary,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {row.registered ? total : '-'}
+        </span>
+      ),
+    },
+    {
+      title: <TableHeaderText>纳管率</TableHeaderText>,
+      key: 'coverage',
+      width: coverageWidth,
+      align: 'right',
+      render: (_: unknown, row) => {
+        // 第六轮走查：行内进度条已去除（与百分数信息重复、占半列宽），<70% 由百分数
+        // 转橙承载（颜色不是唯一语义——数字本身可读）
+        const warn =
+          row.percent !== null && row.percent < SUBTYPE_COVERAGE_WARN_THRESHOLD
+        return (
+          <span
+            data-testid={`l1-coverage-${row.category}`}
+            style={{
+              fontSize: cellFontSize,
+              color: warn ? token.colorWarning : token.colorTextSecondary,
+              fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {coverageText(row.monitored, row.total)}
+          </span>
+        )
+      },
+    },
+    {
+      title: <TableHeaderText>{uncoveredTitle}</TableHeaderText>,
+      key: 'uncovered',
+      width: uncoveredWidth,
+      align: 'right',
+      render: (_: unknown, row) => (
+        <span
+          data-testid={`l1-uncovered-${row.category}`}
+          style={{
+            fontSize: cellFontSize,
+            color: token.colorTextTertiary,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {row.registered ? uncoveredCount(row.total, row.monitored) : '-'}
+        </span>
+      ),
+    },
+  ]
 
   return (
-    <Row gutter={[16, 16]} data-testid="l1-grid">
-      {L1_CATEGORY_ORDER.map((category) => (
-        <Col
-          key={category}
-          flex={narrow ? undefined : '1'}
-          xs={narrow ? 24 : undefined}
-          sm={narrow ? 24 : undefined}
-        >
-          <CategoryCard category={category} summary={summaryOf.get(category) as CategorySummary | undefined} />
-        </Col>
-      ))}
-    </Row>
+    <div data-testid="l1-grid">
+      <Table<(typeof dataSource)[number]>
+        data-testid="l1-table"
+        rowKey="category"
+        size="small"
+        dataSource={dataSource}
+        pagination={false}
+        // 横向滚动兜底（与 03 矩阵同模式）：列宽总和高出容器时滚动，不压扁数字
+        scroll={{ x: typeWidth + numWidth + totalWidth + coverageWidth + uncoveredWidth }}
+        columns={columns}
+        // 行锚点沿用旧卡 testid（l1-card-<category>）：HomePage.test 的容器断言逐字复用
+        onRow={(record) => rowTestIdProps(record.category)}
+      />
+    </div>
   )
 }
 
