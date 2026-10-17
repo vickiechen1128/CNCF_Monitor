@@ -1,173 +1,208 @@
 /**
- * 「按云分布」独立区块（Module_05 PRD v1.11 / 决策 100）。
+ * 「不同云的主机数量」区块（Module_05 决策 100；2026-10-17 第五轮走查：
+ * 每云一张 KPI 卡 → **紧凑统计行**，解决 2 朵云时左卡被撑高、与右侧矩阵不协调）。
  *
- * 整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前；每云一行：云名 / 主机数 / 已下发数 / 纳管率。
- * **本期仅主机**——`cloud` 经资源所属网域 `cloud_code` 派生（网域必填、零空洞），其余四类暂不参与；
- * **不含告警数字**（告警口径收口 L0 告警卡 + L4 告警状态卡）。
- * 云名可点击穿资源清单并按云预筛选（`/resources?cloud=<cloud_code>`）；空态保留区块位并提供导入引导。
+ * 首页第一屏首要视角：各云的主机台数。云名可点击穿资源清单并按云预筛选
+ * （`/resources?cloud=<cloud_code>`）；「未指定云」行（`cloud_code` 空串）
+ * 不可下钻——空参与无参不可区分，故不做链接（同矩阵「未指定平台」行口径）。
  *
- * 文案口径（反馈 10 §10.4 正名）：`monitored_count` 为**下发口径**，列名一律称「已下发」/「纳管率」。
+ * **紧凑统计行（第五轮走查，产品负责人裁定）**：旧版每云一张 KPI 卡
+ * （云名 + 32px 大数字 + 卡片内边距），仅 2 朵云时左卡高度远超右矩阵、
+ * 两卡并置美观度失调。改为**一行一云**的统计行：云名（可下钻）+ 编码在左、
+ * 台数在右（18px/700，仍是行内视觉主体），行间细分隔线；N 朵云纵向堆叠，
+ * 高度随云数线性增长，不再被卡片内边距放大。宽窄屏同版式（竖排行本就
+ * 不依赖横向空间），故本组件不再消费 useNarrowLayout。
  *
- * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：4 列表格在窄屏横向滚动观感差，改为
- * **每云一张竖排卡片**（云名首行，末行「主机 · 已下发 + 纳管率条」）；宽屏表格分支逐字不变。
+ * 本轮仍不呈现「已下发数 / 纳管率 / 进度条」：整体纳管率归口到 04 区块
+ * （首页唯一呈现点，反馈 11 §11.2 ⑤），按云维度的纳管率本轮不做——避免
+ * 首屏出现两个同源纳管率数字。数据源仍为 `dashboard.by_cloud`，口径仍为
+ * **仅主机**（网域必填、零空洞，经 `cloud_code` 派生云分组）。
+ *
+ * 标题口径（2026-10-17 走查）：「按云主机数」是平台内部说法、不专业；改为
+ * 「不同云的主机数量」——主语（不同云）+ 度量（主机数量）都是领导语言。
+ * **第六轮走查**：口径速记（「按云分组 · 仅统计主机」）从卡头 extra 移入**标题
+ * Tooltip**——02 收窄为 260px 固定窄列后，卡头「标题 + extra 速记」同行放不下，
+ * 标题「不同云的主机数量」被 antd 卡头 ellipsis 截断（产品负责人走查发现）；
+ * 速记进 Tooltip 后标题完整可见，与 03 矩阵 / 04 卡头的 Tooltip 模式一致。
+ *
+ * **整组隐藏（2026-10-17 第六轮走查，产品负责人裁定）**：本面板与 03 矩阵同属
+ * 「资源管理」展示面，与运行态信息（告警 / 采集健康 / 拨测）关注面不同，由
+ * **页头行的一个开关**整组隐藏（home-resource-row 整体不渲染，面板标题也不
+ * 露出——隐藏要藏得干净，恢复入口在页头行）；偏好跨会话持久
+ * （homePanelVisibility.ts）。本面板自身不再带卡头开关。
+ *
+ * 与 03 矩阵的合并行见 HomePage：02+03 一个 flex-wrap 行（第六轮走查：02 收窄为
+ * 固定窄列），窄容器自动折行堆叠。
  */
+import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { Table, Typography } from 'antd'
-import type { TableColumnsType } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { Tooltip, Typography, theme } from 'antd'
 import { SurfaceCard } from './SurfaceCard'
-import { useNarrowLayout } from './homeResponsive'
+import { HOME_FONT, HOME_WEIGHT } from './homeTypography'
 import type { CloudSummary } from '../../api/dashboard'
 
 const { Text } = Typography
+
+/** 「未指定云」聚合行的 `cloud_code` 约定值：空串（主机所属网域无云编码） */
+const UNSET_CLOUD_CODE = ''
+
+/** 标题 Tooltip：口径速记（原卡头 extra，第六轮走查移入——窄列下标题不被截断） */
+const CLOUD_SCOPE_TIP = '按主机所属网域派生的云分组统计，仅统计主机台数。'
 
 interface CloudDistributionPanelProps {
   /** 按云聚合行（缺失 / 空数组时渲染空态引导） */
   clouds: CloudSummary[]
 }
 
-/** 覆盖率条（对齐原型 CoverageBar：<70% 橙色提示，其余蓝色） */
-function CoverageBar({ value }: { value: number }) {
-  const clamped = Math.max(0, Math.min(100, value))
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: 52,
-        height: 6,
-        borderRadius: 3,
-        background: '#F2F3F5',
-        verticalAlign: 'middle',
-        overflow: 'hidden',
-      }}
-    >
-      <span
-        style={{
-          display: 'block',
-          width: `${clamped}%`,
-          height: '100%',
-          borderRadius: 3,
-          background: clamped < 70 ? '#C25E0A' : '#1677FF',
-        }}
-      />
-    </span>
-  )
-}
-
 /**
- * 窄屏（≤767px）单云卡片：把 4 列竖排为「云名首行 / 末行 主机·已下发 + 纳管率条」，
- * 避免窄屏表格横向滚动。宽屏不渲染本组件。
+ * 单云紧凑统计行：云名（可下钻）+ 编码在左，主机台数在右。
+ *
+ * 「未指定云」行（`cloud_code === ''`）**不做链接**（design-proposal §2.1 第 6 条）：
+ * 空参与不带参在资源页不可区分，链过去等于「点了却没按云筛」的假动作；
+ * 云名降级为普通文本 + Tooltip 说明原因。
  */
-function CloudCard({ row }: { row: CloudSummary }) {
+function CloudRow({ row, isLast }: { row: CloudSummary; isLast: boolean }) {
+  const { token } = theme.useToken()
+  const drillable = row.cloud_code !== UNSET_CLOUD_CODE
+  const nameStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'baseline',
+    gap: 6,
+    minWidth: 0,
+    overflow: 'hidden',
+  }
+  const nameBlock = (
+    <>
+      <span
+        data-testid={`cloud-name-${row.cloud_code}`}
+        style={{
+          fontSize: HOME_FONT.label,
+          fontWeight: HOME_WEIGHT.label,
+          color: token.colorText,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {row.cloud_name}
+      </span>
+      <span style={{ fontSize: HOME_FONT.body, color: token.colorTextTertiary, flexShrink: 0 }}>{row.cloud_code}</span>
+    </>
+  )
   return (
     <div
       data-testid={`cloud-card-${row.cloud_code}`}
       style={{
-        border: '1px solid #E5E6EB',
-        borderRadius: 8,
-        padding: '10px 12px',
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '10px 0',
+        borderBottom: isLast ? 'none' : `1px solid ${token.colorSplit}`,
+        minWidth: 0,
       }}
     >
-      {/* 首行：云名（可点击穿按云预筛选的资源清单） */}
-      <Link
-        to={`/resources?cloud=${encodeURIComponent(row.cloud_code)}`}
-        style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}
-      >
-        {row.cloud_name}
-        <span style={{ marginLeft: 6, fontSize: 12, color: '#86909C' }}>{row.cloud_code}</span>
-      </Link>
-
-      {/* 末行：主机 · 已下发 + 纳管率条 */}
-      <div
-        style={{
-          marginTop: 8,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          fontSize: 12,
-        }}
-      >
-        <span style={{ color: '#4E5969' }}>
-          主机 {row.resource_count} · 已下发 {row.monitored_count}
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <CoverageBar value={row.coverage_rate} />
-          <span style={{ color: row.coverage_rate < 70 ? '#C25E0A' : '#4E5969' }}>
-            {row.coverage_rate}%
+      {drillable ? (
+        <Link
+          to={`/resources?cloud=${encodeURIComponent(row.cloud_code)}`}
+          style={{ ...nameStyle, color: 'inherit' }}
+        >
+          {nameBlock}
+        </Link>
+      ) : (
+        <Tooltip title="未指定云无对应云编码，不支持按云筛选">
+          <span data-testid={`cloud-name-static-${row.cloud_code || 'unset'}`} style={nameStyle}>
+            {nameBlock}
           </span>
+        </Tooltip>
+      )}
+      <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'baseline', gap: 4 }}>
+        <span
+          data-testid={`cloud-host-count-${row.cloud_code}`}
+          style={{
+            fontSize: HOME_FONT.title,
+            fontWeight: HOME_WEIGHT.number,
+            lineHeight: 1.2,
+            color: token.colorText,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {row.resource_count}
         </span>
-      </div>
+        <span style={{ fontSize: HOME_FONT.body, color: token.colorTextSecondary }}>台主机</span>
+      </span>
     </div>
   )
 }
 
 export function CloudDistributionPanel({ clouds }: CloudDistributionPanelProps) {
-  // 窄屏（≤767px）版式开关：宽屏表格，手机竖屏改为竖排卡片列表（见头注释移动适配）
-  const narrow = useNarrowLayout()
-  const columns: TableColumnsType<CloudSummary> = [
-    {
-      title: '云名',
-      dataIndex: 'cloud_name',
-      key: 'cloud_name',
-      render: (name: string, row) => (
-        <Link to={`/resources?cloud=${encodeURIComponent(row.cloud_code)}`}>
-          {name}
-          <span style={{ marginLeft: 6, fontSize: 12, color: '#86909C' }}>{row.cloud_code}</span>
-        </Link>
-      ),
-    },
-    { title: '主机数', dataIndex: 'resource_count', key: 'resource_count', width: 90 },
-    { title: '已下发数', dataIndex: 'monitored_count', key: 'monitored_count', width: 90 },
-    {
-      title: '纳管率',
-      key: 'coverage',
-      width: 160,
-      render: (_, row) => (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <CoverageBar value={row.coverage_rate} />
-          <span style={{ fontSize: 12, color: row.coverage_rate < 70 ? '#C25E0A' : '#4E5969' }}>
-            {row.coverage_rate}%
-          </span>
-        </span>
-      ),
-    },
-  ]
-
+  const { token } = theme.useToken()
   return (
     <SurfaceCard
       data-testid="cloud-distribution-panel"
-      title="按云分布"
-      extra={
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          按主机所属网域派生的云分组 · 本期仅主机
-        </Text>
+      title={
+        <Tooltip title={CLOUD_SCOPE_TIP}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            不同云的主机数量
+            <InfoCircleOutlined
+              aria-label="不同云的主机数量口径说明"
+              style={{ fontSize: 12, color: token.colorTextTertiary, cursor: 'help' }}
+            />
+          </span>
+        </Tooltip>
       }
+      style={{ height: '100%' }}
     >
       {clouds.length === 0 ? (
         <div style={{ padding: '28px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>暂无主机数据</div>
-          <Text type="secondary" style={{ marginTop: 6, fontSize: 12, textAlign: 'center' }}>
-            主机导入后，将按所属网域派生的云自动分组展示主机分布与采集覆盖率。
+          <div style={{ fontSize: HOME_FONT.title, fontWeight: HOME_WEIGHT.title }}>暂无主机数据</div>
+          <Text type="secondary" style={{ marginTop: 6, fontSize: HOME_FONT.body, textAlign: 'center' }}>
+            导入主机资源后，这里会按云分组展示各云的主机台数（云归属由主机所在网域决定）。
           </Text>
           <Link to="/resources" style={{ marginTop: 12 }}>
             去导入主机资源 →
           </Link>
         </div>
-      ) : narrow ? (
-        <div data-testid="cloud-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {clouds.map((row) => (
-            <CloudCard key={row.cloud_code} row={row} />
-          ))}
-        </div>
       ) : (
-        <Table<CloudSummary>
-          rowKey="cloud_code"
-          size="small"
-          dataSource={clouds}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          columns={columns}
-        />
+        <div data-testid="cloud-cards" style={{ display: 'flex', flexDirection: 'column' }}>
+          {clouds.map((row, index) => (
+            <CloudRow key={row.cloud_code} row={row} isLast={index === clouds.length - 1} />
+          ))}
+          {/* 合计行（第六轮走查新增，产品负责人要求）：各云主机台数之和 —— 与 03 矩阵
+              「合计」列同口径（仅主机），让「不同云」这列数字有一个闭合的总数。 */}
+          <div
+            data-testid="cloud-total-row"
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '8px 0 2px',
+              marginTop: 4,
+              borderTop: `1px solid ${token.colorSplit}`,
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: HOME_FONT.body }}>
+              合计
+            </Text>
+            <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'baseline', gap: 4 }}>
+              <span
+                data-testid="cloud-total-count"
+                style={{
+                  fontSize: HOME_FONT.title,
+                  fontWeight: HOME_WEIGHT.emphasis,
+                  lineHeight: 1.2,
+                  color: token.colorText,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {clouds.reduce((sum, row) => sum + row.resource_count, 0)}
+              </span>
+              <span style={{ fontSize: HOME_FONT.body, color: token.colorTextSecondary }}>台主机</span>
+            </span>
+          </div>
+        </div>
       )}
     </SurfaceCard>
   )

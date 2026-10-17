@@ -1,6 +1,7 @@
 # M05 首页内容重构设计说明（决策 72-3 提案）
 
 > **状态**: implemented —— 产品负责人 2026-09-14 确认；前端/后端代码已落地（见 §9 落地记录），待回填 PRD v1.5
+> ⚠️ **部分失效（2026-10-17）**：§3.1 信息架构与 §3.2 关键指标卡区已被反馈 11（`dev-feedback.md` §11）整块推翻（L0 六张指标卡删除、新增 03「平台 × 应用 · 主机数」矩阵、首屏改为三段式）；且反馈 11 的**首版形态**（告警卡独立整宽、04 大数字块 + 进度条、拨测异常短名单）也已在同日第五~七轮走查中改版（告警卡**与 04 对分**、04 改**圆环 + 六行表**、拨测改**单卡 + 正常率圆环**）。**首屏版式与视觉权威口径一律以 `design-proposals/homepage-first-screen-feedback-11-v2.md`（§2 区块形态 + §7 字号阶梯与移动端）为准**。本文件 §3.3~§3.7（告警卡内部口径、最新告警列表、已监控口径、单次请求/局部降级、不分页）继续有效，§7 回填清单与 §8.3 仍被 `task-sequence.yaml` / `frontend-prototype-map.md` / `dev-feedback.md` 引用，故正文保留不改写。
 > **日期**: 2026-09-14
 > **触发**: 产品负责人对 `feat/module-05-homepage-mvp` 首页实现的第二轮设计评审（三点意见）
 > **关联**: `dev-feedback.md`（待补留痕）、`design-proposals/homepage-mvp-feedback-design-opinion.md`（第一轮设计意见）、`api-contract-snapshot.md`、`task-sequence.yaml`

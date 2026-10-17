@@ -1,10 +1,17 @@
 /**
- * 首页 L1 资源类型区 / L2 应用明细表的**非组件常量与纯函数**（Module_05 §3.1 决策 91）。
+ * 首页 L1 资源类型区的**非组件常量与纯函数**（Module_05 §3.1 决策 91）。
  *
  * 单独成 .ts 而非写在组件里：导出常量 + 纯函数与 react-refresh/only-export-components
- * 冲突，且这两处口径（数量量词、子类标题、告警分组）需要被单测直接引用。
+ * 冲突，且这两处口径（数量量词、覆盖率计算）需要被单测直接引用。
+ *
+ * 2026-10-17 走查瘦身：随「采集方式细分」子类区一起删除的导出——
+ * `subtypeTitle` / `subtypeNote` / `footnote`（CategoryMeta 字段）、
+ * `SINGLE_SUBTYPE_CHIP` / `APPLICATION_SUBTYPE_*` / `INTERFACE_SERVICE_SUBTYPE_*`
+ * （不设子类类的单条 chip）、`resourceListHref` / `appResourceListHref`
+ * （子类 / 应用下钻深链，动线归资源清单页）、`RESOURCE_IMPORT_HREF`
+ * （L2 应用明细表空态引导，该表已删）、`firingAlerts`（已删的告警胶囊计数）。
+ * `by_category[].by_subtype` 契约字段仍在（后端不变），只是前端不再消费。
  */
-import type { PromAlertItem } from '../../types/alertmanager'
 
 /** 资源类型枚举（与 M07 `resource_category` 同源） */
 export type ResourceCategoryKey =
@@ -12,21 +19,26 @@ export type ResourceCategoryKey =
   | 'database'
   | 'middleware'
   | 'application'
-  | 'generic_target'
   | 'interface_service'
+  | 'generic_target'
 
 /**
- * L1 六类卡的**固定渲染顺序**（不随接口返回顺序变化）。
+ * L1 六类表的**固定渲染顺序**（不随接口返回顺序变化）。
  * `dashboard.by_category` 后端已按此顺序返回且六类齐全，前端仍显式排序，
  * 避免接口顺序变化导致版式漂移。
+ *
+ * 2026-10-17 第五轮走查（产品负责人裁定）：「接口服务」上调至「其他监控目标」
+ * **之上**——「其他监控目标」是兜底聚合类（snmp / k8s / custom_http 等混排），
+ * 与「未指定平台 / 未指定应用」同类属「读表时放最后」的收尾类；
+ * 具体的「接口服务」是拨测主对象之一，应排在兜底类之前。
  */
 export const L1_CATEGORY_ORDER: ResourceCategoryKey[] = [
   'host',
   'database',
   'middleware',
   'application',
-  'generic_target',
   'interface_service',
+  'generic_target',
 ]
 
 interface CategoryMeta {
@@ -44,77 +56,18 @@ interface CategoryMeta {
    * 「机器」这一物理语义。量词只出现在「已采 / 总数」一处，「未采 N」不重复量词。
    */
   unit: string
-  /**
-   * 子类区小标题；`null` 表示该类型**不设子类**——
-   * 应用服务不按语言 / 框架拆子类（所有业务指标端点统一归 `application_http`）。
-   */
-  subtypeTitle: string | null
-  /** 不设子类时替代小标题的一行规则说明（避免卡内留白，并讲清「为什么不拆」） */
-  subtypeNote?: string
-  /** 卡内脚注：只给「本类最容易被误读成成员」的类型写，避免每张卡都挂一句变成噪音 */
-  footnote?: string
 }
 
 export const L1_CATEGORY_META: Record<ResourceCategoryKey, CategoryMeta> = {
-  host: { label: '主机', badge: '主', unit: '台', subtypeTitle: '采集类型子类' },
-  database: { label: '数据库', badge: '数', unit: '', subtypeTitle: '采集类型子类' },
-  middleware: { label: '中间件', badge: '中', unit: '', subtypeTitle: '采集类型子类' },
-  application: {
-    label: '应用服务',
-    badge: '应',
-    unit: '',
-    subtypeTitle: null,
-    subtypeNote: '单一采集类型 · 不按语言拆',
-    // 应用往往同时配了 health_check_url，其拨测目标不入本类
-    footnote: '拨测目标不计入本类 ↓',
-  },
-  generic_target: {
-    label: '其他监控目标',
-    badge: '其',
-    unit: '',
-    subtypeTitle: '采集类型子类',
-    // 本类的 SNMP / K8s 端点 / 自定义 HTTP 都是「拉指标」端点，拨测走 Blackbox 采集任务
-    footnote: '拨测走 blackbox Job，不录入资源台账',
-  },
-  interface_service: {
-    label: '接口服务',
-    badge: '接',
-    unit: '',
-    // 与 application 同构：不设子类（接口服务统一由 blackbox 拨测采集任务承载，不按子类拆分）
-    subtypeTitle: null,
-    subtypeNote: '单一采集类型 · 不按子类拆',
-    // 接口服务是拨测目标的资源台账对象，拨测目标地址取自本类资源的接口地址
-    footnote: '拨测目标取自本类资源的接口地址 ↓',
-  },
+  host: { label: '主机', badge: '主', unit: '台' },
+  database: { label: '数据库', badge: '数', unit: '' },
+  middleware: { label: '中间件', badge: '中', unit: '' },
+  application: { label: '应用服务', badge: '应', unit: '' },
+  generic_target: { label: '其他监控目标', badge: '其', unit: '' },
+  interface_service: { label: '接口服务', badge: '接', unit: '' },
 }
 
-/** 应用服务「不拆子类」的理由（chip Tooltip 文案） */
-export const APPLICATION_SUBTYPE_TIP =
-  '业务应用自带指标端点：Spring Boot Actuator / Go client / Python 等实现同归这一类，平台不按语言 / 框架拆分采集类型'
-
-/** 应用服务卡内 `application_http` 子类 chip 的展示名 */
-export const APPLICATION_SUBTYPE_LABEL = 'application_http'
-
-/** 接口服务「不拆子类」的理由（chip Tooltip 文案）：由 blackbox 拨测承接 */
-export const INTERFACE_SERVICE_SUBTYPE_TIP =
-  '接口服务由 blackbox 拨测采集任务承载：拨测目标地址直接取本类资源的接口地址，不按子类拆分采集类型'
-
-/** 接口服务卡内单条 chip 的展示名（blackbox 拨测采集类型） */
-export const INTERFACE_SERVICE_SUBTYPE_LABEL = 'blackbox_probe'
-
-/**
- * 「不设子类」（`subtypeTitle === null`）类别卡内**单条 chip** 的展示名与说明 Tooltip。
- *
- * `ResourceTypeGrid` 的 null 分支据此**按 category 分派**——原先写死了
- * application 的文案，接口服务卡会出现「应用服务」的说明（错显）。新增不设子类
- * 的类别时，在此登记即可。
- */
-export const SINGLE_SUBTYPE_CHIP: Partial<Record<ResourceCategoryKey, { label: string; tip: string }>> = {
-  application: { label: APPLICATION_SUBTYPE_LABEL, tip: APPLICATION_SUBTYPE_TIP },
-  interface_service: { label: INTERFACE_SERVICE_SUBTYPE_LABEL, tip: INTERFACE_SERVICE_SUBTYPE_TIP },
-}
-
-/** 子类覆盖率低于该阈值时用橙色语义底警示（PRD §「视觉 Token 规范」） */
+/** 覆盖率低于该阈值时进度条用橙色语义警示（PRD §「视觉 Token 规范」；颜色不作为唯一语义——行内仍并列百分数） */
 export const SUBTYPE_COVERAGE_WARN_THRESHOLD = 70
 
 /**
@@ -137,26 +90,3 @@ export function coverageText(monitored: number, total: number): string {
 export function uncoveredCount(total: number, monitored: number): number {
   return Math.max(0, total - monitored)
 }
-
-/** 仅取当前仍在触发（`firing`）的告警；`pending`（求值中）不计入任何「未恢复」数字 */
-export function firingAlerts(alerts: PromAlertItem[]): PromAlertItem[] {
-  return alerts.filter((a) => a.state === 'firing')
-}
-
-/** 资源清单页深链：按资源类型 + 子类预筛（子类参数名按各类型字段名传，便于列表页客户端过滤） */
-export function resourceListHref(
-  category: ResourceCategoryKey,
-  subtype?: string,
-): string {
-  const search = new URLSearchParams({ resource_category: category })
-  if (subtype) search.set('subtype', subtype)
-  return `/resources?${search.toString()}`
-}
-
-/** 资源清单页深链：按应用预筛（L2 行「看明细」） */
-export function appResourceListHref(appCode: string): string {
-  return `/resources?${new URLSearchParams({ app_code: appCode }).toString()}`
-}
-
-/** 资源导入入口（L2 空态引导 + 未归类行「去补填」） */
-export const RESOURCE_IMPORT_HREF = '/resources?import=1'

@@ -4,12 +4,26 @@
  * 受控展示型组件：数据由 HomePage 的 useAlertGovernance 单次请求持有，
  * 本组件不再自行取数（避免与首页指标卡重复请求同一接口），只负责渲染：
  *   四格统计条（当日 / 近 7 天为主数字，通知中 / 已静默·已抑制为次）
- *   → 最新告警（近 8 条两行制，行 2 携带告警具体内容）→ Prometheus 原始求值参考行 → 通知配置深链。
+ *   → 最新告警（近 8 条两行制，行 2 携带告警具体内容）→ Prometheus 原始求值参考行。
+ *
+ * 版式（design-proposal §2.3，2026-10-17 定稿）：卡体**两栏**——左统计块（220px 固定，
+ * 四格**纵排**）/ 右列表（最新告警，flex:1）。整宽单列下四格被拉通全宽
+ * （每格过疏）、告警行宽过长把两行制文案拉薄，故改为两栏；**第五轮走查（方案 A）起与
+ * 「采集健康」按 2:1 并排**（不再是独立整宽卡，见 HomePage 的 home-alert-health-row），
+ * 2/3 宽度（桌面约 776px+）下两栏结构原样保留。
+ * **第六轮走查（2026-10-17）**：改与「监控对象纳管进度」**对分**一行，统计块由 280px
+ * 收窄为 **220px**（产品负责人走查：原列宽在 ≈568px 的半幅卡里过宽，压缩后右栏列表
+ * 更透气）；Prometheus 求值态参考行由右栏页脚**上移至左统计块底部空挡**
+ * （marginTop:auto 沉底）；「配置告警通知」深链按产品负责人要求**移除**
+ * （通知配置入口收敛到告警状态页 / 使用指引）。
+ * 窄屏（≤767px）左栏统计条维持 **2×2** 并与右栏**上下堆叠**。
  *
  * 版式（用户 2026-09-18 三次修订，最终「方案乙」）：
- * - 卡片**允许被双列区拉伸**（`height:100%` + 卡内纵向 flex + 页脚 `margin-top:auto`）：
- *   两列等高时落差吸收到列表下方的白底，页脚始终贴卡底；告警极少时由双列区
- *   `min-height: 420px` 兜底，不会被压成窄卡（见 HomePage 双列区注释）；
+ * - 卡片**允许被所在行拉伸**（`height:100%` + 卡内纵向 flex + 左统计块参考行
+ *   `margin-top:auto`）：与「监控对象纳管进度」对分时两卡等高（align-items: stretch），
+ *   告警卡撑满行高，残余落差由左栏参考行 margin-top:auto 吸收、沉在统计块底部
+ *   （落在白底上，不悬在卡片中段）（旧布局「双列区 min-height 420px 兜底」随独立整宽
+ *   形态一同废止，本行不再需要）；
  * - 列表为**固定分页约束**：每页最多 homeLayout.ALERT_PAGE_SIZE（5）行，超出才出现分页器，
  *   与视口高度彻底解耦（二版按实测高度反推行数，版式随分辨率漂移，已废弃）；
  * - 数据池仍为「最新 8 条」（决策 73），因此满池时是「5 行 + 第 2 页 3 行」。
@@ -31,9 +45,10 @@
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Alert, Button, Empty, List, Pagination, Spin, Tag, Tooltip, Typography, theme } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { CheckCircleFilled, ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { useSkin } from '../../skinContext'
+import { HOME_FONT, HOME_WEIGHT } from './homeTypography'
 import type { AmAlertItem } from '../../types/alertmanager'
 import { formatLocalTime, formatRelativeTime } from '../config-center/configCenterConstants'
 import {
@@ -70,9 +85,12 @@ export interface AlertCounts {
 export const LATEST_ALERT_LIMIT = 8
 
 /**
- * 最新告警列表条数上限与标题共用一份常量（标题「最新告警（近 N 条）」）。
+ * 最新告警列表标题（2026-10-17 第六轮走查改词）：原「最新告警（近 8 条）」——
+ * 池子上限 8 条是内部实现细节，放在标题里既有歧义（读者以为一定有 8 条）、
+ * 又与下方「当前没有需要处理的告警」自相矛盾。改为不带条数的「最新告警」，
+ * 条数由列表自身与分页器表达。
  */
-export const LATEST_ALERT_TITLE = `最新告警（近 ${LATEST_ALERT_LIMIT} 条）`
+export const LATEST_ALERT_TITLE = '最新告警'
 
 interface AlertStatusCardProps {
   counts: AlertCounts
@@ -97,12 +115,13 @@ interface AlertStatusCardProps {
 }
 
 /**
- * Prometheus 求值态参考行文案。
+ * 监控规则求值态参考行文案（2026-10-17 走查改口径用词）。
  * 不复用 `promAlertStateLabel`：其 pending 展示名为「待处理」，与 AM `unprocessed` 撞名，
  * 会把已消除的歧义带回首页（§6.2 验收「页面不出现『待处理』字样」）。
- * M08 侧对 pending 的统一改名见设计说明 §8.2。
+ * 改为用户语言「已触发 / 观察中」——领导不必理解 Prometheus 的 firing/pending 术语，
+ * 数据来源仍在 Tooltip 内注明（M08 侧对 pending 的统一改名见设计说明 §8.2）。
  */
-const PROM_EVAL_LABEL = { firing: '触发中', pending: '求值中' } as const
+const PROM_EVAL_LABEL = { firing: '已触发', pending: '观察中' } as const
 
 interface StatCell {
   key: string
@@ -119,15 +138,19 @@ interface StatCell {
  * 当日告警 / 近 7 天告警为主数字（24px/700 基础色），通知中（红）/ 已静默 · 已抑制（'3 · 2'）为次，
  * 格间竖分隔线，每格悬浮显示口径注释。
  *
- * 移动适配（手机竖屏 ≤767px）：`compact` 为真时由「一行四格」改为 **2×2 两行两格**——
- * 「已静默 · 已抑制」这类长标签在窄屏一行四格下（每格约 75px）必然溢出到相邻格，
- * 故仅在此断点换行；分隔线按列位置重排（第 2、4 格带左分隔线）。
+ * 两种排布（design-proposal §2.3，四格语义 / 取值 / Tooltip / 降级口径三种排布完全一致，
+ * 只有几何形态不同）：
+ * - `vertical`：宽屏两栏布局的**左栏统计块**——四格纵排（标签左、数字右，行间细分隔线）；
+ * - `compact`：窄屏（≤767px）**2×2 两行两格**——「已静默 · 已抑制」这类长标签在窄屏一行四格下
+ *   （每格约 75px）必然溢出到相邻格，故仅在此断点换行；分隔线按列位置重排（第 2、4 格带左分隔线）；
+ * - 默认：一行四格（横向变体，保留给仍按整宽呈现的场景）。
  */
 export function AlertStatStrip({
   counts,
   historyUnavailable,
   amUnavailable,
   compact = false,
+  vertical = false,
 }: {
   counts: AlertCounts
   /** history 取数失败：主数字两格显示 '-'（决策 73 局部降级，不显示 0） */
@@ -136,6 +159,8 @@ export function AlertStatStrip({
   amUnavailable: boolean
   /** 窄屏两行两格布局（见本组件头注释） */
   compact?: boolean
+  /** 纵排变体：四格上下排列（宽屏两栏布局的左统计块） */
+  vertical?: boolean
 }) {
   const { token } = theme.useToken()
 
@@ -174,6 +199,65 @@ export function AlertStatStrip({
     },
   ]
 
+  // 数字样式三种排布共用（primary 级 20px/600/等宽数字，仅色值按格语义变化）。
+  // 2026-10-17 第七轮走查（产品负责人选定「标准档」）：24px/700 → **20px/600**——
+  // 首页只留两个 24px 圆环作 hero，告警四格降到主数字档，层级变成「环 → 告警 → 计数」；
+  // 24px 的 700 在大屏上偏粗黑，数字统一 600 后两卡并排时笔画粗细一致。
+  const valueStyle: CSSProperties = {
+    fontSize: HOME_FONT.primary,
+    fontWeight: HOME_WEIGHT.number,
+    lineHeight: 1.2,
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+  }
+
+  // 纵排变体（宽屏两栏布局的左统计块）：四格上下排列，标签在左、数字右对齐，行间细分隔线。
+  // 2026-10-17 第六轮走查：条与四格都 flex:1 —— 统计块被行拉伸时四格**分摊卡高、不留白**
+  // （产品负责人：「这一列撑满高度，不要留白」）；内容在格内纵向居中。
+  if (vertical) {
+    return (
+      <div
+        data-testid="alert-stat-strip"
+        style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+      >
+        {cells.map((cell, index) => (
+          <Tooltip key={cell.key} title={cell.tip}>
+            <div
+              data-testid={`alert-stat-cell-${cell.key}`}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                minHeight: 0,
+                padding: '6px 0',
+                borderBottom:
+                  index === cells.length - 1
+                    ? 'none'
+                    : `1px solid ${token.colorBorderSecondary}`,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: HOME_FONT.label,
+                  fontWeight: HOME_WEIGHT.label,
+                  color: token.colorTextSecondary,
+                  minWidth: 0,
+                }}
+              >
+                {cell.label}
+              </span>
+              <span data-testid={cell.testId} style={{ ...valueStyle, color: cell.color }}>
+                {cell.value}
+              </span>
+            </div>
+          </Tooltip>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div
       data-testid="alert-stat-strip"
@@ -207,18 +291,20 @@ export function AlertStatStrip({
               <div
                 data-testid={cell.testId}
                 style={{
-                  fontSize: 24,
-                  fontWeight: 700,
-                  lineHeight: 1.2,
+                  ...valueStyle,
                   color: cell.color,
-                  fontVariantNumeric: 'tabular-nums',
-                  whiteSpace: 'nowrap',
                 }}
               >
                 {cell.value}
               </div>
               <div
-                style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 2, whiteSpace: 'nowrap' }}
+                style={{
+                  fontSize: HOME_FONT.body,
+                  fontWeight: HOME_WEIGHT.label,
+                  color: token.colorTextSecondary,
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                }}
               >
                 {cell.label}
               </div>
@@ -310,8 +396,8 @@ export function AlertRow({
             <span
               style={{
                 flex: 1,
-                fontSize: 13,
-                fontWeight: 500,
+                fontSize: HOME_FONT.label,
+                fontWeight: HOME_WEIGHT.label,
                 color: token.colorText,
                 ...ellipsis,
               }}
@@ -323,7 +409,7 @@ export function AlertRow({
             <span
               style={{
                 flexShrink: 0,
-                fontSize: 12,
+                fontSize: HOME_FONT.body,
                 color: token.colorTextTertiary,
                 textAlign: 'right',
               }}
@@ -335,7 +421,7 @@ export function AlertRow({
             style={{
               flexShrink: 0,
               width: 48,
-              fontSize: 12,
+              fontSize: HOME_FONT.body,
               color: token.colorTextSecondary,
               textAlign: 'right',
             }}
@@ -348,7 +434,7 @@ export function AlertRow({
             data-testid={`latest-alert-${index}-line2`}
             style={{
               marginTop: 2,
-              fontSize: 12,
+              fontSize: HOME_FONT.body,
               lineHeight: '17px',
               color: token.colorTextTertiary,
               ...ellipsis,
@@ -427,14 +513,13 @@ export function AlertStatusCard({
       title="告警状态"
       /* 卡内只展示近 8 条，完整列表在 /alert-status（决策 73 §3「查看全部 →」兜底） */
       extra={
-        <Link to="/alert-status" style={{ fontSize: 13 }}>
+        <Link to="/alert-status" style={{ fontSize: HOME_FONT.label }}>
           查看全部 →
         </Link>
       }
-      /* 高度：由内容决定，但**允许被双列区拉伸**（用户 2026-09-18 决策「方案乙」）——
-         双列区两列等高（align-items: stretch）时告警卡撑满列高，残余落差由页脚
-         margin-top:auto 吸收，落在「最新告警列表」下方（白底），而不是让两列底边参差。
-         告警极少（如 2 条）时，列高由双列区 min-height 420px 兜底（见 HomePage）。 */
+      /* 高度：由内容决定，但**允许被所在行拉伸**（第五轮起与采集健康并排，行内
+         align-items: stretch）——告警卡撑满行高，残余落差由页脚 margin-top:auto
+         吸收，落在「最新告警列表」下方（白底），而不是让两卡底边参差。 */
       style={{
         height: '100%',
         display: 'flex',
@@ -477,127 +562,186 @@ export function AlertStatusCard({
               <Link to="/alert-config">去配置通知规则 →</Link>
             </Empty>
           ) : (
-            <>
-              {/* 四格统计条：当日 / 近 7 天为主数字，治理态为次（决策 73 §2） */}
-              <AlertStatStrip
-                counts={counts}
-                historyUnavailable={historyUnavailable}
-                amUnavailable={amUnavailable}
-                compact={narrow}
-              />
-
-              {/* unprocessed 不计数不列条，仅防「通知中 0」被误读为无告警 */}
-              {!amUnavailable && counts.unprocessed > 0 && (
-                <Typography.Text
-                  type="secondary"
-                  data-testid="alert-unprocessed-note"
-                  style={{ display: 'block', marginTop: 6, fontSize: 11 }}
-                >
-                  <Tooltip title="告警刚进入通知队列，系统仍在计算是否通知、通知给谁">
-                    <span>另有 {counts.unprocessed} 条告警仍在计算通知状态</span>
-                  </Tooltip>
-                </Typography.Text>
-              )}
-
-              <div data-testid="latest-alert-region" style={{ marginTop: 10, marginBottom: 10 }}>
-                <Typography.Text
-                  strong
-                  style={{ display: 'block', fontSize: 13, marginBottom: 2 }}
-                >
-                  {LATEST_ALERT_TITLE}
-                </Typography.Text>
-                {amUnavailable ? (
-                  <Typography.Text
-                    type="secondary"
-                    data-testid="latest-alert-unavailable"
-                    style={{ display: 'block', marginTop: 8, fontSize: 12 }}
-                  >
-                    取数失败，暂无法展示最新告警
-                  </Typography.Text>
-                ) : latestAlerts.length === 0 ? (
-                  <Typography.Text
-                    type="secondary"
-                    data-testid="latest-alert-empty"
-                    style={{ display: 'block', marginTop: 8, fontSize: 12 }}
-                  >
-                    暂无通知中的告警
-                  </Typography.Text>
-                ) : (
-                  /* 固定分页：每页最多 ALERT_PAGE_SIZE 行，列表高度随行数自然增减，
-                     不再测量高度、不再 overflow 兜底（页面按内容滚动，见 HomePage） */
-                  <div>
-                    <List
-                      size="small"
-                      split={false}
-                      data-testid="latest-alert-list"
-                      dataSource={visibleAlerts}
-                      renderItem={(item, index) => (
-                        <AlertRow
-                          item={item}
-                          /* 测试 id 用数据池内的全局序号（翻页后不重复、不重置） */
-                          index={pageOffset + index}
-                          isLast={index === visibleAlerts.length - 1}
-                          /* 行 2 告警具体内容：M02 history summary 优先，AM annotations.summary 兜底 */
-                          summary={
-                            summaryByAlert?.[
-                              alertMatchKey(item.labels?.alertname, item.labels?.instance)
-                            ] ?? item.annotations?.summary
-                          }
-                        />
-                      )}
-                    />
-                    {/* 分页器仅在池子超过单页上限时出现（少量告警时保持单页观感） */}
-                    {pageCount > 1 && (
-                      <div
-                        data-testid="latest-alert-pager"
-                        style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}
-                      >
-                        <Pagination
-                          size="small"
-                          showSizeChanger={false}
-                          current={currentPage}
-                          pageSize={pageSize}
-                          total={latestAlerts.length}
-                          onChange={setPage}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* 页脚：参考行 + 通知配置深链。
-                  `marginTop: auto` 在卡被拉伸时把页脚推到卡底——落差落在列表下方（白底），
-                  页脚不会悬在卡片中段；卡未被拉伸时 auto 解析为 0，
-                  与列表的间距由 latest-alert-region 的 marginBottom 提供。 */}
+            /* 卡体两栏（design-proposal §2.3）：左统计块 280px 固定（四格纵排）/
+               右列表 flex:1（最新告警 + Prom 参考行 + 配置深链）。
+               窄屏（≤767px）：统计块维持 2×2，与列表**上下堆叠**（不横向并排）。 */
+            <div
+              data-testid="alert-card-columns"
+              style={{
+                display: 'flex',
+                flexDirection: narrow ? 'column' : 'row',
+                gap: narrow ? 12 : 24,
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
               <div
-                data-testid="alert-card-footer"
+                data-testid="alert-stat-column"
                 style={{
-                  marginTop: 'auto',
-                  paddingTop: 10,
-                  borderTop: `1px solid ${token.colorBorderSecondary}`,
+                  flex: narrow ? 'none' : '0 0 220px',
+                  width: narrow ? undefined : 220,
+                  minWidth: 0,
+                  // 纵向 flex：Prom 参考行 marginTop:auto 沉到统计块底部，填补四格下方
+                  // 的空挡（第六轮走查：参考行从右栏页脚上移至此；窄屏堆叠时 auto 解析
+                  // 为 0，参考行紧贴统计条下方）
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
-                {/* Prometheus 求值态仅供参考，视觉权重明显低于主数字（11px 灰字） */}
+                {/* 四格统计条：当日 / 近 7 天为主数字，治理态为次（决策 73 §2） */}
+                <AlertStatStrip
+                  counts={counts}
+                  historyUnavailable={historyUnavailable}
+                  amUnavailable={amUnavailable}
+                  compact={narrow}
+                  vertical={!narrow}
+                />
+
+                {/* unprocessed 不计数不列条，仅防「通知中 0」被误读为无告警 */}
+                {!amUnavailable && counts.unprocessed > 0 && (
+                  <Typography.Text
+                    type="secondary"
+                    data-testid="alert-unprocessed-note"
+                    style={{ display: 'block', marginTop: 6, fontSize: HOME_FONT.note }}
+                  >
+                    <Tooltip title="告警刚进入通知队列，系统仍在计算是否通知、通知给谁">
+                      <span>另有 {counts.unprocessed} 条告警仍在计算通知状态</span>
+                    </Tooltip>
+                  </Typography.Text>
+                )}
+
+                {/* Prometheus 求值态参考行（第六轮走查：从右栏页脚上移至统计块空挡）。
+                    视觉权重明显低于主数字（11px 灰字），口径 Tooltip 保留原样。 */}
                 <Typography.Text
                   type="secondary"
                   data-testid="prom-reference-line"
-                  style={{ display: 'block', fontSize: 11 }}
+                  style={{ display: 'block', marginTop: 'auto', paddingTop: 10, fontSize: HOME_FONT.note }}
                 >
-                  <Tooltip title="Prometheus 规则求值状态：触发中 / 求值中（尚未达到触发条件）">
+                  <Tooltip title="来自监控规则引擎的求值状态：已触发＝规则已产生告警；观察中＝规则正在判断，尚未达到触发条件（数据源 Prometheus）">
                     <span>
-                      Prometheus 原始求值 · {PROM_EVAL_LABEL.firing}{' '}
-                      {promUnavailable ? '-' : counts.firing} / {PROM_EVAL_LABEL.pending}{' '}
-                      {promUnavailable ? '-' : counts.pending}
+                      告警规则 · {PROM_EVAL_LABEL.firing} {promUnavailable ? '-' : counts.firing} ·{' '}
+                      {PROM_EVAL_LABEL.pending} {promUnavailable ? '-' : counts.pending}
                     </span>
                   </Tooltip>
                 </Typography.Text>
-                {/* 告警中心入口只保留标题右侧的「查看全部 →」，此处不再重复（用户反馈 2026-09-14） */}
-                <div style={{ marginTop: 6 }}>
-                  <Link to="/alert-config">配置告警通知</Link>
-                </div>
               </div>
-            </>
+
+              <div
+                data-testid="alert-list-column"
+                style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+              >
+                <div
+                  data-testid="latest-alert-region"
+                  style={{ marginTop: narrow ? 4 : 0, marginBottom: 10 }}
+                >
+                  <Typography.Text
+                    strong
+                    style={{
+                      display: 'block',
+                      fontSize: HOME_FONT.label,
+                      fontWeight: HOME_WEIGHT.title,
+                      marginBottom: 2,
+                    }}
+                  >
+                    {LATEST_ALERT_TITLE}
+                  </Typography.Text>
+                  {amUnavailable ? (
+                    <Typography.Text
+                      type="secondary"
+                      data-testid="latest-alert-unavailable"
+                      style={{ display: 'block', marginTop: 8, fontSize: HOME_FONT.body }}
+                    >
+                      取数失败，暂无法展示最新告警
+                    </Typography.Text>
+                  ) : latestAlerts.length === 0 ? (
+                    /* 无待处理告警 = 好消息：**醒目的成功态提示块**（原 12px 灰字一行，
+                       扫读时像没加载出来——产品负责人走查要求「醒目一点」）。
+                       语义绿不是唯一语义：标题文字本身写明「没有需要处理的告警」。 */
+                    <div
+                      data-testid="latest-alert-empty"
+                      style={{
+                        marginTop: 12,
+                        padding: '16px 14px',
+                        borderRadius: 8,
+                        background: token.colorSuccessBg,
+                        border: `1px solid ${token.colorSuccessBorder}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <CheckCircleFilled style={{ fontSize: 22, color: token.colorSuccess }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: HOME_FONT.title,
+                            fontWeight: HOME_WEIGHT.title,
+                            color: token.colorSuccessText,
+                          }}
+                        >
+                          当前没有需要处理的告警
+                        </div>
+                        <div
+                          style={{
+                            fontSize: HOME_FONT.body,
+                            color: token.colorTextSecondary,
+                            marginTop: 2,
+                          }}
+                        >
+                          出现新告警后，会在这里按触发时间倒序列出。
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 固定分页：每页最多 ALERT_PAGE_SIZE 行，列表高度随行数自然增减，
+                       不再测量高度、不再 overflow 兜底（页面按内容滚动，见 HomePage） */
+                    <div>
+                      <List
+                        size="small"
+                        split={false}
+                        data-testid="latest-alert-list"
+                        dataSource={visibleAlerts}
+                        renderItem={(item, index) => (
+                          <AlertRow
+                            item={item}
+                            /* 测试 id 用数据池内的全局序号（翻页后不重复、不重置） */
+                            index={pageOffset + index}
+                            isLast={index === visibleAlerts.length - 1}
+                            /* 行 2 告警具体内容：M02 history summary 优先，AM annotations.summary 兜底 */
+                            summary={
+                              summaryByAlert?.[
+                                alertMatchKey(item.labels?.alertname, item.labels?.instance)
+                              ] ?? item.annotations?.summary
+                            }
+                          />
+                        )}
+                      />
+                      {/* 分页器仅在池子超过单页上限时出现（少量告警时保持单页观感） */}
+                      {pageCount > 1 && (
+                        <div
+                          data-testid="latest-alert-pager"
+                          style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}
+                        >
+                          <Pagination
+                            size="small"
+                            showSizeChanger={false}
+                            current={currentPage}
+                            pageSize={pageSize}
+                            total={latestAlerts.length}
+                            onChange={setPage}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 列表区即卡体结尾：第六轮走查起右栏不再有页脚——Prometheus 参考行
+                    已上移至左统计块空挡，「配置告警通知」深链按产品负责人要求移除
+                    （通知配置入口收敛到告警状态页与首页使用指引）。卡被拉伸时的
+                    残余落差由左栏参考行 marginTop:auto 吸收。 */}
+              </div>
+            </div>
           )}
         </>
       )}

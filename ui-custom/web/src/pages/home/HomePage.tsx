@@ -1,41 +1,95 @@
 /**
- * 首页概览 —— **六段信息架构**（Module_05 §3.1 决策 93 / PRD v1.8）。
+ * 首页概览 —— **首屏信息架构**（Module_05 反馈 11 §11.3 定稿版式；沿用 PRD v1.8 编号 01~06；
+ * 2026-10-17 走查：02+03 合并行、标题通俗化、类型卡去子类、拨测双卡、指引一行、采集健康解释整合；
+ * 2026-10-17 第五轮走查：04 改「圆环 + 六类表格」、云卡紧凑统计行、矩阵脚注缩减、
+ * 告警与采集健康 2:1 并排、页头去除版本/模式字样；
+ * 2026-10-17 第六轮走查（产品负责人看效果后修订）：**「监控对象纳管进度 + 告警状态」
+ * 一行、「采集健康 + 拨测态势」一行**；02/03「资源管理」展示组由**页头行一个开关
+ * 整组隐藏**（隐藏后 home-resource-row 整体不渲染，不露面板标题；偏好跨会话持久）。
  *
- * 页面结构（自上而下）：页头行（引导语 + 系统状态）→ **L0 全局态势区**（5 张 KPI 卡，
- * 含「拨测」）→ **L1 采集覆盖区**（5 张资源类型卡一行，子类封顶 3 + 更多）→ **L2 应用覆盖表**
- * （纳管率升序，未归类行置底）→ 「按云分布」整宽区块 → **L3 拨测态势面板** → **「采集健康」
- * 独立面板**（反馈 10 路线 B，工程师视角，固定位于**告警状态之前**）→ **L4 告警状态卡 + L5 使用指引
- * （同排等高：左告警 1.6 : 右指引 1）**。
+ * 页面结构（自上而下）：
+ * 01 页头行（引导语 + 「隐藏 / 显示资源分布」开关）→
+ * 02 资源管理行 `home-resource-row`（可整组隐藏）：02「不同云的主机数量」
+ * （固定窄列）+ 03「平台与应用的主机分布」，两个 flex-wrap 同行 →
+ * 03 「监控对象纳管进度 + 告警状态」一行 `home-coverage-alert-row` →
+ * 04 「采集健康 + 拨测态势」一行 `home-health-probe-row` →
+ * 06 使用指引（**一行横排**六步）。
  *
- * 与 v1.7 的差异（决策 93）：L0 由 4 卡扩为 5 卡（新增「拨测」）；删「按应用查看」入口卡与
- * L1 未恢复胶囊、L2 未恢复列（告警口径收口 L0 告警卡 + L4 告警卡）；L2 改「应用覆盖」；
- * 新增 L3 拨测态势面板；告警卡与使用指引由两根整宽行改为同排等高。
+ * 与上一版的关键差异（反馈 11 §11.2，产品定稿）：
+ * - 🚫 **删除 L0「全局态势感知」整块**（5 张 KPI 卡）：五张卡分属四种互不相干的维度，
+ *   并排却不构成可比较 / 可汇总 / 可下钻的整体。告警数字统一由告警状态卡承载，
+ *   整体纳管进度归口到 04 区块（首页唯一呈现点）——首屏不再出现任何孤立 KPI 数字。
+ * - 02 由「整宽 4 列表格」改为**每云紧凑统计行**（第五轮起；反馈 11 时为每云一张 KPI 卡），
+ *   且去掉「已下发 / 纳管率 / 进度条」（按云维度纳管率本轮不做，避免与 04 同屏出现两个同源纳管率）；
+ *   **第六轮起收窄为固定窄列**（原 1 1 460px 在 02+03 两列行里被拉到 ≈530px「过长」，
+ *   产品负责人要求缩短）。
+ * - 03 为**新增**矩阵区块：度量单位取主机台数，故行合计 === 列合计 === 主机总数。
+ * - 04 与告警状态并排（第六轮走查定）：04「监控对象纳管进度」承接已删除的 L0 覆盖率卡
+ *   职责，是首页唯一整体纳管率呈现点；告警卡原独立整宽「太宽」，并排同时修正两处。
+ *   采集健康与拨测态势并排（第六轮走查定）：采集健康由「拨测之后」上移，系产品负责人
+ *   对反馈 11 §11.2 ⑧「不与 04 相邻」的重新裁定——并排后仍是不同卡、不同口径、
+ *   Tooltip 分隔，「分开展示」的实质不变（记录见 design-proposal §7）。
+ * - 02 / 03「资源管理」展示组默认显示，页头行一个开关整组隐藏（第六轮：关注面不同，
+ *   且隐藏后不露面板标题——恢复入口是页头的「显示资源分布」按钮）。
+ *
+ * 2026-10-17 走查七项（第四轮，详见 design-proposal §7）：
+ * - 02+03 合并为一行（同类信息：主机在归属维度上的分布），标题改领导语言；
+ * - 04 区块标题「纳管覆盖率」→「监控对象纳管进度」；类型卡去除「采集方式细分」子类区；
+ * - 05 拨测由「一张大卡两个分区」改为两张独立卡，各带四格总体数字；
+ * - 06 使用指引纵向六步 → 一行横排（窄屏卡内横向滚动）；
+ * - 采集健康解释整合：只留一行可见副标题，次要口径进标题 / 图例 Tooltip。
+ *
+ * 2026-10-17 第五轮走查四项（产品负责人确认「方案 A + 4 项全部确认」后落地）：
+ * - 04 由「32px 大数字 + 进度条 + 六张类型卡」改为**单卡内「左整体圆环 + 右六类表格」**
+ *   （六张平级卡与整体看不出共同体关系；圆环承担「整体」，表格承担「明细」）；
+ * - 02 每云 KPI 卡 → 紧凑统计行（2 朵云时左卡被撑高，与矩阵不协调）；
+ * - 03 矩阵脚注三句 → 一句速记，完整口径进标题 Tooltip；
+ * - 告警 + 采集健康 2:1 并排（告警太宽）；L1 六类顺序中「接口服务」上调至
+ *   「其他监控目标」之上（兜底聚合类读表时居末）。
+ *
+ * 2026-10-17 第六轮走查（产品负责人看过第五轮效果后修订）：
+ * - 「监控对象纳管完成率」与「告警状态」**对分**一行（04 + 告警，flex 1:1，各 ≈568px
+ *   @1440；先评估过 2+3+4 压一行——内容宽 ≈1192px 下三列总宽 ≈1520px 放不下，
+ *   故不采用，改为按关注面分行）；
+ * - 「采集健康」与「拨测态势」一行，两者 grow **填满整行**（采集 1 : 拨测 2）；
+ * - 02/03「资源管理」组页头行开关整组隐藏，隐藏后不露面板标题（偏好跨会话持久）；
+ * - 拨测态势区头与两个子版面**合为一张卡**（样式上做成一体），整体健康度「正常率」
+ *   圆环仿 04 整体圆环样式做在卡内左列；原「拨测目标 N · 正常 X · 异常 Y」汇总行移除；
+ * - 04 标题「纳管进度」→「纳管完成率」（进度是过程量、完成率是结果量）；「已下发 /
+ *   未下发」→「已配置采集 / 未配置采集」（下发什么说不清）；纳管率列去行内进度条、
+ *   资源类型收窄，使纳管率列在 1440 半幅卡内完整可见；口径注解定稿在卡底左对齐；
+ * - 告警卡 Prometheus 参考行从右栏页脚移到左统计块空挡，统计块 280 → 220px，
+ *   「配置告警通知」深链移除；矩阵脚注两句合并为一行、末行/末列「合计」统一命名。
  *
  * 版式约束：
  * - 页面按内容自然排布，**不锁定视口**：不同电脑尺寸/分辨率下版式一致，内容超出即滚动；
- * - L0 / L1 均 5 卡一行：栅格走 antd Col `flex:1` 等宽方案，容量变化不溢出；
+ * - 区块间距 16px，与卡片 gutter 一致；
+ * - 三个内容行均为 **flex-wrap + flex-basis 折行**（不写断点魔法数）：
+ *   资源管理行 ≈260+420+16、04+告警行 ≈936（对分）、采集+拨测行 ≈936（grow 填满），
+ *   宽屏一行、窄容器各自折行堆叠；
  * - 告警卡固定 5 行/页为**定稿硬契约**（见 homeLayout.ts，已与视口解耦）。
  *
- * 移动适配（手机竖屏，≤767px；见 homeResponsive.ts）：
- * - 上述「5 卡一行」是**桌面版式**；窄屏下 L0 降为 2 卡一行、L1 降为 1 卡一行，
- *   L4/L5 由同排 1.6:1 改为纵向堆叠（告警卡在上、使用指引在下）；
- * - 只在窄屏分支改变栅格与排列方向，桌面分支（flex:1 五卡一行 / 同排等高）逐字不变。
+ * 移动适配（手机竖屏，≤767px；见 homeResponsive.ts）：资源管理行两块折为上下堆叠
+ * （云分布单列统计行、矩阵保留表格 + 横向滚动 + 固定首列，**不卡片化**——二维信息卡片化
+ * 会破坏行列可比性）、04+告警行与采集+拨测行各折为上下堆叠、04 圆环与表格纵向堆叠、
+ * 拨测双卡纵向堆叠、告警四格统计条 2×2、使用指引卡内横向滚动、05 / 06 纵向不折叠。
  *
  * 数据源：
- * - dashboardApi.getSummary()：资源总数 / 已监控（L0）、by_category（L1）、
- *   by_app + unclassified_*（L2）、probe_target_count / probe_target_abnormal_count（L0 拨测卡）；
+ * - dashboardApi.getSummary()：by_cloud（02）、by_platform_app（03）、
+ *   resource_count / monitored_count（04 圆环）、by_category（04 六类表格，by_subtype
+ *   契约保留但前端不再消费）、probe_targets（拨测态势）、collection_health（采集健康）；
+ *   by_app + unclassified_* 契约字段保留（应用覆盖明细表已按 design-proposal §2.4 删除，前端不再消费）；
  * - alertStatusApi 三条只读链路**单次请求**由 useAlertGovernance 持有：
- *   Prom 当前告警（L0 第 4 卡的 firing 条数）+ AM 通知状态 + M02 历史告警。
- * - L3 拨测态势实测来自 `dashboard.probe_targets[]`（决策 93 明细），由 HomePage 传入 ProbePanel
+ *   Prom 当前告警 + AM 通知状态 + M02 历史告警，全部收敛到告警状态卡。
+ * - 拨测态势实测来自 `dashboard.probe_targets[]`（决策 93 明细），由 HomePage 传入 ProbePanel
  *   受控渲染；静态预览（VITE_STATIC_PREVIEW=true）仍用 DASHBOARD_MOCK 明细与原型对齐。前端排序、分页，
  *   见 ProbePanel 头注释。
  */
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
-import { Alert, Col, Row, Space, Tooltip, Typography, theme } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Alert, Button, Tooltip, Typography, theme } from 'antd'
+import { EyeInvisibleOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { Link } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { apiClient } from '../../api/client'
 import { dashboardApi } from '../../api/dashboard'
 import { useProductName } from '../../skinContext'
 import type { CloudSummary, DashboardSummary } from '../../api/dashboard'
@@ -54,26 +108,21 @@ import { AlertStatusCard, LATEST_ALERT_LIMIT } from './AlertStatusCard'
 import type { AlertCounts } from './AlertStatusCard'
 import { alertMatchKey } from '../alerts/alertmanagerConstants'
 import { OnboardingSteps } from './OnboardingSteps'
-import { SurfaceCard } from './SurfaceCard'
 import { ResourceTypeGrid } from './ResourceTypeGrid'
-import { AppDetailTable } from './AppDetailTable'
+import { CoverageDonut } from './CoverageDonut'
+import { SurfaceCard } from './SurfaceCard'
 import { CloudDistributionPanel } from './CloudDistributionPanel'
+import { PlatformAppMatrixPanel } from './PlatformAppMatrixPanel'
 import { ProbePanel } from './ProbePanel'
 import { CollectionHealthPanel } from './CollectionHealthPanel'
-import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
+import { HOME_FONT } from './homeTypography'
 import { useNarrowLayout } from './homeResponsive'
-
-interface Status {
-  version: string
-  mode: string
-}
+import {
+  readResourcePanelsCollapsed,
+  writeResourcePanelsCollapsed,
+} from './homePanelVisibility'
 
 /** 最新告警条数上限取自 AlertStatusCard.LATEST_ALERT_LIMIT（告警卡标题与本页截断共用一份） */
-
-const STATUS_MOCK: Status = {
-  version: 'dev-preview',
-  mode: 'static-preview',
-}
 
 /**
  * 「按云分布」静态预览样例（M05 PRD v1.11 / 决策 100）：数值与原型
@@ -94,7 +143,9 @@ const CLOUD_SUMMARY_MOCK: CloudSummary[] = [
  *   （42/36 主机 + 26/21 数据库 + 18/12 中间件 + 34/22 应用服务 + 8/5 其他监控目标）；
  * - `sum(by_app.resource_count) + unclassified_resource_count = 80 + 48 = 128`；
  *   `sum(by_app.monitored_count) + unclassified_monitored_count = 60 + 36 = 96`；
- * - `probe_target_count = 24` **不进** `resource_count`（拨测口径）。
+ * - `probe_target_count = 24` **不进** `resource_count`（拨测口径）；
+ * - `sum(by_platform_app 行合计) = sum(by_platform_app 列合计) = 42 = by_category[host].resource_count`
+ *   （见下方 by_platform_app 的自证注释）。
  */
 const DASHBOARD_MOCK: DashboardSummary = {
   resource_count: 128,
@@ -153,6 +204,79 @@ const DASHBOARD_MOCK: DashboardSummary = {
       ],
     },
   ],
+  /**
+   * 「平台 × 应用 · 主机数」矩阵样例（反馈 11 §11.3 03 段）。
+   *
+   * 自洽不变量（行列合计均等于主机总数 = 42 = `by_category[host].resource_count`）：
+   *   行合计：19 + 11 + 5 + 3 + 2 + 2 = 42
+   *   列合计：支付 16 + 用户 16 + 数据网关 7 + 未指定应用 3 = 42
+   * 右下角单一合计格 42 同时闭合两个方向。行序按平台主机台数降序（「其他」恒在
+   * 「未指定平台」之前），列序由前端按列合计降序推导，两处 0 值单元格
+   * （aliyun × 未指定应用、aws × 未指定应用）用于走查「0 是有效值、不显示成 -」的分支。
+   *
+   * 平台聚合语义与后端一致（platform/dashboard/summary.go）：Top 4 真实平台单独成行，
+   * 落选平台合并进 `__other__`「其他」行，`platform_code` 空串行为「未指定平台」兜底行；
+   * 「其他」与「未指定平台」两行在界面上不可下钻。
+   */
+  by_platform_app: [
+    {
+      platform_code: 'k8s-prod',
+      platform_name: '私有云A平台（容器云）',
+      host_count: 19,
+      cells: [
+        { app_code: 'payment', app_name: '支付平台', host_count: 8 },
+        { app_code: 'user', app_name: '用户中心', host_count: 7 },
+        { app_code: 'data-api', app_name: '数据网关', host_count: 3 },
+        { app_code: '', app_name: '未指定应用', host_count: 1 },
+      ],
+    },
+    {
+      platform_code: 'openstack',
+      platform_name: '私有云B平台',
+      host_count: 11,
+      cells: [
+        { app_code: 'payment', app_name: '支付平台', host_count: 5 },
+        { app_code: 'user', app_name: '用户中心', host_count: 3 },
+        { app_code: 'data-api', app_name: '数据网关', host_count: 2 },
+        { app_code: '', app_name: '未指定应用', host_count: 1 },
+      ],
+    },
+    {
+      platform_code: 'aliyun',
+      platform_name: '公有云A平台',
+      host_count: 5,
+      cells: [
+        { app_code: 'payment', app_name: '支付平台', host_count: 2 },
+        { app_code: 'user', app_name: '用户中心', host_count: 2 },
+        { app_code: 'data-api', app_name: '数据网关', host_count: 1 },
+      ],
+    },
+    {
+      platform_code: 'aws',
+      platform_name: '公有云B平台',
+      host_count: 3,
+      cells: [
+        { app_code: 'payment', app_name: '支付平台', host_count: 1 },
+        { app_code: 'user', app_name: '用户中心', host_count: 1 },
+        { app_code: 'data-api', app_name: '数据网关', host_count: 1 },
+      ],
+    },
+    {
+      platform_code: '__other__',
+      platform_name: '其他',
+      host_count: 2,
+      cells: [{ app_code: 'user', app_name: '用户中心', host_count: 2 }],
+    },
+    {
+      platform_code: '',
+      platform_name: '未指定平台',
+      host_count: 2,
+      cells: [
+        { app_code: 'user', app_name: '用户中心', host_count: 1 },
+        { app_code: '', app_name: '未指定应用', host_count: 1 },
+      ],
+    },
+  ],
   by_app: [
     { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
     { app_code: 'user', app_name: '用户中心', biz_code: 'user', biz_name: '用户业务', resource_count: 24, monitored_count: 16 },
@@ -167,13 +291,13 @@ const DASHBOARD_MOCK: DashboardSummary = {
   // 归属口径为「归属网域」（见 design-proposals/probe-ownership-alignment.md：拨测不承载
   // 应用/业务域维度）。mock 走 up/down 显式态，真实环境无 probe_success 样本时为空串（见 ProbePanel 头注释）
   probe_targets: [
-    { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
-    { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
-    { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { service_name: '支付平台', resource_category: 'interface_service', platform_names: '', url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { service_name: '官网证书', resource_category: 'interface_service', platform_names: '', url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+    { service_name: '官网', resource_category: 'interface_service', platform_names: '', url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { service_name: '数据平台', resource_category: 'interface_service', platform_names: '', url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { service_name: '订单中心', resource_category: 'interface_service', platform_names: '', url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { service_name: '库存服务', resource_category: 'interface_service', platform_names: '', url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { service_name: '大模型应用', resource_category: 'application', platform_names: '私有云A平台、私有云B平台', url: 'http://10.0.0.5/health', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
   ],
   // 「采集健康」静态预览样例（反馈 10 路线 B）。分母 `dispatched_count` 恒等于
   // `monitored_count`=96（已下发资源数），四态计数之和 = 96；后端查询失败 / 未实现时字段缺失，
@@ -194,79 +318,9 @@ const ALERT_MOCK: AlertCounts = {
   silenced: 1,
   inhibited: 0,
   unprocessed: 0,
-  // 与 ALERT_MOCK_ALERTS 的 firing 条数保持一致（静态预览下 L0 第 4 卡即由此得出）
   firing: 5,
   pending: 1,
 }
-
-/**
- * 静态预览用 Prom 当前告警样例（`/api/v1/alerts` 的响应项）。
- *
- * 覆盖四类归属，供 L0 / L1 / L2 三处「未恢复」分组断言：
- * host 1 + database 1 + application 1 + generic_target 1（共 4 条带 `resource_category`）
- * + 1 条**无 `resource_category`**（拨测目标告警，只进 L1 入口卡附注，不进任何类型卡）。
- * 另含 1 条 `pending`（求值中）——**不计入任何「未恢复」数字**，用于验证只取 `firing`。
- */
-const ALERT_MOCK_ALERTS: PromAlertItem[] = [
-  {
-    labels: { alertname: '主机 CPU 使用率过高', severity: 'critical', instance: '10.0.0.11:9100' },
-    annotations: { summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟' },
-    state: 'firing',
-    activeAt: '2026-09-18T09:32:00Z',
-    resource_category: 'host',
-    resource_name: 'prod-web-01',
-  },
-  {
-    labels: {
-      alertname: '数据库连接数接近上限',
-      severity: 'warning',
-      instance: '10.0.1.6:3306',
-      app: 'payment',
-    },
-    annotations: { summary: '当前连接数 480 / 上限 500，新增连接将被拒绝' },
-    state: 'firing',
-    activeAt: '2026-09-18T08:20:00Z',
-    resource_category: 'database',
-    resource_name: 'prod-mysql-01',
-  },
-  {
-    labels: {
-      alertname: '服务健康检查失败',
-      severity: 'critical',
-      instance: 'http://order-svc:8080/health',
-      app: 'user',
-    },
-    annotations: { summary: 'HTTP 探针连续 3 次超时（>3s）' },
-    state: 'firing',
-    activeAt: '2026-09-18T08:58:00Z',
-    resource_category: 'application',
-    resource_name: 'order-service-v2',
-  },
-  {
-    labels: { alertname: '端点探测超时', severity: 'warning', instance: 'tcp://10.0.5.7:9200' },
-    annotations: { summary: 'TCP 探测连续 5 次超时' },
-    state: 'firing',
-    activeAt: '2026-09-18T08:10:00Z',
-    resource_category: 'generic_target',
-    resource_name: 'es-endpoint-01',
-  },
-  {
-    // 拨测目标告警：无 resource_category → 只进 L1 入口卡附注
-    labels: { alertname: '拨测失败', severity: 'critical', instance: 'http://portal/health' },
-    annotations: { summary: 'HTTP 拨测连续 3 次失败' },
-    state: 'firing',
-    activeAt: '2026-09-18T07:52:00Z',
-  },
-  {
-    // 求值中：不计入任何「未恢复」数字
-    labels: { alertname: '磁盘空间不足', severity: 'warning', instance: '10.0.1.5:9100' },
-    annotations: { summary: '数据盘使用率 88%' },
-    state: 'pending',
-    activeAt: '2026-09-18T09:50:00Z',
-    resource_category: 'host',
-    resource_name: 'prod-db-01',
-  },
-]
 
 /**
  * 静态预览用最新告警样例（无后端时保持告警卡形态完整，数量与卡内上限一致便于校验行高与「查看全部」语义）。
@@ -458,12 +512,6 @@ function computeCounts(
 
 interface AlertGovernance {
   counts: AlertCounts
-  /**
-   * 当前仍在触发（`state === 'firing'`）的告警全量。
-   * **L0 第 4 卡 / L1 各类型卡胶囊 / L1 入口卡附注 / L2 行「未恢复」的唯一取数来源**——
-   * 均在本数组上按 `resource_category` / 标签 `app` 分组（决策 91，前端分组、后端零改动）。
-   */
-  firingAlerts: PromAlertItem[]
   /** 最新告警：AM 条目按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条，剔除 unprocessed（治理闭环 MVP 未实现） */
   latestAlerts: AmAlertItem[]
   /** 行 2 告警具体内容回查表（history summary 优先，AM annotations.summary 兜底） */
@@ -484,7 +532,6 @@ function useAlertGovernance(
   isStaticPreview: boolean,
   mockCounts: AlertCounts,
   mockLatest: AmAlertItem[],
-  mockAlerts: PromAlertItem[],
 ): AlertGovernance {
   const [promRes, setPromRes] = useState<ApiResponse<PromAlertsData> | null>(null)
   const [amRes, setAmRes] = useState<ApiResponse<AmAlertsData> | null>(null)
@@ -549,15 +596,6 @@ function useAlertGovernance(
       .slice(0, LATEST_ALERT_LIMIT)
   }, [isStaticPreview, mockLatest, amRes])
 
-  /**
-   * 当前未恢复（firing）告警全量：L0 第 4 卡与 L1 / L2 三处分组的**同一份**数据。
-   * 取数失败（promError 非空）时为空数组 → 各处按不可用降级为 `-`。
-   */
-  const firingAlerts = useMemo(
-    () => pickFiringAlerts(isStaticPreview ? mockAlerts : promRes?.data?.alerts ?? []),
-    [isStaticPreview, mockAlerts, promRes],
-  )
-
   const summaryByAlert = useMemo(
     () => (isStaticPreview ? {} : buildSummaryMap(historyRes)),
     [isStaticPreview, historyRes],
@@ -573,150 +611,34 @@ function useAlertGovernance(
     setRetryKey((k) => k + 1)
   }
 
-  return { counts, firingAlerts, latestAlerts, summaryByAlert, loading, promError, amError, historyError, retry }
-}
-
-interface MetricItem {
-  key: string
-  label: string
-  value: ReactNode
-  /** 口径注释（卡片右上角 ⓘ Tooltip 文案，决策 72-3 §3.2） */
-  tip?: string
-  /** 副行说明（11px 灰字） */
-  sub?: string
-  /** 传入时以**进度条**替代副行文字（目前仅「纳管覆盖率」） */
-  progress?: number
-  /** 告警卡：浅红底 + 浅红边，与三张资产卡视觉分离 */
-  danger?: boolean
-  /** 数字语义色 */
-  valueColor?: string
-}
-
-/**
- * 关键指标卡（**版式按排版定版**，与原型 DashboardPage.GlobalStatCard 同款）：
- * 标签 12px 在上 → 30px/800 数字 → 11px 副行说明，**卡内不放图标容器**——
- * 数字已经是卡内唯一视觉主体，图标只会与它争视觉权重、让扫读变慢。
- *
- * - 「纳管覆盖率」用**进度条**替代副行文字：百分数需要一段横向长度才有「进度感」，
- *   口径文字（「已下发 ÷ 资源总数」，且明确「不代表已采到」）收进 ⓘ，不重复占版面；
- * - 第 4 卡（告警）用浅红底 + 浅红边：它表达的是「异常数」而不是「资产数」，
- *   与前 3 张分开，扫读时才不会被当成第四种资产。
- * - 卡高由内容决定，不锁死视口相关高度。
- */
-function MetricCard({ item }: { item: MetricItem }) {
-  const { token } = theme.useToken()
-  const percent = item.progress
-
-  return (
-    <SurfaceCard
-      hoverShadow
-      data-testid={`metric-${item.key}`}
-      style={{
-        position: 'relative',
-        height: '100%',
-        ...(item.danger ? { background: token.colorErrorBg, borderColor: token.colorErrorBorder } : {}),
-      }}
-      styles={{ body: { padding: '14px 16px' } }}
-    >
-      {/* 标签行 */}
-      <div
-        style={{
-          fontSize: 12,
-          color: item.danger ? token.colorErrorText : token.colorTextSecondary,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {item.label}
-      </div>
-
-      {/* 数字：30px/800 等宽数字，卡内唯一视觉主体 */}
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 30,
-          fontWeight: 800,
-          lineHeight: 1.15,
-          color: item.valueColor ?? token.colorText,
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {item.value}
-      </div>
-
-      {percent === undefined ? (
-        <div
-          style={{ marginTop: 4, fontSize: 11, color: token.colorTextTertiary, whiteSpace: 'nowrap' }}
-        >
-          {item.sub}
-        </div>
-      ) : (
-        <div
-          data-testid={`l0-bar-${item.key}`}
-          role="progressbar"
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`纳管覆盖率 ${percent}%`}
-          style={{
-            marginTop: 12,
-            height: 6,
-            borderRadius: 3,
-            background: token.colorFillSecondary,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              width: `${Math.min(100, Math.max(0, percent))}%`,
-              height: '100%',
-              borderRadius: 3,
-              background: token.colorPrimary,
-            }}
-          />
-        </div>
-      )}
-
-      {/* 口径注释：仅 tip 非空时渲染；可聚焦 + aria-label，保证键盘用户也能读到口径说明 */}
-      {item.tip && (
-        <Tooltip title={item.tip}>
-          <InfoCircleOutlined
-            data-testid={`metric-tip-${item.key}`}
-            tabIndex={0}
-            aria-label={item.tip}
-            style={{
-              position: 'absolute',
-              top: 12,
-              right: 12,
-              fontSize: 13,
-              color: item.danger ? token.colorErrorText : token.colorTextTertiary,
-              cursor: 'help',
-            }}
-          />
-        </Tooltip>
-      )}
-    </SurfaceCard>
-  )
+  return { counts, latestAlerts, summaryByAlert, loading, promError, amError, historyError, retry }
 }
 
 export function HomePage() {
   // 引导语中的产品名随「外观设置」变化（用户 2026-09-18 补充）
   const { productName } = useProductName()
-  // L0 数字语义色（覆盖率品牌青 / 告警语义红）与卡片色取自主题 token，不硬编码
+  // 04 区块头部整体纳管率的进度条色取自主题 token，不硬编码
   const { token } = theme.useToken()
   // 窄屏（≤767px）版式开关：手机竖屏下各区域降列/堆叠，桌面版式逐字不变
   const narrow = useNarrowLayout()
-  const [status, setStatus] = useState<Status | null>(() => (IS_STATIC_PREVIEW ? STATUS_MOCK : null))
-  const [error, setError] = useState<string | null>(null)
-
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(() =>
     IS_STATIC_PREVIEW ? DASHBOARD_MOCK : null,
   )
   const [dashboardLoading, setDashboardLoading] = useState(() => !IS_STATIC_PREVIEW)
   const [dashboardError, setDashboardError] = useState<string | null>(null)
 
+  // 02/03「资源管理」展示组的隐藏偏好（第六轮走查）：初值读 localStorage，变更即写回——
+  // 跨会话保留，切模块 / 刷新都不丢（同侧栏折叠偏好模式，见 homePanelVisibility.ts）。
+  // 隐藏时 home-resource-row **整体不渲染**（不露面板标题），恢复入口是页头行开关。
+  const [resourcePanelsCollapsed, setResourcePanelsCollapsed] = useState(
+    readResourcePanelsCollapsed,
+  )
+  useEffect(() => {
+    writeResourcePanelsCollapsed(resourcePanelsCollapsed)
+  }, [resourcePanelsCollapsed])
+
   const {
     counts,
-    firingAlerts,
     latestAlerts,
     summaryByAlert,
     loading: alertLoading,
@@ -724,29 +646,10 @@ export function HomePage() {
     amError,
     historyError,
     retry,
-  } = useAlertGovernance(IS_STATIC_PREVIEW, ALERT_MOCK, ALERT_MOCK_LATEST, ALERT_MOCK_ALERTS)
+  } = useAlertGovernance(IS_STATIC_PREVIEW, ALERT_MOCK, ALERT_MOCK_LATEST)
 
   useEffect(() => {
     // Vercel 静态预览环境没有后端，不发起请求
-    if (IS_STATIC_PREVIEW) {
-      return
-    }
-
-    apiClient
-      .get<Status>('/api/v1/status')
-      .then((res) => {
-        if (res.status === 'success') {
-          setStatus(res.data)
-        } else {
-          setError(res.error || '请求失败')
-        }
-      })
-      .catch((err: Error) => {
-        setError(err.message)
-      })
-  }, [])
-
-  useEffect(() => {
     if (IS_STATIC_PREVIEW) {
       return
     }
@@ -771,79 +674,15 @@ export function HomePage() {
   // （决策 72-3 §3.2 失败态 / 决策 91 §11.3「接口失败时对应数字显示 -」）
   const metricNumber = (value?: number): number | undefined =>
     typeof value === 'number' && !Number.isNaN(value) ? value : undefined
-  const metricValue = (value?: number): ReactNode => metricNumber(value) ?? '-'
 
-  // 纳管覆盖率：已下发（被启用的采集任务覆盖）÷ 资源总数，取整百分数；任一字段缺失或资源数为 0 时显示 '-'
-  // （不渲染 0% / NaN%），前端派生无需新字段（口径按 PRD §「L0关键指标卡口径」）。
+  // 整体纳管率（04 区块头部，首页唯一呈现点）：已下发（被启用的采集任务覆盖）÷ 资源总数，
+  // 取整百分数；任一字段缺失或资源总数为 0 时为 undefined → 渲染 '-'，不渲染 0% / NaN%。
   const resourceTotal = metricNumber(dashboard?.resource_count)
   const monitoredTotal = metricNumber(dashboard?.monitored_count)
-  // 覆盖率数值（进度条用；无数据时 undefined → 卡片显示 '-'，进度条按 0 渲染）
   const coveragePercent =
     resourceTotal !== undefined && resourceTotal > 0 && monitoredTotal !== undefined
       ? Math.round((monitoredTotal / resourceTotal) * 100)
       : undefined
-  const coverage = coveragePercent !== undefined ? `${coveragePercent}%` : '-'
-
-  /**
-   * L0 第 4 卡「当前未恢复告警」：`/api/v1/alerts` 中 `state === 'firing'` 的条数。
-   * Prom 链路失败时显示 `-`（不显示 0——0 是「确实没有未恢复告警」的有效取值）。
-   */
-  const firingCount = promError ? '-' : firingAlerts.length
-
-  /**
-   * L0 四张 KPI 卡（决策 91：6 张收敛为 4 张，采集 Job / 已纳管网域 / 待确认草稿下沉出首页；
-   * 版式按排版定版：无图标容器、覆盖率走进度条、告警卡浅红底）。
-   */
-  const metrics: MetricItem[] = [
-    {
-      key: 'resource_count',
-      label: '资源总数',
-      value: metricValue(dashboard?.resource_count),
-      sub: '六类台账合计',
-      tip: '已导入平台的监控资源总数（主机 / 数据库 / 中间件 / 应用服务 / 其他监控目标 / 接口服务六类合计），拨测目标不计入。',
-    },
-    {
-      key: 'monitored_count',
-      label: '已下发监控',
-      value: metricValue(dashboard?.monitored_count),
-      // 副行给「未纳管 N」——比重复口径文字更有信息量（口径收进 ⓘ）
-      sub:
-        resourceTotal !== undefined && monitoredTotal !== undefined
-          ? `未下发 ${Math.max(0, resourceTotal - monitoredTotal)}`
-          : undefined,
-      tip: '至少被一个已启用的采集任务【下发覆盖】到的资源数（含尚未采到的）；其余为尚未下发监控任务的资源。本卡统计下发口径，不代表已采到数据。',
-    },
-    {
-      key: 'coverage',
-      label: '纳管覆盖率',
-      value: coverage,
-      tip: '已下发（被启用的采集任务覆盖）的资源数 ÷ 资源总数，反映【纳管/下发进度】，不代表数据已采到。实际采集健康见「资源管理中心」采集状态。拨测目标不参与计算。',
-      valueColor: token.colorPrimary,
-      progress: coveragePercent ?? 0,
-    },
-    {
-      key: 'firing_count',
-      label: '告警',
-      value: firingCount,
-      sub: '当前未恢复',
-      tip: '此刻仍在触发、尚未恢复的告警条数，含不属于资源台账对象的拨测与聚合告警。',
-      valueColor: token.colorError,
-      danger: true,
-    },
-    {
-      // 决策 93：第 5 张卡「拨测」。值 = 拨测异常目标数（probe_target_abnormal_count）
-      key: 'probe',
-      label: '拨测',
-      value: metricValue(dashboard?.probe_target_abnormal_count),
-      sub:
-        dashboard?.probe_target_count !== undefined
-          ? `/ ${dashboard.probe_target_count} 个拨测目标 · 异常数`
-          : undefined,
-      tip: '当前探测失败的拨测目标数；拨测由 blackbox 采集任务承载，不计入资源台账与覆盖率。全量明细见下方拨测态势面板。',
-      valueColor:
-        (dashboard?.probe_target_abnormal_count ?? 0) > 0 ? token.colorError : token.colorText,
-    },
-  ]
 
   return (
     <MainLayout>
@@ -858,114 +697,164 @@ export function HomePage() {
           gap: 16,
         }}
       >
-        {/* 页头行：左引导语 + 右系统状态（版本 / 模式）。
-            窄屏下改为纵向堆叠（引导语一行、系统状态另起一行），避免右侧状态被挤出屏幕。 */}
+        {/* 页头行：引导语 + 「隐藏 / 显示资源分布」开关。2026-10-17 第五轮走查按产品
+            负责人要求去除「版本 / 模式」系统状态后右侧留空；第六轮走查把「资源管理」
+            （02+03）整组隐藏开关放在这里——隐藏时资源行整体不渲染、不露面板标题，
+            恢复入口不能跟着一起消失，故开关常驻页头行。 */}
         <div
           style={{
             display: 'flex',
-            flexDirection: narrow ? 'column' : 'row',
-            alignItems: narrow ? 'flex-start' : 'baseline',
             justifyContent: 'space-between',
-            gap: narrow ? 4 : 16,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
           }}
         >
-          {/* 页面引导语：页面归属已由左侧导航与面包屑表达，不再重复「MetricCenter 概览」大标题。
-              引导语描述「本页有什么」，不指代下方区域。 */}
-          <Typography.Text type="secondary" style={{ fontSize: 14 }}>
+          <Typography.Text type="secondary" style={{ fontSize: HOME_FONT.label }}>
             欢迎回到 {productName}，这里汇总监控资源、采集任务与告警的整体运行情况
           </Typography.Text>
-          {/* 系统状态标注：版本 / 模式，右对齐在页头行 */}
-          {(status || error) && (
-            <Typography.Text
-              type={error ? 'danger' : 'secondary'}
-              style={{ fontSize: 12, whiteSpace: narrow ? 'normal' : 'nowrap' }}
-            >
-              <Space size={16}>
-                {status && <span>版本 {status.version}</span>}
-                {status && <span>模式 {status.mode}</span>}
-                {error && <span>状态加载失败：{error}</span>}
-              </Space>
-            </Typography.Text>
-          )}
+          <Button
+            type="link"
+            size="small"
+            data-testid="resource-panels-toggle"
+            icon={resourcePanelsCollapsed ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+            onClick={() => setResourcePanelsCollapsed((v) => !v)}
+          >
+            {resourcePanelsCollapsed ? '显示资源分布' : '隐藏资源分布'}
+          </Button>
         </div>
 
-        {/* L0 全局态势区：5 张 KPI 卡，5 卡一行（决策 93 新增第 5 卡「拨测」，由 4 卡收敛扩展）。
-            第 4 卡「告警 / 当前未恢复」是 L0 唯一取 /api/v1/alerts 的数字；第 5 卡「拨测」取
-            dashboard.probe_target_abnormal_count。桌面走 antd Col flex:1 等宽方案保证 5 卡一行不溢出；
-            窄屏（≤767px）降为 2 卡一行——xs / sm 两档都要给，否则 576~767px 区间没有 span 会退化成
-            内容自适应宽度（卡片宽窄不一）。 */}
-        <div style={{ fontSize: 13, fontWeight: 600 }}>全局态势</div>
-        <div data-testid="l0-section" style={{ flex: 'none' }}>
-          {dashboardLoading && <LoadingPlaceholder />}
-          {dashboardError && (
-            <Alert message="请求失败" description={dashboardError} type="error" showIcon />
-          )}
-          <Row gutter={[16, 16]}>
-            {metrics.map((item) => (
-              <Col
-                key={item.key}
-                flex={narrow ? undefined : '1'}
-                xs={narrow ? 12 : undefined}
-                sm={narrow ? 12 : undefined}
-              >
-                <MetricCard item={item} />
-              </Col>
-            ))}
-          </Row>
-        </div>
+        {/* 聚合取数的加载态 / 失败态：原挂在已删除的 L0 区内，L0 移除后上移到页头行正下方，
+            覆盖下方所有依赖 dashboard.summary 的区块（02/03/04）。取数失败不静默成 0（决策 68-2）。 */}
+        {dashboardLoading && <LoadingPlaceholder />}
+        {dashboardError && (
+          <Alert message="请求失败" description={dashboardError} type="error" showIcon />
+        )}
 
-        {/* L1 采集覆盖区：5 张资源类型卡一行（决策 93：删「按应用查看」入口卡与未恢复胶囊；
-            网格同 L0 的 flex 等宽方案。卡内子类明细口径见 ResourceTypeGrid 头注释。） */}
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>
-            采集覆盖
-            <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400, marginLeft: 4 }}>
-              （进度条与子类明细 = 各类型采集覆盖情况，子类最多 3 条，可点击穿到资源清单）
-            </Typography.Text>
+        {/* 资源管理行（02+03，2026-10-17 第六轮走查；整组可隐藏）：
+            02「不同云的主机数量」+ 03「平台与应用的主机分布」同处一个 flex-wrap 行——
+            本是同一类信息（主机在归属维度上的分布）。02 由 1 1 460px 收窄为
+            **0 1 260px 固定窄列**（原两列行里被拉到 ≈530px，产品负责人原话「宽度过长」）；
+            03 分享剩余宽度（1440 视口下 ≈890px，矩阵 4 应用列几乎不用横向滚动）。
+            整组隐藏（页头行开关）：隐藏时本行**整体不渲染**——面板标题也不露出，
+            藏得干净；偏好跨会话持久（homePanelVisibility.ts）。
+            字段缺失 → 各面板各自的空态 / 不可用态（不静默成 0、不回落样例）。 */}
+        {!resourcePanelsCollapsed && (
+          <div
+            data-testid="home-resource-row"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}
+          >
+            <div style={{ flex: '0 1 260px', minWidth: 0 }}>
+              <CloudDistributionPanel
+                clouds={dashboard?.by_cloud ?? (IS_STATIC_PREVIEW ? CLOUD_SUMMARY_MOCK : [])}
+              />
+            </div>
+            <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+              <PlatformAppMatrixPanel rows={dashboard?.by_platform_app} />
+            </div>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <ResourceTypeGrid byCategory={dashboard?.by_category ?? []} />
-          </div>
-        </div>
+        )}
 
-        {/* 「按云分布」独立区块（M05 PRD v1.11 / 决策 100）：整宽，位于 L1 采集覆盖区之后、
-            L2 应用覆盖明细表之前；本期仅主机（cloud 经所属网域 cloud_code 派生），不含告警数字。
-            后端 by_cloud 就绪时优先取后端，缺失时回落静态样例。 */}
-        <CloudDistributionPanel clouds={dashboard?.by_cloud ?? CLOUD_SUMMARY_MOCK} />
-
-        {/* L2 应用覆盖表：按覆盖率升序，未归类行置底。
-            锚点 id 供「按应用查看」历史入口（/resources / 旧 L1 链接）就地定位。 */}
-        <div id="app-detail">
-          <AppDetailTable
-            byApp={dashboard?.by_app ?? []}
-            unclassifiedResourceCount={dashboard?.unclassified_resource_count ?? 0}
-            unclassifiedMonitoredCount={dashboard?.unclassified_monitored_count ?? 0}
-          />
-        </div>
-
-        {/* L3 拨测态势面板：整宽卡（决策 93）。数据源为 dashboard.probe_targets[]（受控注入，
-            空库/字段缺失时空数组 → ProbePanel 显示空态 + 去配置深链）。 */ }
-        <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
-
-        {/* 「采集健康」独立面板（反馈 10 路线 B）：工程师视角「已下发的这批数据采到了吗」，
-            与领导视角的 L0「纳管覆盖率」（下发进度）分开展示。位置固定在**告警状态之前**
-            （即「采集覆盖」区之后，不与领导视角指标相邻）；数据源 = dashboard.collection_health
-            （后端一次聚合四态，前端零逻辑；缺失时面板显示「不可用」，绝不误报 0）。 */ }
-        <CollectionHealthPanel health={dashboard?.collection_health} />
-
-        {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）；
-            窄屏（≤767px）改为纵向堆叠（告警卡在上、使用指引在下），两卡各自整宽。
-            AlertStatusCard 已支持 height:100% + 纵向 flex，使用指引改为纵向六步，见各自组件。 */}
+        {/* 「监控对象纳管进度 + 告警状态」一行（2026-10-17 第六轮走查定，产品负责人
+            看过效果后修订）：04 是首页唯一整体纳管率呈现点（承接已删除的 L0 覆盖率卡），
+            告警卡原独立整宽「太宽」——两者**对分**一行（flex 1:1，各 ≈568px @1440）。
+            基础宽 460 + 460 + 16 ≈ 936px：1440 视口（内容 ≈1192px）一行放得下。
+            第五轮改版：04 由「32px 大数字 + 进度条 + 六张类型卡」改为单卡内
+            「左整体圆环 + 右六类表格」（六张平级卡与整体看不出共同体关系；圆环承担
+            「整体」，表格承担「明细」）；区块标题进卡头（与 02/03 卡头同规格），
+            标题 Tooltip 承载精确口径。 */}
         <div
-          data-testid="home-l45-row"
-          style={{
-            display: 'flex',
-            flexDirection: narrow ? 'column' : 'row',
-            gap: 16,
-            alignItems: 'stretch',
-          }}
+          data-testid="home-coverage-alert-row"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}
         >
-          <div style={{ flex: narrow ? undefined : 1.6, minWidth: 0 }}>
+          <div
+            data-testid="coverage-section"
+            style={{ flex: '1 1 460px', minWidth: 0, display: 'flex' }}
+          >
+            <SurfaceCard
+              data-testid="coverage-card"
+              style={{ flex: 1, minWidth: 0 }}
+              /* 采集任务入口（2026-10-17 第六轮走查）：纳管完成率的口径是「已配置采集任务」，
+                 给一个到采集 Job 列表的深链，并预筛 `job_type=standard`（采集类型，
+                 与拨测 blackbox 分开），落页即只看拉模型采集任务。 */
+              extra={
+                <Link to="/scrape-jobs?job_type=standard" style={{ fontSize: HOME_FONT.label }}>
+                  查看采集任务 →
+                </Link>
+              }
+              title={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  监控对象纳管完成率
+                  {/* 角标只讲**边界**（按什么计数、哪些不算），计算式与「与采集健康的分工」
+                      由卡底脚注一句话说完——两处不再重复同一段口径（2026-10-17 第六轮走查） */}
+                  <Tooltip title="按资源条数计（同一资源多个实例只算一条），拨测目标不计入；分母含尚未配置采集任务的资源。">
+                    <InfoCircleOutlined
+                      aria-label="监控对象纳管完成率口径说明"
+                      style={{ fontSize: HOME_FONT.body, color: token.colorTextTertiary, cursor: 'help' }}
+                    />
+                  </Tooltip>
+                </span>
+              }
+            >
+              {/* 圆环 + 表格：宽容器同行（圆环块 120 + 间距 24 + 表格基础宽 260），
+                  圆环块纵向居中对齐表格（避免圆环短、表格高时圆环下方一片空）；
+                  容器再窄（折行 / 窄屏）时 flex-wrap 自然纵堆，不写断点。
+
+                  **alignItems 必须随方向切换（2026-10-17 第七轮走查手机端修复）**：
+                  横向时 `center` 用于纵向居中圆环与表格；但窄屏转 `column` 后，
+                  `center` 在纵轴布局里是**横向居中 + 按内容收缩**——表格容器只有
+                  flex-basis 260px 宽并居中，卡内 340px 的宽度被白白浪费，表格只能用
+                  内部横滚消化剩余 68px，表现就是产品负责人截图里「未配置」列被裁掉。
+                  纵排时改 `stretch`：表格容器撑满卡宽，圆环靠自身 `alignSelf:center` 居中。 */}
+              <div
+                data-testid="coverage-body"
+                style={{
+                  display: 'flex',
+                  flexDirection: narrow ? 'column' : 'row',
+                  alignItems: narrow ? 'stretch' : 'center',
+                  flexWrap: 'wrap',
+                  gap: narrow ? 16 : 24,
+                }}
+              >
+                {/* 左列：圆环 + 环下标签（第六轮定稿：口径注解不放圆环块内——150px 窄列
+                    放长句挤成 5 行小字，产品负责人走查后改放卡底，见下方脚注）。
+                    块宽 120 = 圆环宽；表格因此多让出 20px，纳管率列完整可见 */}
+                <div
+                  style={{
+                    flex: '0 0 auto',
+                    width: 120,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    // 纵排（手机）时块宽固定 120，父级 stretch 不会把它拉宽，
+                    // 需显式居中，否则圆环贴左边缘
+                    alignSelf: narrow ? 'center' : undefined,
+                  }}
+                >
+                  <CoverageDonut percent={coveragePercent} monitored={monitoredTotal} total={resourceTotal} />
+                </div>
+                <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                  <ResourceTypeGrid byCategory={dashboard?.by_category ?? []} />
+                </div>
+              </div>
+
+              {/* 口径注解（第六轮走查定稿位置）：**卡底、左对齐、整宽一行区**。
+                  曾在圆环块内（百分比下方）——140px 窄列放 57 字长句挤成 5~6 行 11px
+                  小字，产品负责人看后改回卡底；整宽下 528px 放不下整句则自然换行，
+                  左对齐可读。与「采集健康」明确区分（那是工程师视角的实际采集情况）。 */}
+              <div
+                data-testid="overall-coverage-footnote"
+                style={{
+                  marginTop: 12,
+                  fontSize: HOME_FONT.note,
+                  lineHeight: '16px',
+                  color: token.colorTextTertiary,
+                }}
+              >
+                按「已配置采集任务的资源数 ÷ 资源总数」计算，只反映配置进度，不代表数据已采到；实际采集情况见下方「采集健康」。
+              </div>
+            </SurfaceCard>
+          </div>
+          <div data-testid="home-alert-section" style={{ flex: '1 1 460px', minWidth: 0 }}>
             <AlertStatusCard
               counts={counts}
               latestAlerts={latestAlerts}
@@ -978,9 +867,41 @@ export function HomePage() {
               isStaticPreview={IS_STATIC_PREVIEW}
             />
           </div>
-          <div style={{ flex: narrow ? undefined : 1, minWidth: 0 }}>
-            <OnboardingSteps />
+        </div>
+
+        {/* 「采集健康 + 拨测态势」一行（2026-10-17 第六轮走查定）：采集健康由
+            「拨测之后」上移与拨测并排（工程师视角：数据到没到 + 探测通不通）。
+            **两者 grow 填满整行**（采集 1 : 拨测 2，flex-grow 拉伸至行宽，不留右侧
+            空白）：1440 视口下采集 ≈432px、拨测 ≈688px；更窄容器整行折为上下堆叠，
+            拨测独占整宽。基础宽 360 + 560 + 16 ≈ 936px。
+            注意：这与反馈 11 §11.2 ⑧「采集健康不与 04 相邻」的原约定冲突——产品负责人
+            重新裁定：并排后仍是不同卡、不同口径、Tooltip 分隔，「分开展示」的实质不变
+            （记录见 design-proposal §7）。
+            05 拨测态势为**单张卡**（第六轮走查：区头与两个子版面样式上做成一体），
+            内容形态不变（决策 93）；数据源为 dashboard.probe_targets[]（受控注入，
+            空库 → 空态 + 去配置深链）。
+            ⚠️ wrapper **不能**设 display:flex——卡作为 flex 子项只会按内容宽度排版，
+            右侧会留一条空白（2026-10-17 手机走查实测：拨测卡 572px 卡在 731px 列里，
+            右边 159px 空白被产品负责人截图指出）。普通块级 wrapper + 卡 height:100%
+            即可：宽度自动撑满、高度随行 stretch（同采集健康面板模式）。 */}
+        <div
+          data-testid="home-health-probe-row"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}
+        >
+          <div data-testid="home-collection-health-section" style={{ flex: '1 1 360px', minWidth: 0 }}>
+            <CollectionHealthPanel health={dashboard?.collection_health} />
           </div>
+          <div
+            data-testid="home-probe-section"
+            style={{ flex: '2 1 560px', minWidth: 0 }}
+          >
+            <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
+          </div>
+        </div>
+
+        {/* 06 使用指引（反馈 11 §11.2 ⑦）：独立整宽，纵向六步不折叠、不再与告警卡同排。 */}
+        <div data-testid="home-onboarding-section" style={{ flex: 'none' }}>
+          <OnboardingSteps />
         </div>
       </div>
     </MainLayout>

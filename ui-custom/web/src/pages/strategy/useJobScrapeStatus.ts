@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { scrapeJobApi } from '../../api/scrapeJobs'
+import type { PreviewTargetsResult } from '../../api/scrapeJobs'
 import type { PromVectorItem } from '../../types/query'
-import type { BlackboxTarget, ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
+import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import { queryVector, type JobInstanceScrapeStatus } from './useScrapeJobStatus'
-import { upQueryForJob, lastUpQueryForJob, statusFromUp, probeQueryForJob, probeStatusOfTarget } from './upStatus'
+import {
+  upQueryForJob,
+  lastUpQueryForJob,
+  statusFromUp,
+  probeQueryForJob,
+  probeStatusOfTarget,
+  type ProbeTarget,
+} from './upStatus'
 
 /**
  * Job 维度「采集状态」聚合（Module_01，决策 47-2 的 per-job 形态，F-10 数据源收敛）。
@@ -13,8 +21,10 @@ import { upQueryForJob, lastUpQueryForJob, statusFromUp, probeQueryForJob, probe
  * 数据源由 `targetsApi.list` 收敛为 up 指标（F-10）：采集节点域经 remote_write 上报 up 样本，
  * 本口径对 local 与边缘两通道均成立。复用 upStatus.statusFromUp 的实例↔序列匹配口径。
  *
- * 拨测 Job（F-12）：blackbox 无实例维度，改按 `blackbox_targets` + 中心 `probe_success{job=...}`
- * 聚合（`online` 语义 = 拨测通过数），详见 upStatus.probeStatusOfTarget。
+ * 拨测 Job（F-12）：blackbox 无实例维度，改按 `scrapeJobApi.previewTargets(id)` 解析出的
+ * 拨测目标（`selected_instance_ids` 在 `target_field` 上的字段值，与下发 target 同源）
+ * + 中心 `probe_success{job=...}` 聚合（`online` 语义 = 拨测通过数），
+ * 详见 upStatus.probeStatusOfTarget。
  */
 
 /** Job 汇总四态（同 ExporterInstallationPanel SCRAPE_STATUS_META 口径；F-40 增 stale 回传延迟中） */
@@ -68,7 +78,7 @@ function aggregateView(
  */
 function aggregateProbeView(
   deployed: boolean,
-  targets: BlackboxTarget[],
+  targets: ProbeTarget[],
   probeItems: PromVectorItem[],
 ): JobScrapeStatusView {
   let pass = 0
@@ -110,9 +120,18 @@ export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record
     let active = true
     const entries = jobs.map(async (job): Promise<[number, JobScrapeStatusView]> => {
       const deployed = job.change_status === 'deployed' && job.enabled !== false
-      // 拨测 Job（F-12）：无实例维度，按 blackbox_targets + 中心 probe_success 聚合探测结果
+      // 拨测 Job（F-12）：无实例维度，按 preview-targets 解析出的拨测目标 + 中心 probe_success
+      // 聚合探测结果。preview-targets 与生成侧同源（同一 selected_instance_ids + target_field
+      // 读取入口），故解析出的 address 与最终下发的 __param_target 逐字一致。
       if (job.job_type === 'blackbox') {
-        const targets = job.blackbox_targets ?? []
+        let targets: ProbeTarget[] = []
+        try {
+          const pv = await scrapeJobApi.previewTargets(job.id)
+          const list: PreviewTargetsResult['targets'] = pv.data?.targets ?? []
+          targets = list.filter((t) => !!t.address)
+        } catch {
+          // 目标解析失败时按空目标处理（列表显示 '-'）
+        }
         let probeItems: PromVectorItem[] = []
         if (deployed && job.job_name && targets.length > 0) {
           probeItems = await queryVector(probeQueryForJob(job.job_name))

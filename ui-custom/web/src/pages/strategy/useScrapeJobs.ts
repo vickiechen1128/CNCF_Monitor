@@ -33,12 +33,16 @@ export interface UseScrapeJobsResult {
  * 采集 Job 列表数据 Hook（Module_01 §8 / §11.1）。
  * 沿用 M06 useDomains 模式：筛选、分页在用户事件回调内设置 loading 触发重新加载，
  * 异步请求回调内完成 setState，不作 effect 内同步 setState。
+ *
+ * `initialFilters`（2026-10-17 第六轮走查）：支持从深链预置筛选项——首页
+ * 「监控对象纳管完成率 → 查看采集任务」带 `?job_type=standard` 进来，落页即只看
+ * 采集类型（拉模型）Job，不必再手动选一次类型。
  */
-export function useScrapeJobs(): UseScrapeJobsResult {
+export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsResult {
   const [data, setData] = useState<Paginated<ScrapeJob>>(EMPTY_PAGE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filters, setFiltersState] = useState<ScrapeJobFilters>({})
+  const [filters, setFiltersState] = useState<ScrapeJobFilters>(initialFilters ?? {})
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [refresh, setRefresh] = useState(0)

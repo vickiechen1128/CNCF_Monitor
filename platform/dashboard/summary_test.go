@@ -47,6 +47,11 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ApplicationDict{},
 		// 决策 92/93/95：by_app 的 biz_name 展示名 join 业务字典
 		&models.BusinessDomain{},
+		// 拨测目标应用服务分区：平台字典 + 应用↔平台 M:N 关系（platform_names）
+		&models.PlatformDict{},
+		&models.AppPlatformRel{},
+		// by_cloud 的 cloud_name 展示名 join 云字典（M06 决策 103 scheme-B 派生链末环）
+		&models.CloudDict{},
 	))
 	t.Cleanup(func() {
 		if sqlDB, e := db.DB(); e == nil {
@@ -420,6 +425,10 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, "https://api.example.com/order/health", s.ProbeTargets[0].URL)
 	assert.Equal(t, "https://api.example.com/pay/health", s.ProbeTargets[1].URL)
 	assert.Equal(t, "https://api.example.com/user/health", s.ProbeTargets[2].URL)
+	// service_name：同源于所选接口服务资源的 api_name（首页关键识别信息）。
+	assert.Equal(t, "订单查询", s.ProbeTargets[0].ServiceName)
+	assert.Equal(t, "支付回调", s.ProbeTargets[1].ServiceName)
+	assert.Equal(t, "用户查询", s.ProbeTargets[2].ServiceName)
 	// status 不得臆造：无实时拨测样本，每条恒为空串（前端显示「未知」），禁硬编 up/down。
 	for _, p := range s.ProbeTargets {
 		assert.Empty(t, p.Status, "无实时拨测样本，status 必须为空串而非臆造的 up/down")
@@ -604,6 +613,113 @@ func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T) {
 	assert.Equal(t, 0, s.ProbeTargetAbnormalCount)
 }
 
+// TestSummaryProbeTargetsCoversBothCategories 覆盖拨测的两类对象（
+// models.BlackboxProbeCategories）：接口服务（偏业务，api_url / api_name）与
+// 应用服务（偏平台，health_check_url / **应用字典中文名** + 所属平台）。两类都必须
+// 出现在 probe_targets 里并带 resource_category，供前端分区展示——早前只查接口服务表，
+// 会让应用服务拨测目标整体缺失。
+func TestSummaryProbeTargetsCoversBothCategories(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	// 应用字典：app_code=appsvc → 中文展示名「大模型应用」。应用服务拨测的服务名取
+	// 这个中文名而非 service_name 实例名（order-svc）：多个模型服务实例同属一个应用时，
+	// 领导视角关心的是该应用整体的拨测情况。
+	require.NoError(t, db.Create(&models.ApplicationDict{
+		AppCode: "appsvc", AppName: "大模型应用", Status: models.AppStatusEnabled,
+	}).Error)
+	// 平台字典 + 应用↔平台 M:N：appsvc 同时部署在 paas-a / paas-b 两个平台。
+	require.NoError(t, db.Create(&models.PlatformDict{
+		PlatformCode: "paas-b", PlatformName: "私有云B平台", Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.PlatformDict{
+		PlatformCode: "paas-a", PlatformName: "私有云A平台", Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.AppPlatformRel{
+		AppCode: "appsvc", PlatformCode: "paas-b", IsPrimary: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.AppPlatformRel{
+		AppCode: "appsvc", PlatformCode: "paas-a",
+	}).Error)
+
+	// 追加一个应用服务拨测任务：选中已有应用资源 res-app-1（health_check_url
+	// = http://10.0.0.5/health，app_code = appsvc）。
+	appJob := newJob("job-blackbox-app", models.JobTypeBlackbox, "ready", true, []string{"res-app-1"})
+	appJob.ResourceType = models.ResourceTypeApplication
+	require.NoError(t, db.Create(&appJob).Error)
+
+	upAt := time.Date(2026, 9, 21, 18, 0, 0, 0, time.UTC)
+	q := &fakeProbeQuerier{index: map[string]map[string]ProbeSample{
+		"job-blackbox-a": {
+			"https://api.example.com/order/health": {Success: true, At: upAt},
+			"https://api.example.com/pay/health":   {Success: false, At: upAt},
+			"https://api.example.com/user/health":  {Success: true, At: upAt},
+		},
+		"job-blackbox-app": {
+			"http://10.0.0.5/health": {Success: true, At: upAt},
+		},
+	}}
+
+	s, err := Build(db, WithProbeQuerier(q))
+	require.NoError(t, err)
+	require.Len(t, s.ProbeTargets, 4, "接口服务 3 + 应用服务 1")
+	assert.Equal(t, 4, s.ProbeTargetCount)
+
+	// 按类别取首条（同类别有多条，后续按 URL 定位其余条目）。
+	byCat := make(map[string]ProbeTargetItem, len(s.ProbeTargets))
+	for _, p := range s.ProbeTargets {
+		if _, seen := byCat[p.ResourceCategory]; !seen {
+			byCat[p.ResourceCategory] = p
+		}
+	}
+
+	// 接口服务：地址取 api_url、服务名取 api_name；无平台字段（恒空串）。
+	iface := byCat[string(models.ResourceCategoryInterfaceService)]
+	assert.Equal(t, "https://api.example.com/order/health", iface.URL)
+	assert.Equal(t, "订单查询", iface.ServiceName)
+	assert.Empty(t, iface.PlatformNames, "接口服务不体现平台")
+	assert.Equal(t, "up", iface.Status)
+
+	// 应用服务：地址取 health_check_url；服务名取应用字典中文名（不是 service_name
+	// 实例名 order-svc），并带出应用↔平台 M:N 的全部关联平台（按展示名排序）。
+	app := byCat[string(models.ResourceCategoryApplication)]
+	assert.Equal(t, "http://10.0.0.5/health", app.URL, "应用服务拨测地址取 health_check_url")
+	assert.Equal(t, "大模型应用", app.ServiceName, "应用服务拨测服务名取应用字典中文名")
+	assert.Equal(t, "私有云A平台、私有云B平台", app.PlatformNames, "多平台全部列出（排序后「、」连接）")
+	assert.Equal(t, "up", app.Status)
+}
+
+// TestSummaryProbeTargetAppFallsBackToCodes 覆盖展示名/平台的回落口径（不编造）：
+//   - 应用字典缺条目 → 服务名回落 app_code（不是空串、也不是 service_name 实例名）；
+//   - 无应用↔平台关联 → 平台回落资源行 platform_code；平台字典缺条目再回落编码。
+func TestSummaryProbeTargetAppFallsBackToCodes(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	// res-app-1 无 M:N 关联；应用字典与平台字典均无条目 → 全链路回落编码。
+	require.NoError(t, db.Model(&models.Application{}).
+		Where("resource_id = ?", "res-app-1").
+		Update("platform_code", "paas-x").Error)
+
+	appJob := newJob("job-blackbox-app", models.JobTypeBlackbox, "ready", true, []string{"res-app-1"})
+	appJob.ResourceType = models.ResourceTypeApplication
+	require.NoError(t, db.Create(&appJob).Error)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+
+	var appItem *ProbeTargetItem
+	for i := range s.ProbeTargets {
+		if s.ProbeTargets[i].ResourceCategory == string(models.ResourceCategoryApplication) {
+			appItem = &s.ProbeTargets[i]
+			break
+		}
+	}
+	require.NotNil(t, appItem, "应用服务拨测目标应存在")
+	assert.Equal(t, "appsvc", appItem.ServiceName, "应用字典缺条目时服务名回落 app_code")
+	assert.Equal(t, "paas-x", appItem.PlatformNames, "无关联且字典缺条目时平台回落 platform_code")
+}
+
 // TestLookupProbeSampleMatchesAddress：拨测资源模式下按 api_url（probe_success 的
 // instance 标签 = 目标地址）精确匹配；地址不符不命中。
 func TestLookupProbeSampleMatchesAddress(t *testing.T) {
@@ -638,5 +754,591 @@ func TestResourceModelsAlignWithValidCategories(t *testing.T) {
 		require.True(t, ok, "resourceModels()[%d] (%T) 应实现 models.Resource", i, modelsList[i])
 		assert.Equal(t, string(cat), string(res.GetResourceType()),
 			"下标 %d 的模型类别必须与 ValidResourceCategories() 一致", i)
+	}
+}
+
+// —— 反馈 11：「平台 × 应用 · 主机数」矩阵（by_platform_app）——
+
+// seedMatrixHosts 构造反馈 11 矩阵的专用 fixture：7 台主机覆盖 5 个平台 + 未指定平台，
+// 跨 3 个应用 + 未指定应用，并刻意让「paas-c」在平台字典缺条目、「app-c」在应用字典缺条目。
+//
+// 分布（platform_code → [(app_code, 台数)]）：
+//
+//	paas-a(字典:私有云A): app-a×3, app-b×2   → 5
+//	paas-b(字典:私有云B): app-a×2, ""×1      → 3
+//	paas-c(字典缺条目):   app-a×1            → 1
+//	paas-d(字典:私有云D): app-b×1, ""×1      → 2
+//	paas-e(字典:私有云E): app-c×1            → 1   ← 落选 → 并入「其他」
+//	""(未指定平台):      app-a×1            → 1   ← 恒保留
+//
+// 合计 13 台。app-c 字典缺条目 → 回落编码；未指定应用列（app_code=""）恒保留。
+func seedMatrixHosts(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID:          "default",
+		Name:        "管理网域",
+		DomainType:  models.DomainTypeManagement,
+		Channel:     models.ChannelTypeLocal,
+		Status:      models.DomainStatusEnabled,
+		IsMonitored: true,
+	}).Error)
+	// 平台字典：paas-c 刻意缺条目（验证「回落编码、不臆造」）。
+	for _, p := range []models.PlatformDict{
+		{PlatformCode: "paas-a", PlatformName: "私有云A", Enabled: true},
+		{PlatformCode: "paas-b", PlatformName: "私有云B", Enabled: true},
+		{PlatformCode: "paas-d", PlatformName: "私有云D", Enabled: true},
+		{PlatformCode: "paas-e", PlatformName: "私有云E", Enabled: true},
+	} {
+		require.NoError(t, db.Create(&p).Error)
+	}
+	// 应用字典：app-c 刻意缺条目（验证「回落编码、不臆造」）。
+	for _, a := range []models.ApplicationDict{
+		{AppCode: "app-a", AppName: "订单应用"},
+		{AppCode: "app-b", AppName: "支付应用"},
+	} {
+		require.NoError(t, db.Create(&a).Error)
+	}
+
+	type hostSeed struct {
+		id           string
+		platformCode string
+		appCode      string
+	}
+	seeds := []hostSeed{
+		{"m-h1", "paas-a", "app-a"}, {"m-h2", "paas-a", "app-a"}, {"m-h3", "paas-a", "app-a"},
+		{"m-h4", "paas-a", "app-b"}, {"m-h5", "paas-a", "app-b"},
+		{"m-h6", "paas-b", "app-a"}, {"m-h7", "paas-b", "app-a"}, {"m-h8", "paas-b", ""},
+		{"m-h9", "paas-c", "app-a"},
+		{"m-h10", "paas-d", "app-b"}, {"m-h11", "paas-d", ""},
+		{"m-h12", "paas-e", "app-c"},
+		{"m-h13", "", "app-a"},
+	}
+	for i, hs := range seeds {
+		require.NoError(t, db.Create(&models.Host{
+			ResourceID: hs.id, ResourceCategory: models.ResourceCategoryHost,
+			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+			PlatformCode: hs.platformCode, AppCode: hs.appCode,
+			EnvFlag: "prod", SubAppCode: "cluster",
+			InstanceName: fmt.Sprintf("node-%02d", i+1),
+			ServerID:     fmt.Sprintf("srv-m-%02d", i+1),
+			Status:       "online", Image: "linux",
+		}).Error)
+	}
+	// 一条非 host 资源：即便 app_code / platform_code 与矩阵重叠，也不得进入矩阵
+	//（矩阵只统计 host，拨测目标与其他资源类别一律不参与）。
+	require.NoError(t, db.Create(&models.Database{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "m-db-1", ResourceCategory: models.ResourceCategoryDatabase,
+			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+		},
+		DatabaseType: "mysql", InstanceIP: "10.0.1.1", Port: 3306,
+	}).Error)
+}
+
+// findPlatformRow 取指定 platform_code 的矩阵行（不存在返回 nil）。
+func findPlatformRow(rows []PlatformAppSummary, code string) *PlatformAppSummary {
+	for i := range rows {
+		if rows[i].PlatformCode == code {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+// TestSummaryByPlatformAppInvariants 覆盖反馈 11 §11.4 的四条不变量：
+//  1. sum(各行 host_count) === sum(各列 host_count) === by_category 中 host 的 resource_count；
+//  2. 「未指定平台」行 host_count === host 类中 platform_code 为空的资源数；
+//  3. Top 4 + 「其他」的收敛不改变合计（各行之和恒等于 13 台主机）；
+//  4. 字典缺条目时名称回落编码，不返回空串、不编造。
+func TestSummaryByPlatformAppInvariants(t *testing.T) {
+	db := newTestDB(t)
+	seedMatrixHosts(t, db)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+	require.NotNil(t, s.ByPlatformApp, "by_platform_app 恒为非 nil slice（避免 JSON null）")
+
+	// 不变量 1 & 3：行合计 === 列合计 === by_category 中 host 的 resource_count。
+	hostTotal := 0
+	for _, c := range s.ByCategory {
+		if c.ResourceCategory == string(models.ResourceCategoryHost) {
+			hostTotal = c.ResourceCount
+		}
+	}
+	require.Equal(t, 13, hostTotal, "fixture 共 13 台主机")
+
+	var rowSum, colSum int
+	for _, row := range s.ByPlatformApp {
+		rowSum += row.HostCount
+		var cellSum int
+		for _, cell := range row.Cells {
+			cellSum += cell.HostCount
+			assert.NotEmpty(t, cell.AppName, "app_name 不得为空串（字典缺条目时回落 app_code）")
+			colSum += cell.HostCount
+		}
+		assert.Equal(t, row.HostCount, cellSum, "行 %s 的 host_count 恒等于其 cells 之和", row.PlatformCode)
+		assert.NotEmpty(t, row.PlatformName, "platform_name 不得为空串")
+	}
+	assert.Equal(t, hostTotal, rowSum, "不变量1&3: 行合计 === 主机总数")
+	assert.Equal(t, hostTotal, colSum, "不变量1: 列合计 === 主机总数")
+
+	// 只统计 host：fixture 另有 1 条 database（app-a）不得进入矩阵。
+	paasA := findPlatformRow(s.ByPlatformApp, "paas-a")
+	require.NotNil(t, paasA)
+	assert.Equal(t, 5, paasA.HostCount, "paas-a 5 台（database 不参与）")
+
+	// 不变量 2：未指定平台行 host_count === host 中 platform_code 为空的资源数。
+	unset := findPlatformRow(s.ByPlatformApp, "")
+	require.NotNil(t, unset, "「未指定平台」行恒保留")
+	assert.Equal(t, 1, unset.HostCount, "host 中 platform_code 为空恰 1 台（m-h13）")
+	assert.Equal(t, platformAppUnsetName, unset.PlatformName)
+	unsetCells := map[string]int{}
+	for _, c := range unset.Cells {
+		unsetCells[c.AppCode] = c.HostCount
+	}
+	assert.Equal(t, map[string]int{"app-a": 1}, unsetCells)
+
+	// 不变量 4：平台字典缺条目 → 回落 platform_code 本身（paas-c），不空串、不编造。
+	paasC := findPlatformRow(s.ByPlatformApp, "paas-c")
+	require.NotNil(t, paasC)
+	assert.Equal(t, "paas-c", paasC.PlatformName, "平台字典缺条目时回落编码")
+
+	// 应用字典缺条目 → 回落 app_code 本身（app-c，仅出现在「其他」行）。
+	assert.Equal(t, "其他", s.ByPlatformApp[len(s.ByPlatformApp)-2].PlatformName)
+	other := findPlatformRow(s.ByPlatformApp, platformAppOtherCode)
+	require.NotNil(t, other, "落选平台必须合并为「其他」行")
+	assert.Equal(t, platformAppOtherName, other.PlatformName)
+	require.Len(t, other.Cells, 1)
+	assert.Equal(t, "app-c", other.Cells[0].AppCode)
+	assert.Equal(t, "app-c", other.Cells[0].AppName, "应用字典缺条目时回落编码")
+	assert.Equal(t, 1, other.Cells[0].HostCount)
+}
+
+// TestSummaryByPlatformAppTopNAndOther 覆盖反馈 11 §11.4 的 Top 4 收敛规则：
+//   - 平台按主机台数降序取前 4 单独成行，其余合并为「其他」（合计不变）；
+//   - 「未指定平台」不占用 Top N 名额（恒保留、恒在末位）；
+//   - 单元格顺序按台数降序（并列按 app_code 字典序升序），输出确定性可测。
+func TestSummaryByPlatformAppTopNAndOther(t *testing.T) {
+	db := newTestDB(t)
+	seedMatrixHosts(t, db)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+
+	// 5 个非空平台：paas-a(5) / paas-b(3) / paas-d(2) / paas-c(1) / paas-e(1)。
+	// Top 4 = paas-a / paas-b / paas-d / paas-c；paas-e(1) 落选 → 「其他」。
+	// 并列时（paas-c 与 paas-e 均为 1）按 platform_code 升序，paas-c 先、paas-e 后，
+	// 故 paas-c 进 Top 4、paas-e 进「其他」。
+	require.Len(t, s.ByPlatformApp, 6, "Top4 + 「其他」+ 「未指定平台」共 6 行")
+	got := make([]string, 0, len(s.ByPlatformApp))
+	for _, row := range s.ByPlatformApp {
+		got = append(got, row.PlatformCode)
+	}
+	assert.Equal(t,
+		[]string{"paas-a", "paas-b", "paas-d", "paas-c", platformAppOtherCode, ""},
+		got, "行序：Top4 台数降序 →「其他」→「未指定平台」")
+
+	// 各行台数：5 / 3 / 2 / 1 / 1 / 1，合计 13（收敛不改变合计）。
+	assert.Equal(t, []int{5, 3, 2, 1, 1, 1},
+		[]int{s.ByPlatformApp[0].HostCount, s.ByPlatformApp[1].HostCount,
+			s.ByPlatformApp[2].HostCount, s.ByPlatformApp[3].HostCount,
+			s.ByPlatformApp[4].HostCount, s.ByPlatformApp[5].HostCount})
+
+	// 单元格顺序：台数降序；「未指定应用」列（app_code=""）按编码参与排序，不被丢弃。
+	paasA := findPlatformRow(s.ByPlatformApp, "paas-a")
+	require.NotNil(t, paasA)
+	require.Len(t, paasA.Cells, 2)
+	assert.Equal(t, "app-a", paasA.Cells[0].AppCode, "台数多者在前")
+	assert.Equal(t, "订单应用", paasA.Cells[0].AppName, "字典命中")
+	assert.Equal(t, 3, paasA.Cells[0].HostCount)
+	assert.Equal(t, "app-b", paasA.Cells[1].AppCode)
+	assert.Equal(t, 2, paasA.Cells[1].HostCount)
+
+	paasB := findPlatformRow(s.ByPlatformApp, "paas-b")
+	require.NotNil(t, paasB)
+	require.Len(t, paasB.Cells, 2)
+	assert.Equal(t, "app-a", paasB.Cells[0].AppCode, "2 > 1")
+	assert.Equal(t, "", paasB.Cells[1].AppCode, "app_code 空 → 「未指定应用」列恒保留")
+	assert.Equal(t, platformAppUnsetAppName, paasB.Cells[1].AppName)
+	assert.Equal(t, 1, paasB.Cells[1].HostCount)
+}
+
+// TestSummaryByPlatformAppEmptyAndNoHost 覆盖边界：空库与「有资源但无 host」
+// 都返回空 slice（非 nil、序列化不为 null），不 panic。
+func TestSummaryByPlatformAppEmptyAndNoHost(t *testing.T) {
+	// 1. 空库
+	db := newTestDB(t)
+	s, err := Build(db)
+	require.NoError(t, err)
+	assert.NotNil(t, s.ByPlatformApp)
+	assert.Empty(t, s.ByPlatformApp, "空库返回空 slice")
+	raw, err := json.Marshal(s.ByPlatformApp)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(raw), "空库序列化为 [] 而非 null")
+
+	// 2. 有非 host 资源但无 host：矩阵仍为空（只统计 host）
+	db2 := newTestDB(t)
+	require.NoError(t, db2.Create(&models.NetworkDomain{
+		ID: "default", Name: "管理网域", DomainType: models.DomainTypeManagement,
+		Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled, IsMonitored: true,
+	}).Error)
+	require.NoError(t, db2.Create(&models.Database{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "r-db-1", ResourceCategory: models.ResourceCategoryDatabase,
+			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+		},
+		DatabaseType: "mysql", InstanceIP: "10.0.2.1", Port: 3306,
+	}).Error)
+	s2, err := Build(db2)
+	require.NoError(t, err)
+	assert.NotNil(t, s2.ByPlatformApp)
+	assert.Empty(t, s2.ByPlatformApp, "无 host 资源时矩阵为空")
+}
+
+// TestSummaryByPlatformAppWithSeedFixture 在既有 seed fixture 上验证不破坏既有口径：
+// 3 台主机的 platform_code 全为空（seed 未设 PlatformCode）、AppCode 为 app/app/""，
+// 故矩阵恰有 1 行「未指定平台」，行内 app=2 台 + 未指定应用=1 台。
+func TestSummaryByPlatformAppWithSeedFixture(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+	require.Len(t, s.ByPlatformApp, 1, "seed 的 3 台主机 platform_code 全空 → 仅「未指定平台」行")
+	row := s.ByPlatformApp[0]
+	assert.Equal(t, "", row.PlatformCode)
+	assert.Equal(t, platformAppUnsetName, row.PlatformName)
+	assert.Equal(t, 3, row.HostCount)
+	require.Len(t, row.Cells, 2)
+	assert.Equal(t, "app", row.Cells[0].AppCode, "2 > 1，台数多者在前")
+	assert.Equal(t, 2, row.Cells[0].HostCount)
+	assert.Equal(t, "", row.Cells[1].AppCode)
+	assert.Equal(t, platformAppUnsetAppName, row.Cells[1].AppName)
+	assert.Equal(t, 1, row.Cells[1].HostCount)
+}
+
+// TestPlatformAppOtherCodeDoesNotCollide 护栏：「其他」行的约定编码不得与任何真实平台
+// 编码碰撞——models.ValidPlatformCode 的正则不含下划线，故 "__other__" 永非法，
+// 前端可据此判定「该行不可点击下钻」。
+func TestPlatformAppOtherCodeDoesNotCollide(t *testing.T) {
+	assert.Equal(t, "__other__", platformAppOtherCode)
+	assert.False(t, models.ValidPlatformCode.MatchString(platformAppOtherCode),
+		"「其他」约定编码必须不符合平台编码规范，从语法上排除与真实平台碰撞的可能")
+}
+
+// —— by_cloud：按云 · 主机台数（M06 决策 103 scheme-B 派生链）——
+
+// seedCloudHosts 构造 by_cloud 的专用 fixture：11 台主机跨 4 个云编码 + 「未指定云」，
+// 覆盖「多云分布 / 网域记录缺失 / 网域未登记 cloud_code / 云字典缺条目」四类场景。
+//
+// 云字典（cloud_dict）：
+//
+//	PUB-TX → 腾讯云          （有字典条目）
+//	GM-CU  → 政务云（联通）  （有字典条目）
+//	IND-XX → 刻意缺条目     （验证「回落编码、不臆造、不返回空串」）
+//
+// 网域（network_domains，cloud_code 为 cloud 标签权威来源）：
+//
+//	dom-tx      → PUB-TX
+//	dom-gm      → GM-CU
+//	dom-ind     → IND-XX（字典缺条目）
+//	dom-nocloud → ""（网域存在但未登记 cloud_code）
+//	（dom-ghost 故意不建记录 → 网域缺失）
+//
+// 主机分布（network_domain_id → 台数）：
+//
+//	dom-tx      → 4 台   ← 最多，排序应在首位
+//	dom-gm      → 3 台
+//	dom-ind     → 1 台
+//	dom-nocloud → 2 台   ┐ 两者合并成「未指定云」行
+//	dom-ghost   → 1 台   ┘
+//
+// 合计 11 台。刻意在 dom-tx 上放 1 台带残留 CloudCode 列值（GHOST-CODE）的主机，
+// 验证派生链**不读**该残留列（决策 103 scheme-B 红线）。
+func seedCloudHosts(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, d := range []models.NetworkDomain{
+		{ID: "dom-tx", Name: "腾讯云网域", DomainType: models.DomainTypeManagement,
+			Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+			IsMonitored: true, CloudCode: "PUB-TX"},
+		{ID: "dom-gm", Name: "政务云网域", DomainType: models.DomainTypeManagement,
+			Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+			IsMonitored: true, CloudCode: "GM-CU"},
+		{ID: "dom-ind", Name: "行业云网域", DomainType: models.DomainTypeManagement,
+			Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+			IsMonitored: false, CloudCode: "IND-XX"},
+		{ID: "dom-nocloud", Name: "未登记云网域", DomainType: models.DomainTypeEdge,
+			Channel: models.ChannelTypeAgentPull, Status: models.DomainStatusEnabled,
+			IsMonitored: true},
+	} {
+		require.NoError(t, db.Create(&d).Error)
+	}
+	// 云字典：IND-XX 刻意缺条目。CloudType / Carrier 只作描述性元数据，与分组无关。
+	for _, c := range []models.CloudDict{
+		{CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic,
+			Carrier: models.CloudCarrierTencent, Enabled: true},
+		{CloudCode: "GM-CU", CloudName: "政务云（联通）", CloudType: models.CloudTypeGovernment,
+			Carrier: models.CloudCarrierUnicom, Enabled: true},
+	} {
+		require.NoError(t, db.Create(&c).Error)
+	}
+
+	type hostSeed struct {
+		id        string
+		domainID  string
+		cloudCode string // 写入残留列，仅用于证明派生链不读它
+	}
+	seeds := []hostSeed{
+		{"c-h1", "dom-tx", ""}, {"c-h2", "dom-tx", ""}, {"c-h3", "dom-tx", ""},
+		{"c-h4", "dom-tx", "GHOST-CODE"}, // 残留列有值 → by_cloud 仍须归 PUB-TX
+		{"c-h5", "dom-gm", ""}, {"c-h6", "dom-gm", ""}, {"c-h7", "dom-gm", ""},
+		{"c-h8", "dom-ind", ""},
+		{"c-h9", "dom-nocloud", ""}, {"c-h10", "dom-nocloud", ""},
+		{"c-h11", "dom-ghost", ""}, // 网域记录缺失 → 「未指定云」
+	}
+	for i, hs := range seeds {
+		require.NoError(t, db.Create(&models.Host{
+			ResourceID: hs.id, ResourceCategory: models.ResourceCategoryHost,
+			NetworkDomainID: hs.domainID, BizCode: "infra", SourceType: models.SourceTypeManual,
+			CloudCode: hs.cloudCode, EnvFlag: "prod", SubAppCode: "cluster",
+			InstanceName: fmt.Sprintf("cn-%02d", i+1),
+			ServerID:     fmt.Sprintf("srv-c-%02d", i+1),
+			Status:       "online", Image: "linux",
+		}).Error)
+	}
+
+	// 已下发（ready+enabled）精确 fixture：命中 5 台主机 + 1 台数据库。
+	//   - c-h1 / c-h2（dom-tx）→ PUB-TX monitored=2
+	//   - c-h5（dom-gm）→ GM-CU monitored=1
+	//   - c-h8（dom-ind）→ IND-XX monitored=1
+	//   - c-h11（网域缺失）→ 「未指定云」monitored=1
+	//   - c-db-1（database）→ 计入全局 monitored_count，但**不进** by_cloud
+	// 故 by_cloud 各行 monitored 之和 = 5，而全局 monitored_count = 6（两者刻意不同，
+	// 防止测试误拿全局值当 host 已下发数比对）。
+	require.NoError(t, db.Create(&models.Database{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "c-db-1", ResourceCategory: models.ResourceCategoryDatabase,
+			NetworkDomainID: "dom-tx", BizCode: "infra", SourceType: models.SourceTypeManual,
+			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+		},
+		DatabaseType: "mysql", InstanceIP: "10.0.3.1", Port: 3306,
+	}).Error)
+	job := newJob("job-cloud", models.JobTypeStandard, "ready", true,
+		[]string{"c-h1", "c-h2", "c-h5", "c-h8", "c-h11", "c-db-1"})
+	require.NoError(t, db.Create(&job).Error)
+	// draft / disabled Job 选中的主机不得计入 by_cloud 的 monitored。
+	draftJob := newJob("job-cloud-draft", models.JobTypeStandard, "draft", true, []string{"c-h3", "c-h6"})
+	require.NoError(t, db.Create(&draftJob).Error)
+	offJob := newJob("job-cloud-off", models.JobTypeStandard, "ready", false, []string{"c-h7"})
+	require.NoError(t, db.Create(&offJob).Error)
+}
+
+// findCloudRow 取指定 cloud_code 的 by_cloud 行（不存在返回 nil）。
+func findCloudRow(rows []CloudSummary, code string) *CloudSummary {
+	for i := range rows {
+		if rows[i].CloudCode == code {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+// TestSummaryByCloudInvariants 覆盖 by_cloud 的六条不变量：
+//  1. sum(各行 resource_count) == by_category 中 host 的 resource_count；
+//  2. sum(各行 monitored_count) == host 类已下发数（≠ 全局 monitored_count）；
+//  3. 每行 coverage_rate == monitored_count * 100 / resource_count（整数除法）；
+//  4. 云字典缺条目时 cloud_name 回落 cloud_code，不返回空串；
+//  5. 排序：resource_count 降序、并列 cloud_code 字典序升序，「未指定云」恒末位；
+//  6. 空库 / 无主机返回非 nil 空 slice（序列化 [] 而非 null）。
+func TestSummaryByCloudInvariants(t *testing.T) {
+	db := newTestDB(t)
+	seedCloudHosts(t, db)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+	require.NotNil(t, s.ByCloud, "by_cloud 恒为非 nil slice（避免 JSON null）")
+
+	// 不变量 1：行合计 === by_category 中 host 的 resource_count。
+	hostCat, hostMon := categoryOfHost(t, s)
+	var sumRes int
+	for _, row := range s.ByCloud {
+		sumRes += row.ResourceCount
+	}
+	assert.Equal(t, hostCat, sumRes, "各行 resource_count 之和必须等于 host 类资源数")
+
+	// 不变量 2：行 monitored 之和 === host 类已下发数，且**不等于**全局 monitored_count。
+	var sumMon int
+	for _, row := range s.ByCloud {
+		sumMon += row.MonitoredCount
+	}
+	assert.Equal(t, hostMon, sumMon, "各行 monitored_count 之和必须等于 host 类已下发数")
+	assert.Equal(t, 6, s.MonitoredCount, "fixture 的全局 monitored_count = 5 台主机 + 1 台数据库")
+	assert.NotEqual(t, s.MonitoredCount, sumMon,
+		"by_cloud 只统计 host，行 monitored 之和天然小于全局 monitored_count（防误用全局值比对）")
+
+	// 不变量 3：每行 coverage_rate === 整数除法。
+	for _, row := range s.ByCloud {
+		assert.Equal(t, row.MonitoredCount*100/row.ResourceCount, row.CoverageRate,
+			"cloud_code=%q 的 coverage_rate 必须是整数除法结果", row.CloudCode)
+		assert.GreaterOrEqual(t, row.CoverageRate, 0)
+		assert.LessOrEqual(t, row.CoverageRate, 100)
+	}
+
+	// 不变量 4：字典有 / 缺条目两类都必须给出非空展示名。
+	assert.Equal(t, "腾讯云", findCloudRow(s.ByCloud, "PUB-TX").CloudName)
+	assert.Equal(t, "政务云（联通）", findCloudRow(s.ByCloud, "GM-CU").CloudName)
+	orphan := findCloudRow(s.ByCloud, "IND-XX")
+	require.NotNil(t, orphan, "云字典缺条目仍须成行（只是名字回落编码）")
+	assert.Equal(t, "IND-XX", orphan.CloudName, "云字典缺条目时 cloud_name 回落 cloud_code")
+	assert.NotEmpty(t, orphan.CloudName, "cloud_name 绝不返回空串")
+	unset := findCloudRow(s.ByCloud, "")
+	require.NotNil(t, unset, "「未指定云」行恒保留（否则合计对不上）")
+	assert.Equal(t, cloudUnsetName, unset.CloudName)
+
+	// 派生链正确性 + 残留列隔离 + 具体分布。
+	tx := findCloudRow(s.ByCloud, "PUB-TX")
+	require.NotNil(t, tx)
+	assert.Equal(t, 4, tx.ResourceCount, "dom-tx 4 台（含残留 CloudCode=GHOST-CODE 的那台）")
+	assert.Equal(t, 2, tx.MonitoredCount)
+	assert.Equal(t, 50, tx.CoverageRate)
+	gm := findCloudRow(s.ByCloud, "GM-CU")
+	require.NotNil(t, gm)
+	assert.Equal(t, 3, gm.ResourceCount)
+	assert.Equal(t, 1, gm.MonitoredCount)
+	assert.Equal(t, 1, orphan.ResourceCount)
+	assert.Equal(t, 1, orphan.MonitoredCount)
+	assert.Equal(t, 100, orphan.CoverageRate)
+	assert.Equal(t, 3, unset.ResourceCount, "dom-nocloud 2 台 + 网域缺失 1 台")
+	assert.Equal(t, 1, unset.MonitoredCount)
+	assert.Nil(t, findCloudRow(s.ByCloud, "GHOST-CODE"),
+		"残留列 Host.CloudCode 不得成为云归属来源（决策 103 scheme-B 红线）")
+
+	// 不变量 5：排序（resource_count 降序 + 并列字典序 + 「未指定云」恒末位）。
+	require.Len(t, s.ByCloud, 4)
+	assert.Equal(t, []string{"PUB-TX", "GM-CU", "IND-XX", ""},
+		[]string{s.ByCloud[0].CloudCode, s.ByCloud[1].CloudCode, s.ByCloud[2].CloudCode, s.ByCloud[3].CloudCode},
+		"4 > 3 > 1 降序；「未指定云」（3 台）不参与降序竞争、恒排末位")
+
+	// 不变量 6：空库 → 非 nil 空 slice，序列化为 [] 而非 null。
+	emptyDB := newTestDB(t)
+	sEmpty, err := Build(emptyDB)
+	require.NoError(t, err)
+	require.NotNil(t, sEmpty.ByCloud)
+	raw, err := json.Marshal(sEmpty.ByCloud)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(raw), "空库 by_cloud 序列化为 [] 而非 null")
+}
+
+// categoryOfHost 取 by_category 中 host 类的 (resource_count, monitored_count)。
+func categoryOfHost(t *testing.T, s *Summary) (int, int) {
+	t.Helper()
+	for _, c := range s.ByCategory {
+		if c.ResourceCategory == string(models.ResourceCategoryHost) {
+			return c.ResourceCount, c.MonitoredCount
+		}
+	}
+	t.Fatal("by_category 缺少 host 条目")
+	return 0, 0
+}
+
+// TestSummaryByCloudZeroResourceCountNoDivideByZero 护栏：resource_count 为 0 时
+// coverage_rate 取 0 且绝不除零 panic（buildCloudSummary 的直接单测，覆盖真实库里
+// 无法自然出现的 0 计数分支）。
+func TestSummaryByCloudZeroResourceCountNoDivideByZero(t *testing.T) {
+	rows := buildCloudSummary(map[string]*cloudAgg{
+		"PUB-TX": {resourceCount: 0, monitoredCount: 0},
+		"":       {resourceCount: 0, monitoredCount: 3}, // 分母 0、分子非 0：仍须取 0
+	}, map[string]string{"PUB-TX": "腾讯云"})
+	require.Len(t, rows, 2)
+	assert.Equal(t, 0, rows[0].CoverageRate)
+	assert.Equal(t, 0, rows[1].CoverageRate)
+	assert.Equal(t, cloudUnsetName, rows[1].CloudName)
+}
+
+// TestSummaryByCloudOnlyHosts 护栏：by_cloud 只统计 resource_category=host——
+// 同一网域下的 middleware 不得进入行合计；无 host 资源时返回空 slice。
+func TestSummaryByCloudOnlyHosts(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "default", Name: "管理网域", DomainType: models.DomainTypeManagement,
+		Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+		IsMonitored: true, CloudCode: "PUB-TX",
+	}).Error)
+	require.NoError(t, db.Create(&models.CloudDict{
+		CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic,
+		Carrier: models.CloudCarrierTencent, Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.Middleware{
+		ResourceID: "c-mw-1", ResourceCategory: models.ResourceCategoryMiddleware,
+		NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+		AppName: "app-a", Env: "prod", Cluster: "cluster", Status: "online",
+		MiddlewareType: "nginx", InstanceIP: "10.0.4.1", Port: 80,
+	}).Error)
+	// 该网域下 1 台主机（残留 CloudCode 列刻意填另一个编码，验证仍归 PUB-TX）。
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "c-h1", ResourceCategory: models.ResourceCategoryHost,
+		NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+		CloudCode: "GHOST-CODE", EnvFlag: "prod", SubAppCode: "cluster",
+		InstanceName: "cn-01", ServerID: "srv-c-01", Status: "online", Image: "linux",
+	}).Error)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+	require.Len(t, s.ByCloud, 1)
+	assert.Equal(t, "PUB-TX", s.ByCloud[0].CloudCode)
+	assert.Equal(t, "腾讯云", s.ByCloud[0].CloudName)
+	assert.Equal(t, 1, s.ByCloud[0].ResourceCount, "middleware 不计入，合计只算 1 台主机")
+	assert.Equal(t, 0, s.ByCloud[0].MonitoredCount)
+	assert.Equal(t, 0, s.ByCloud[0].CoverageRate)
+
+	// 无 host 资源 → 空 slice（非 nil、序列化为 []）。
+	db2 := newTestDB(t)
+	s2, err := Build(db2)
+	require.NoError(t, err)
+	require.NotNil(t, s2.ByCloud)
+	raw, err := json.Marshal(s2.ByCloud)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(raw))
+}
+
+// TestSummaryByCloudWithSeedFixture 回归：既有 seed fixture 的 3 台主机全挂在
+// default 网域上，而该网域未登记 cloud_code → 恰有 1 行「未指定云」。
+// 其中 res-host-1 / res-host-2 被 ready+enabled Job 覆盖，res-host-3 只被 draft Job
+// 覆盖 → monitored=2（≠ 全局 9）。
+func TestSummaryByCloudWithSeedFixture(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	s, err := Build(db)
+	require.NoError(t, err)
+	require.Len(t, s.ByCloud, 1)
+	row := s.ByCloud[0]
+	assert.Equal(t, "", row.CloudCode)
+	assert.Equal(t, cloudUnsetName, row.CloudName)
+	assert.Equal(t, 3, row.ResourceCount)
+	assert.Equal(t, 2, row.MonitoredCount)
+	assert.Equal(t, 66, row.CoverageRate, "2*100/3 整数除法 = 66")
+	assert.Equal(t, 9, s.MonitoredCount, "全局 monitored_count 仍为 9（未被 by_cloud 改动）")
+}
+
+// TestSummaryByCloudJSONTags 契约护栏：by_cloud 的 JSON tag 必须与前端
+// ui-custom/web/src/api/dashboard.ts 的 CloudSummary interface 逐字对齐。
+func TestSummaryByCloudJSONTags(t *testing.T) {
+	raw, err := json.Marshal(CloudSummary{
+		CloudCode: "PUB-TX", CloudName: "腾讯云",
+		ResourceCount: 4, MonitoredCount: 2, CoverageRate: 50,
+	})
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Len(t, got, 5, "前端契约恰好 5 个字段，不得有多余维度（如 cloud_type / carrier）")
+	for _, key := range []string{"cloud_code", "cloud_name", "resource_count", "monitored_count", "coverage_rate"} {
+		assert.Contains(t, got, key)
+	}
+	for _, forbidden := range []string{"cloud_type", "carrier", "type"} {
+		assert.NotContains(t, got, forbidden,
+			"CloudType / Carrier 是描述性元数据，不是分类轴，不得出现在 by_cloud 行里")
 	}
 }

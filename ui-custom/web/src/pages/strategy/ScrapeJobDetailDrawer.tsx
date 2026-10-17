@@ -12,7 +12,7 @@ import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeEx
 import type { PromVectorItem, TargetItem } from '../../types/query'
 import { MONITOR_TYPE_MAP, SCRAPE_PARAM_FIELDS } from './strategyConstants'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
-import { probeQueryForJob, probeStatusOfTarget } from './upStatus'
+import { probeQueryForJob, probeStatusOfTarget, type ProbeTarget } from './upStatus'
 
 const { Text, Link } = Typography
 
@@ -87,6 +87,22 @@ const PROTOCOL_LABEL: Record<BlackboxTargetProtocol, string> = {
   tcp: 'TCP',
   icmp: 'ICMP',
   dns: 'DNS',
+}
+
+/** 拨测模块 → 协议（F-12：拨测目标不再手填 protocol，协议由 blackbox_module 决定；
+ * preview-targets 只在目标地址带 scheme（URL 类字段）时回传 protocol） */
+const MODULE_PROTOCOL: Record<string, BlackboxTargetProtocol> = {
+  http_2xx: 'http',
+  icmp_ping: 'icmp',
+  tcp_connect: 'tcp',
+  dns_query: 'dns',
+}
+
+/** 拨测目标展示协议：优先取目标地址的 scheme，回落按拨测模块推导（无则不展示协议 Tag） */
+function probeProtocolOf(target: ProbeTarget, blackboxModule?: string): BlackboxTargetProtocol | undefined {
+  const scheme = target.protocol
+  if (scheme && scheme in PROTOCOL_LABEL) return scheme as BlackboxTargetProtocol
+  return blackboxModule ? MODULE_PROTOCOL[blackboxModule] : undefined
 }
 
 /** 决策 34：字段继承来源视觉标记（继承自映射 / 已覆盖 / 待同步） */
@@ -212,8 +228,10 @@ export function ScrapeJobDetailDrawer({
   const { tokens } = useSkin()
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
-  // 拨测 Job 的探测结果样本（F-12：probe_success{job=...}，按 instance 匹配各拨测目标）
+  // 拨测 Job 的探测结果样本（F-12：probe_success{job=...}，按 resource_id / instance 匹配各拨测目标）
   const [probes, setProbes] = useState<PromVectorItem[]>([])
+  // 拨测目标清单（F-12：preview-targets 解析结果，与下发 target 同源）
+  const [probeTargets, setProbeTargets] = useState<ProbeTarget[]>([])
   const [loading, setLoading] = useState(false)
   // 实例信息来自控制面 DB（可靠）；目标采集状态来自数据面目标状态 API（数据面未就绪时单独降级，不影响实例列表展示）。
   const [instanceError, setInstanceError] = useState<string | null>(null)
@@ -229,9 +247,19 @@ export function ScrapeJobDetailDrawer({
     setLoading(true)
     setInstanceError(null)
     setTargetsError(null)
-    // 拨测 Job（F-12）：无实例维度，改查中心 probe_success 回显各拨测目标的探测结果。
-    // 未下发（deployed=false）时目标统一「待拨测」，无需查指标。
+    // 拨测 Job（F-12）：无实例维度，改查 preview-targets 解析出的拨测目标（selected_instance_ids
+    // 在 target_field 上的字段值，与下发 target 同源）+ 中心 probe_success 回显探测结果。
+    // 未下发（deployed=false）时状态统一「待拨测」，只拉目标清单、不查指标。
     if (job.job_type === 'blackbox') {
+      try {
+        const pv = await scrapeJobApi.previewTargets(job.id)
+        setProbeTargets((pv.data?.targets ?? []).filter((t) => !!t.address))
+      } catch {
+        setProbeTargets([])
+        setTargetsError('拨测目标加载失败，请稍后重试')
+        setLoading(false)
+        return
+      }
       if (!deployed) {
         setProbes([])
         setLoading(false)
@@ -240,6 +268,7 @@ export function ScrapeJobDetailDrawer({
       try {
         const res = await queryApi.query({ query: probeQueryForJob(job.job_name) })
         setProbes(res.data && res.data.resultType === 'vector' ? res.data.result : [])
+        setTargetsError(null)
         setStatusUpdatedAt(new Date().toLocaleTimeString())
       } catch {
         setProbes([])
@@ -297,7 +326,7 @@ export function ScrapeJobDetailDrawer({
   const pending = rows.filter((r) => r.status === 'pending').length
 
   // 拨测目标 ↔ probe_success 结果（F-12）：未下发时统一「待拨测」
-  const probeRows = (job?.blackbox_targets ?? []).map((t) => ({
+  const probeRows = probeTargets.map((t) => ({
     target: t,
     status: deployed ? probeStatusOfTarget(probes, t) : ('pending' as JobInstanceScrapeStatus),
   }))
@@ -485,36 +514,41 @@ export function ScrapeJobDetailDrawer({
                   </Text>
                 )}
               </Space>
-              <List
-                bordered
-                size="small"
-                dataSource={probeRows}
-                renderItem={(r) => {
-                  const meta = PROBE_STATUS_TAG[r.status]
-                  return (
-                    <List.Item
-                      key={r.target.url || r.target.target}
-                      style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}
-                    >
-                      <Space>
-                        <Tag color={protocolColor(r.target.protocol, tokens)}>{PROTOCOL_LABEL[r.target.protocol]}</Tag>
-                        <Text code>{r.target.url || r.target.target}</Text>
-                      </Space>
-                      {targetsError ? (
-                        <Tag>状态不可用</Tag>
-                      ) : r.status === 'collecting' ? (
-                        <Tag color={meta.color}>{meta.label}</Tag>
-                      ) : (
-                        <Tooltip title={r.status === 'down' ? PROBE_FAIL_TOOLTIP : PROBE_PENDING_TOOLTIP}>
-                          <Tag color={meta.color} style={{ cursor: 'pointer' }}>
-                            {meta.label}
-                          </Tag>
-                        </Tooltip>
-                      )}
-                    </List.Item>
-                  )
-                }}
-              />
+              {probeRows.length === 0 ? (
+                <Empty description={loading ? '加载中…' : '暂无拨测目标'} />
+              ) : (
+                <List
+                  bordered
+                  size="small"
+                  dataSource={probeRows}
+                  renderItem={(r) => {
+                    const meta = PROBE_STATUS_TAG[r.status]
+                    const proto = probeProtocolOf(r.target, job.blackbox_module)
+                    return (
+                      <List.Item
+                        key={r.target.resource_id || r.target.address}
+                        style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}
+                      >
+                        <Space>
+                          {proto && <Tag color={protocolColor(proto, tokens)}>{PROTOCOL_LABEL[proto]}</Tag>}
+                          <Text code>{r.target.address}</Text>
+                        </Space>
+                        {targetsError ? (
+                          <Tag>状态不可用</Tag>
+                        ) : r.status === 'collecting' ? (
+                          <Tag color={meta.color}>{meta.label}</Tag>
+                        ) : (
+                          <Tooltip title={r.status === 'down' ? PROBE_FAIL_TOOLTIP : PROBE_PENDING_TOOLTIP}>
+                            <Tag color={meta.color} style={{ cursor: 'pointer' }}>
+                              {meta.label}
+                            </Tag>
+                          </Tooltip>
+                        )}
+                      </List.Item>
+                    )
+                  }}
+                />
+              )}
             </>
           ) : (
             items.length > 0 && (

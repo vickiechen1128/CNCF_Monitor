@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Badge,
@@ -27,7 +27,7 @@ import { exporterTemplateApi } from '../../api/exporterTemplates'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import type { NetworkDomain } from '../../types/domain'
-import type { CITypeExporterMapping, ExporterTemplate, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { CITypeExporterMapping, ExporterTemplate, JobType, MonitorType, ScrapeJob } from '../../types/strategy'
 import type { LabelTemplateListItem } from '../../types/label'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -69,8 +69,18 @@ function JobsTab() {
   // 品牌/语义色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
   const navigate = useNavigate()
+  /**
+   * 深链预筛（2026-10-17 第六轮走查）：首页「监控对象纳管完成率 → 查看采集任务」带
+   * `?job_type=standard` 进来，落页即只看采集类型（拉模型）Job。只认两个合法枚举，
+   * 其余一律不预置（深链是展示入口，不报错）。
+   */
+  const [searchParams] = useSearchParams()
+  const initialJobType = ((): JobType | undefined => {
+    const raw = searchParams.get('job_type')
+    return raw === 'standard' || raw === 'blackbox' ? raw : undefined
+  })()
   const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
-    useScrapeJobs()
+    useScrapeJobs(initialJobType ? { job_type: initialJobType } : undefined)
   const [domains, setDomains] = useState<NetworkDomain[]>([])
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
@@ -319,9 +329,10 @@ function JobsTab() {
       render: (_: unknown, r: ScrapeJob) => {
         // 拨测 Job（F-12）按拨测目标聚合；标准 Job 按已选实例聚合。无目标/无实例时显示 '-'
         const isBlackbox = r.job_type === 'blackbox'
-        // 已选集/拨测目标集本身为空时可直接判定无聚合对象（此时有效实例数必为 0，
-        // 与 v.total 无口径分歧），短路显示 '-' 避免无谓的 Spin 骨架。
-        const noAggregateTarget = isBlackbox ? (r.blackbox_targets?.length ?? 0) === 0 : r.selected_instance_ids.length === 0
+        // 已选集为空时可直接判定无聚合对象（此时有效实例数必为 0，与 v.total 无口径分歧），
+        // 短路显示 '-' 避免无谓的 Spin 骨架。拨测 Job 的目标同样来自 selected_instance_ids
+        // （由 preview-targets 解析为探测地址），故与标准 Job 共用同一判定。
+        const noAggregateTarget = r.selected_instance_ids.length === 0
         if (noAggregateTarget) return <Text type="secondary">-</Text>
         const v = scrapeStatusByJob[r.id]
         if (!v) return <Spin size="small" />

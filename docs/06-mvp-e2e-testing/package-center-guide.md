@@ -100,6 +100,12 @@ cd metric-center-bundle-linux-amd64-*/
 ./scripts/start.sh
 ```
 
+> **交付包洁净度**：包在 macOS 上构建，但归档前已剔除 `.DS_Store` / `._*` AppleDouble / `__MACOSX`，
+> 归档格式为 `ustar`（结构上不携带 xattr 扩展头），属主属组归一化为 `root:root`。
+> 在 Linux 上自检无残留：`tar -tzf <包>.tar.gz | grep -E '\.DS_Store|(^|/)\._|__MACOSX'`（应无输出）、
+> `tar -tvzf <包>.tar.gz | head -3`（第 2、3 列应为 `root root`）。
+> 实现在 `scripts/lib/packaging-clean.sh`，中心包与边缘包共用；`install.sh` 另有一道兜底清理。
+
 ### 2.4 生产标准化部署（/opt 三目录，决策 64）
 
 生产环境对齐《业务软件标准化目录与权限配置操作手册》（`业务软件标准化目录与权限配置操作手册.md`）三目录基线。**前提：`/opt/apps/metric-center/`、`/opt/data/metric-center/`、`/opt/log/metric-center/` 三目录由运维统一预建**（含 SGID 2750 与属组），安装脚本只做核验与幂等兜底。

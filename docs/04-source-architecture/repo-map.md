@@ -1,13 +1,13 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-16 10:30 · commit: `8b323ca`
+> 生成时间: 2026-10-17 14:07 · commit: `80b6c52`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
 ## platform/（Go 后端）
 
-### `platform\admin\networkdomain\access_progress.go`
+### `platform/admin/networkdomain/access_progress.go`
 
 - `type DomainListItemView struct`
 - `func AccessStepOf(d *models.NetworkDomain, hasOnline, hasEffectiveJob bool) int`
@@ -15,7 +15,7 @@
 - `func onlineAgentDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
 - `func DomainListView(db *gorm.DB, list []models.NetworkDomain) ([]DomainListItemView, error)`
 
-### `platform\admin\networkdomain\access_progress_test.go`
+### `platform/admin/networkdomain/access_progress_test.go`
 
 - `func TestAccessStepOf(t *testing.T)`
 - `func effectiveJobFixture(name, domainID string, mutate func(*models.ScrapeJob)) *models.ScrapeJob`
@@ -25,19 +25,19 @@
 - `func TestDomainListView_Step4(t *testing.T)`
 - `func TestDomainListView_EmptyList(t *testing.T)`
 
-### `platform\admin\networkdomain\authorized_test.go`
+### `platform/admin/networkdomain/authorized_test.go`
 
 - `func TestAuthorizedTenantsDefaultBackfill(t *testing.T)`
 - `func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T)`
 - `func TestAuthorizedTenantsClearToEmpty(t *testing.T)`
 
-### `platform\admin\networkdomain\cascade_retire.go`
+### `platform/admin/networkdomain/cascade_retire.go`
 
 - `type WillRetireAgent struct`
 - `type CascadeRetireResult struct`
 - `func CascadeRetire(db *gorm.DB, domainID string) (*CascadeRetireResult, error)`
 
-### `platform\admin\networkdomain\cascade_retire_test.go`
+### `platform/admin/networkdomain/cascade_retire_test.go`
 
 - `func setupTestDB(t *testing.T) *gorm.DB`
 - `func TestCascadeRetire_Success(t *testing.T)`
@@ -47,7 +47,7 @@
 - `func TestCascadeRetire_RetiredStatusIsTerminal(t *testing.T)`
 - `func TestCascadeRetire_RollbackOnAgentUpdateFailure(t *testing.T)`
 
-### `platform\admin\networkdomain\create.go`
+### `platform/admin/networkdomain/create.go`
 
 - `type CreateNetworkDomainRequest struct`
 - `func validDomainType(dt models.DomainType) bool`
@@ -59,7 +59,7 @@
 - `func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 - `func validateCenterEndpoint(raw string) error`
 
-### `platform\admin\networkdomain\create_test.go`
+### `platform/admin/networkdomain/create_test.go`
 
 - `func postCreate(t *testing.T, db *gorm.DB, body string) (int, models.NetworkDomain, string)`
 - `func TestCreateNetworkDomainOK(t *testing.T)`
@@ -76,11 +76,11 @@
 - `func TestCreateNetworkDomainInvalidDomainCode(t *testing.T)`
 - `func TestCreateNetworkDomainAfterSoftDeleteConflict(t *testing.T)`
 
-### `platform\admin\networkdomain\delete.go`
+### `platform/admin/networkdomain/delete.go`
 
 - `func DeleteNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\admin\networkdomain\delete_test.go`
+### `platform/admin/networkdomain/delete_test.go`
 
 - `func delDomain(t *testing.T, db *gorm.DB, id string) (int, map[string]interface{})`
 - `func TestDeleteEmptyDomainSoftDeletes(t *testing.T)`
@@ -89,22 +89,22 @@
 - `func TestDeleteManagementRejected(t *testing.T)`
 - `func TestDeleteOfflineAgentDoesNotBlock(t *testing.T)`
 
-### `platform\admin\networkdomain\detail.go`
+### `platform/admin/networkdomain/detail.go`
 
 - `func GetNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\admin\networkdomain\detail_test.go`
+### `platform/admin/networkdomain/detail_test.go`
 
 - `func TestGetNetworkDomainOK(t *testing.T)`
 - `func TestGetNetworkDomainNotFound(t *testing.T)`
 - `func TestGetNetworkDomainIgnoresSoftDeleted(t *testing.T)`
 
-### `platform\admin\networkdomain\idgen.go`
+### `platform/admin/networkdomain/idgen.go`
 
 - `func ReadDeployCode() string`
 - `func GenerateDomainID(deployCode, domainCode string) (string, error)`
 
-### `platform\admin\networkdomain\idgen_test.go`
+### `platform/admin/networkdomain/idgen_test.go`
 
 - `func TestReadDeployCodeDefault(t *testing.T)`
 - `func TestReadDeployCodeFromEnv(t *testing.T)`
@@ -114,7 +114,7 @@
 - `func TestGenerateDomainIDInvalidDomainCode(t *testing.T)`
 - `func TestGenerateDomainIDInvalidDeployCode(t *testing.T)`
 
-### `platform\admin\networkdomain\impact.go`
+### `platform/admin/networkdomain/impact.go`
 
 - `type DomainImpact struct`
 - `func countResources(db *gorm.DB, domainID string) (int64, error)`
@@ -122,7 +122,7 @@
 - `func countOnlineEdgeAgents(db *gorm.DB, domainID string) (int64, error)`
 - `func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error)`
 
-### `platform\admin\networkdomain\impact_test.go`
+### `platform/admin/networkdomain/impact_test.go`
 
 - `func seedImpactDomain(t *testing.T, db *gorm.DB, agents []*models.EdgeAgent) string`
 - `func TestComputeImpact_HasOnlineAgents(t *testing.T)`
@@ -130,27 +130,27 @@
 - `func TestComputeImpact_RetiredNotCounted(t *testing.T)`
 - `func TestComputeImpact_EmptyDomain(t *testing.T)`
 
-### `platform\admin\networkdomain\list.go`
+### `platform/admin/networkdomain/list.go`
 
 - `func ListNetworkDomains(db *gorm.DB) gin.HandlerFunc`
 - `func parseIntDefault(raw string, def, min int) int`
 
-### `platform\admin\networkdomain\list_test.go`
+### `platform/admin/networkdomain/list_test.go`
 
 - `func TestListNetworkDomains(t *testing.T)`
 
-### `platform\admin\networkdomain\routes.go`
+### `platform/admin/networkdomain/routes.go`
 
 - `func RegisterReadRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `func RegisterWriteRoutes(admin *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\admin\networkdomain\status.go`
+### `platform/admin/networkdomain/status.go`
 
 - `type UpdateStatusRequest struct`
 - `func validDomainStatus(s models.DomainStatus) bool`
 - `func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\admin\networkdomain\status_test.go`
+### `platform/admin/networkdomain/status_test.go`
 
 - `func patchStatus(t *testing.T, db *gorm.DB, id, body string) (int, map[string]interface{})`
 - `func seedEdgeDomain(t *testing.T, db *gorm.DB)`
@@ -160,12 +160,12 @@
 - `func TestInvalidStatusValue(t *testing.T)`
 - `func TestStatusNotFound(t *testing.T)`
 
-### `platform\admin\networkdomain\tenant_auth.go`
+### `platform/admin/networkdomain/tenant_auth.go`
 
 - `func containsStr(list []string, s string) bool`
 - `func syncAuthorizedTenants(db *gorm.DB, domainID string, tenantIDs []string) error`
 
-### `platform\admin\networkdomain\testutil_test.go`
+### `platform/admin/networkdomain/testutil_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newGin() *gin.Engine`
@@ -175,12 +175,12 @@
 - `func seedTenants(t *testing.T, db *gorm.DB)`
 - `func insertDomain(t *testing.T, db *gorm.DB, d *models.NetworkDomain)`
 
-### `platform\admin\networkdomain\update.go`
+### `platform/admin/networkdomain/update.go`
 
 - `type UpdateNetworkDomainRequest struct`
 - `func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\admin\networkdomain\update_test.go`
+### `platform/admin/networkdomain/update_test.go`
 
 - `func putUpdate(t *testing.T, db *gorm.DB, id, body string) (int, models.NetworkDomain)`
 - `func TestUpdateNetworkDomainEditableFields(t *testing.T)`
@@ -189,25 +189,25 @@
 - `func TestUpdateNetworkDomainNotFound(t *testing.T)`
 - `func TestUpdateNetworkDomainDefaultAllowedForName(t *testing.T)`
 
-### `platform\admin\networkdomain\zone_type.go`
+### `platform/admin/networkdomain/zone_type.go`
 
 - `type ZoneTypeView struct`
 - `func ListZoneTypes(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\admin\networkdomain\zone_type_test.go`
+### `platform/admin/networkdomain/zone_type_test.go`
 
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
 
-### `platform\admin\storagelog\diskusage_unix.go`
+### `platform/admin/storagelog/diskusage_unix.go`
 
 - `func diskUsage(dirPath string) (total, used, free uint64, err error)`
 
-### `platform\admin\storagelog\diskusage_windows.go`
+### `platform/admin/storagelog/diskusage_windows.go`
 
 - `func diskUsage(dirPath string) (total, used, free uint64, err error)`
 
-### `platform\admin\storagelog\handler.go`
+### `platform/admin/storagelog/handler.go`
 
 - `type Options struct`
 - `func RegisterRoutes(admin *gin.RouterGroup, opts Options)`
@@ -224,7 +224,7 @@
 - `method (*Handler) diskEntries(tsdbPath string, rtOK bool) []diskInfo`
 - `func newDiskInfo(label, dirPath string) diskInfo`
 
-### `platform\admin\storagelog\handler_test.go`
+### `platform/admin/storagelog/handler_test.go`
 
 - `func newTestRouter(t *testing.T, envFile string, promURL *url.URL) *gin.Engine`
 - `func mockPromFlags(t *testing.T, retentionTime, retentionSize, tsdbPath string) *httptest.Server`
@@ -242,7 +242,7 @@
 - `func TestUpdateRetention_SameAsRuntimeNoPending(t *testing.T)`
 - `func TestUpdateRetention_OverviewAlwaysPresent(t *testing.T)`
 
-### `platform\admin\storagelog\retention.go`
+### `platform/admin/storagelog/retention.go`
 
 - `type RetentionValues struct`
 - `func ValidateRetentionTime(s string) error`
@@ -255,7 +255,7 @@
 - `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
 - `func writeRetentionPolicy(path string, vals RetentionValues) error`
 
-### `platform\admin\storagelog\retention_test.go`
+### `platform/admin/storagelog/retention_test.go`
 
 - `func TestValidateRetentionTime(t *testing.T)`
 - `func TestValidateRetentionSize(t *testing.T)`
@@ -266,12 +266,12 @@
 - `func TestDiskUsage(t *testing.T)`
 - `func TestDetectLogRotation_SummaryAlwaysPresent(t *testing.T)`
 
-### `platform\admin\storagelog\system.go`
+### `platform/admin/storagelog/system.go`
 
 - `func detectLogRotation() logRotationInfo`
 - `func readConf(path string) (content string, ok bool)`
 
-### `platform\admin\tenant\handler.go`
+### `platform/admin/tenant/handler.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `type Handler struct`
@@ -289,7 +289,7 @@
 - `func parsePage(c *gin.Context) (int, int)`
 - `func parseIntDefault(raw string, def int) int`
 
-### `platform\admin\tenant\handler_test.go`
+### `platform/admin/tenant/handler_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func seedTenant(t *testing.T, db *gorm.DB, id, name string, multiSite bool) models.Tenant`
@@ -309,7 +309,7 @@
 - `func TestUpdateTenantStatus_Forbidden(t *testing.T)`
 - `func TestTenantFieldsConformToContract(t *testing.T)`
 
-### `platform\admin\tenant\repository.go`
+### `platform/admin/tenant/repository.go`
 
 - `type Repository struct`
 - `func NewRepository(db *gorm.DB) *Repository`
@@ -317,7 +317,7 @@
 - `method (*Repository) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
 - `method (*Repository) Save(tn *models.Tenant) error`
 
-### `platform\admin\tenant\service.go`
+### `platform/admin/tenant/service.go`
 
 - `type ValidationError struct`
 - `method (*ValidationError) Error() string`
@@ -328,7 +328,7 @@
 - `method (*Service) GetTenant(id string) (*models.Tenant, error)`
 - `method (*Service) UpdateTenant(id string, name *string, multiSiteEnabled *bool) (*models.Tenant, error)`
 
-### `platform\admin\user\handler.go`
+### `platform/admin/user/handler.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `type Handler struct`
@@ -353,7 +353,7 @@
 - `func parsePage(c *gin.Context) (int, int)`
 - `func parseIntDefault(raw string, def int) int`
 
-### `platform\admin\user\handler_test.go`
+### `platform/admin/user/handler_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newTestRouter(db *gorm.DB) *gin.Engine`
@@ -381,7 +381,7 @@
 - `func TestResetPassword_ValidationAndNotFound(t *testing.T)`
 - `func TestListLoginLogs_FilterOrderPagination(t *testing.T)`
 
-### `platform\admin\user\repository.go`
+### `platform/admin/user/repository.go`
 
 - `type Repository struct`
 - `func NewRepository(db *gorm.DB) *Repository`
@@ -395,7 +395,7 @@
 - `method (*Repository) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
 - `func isUniqueConstraintError(err error) bool`
 
-### `platform\admin\user\service.go`
+### `platform/admin/user/service.go`
 
 - `type ValidationError struct`
 - `method (*ValidationError) Error() string`
@@ -415,7 +415,7 @@
 - `func validatePassword(password string) error`
 - `func newUserID() (string, error)`
 
-### `platform\alertmanager\alerts\alerts_test.go`
+### `platform/alertmanager/alerts/alerts_test.go`
 
 - `type fakeAMAlerts struct`
 - `func startFakeAMAlerts(t *testing.T, f *fakeAMAlerts) string`
@@ -440,12 +440,12 @@
 - `func TestServiceListInstanceFieldsResolvedFromM01(t *testing.T)`
 - `func TestServiceListInstanceFieldsWithoutResourceID(t *testing.T)`
 
-### `platform\alertmanager\alerts\handler.go`
+### `platform/alertmanager/alerts/handler.go`
 
 - `func ListHandler(svc *Service) gin.HandlerFunc`
 - `func authorizedScopeForUser(_ *gin.Context) *models.AuthorizedMatcherScope`
 
-### `platform\alertmanager\alerts\proxy.go`
+### `platform/alertmanager/alerts/proxy.go`
 
 - `type amAlertStatus struct`
 - `type amAlert struct`
@@ -454,7 +454,7 @@
 - `method (*Proxy) ListAlerts(ctx context.Context) ([]amAlert, error)`
 - `func sanitize(b []byte) string`
 
-### `platform\alertmanager\alerts\service.go`
+### `platform/alertmanager/alerts/service.go`
 
 - `type AlertStatus struct`
 - `type AlertItem struct`
@@ -465,7 +465,7 @@
 - `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
 - `func normalizeNotifyStatus(st amAlertStatus) string`
 
-### `platform\alertmanager\config\config_test.go`
+### `platform/alertmanager/config/config_test.go`
 
 - `func newMemConfigDB(t *testing.T) *gorm.DB`
 - `func stubAmtoolAvailable(t *testing.T)`
@@ -482,7 +482,7 @@
 - `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
 - `func TestErrValidationError(t *testing.T)`
 
-### `platform\alertmanager\config\handler.go`
+### `platform/alertmanager/config/handler.go`
 
 - `func queryPage(c *gin.Context) (page, pageSize int)`
 - `func parseID(c *gin.Context) (uint, error)`
@@ -493,7 +493,7 @@
 - `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondSubmitError(c *gin.Context, err error)`
 
-### `platform\alertmanager\config\pendingdraft_test.go`
+### `platform/alertmanager/config/pendingdraft_test.go`
 
 - `func stubEnsurePendingDraft(t *testing.T) *int32`
 - `func stubEnsurePendingDraftErr(t *testing.T, err error)`
@@ -503,7 +503,7 @@
 - `func TestSubmitPendingDraftErrOtherNotBlockSubmit(t *testing.T)`
 - `func TestEnsurePendingDraftGeneratesWhenNoLivePending(t *testing.T)`
 
-### `platform\alertmanager\config\service.go`
+### `platform/alertmanager/config/service.go`
 
 - `type ErrValidation struct`
 - `method (*ErrValidation) Error() string`
@@ -517,7 +517,7 @@
 - `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
 
-### `platform\alertmanager\config\template_validate.go`
+### `platform/alertmanager/config/template_validate.go`
 
 - `func TemplateFuncs() template.FuncMap`
 - `func templateDefault(def, val interface{}) interface{}`
@@ -525,7 +525,7 @@
 - `func ValidateTemplate(content string) error`
 - `func buildTemplateCheckConfig(tplPath string) string`
 
-### `platform\alertmanager\config\template_validate_test.go`
+### `platform/alertmanager/config/template_validate_test.go`
 
 - `func TestValidateTemplateValidPasses(t *testing.T)`
 - `func TestValidateTemplateRejectsEmpty(t *testing.T)`
@@ -534,7 +534,7 @@
 - `func TestValidateTemplateAmtoolReportsError(t *testing.T)`
 - `func TestTemplateFuncsJSONStr(t *testing.T)`
 
-### `platform\alertmanager\config\validate.go`
+### `platform/alertmanager/config/validate.go`
 
 - `func validateAlertmanagerConfig(content string) error`
 - `func runCheckConfig(content string) ([]models.ValidateErrorItem, error)`
@@ -542,7 +542,7 @@
 - `func parseCheckErrors(output string) []models.ValidateErrorItem`
 - `func extractLine(line string) int`
 
-### `platform\alertmanager\config\version.go`
+### `platform/alertmanager/config/version.go`
 
 - `type VersionListItem struct`
 - `func toListItem(v *models.AlertmanagerConfigVersion) VersionListItem`
@@ -550,7 +550,7 @@
 - `func ListVersions(db *gorm.DB, page, pageSize int) ([]VersionListItem, int64, error)`
 - `func GetVersion(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
 
-### `platform\alertmanager\config\version_test.go`
+### `platform/alertmanager/config/version_test.go`
 
 - `func newConfigRouter(db *gorm.DB) *gin.Engine`
 - `func do(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
@@ -564,7 +564,7 @@
 - `func TestRemountEndpointNotFound(t *testing.T)`
 - `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
 
-### `platform\alertmanager\notify\bridge.go`
+### `platform/alertmanager/notify/bridge.go`
 
 - `type BridgeConfig struct`
 - `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
@@ -575,7 +575,7 @@
 - `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error)`
 - `func respondBridgeTemplateError(c *gin.Context, err error)`
 
-### `platform\alertmanager\notify\bridge_test.go`
+### `platform/alertmanager/notify/bridge_test.go`
 
 - `type fakeReceiver struct`
 - `method (*fakeReceiver) record(path string, body []byte)`
@@ -611,7 +611,7 @@
 - `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
 - `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
 
-### `platform\alertmanager\notify\channel.go`
+### `platform/alertmanager/notify/channel.go`
 
 - `func SetAllowPrivateWebhookTargets(allow bool)`
 - `func ValidateWebhookURL(raw string) error`
@@ -628,7 +628,7 @@
 - `func ToChannelView(ch *models.NotifyChannel) ChannelView`
 - `func maskWebhookURL(raw string) string`
 
-### `platform\alertmanager\notify\channel_handler.go`
+### `platform/alertmanager/notify/channel_handler.go`
 
 - `func parseID(c *gin.Context) (uint, error)`
 - `func respondChannelError(c *gin.Context, err error)`
@@ -637,7 +637,7 @@
 - `func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteChannelHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\alertmanager\notify\channel_test.go`
+### `platform/alertmanager/notify/channel_test.go`
 
 - `func newNotifyDB(t *testing.T) *gorm.DB`
 - `func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T)`
@@ -655,7 +655,7 @@
 - `func TestChannelCRUDHandlers(t *testing.T)`
 - `func TestChannelHandlerTemplateBinding(t *testing.T)`
 
-### `platform\alertmanager\notify\client.go`
+### `platform/alertmanager/notify/client.go`
 
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
@@ -664,7 +664,7 @@
 - `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
 - `func checkOutboundBusinessError(respBody []byte) error`
 
-### `platform\alertmanager\notify\receiver_snippet.go`
+### `platform/alertmanager/notify/receiver_snippet.go`
 
 - `type ReceiverSnippetConfig struct`
 - `type ReceiverSnippet struct`
@@ -676,7 +676,7 @@
 - `func escapeSingleQuotes(s string) string`
 - `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
 
-### `platform\alertmanager\notify\receiver_snippet_test.go`
+### `platform/alertmanager/notify/receiver_snippet_test.go`
 
 - `func TestDeriveBridgeBaseURL(t *testing.T)`
 - `func TestSanitizeReceiverName(t *testing.T)`
@@ -693,11 +693,11 @@
 - `func TestReceiverSnippetAcceptedByAmtool(t *testing.T)`
 - `func locateAmtool(t *testing.T) string`
 
-### `platform\alertmanager\notify\register.go`
+### `platform/alertmanager/notify/register.go`
 
 - `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB, snippetCfg ReceiverSnippetConfig)`
 
-### `platform\alertmanager\notify\render.go`
+### `platform/alertmanager/notify/render.go`
 
 - `type amWebhookPayload struct`
 - `type amWebhookAlert struct`
@@ -708,7 +708,7 @@
 - `func formatLocal(t time.Time, loc *time.Location) string`
 - `func Render(templateContent string, payload amWebhookPayload, loc *time.Location) ([]byte, error)`
 
-### `platform\alertmanager\notify\render_test.go`
+### `platform/alertmanager/notify/render_test.go`
 
 - `func renderFixture(status string) amWebhookPayload`
 - `func TestRenderBuiltinFeishuCardTemplate(t *testing.T)`
@@ -717,7 +717,7 @@
 - `func TestDecodeWebhookInvalid(t *testing.T)`
 - `func TestRenderUsesSharedFuncMap(t *testing.T)`
 
-### `platform\alertmanager\notify\template.go`
+### `platform/alertmanager/notify/template.go`
 
 - `type builtinTemplate struct`
 - `func builtinTemplates() []builtinTemplate`
@@ -732,7 +732,7 @@
 - `func findTemplateByChecksum(db *gorm.DB, name, channelType, checksum string) (*models.NotifyTemplate, error)`
 - `type TemplateView struct`
 
-### `platform\alertmanager\notify\template_handler.go`
+### `platform/alertmanager/notify/template_handler.go`
 
 - `func toTemplateView(t *models.NotifyTemplate) TemplateView`
 - `func respondTemplateError(c *gin.Context, err error)`
@@ -741,7 +741,7 @@
 - `func RemountTemplateHandler(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteTemplateHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\alertmanager\notify\template_test.go`
+### `platform/alertmanager/notify/template_test.go`
 
 - `func stubTemplateValid(t *testing.T)`
 - `func stubTemplateInvalid(t *testing.T)`
@@ -756,32 +756,32 @@
 - `func newTemplateRouter(db *gorm.DB) *gin.Engine`
 - `func TestTemplateHandlersSubmitValidationAndRemount(t *testing.T)`
 
-### `platform\alertmanager\register.go`
+### `platform/alertmanager/register.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error`
 
-### `platform\alertmanager\route\convert.go`
+### `platform/alertmanager/route/convert.go`
 
 - `func boolPtr(b bool) *bool`
 - `func ToEditNodes(nodes []RouteNode) []generator.RouteEditNode`
 - `func ToRouteNodes(nodes []generator.RouteEditNode) []RouteNode`
 
-### `platform\alertmanager\route\convert_test.go`
+### `platform/alertmanager/route/convert_test.go`
 
 - `func TestToEditNodes_FromParse(t *testing.T)`
 - `func TestToRouteNodes_RoundTrip(t *testing.T)`
 - `func TestToEditNodes_PreservesUnmodeledKeys(t *testing.T)`
 - `func toEditMatchers(in []RouteMatcher) []generator.RouteEditMatcher`
 
-### `platform\alertmanager\route\declared_receivers.go`
+### `platform/alertmanager/route/declared_receivers.go`
 
 - `func ParseDeclaredReceivers(baseYAML string) []string`
 
-### `platform\alertmanager\route\declared_receivers_test.go`
+### `platform/alertmanager/route/declared_receivers_test.go`
 
 - `func TestParseDeclaredReceivers(t *testing.T)`
 
-### `platform\alertmanager\route\handler.go`
+### `platform/alertmanager/route/handler.go`
 
 - `type DeadReceiver struct`
 - `func ListRoutes(db *gorm.DB) (gin.H, error)`
@@ -792,7 +792,7 @@
 - `func EffectiveAlertmanagerYAML(db *gorm.DB) (gin.H, error)`
 - `func EffectiveAlertmanagerYAMLHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\alertmanager\route\handler_test.go`
+### `platform/alertmanager/route/handler_test.go`
 
 - `func newRoutesDB(t *testing.T) *gorm.DB`
 - `func seedAppliedConfig(t *testing.T, db *gorm.DB, content string)`
@@ -812,7 +812,7 @@
 - `func TestListRoutesHandler_AuthOnlyNoWrite(t *testing.T)`
 - `func TestListRoutesHandler_NoSensitiveValues(t *testing.T)`
 
-### `platform\alertmanager\route\parse.go`
+### `platform/alertmanager/route/parse.go`
 
 - `type RouteMatcher struct`
 - `type RouteNode struct`
@@ -833,7 +833,7 @@
 - `func scalarValue(n *yaml.Node) string`
 - `func boolOrDefault(n *yaml.Node, def bool) bool`
 
-### `platform\alertmanager\route\parse_test.go`
+### `platform/alertmanager/route/parse_test.go`
 
 - `func TestParseRouteTree_MatchersBothForms(t *testing.T)`
 - `func TestParseRouteTree_RegexShorthand(t *testing.T)`
@@ -843,7 +843,7 @@
 - `func TestParseRouteTree_EmptyContent(t *testing.T)`
 - `func TestParseRouteTree_Errors(t *testing.T)`
 
-### `platform\alertmanager\route\setting_handler.go`
+### `platform/alertmanager/route/setting_handler.go`
 
 - `type RouteSettingView struct`
 - `func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error)`
@@ -852,7 +852,7 @@
 - `func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 - `func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\alertmanager\route\setting_handler_test.go`
+### `platform/alertmanager/route/setting_handler_test.go`
 
 - `func newRouteDB(t *testing.T) *gorm.DB`
 - `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) *models.NotifyChannel`
@@ -883,7 +883,7 @@
 - `func TestRouteSetting_AdminGate(t *testing.T)`
 - `func TestPutRouteSettingHandler_MalformedBody(t *testing.T)`
 
-### `platform\alertmanager\route\validate.go`
+### `platform/alertmanager/route/validate.go`
 
 - `type RouteIssue struct`
 - `func HasBlockingIssue(issues []RouteIssue) bool`
@@ -893,7 +893,7 @@
 - `func parseRouteDurationIfSet(raw string) (int64, bool)`
 - `func ParseRouteDuration(raw string) (int64, bool)`
 
-### `platform\alertmanager\route\validate_test.go`
+### `platform/alertmanager/route/validate_test.go`
 
 - `func TestValidateRouteTree_HealthyTreeNoIssues(t *testing.T)`
 - `func TestValidateRouteTree_RootReceiverRequired(t *testing.T)`
@@ -912,12 +912,12 @@
 - `func TestValidateRouteTree_EditNodeEmptyNameMatcherBlocked(t *testing.T)`
 - `func issueCodes(issues []RouteIssue) []string`
 
-### `platform\alertmanager\silence\authorize.go`
+### `platform/alertmanager/silence/authorize.go`
 
 - `func AuthorizeMatchers(scope *models.AuthorizedMatcherScope, matchers []models.SilenceMatcher) error`
 - `func buildScopeForUser() *models.AuthorizedMatcherScope`
 
-### `platform\alertmanager\silence\handler.go`
+### `platform/alertmanager/silence/handler.go`
 
 - `func queryPage(c *gin.Context) (page, pageSize int)`
 - `func ListHandler(svc *Service) gin.HandlerFunc`
@@ -925,7 +925,7 @@
 - `func DeleteHandler(svc *Service) gin.HandlerFunc`
 - `func paginate(list []Silence, page, pageSize int) (int, []Silence)`
 
-### `platform\alertmanager\silence\label_options.go`
+### `platform/alertmanager/silence/label_options.go`
 
 - `type LabelOption struct`
 - `type LabelOptionGroup struct`
@@ -936,7 +936,7 @@
 - `func externalGroup() LabelOptionGroup`
 - `func LabelOptionsHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\alertmanager\silence\label_options_test.go`
+### `platform/alertmanager/silence/label_options_test.go`
 
 - `func newLabelOptionsTestDB(t *testing.T) *gorm.DB`
 - `func performLabelOptions(t *testing.T, db *gorm.DB) (*httptest.ResponseRecorder, map[string]any)`
@@ -946,7 +946,7 @@
 - `func TestLabelOptionsRuleGroup(t *testing.T)`
 - `func TestLabelOptionsNilDB(t *testing.T)`
 
-### `platform\alertmanager\silence\proxy.go`
+### `platform/alertmanager/silence/proxy.go`
 
 - `type amMatcher struct`
 - `type amSilence struct`
@@ -961,7 +961,7 @@
 - `func decodeList(resp *http.Response) ([]amSilence, error)`
 - `func sanitize(b []byte) string`
 
-### `platform\alertmanager\silence\service.go`
+### `platform/alertmanager/silence/service.go`
 
 - `type Silence struct`
 - `type Service struct`
@@ -975,7 +975,7 @@
 - `func silenceStatusAt(starts, ends time.Time) models.SilenceStatus`
 - `func buildCreateBody(in CreateInput) ([]byte, error)`
 
-### `platform\alertmanager\silence\silence_test.go`
+### `platform/alertmanager/silence/silence_test.go`
 
 - `type fakeAM struct`
 - `method (*fakeAM) setList(s []amSilence)`
@@ -1001,7 +1001,7 @@
 - `func TestDeleteEndpointNotFound(t *testing.T)`
 - `func decodeAt(w *httptest.ResponseRecorder, path []string) string`
 
-### `platform\api\response\response.go`
+### `platform/api/response/response.go`
 
 - `type Response struct`
 - `func Success(data interface{}) Response`
@@ -1021,7 +1021,7 @@
 - `method (strErr) Error() string`
 - `func Conflict(c *gin.Context, err error)`
 
-### `platform\api\response\response_test.go`
+### `platform/api/response/response_test.go`
 
 - `func TestSuccess(t *testing.T)`
 - `func TestSuccessWithNilData(t *testing.T)`
@@ -1040,7 +1040,7 @@
 - `func TestStatusAndErrorTypeConstants(t *testing.T)`
 - `func TestStrError(t *testing.T)`
 
-### `platform\cmd\metric-center\main.go`
+### `platform/cmd/metric-center/main.go`
 
 - `func main()`
 - `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig)…`
@@ -1059,7 +1059,7 @@
 - `type safeResponseWriter struct`
 - `method (*safeResponseWriter) CloseNotify() <-chan bool`
 
-### `platform\cmd\metric-center\main_static_test.go`
+### `platform/cmd/metric-center/main_static_test.go`
 
 - `func newStaticTestDir(t *testing.T) string`
 - `func newSPAEngine(t *testing.T, dir string) *gin.Engine`
@@ -1071,7 +1071,7 @@
 - `func TestRegisterSPA_PathTraversalBlocked(t *testing.T)`
 - `func TestRegisterSPA_InvalidDir(t *testing.T)`
 
-### `platform\cmd\metric-center\main_test.go`
+### `platform/cmd/metric-center/main_test.go`
 
 - `func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB)`
 - `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
@@ -1110,7 +1110,7 @@
 - `method (*bridgeReceiver) append(b []byte)`
 - `method (*bridgeReceiver) snapshot() [][]byte`
 
-### `platform\cmd\metric-center\module07_integration_test.go`
+### `platform/cmd/metric-center/module07_integration_test.go`
 
 - `func buildDeclareXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares [][]stri…`
 - `func writeDeclareSheet(t *testing.T, f *excelize.File, sheet string, header []string, rows [][]string)`
@@ -1120,22 +1120,22 @@
 - `func TestModule07DeclareImportEndToEnd(t *testing.T)`
 - `func assertDictCounts(t *testing.T, dbm *gorm.DB, bizCount, appCount int64)`
 
-### `platform\cmd\metric-center\route_probe_test.go`
+### `platform/cmd/metric-center/route_probe_test.go`
 
 - `func TestRouteProbeParamNameConflict(t *testing.T)`
 
-### `platform\cmd\metric-center\strategy_integration_test.go`
+### `platform/cmd/metric-center/strategy_integration_test.go`
 
 - `func TestEndToEndStrategyScrapeJob(t *testing.T)`
 - `func TestEndToEndStrategyRuleAndMetricLibrary(t *testing.T)`
 
-### `platform\config\label\generator.go`
+### `platform/config/label/generator.go`
 
 - `type SystemLabel struct`
 - `func ComputeSystemLabels(template *models.LabelTemplate, res models.Resource) []SystemLabel`
 - `func GetApplicableTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error)`
 
-### `platform\config\label\generator_test.go`
+### `platform/config/label/generator_test.go`
 
 - `func hostDefaultTemplate() *models.LabelTemplate`
 - `func sampleHost() *models.Host`
@@ -1150,14 +1150,14 @@
 - `func TestGetApplicableTemplateReturnsDefault(t *testing.T)`
 - `func TestGetApplicableTemplateNone(t *testing.T)`
 
-### `platform\config\label\instances.go`
+### `platform/config/label/instances.go`
 
 - `type templateInstanceItem struct`
 - `func ListTemplateResources(db *gorm.DB) gin.HandlerFunc`
 - `func listCategoryInstances(db *gorm.DB, cat models.ResourceCategory, page, pageSize int, keyword, status string) ([]template…`
 - `func queryInstances[T any](db *gorm.DB, rows *[]T, page, pageSize int, keyword, status, keywordCol string, name func(*T) str…`
 
-### `platform\config\label\instances_test.go`
+### `platform/config/label/instances_test.go`
 
 - `func mountTemplateResources(t *testing.T, db *gorm.DB) *gin.Engine`
 - `type templateResourcesResponse struct`
@@ -1175,7 +1175,7 @@
 - `func TestListTemplateResourcesEmptyCategory(t *testing.T)`
 - `func TestListTemplateResourcesTemplateNotFoundAndSoftDeleted(t *testing.T)`
 
-### `platform\config\label\list.go`
+### `platform/config/label/list.go`
 
 - `type templateListItem struct`
 - `func ListLabelTemplates(db *gorm.DB) gin.HandlerFunc`
@@ -1183,7 +1183,7 @@
 - `func countCategoryResources(db *gorm.DB, cat models.ResourceCategory) (int64, error)`
 - `func parseIntDefault(raw string, def, min int) int`
 
-### `platform\config\label\list_test.go`
+### `platform/config/label/list_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newGin() *gin.Engine`
@@ -1204,7 +1204,7 @@
 - `func TestListLabelTemplatesSoftDeleteExcluded(t *testing.T)`
 - `func TestListLabelTemplatesMappingsSerialization(t *testing.T)`
 
-### `platform\config\label\mappings.go`
+### `platform/config/label/mappings.go`
 
 - `type CreateMappingRequest struct`
 - `type UpdateMappingRequest struct`
@@ -1219,7 +1219,7 @@
 - `func UpdateLabelMapping(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteLabelMapping(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\config\label\mappings_test.go`
+### `platform/config/label/mappings_test.go`
 
 - `func mountMappings(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func decodeMappings(t *testing.T, w *httptest.ResponseRecorder) (int, []models.LabelMapping)`
@@ -1247,7 +1247,7 @@
 - `func TestDeleteLabelMappingDefaultTemplateForbidden(t *testing.T)`
 - `func TestValidateMappingsEnhanced(t *testing.T)`
 
-### `platform\config\label\references.go`
+### `platform/config/label/references.go`
 
 - `type TemplateReference struct`
 - `type TemplateReferenceSource interface`
@@ -1258,16 +1258,16 @@
 - `method (*gormTemplateReferenceSource) ListReferences(labelTemplateID uint) ([]TemplateReference, error)`
 - `func ListTemplateReferences(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc`
 
-### `platform\config\label\routes.go`
+### `platform/config/label/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\config\label\template_clone.go`
+### `platform/config/label/template_clone.go`
 
 - `type CloneLabelTemplateRequest struct`
 - `func CloneLabelTemplate(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\config\label\template_crud.go`
+### `platform/config/label/template_crud.go`
 
 - `type CreateLabelTemplateRequest struct`
 - `type UpdateLabelTemplateRequest struct`
@@ -1283,7 +1283,7 @@
 - `func newMappingChanges(mappings []models.LabelMapping) []models.MappingChange`
 - `func removedMappingChanges(mappings []models.LabelMapping) []models.MappingChange`
 
-### `platform\config\label\template_crud_test.go`
+### `platform/config/label/template_crud_test.go`
 
 - `func openCRUDTestDB(t *testing.T) *gorm.DB`
 - `func mountCRUD(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1325,7 +1325,7 @@
 - `func TestListTemplateReferencesEmptyAndNotFound(t *testing.T)`
 - `func TestListTemplateReferencesExcludesSoftDeleted(t *testing.T)`
 
-### `platform\config\resource\app_platform_rel.go`
+### `platform/config/resource/app_platform_rel.go`
 
 - `type AppPlatformRel struct`
 - `type AppPlatformStore struct`
@@ -1346,7 +1346,7 @@
 - `func UpdateAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
 - `func DeleteAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
 
-### `platform\config\resource\app_platform_rel_test.go`
+### `platform/config/resource/app_platform_rel_test.go`
 
 - `func openAppPlatformRelTestDB(t *testing.T) *gorm.DB`
 - `func newAppPlatformStore(t *testing.T) *AppPlatformStore`
@@ -1354,7 +1354,7 @@
 - `func TestValidateAppPlatformRefs_GuidanceByRegistrationState(t *testing.T)`
 - `func TestAppPlatformStorePrimaryPlatformOf(t *testing.T)`
 
-### `platform\config\resource\application_dict.go`
+### `platform/config/resource/application_dict.go`
 
 - `type ApplicationDict struct`
 - `type ApplicationDictStore struct`
@@ -1374,7 +1374,7 @@
 - `func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
 - `func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
 
-### `platform\config\resource\application_dict_test.go`
+### `platform/config/resource/application_dict_test.go`
 
 - `func openAppTestDB(t *testing.T, fixtures ...models.ApplicationDict) *gorm.DB`
 - `func newAppStore(t *testing.T) *ApplicationDictStore`
@@ -1382,12 +1382,12 @@
 - `func TestApplicationDictEndpoints(t *testing.T)`
 - `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) (int, map[string]interface{})`
 
-### `platform\config\resource\application_test.go`
+### `platform/config/resource/application_test.go`
 
 - `func openAppPlatformTestDB(t *testing.T, platforms []models.PlatformDict, apps []models.ApplicationDict) *gorm.DB`
 - `func TestApplicationDictPlatformCodeWriteIgnored(t *testing.T)`
 
-### `platform\config\resource\business.go`
+### `platform/config/resource/business.go`
 
 - `type BusinessDomain struct`
 - `type BusinessDomainStore struct`
@@ -1401,7 +1401,7 @@
 - `method (*BusinessDomainStore) Update(code string, req UpdateBusinessDomainRequest) (BusinessDomain, error)`
 - `func ListBusinessDomains(store *BusinessDomainStore) gin.HandlerFunc`
 
-### `platform\config\resource\business_domain_write.go`
+### `platform/config/resource/business_domain_write.go`
 
 - `type CreateBusinessDomainRequest struct`
 - `type UpdateBusinessDomainRequest struct`
@@ -1409,7 +1409,7 @@
 - `func CreateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
 - `func UpdateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
 
-### `platform\config\resource\business_domain_write_test.go`
+### `platform/config/resource/business_domain_write_test.go`
 
 - `func mountBusinessRouter(t *testing.T) (*gin.Engine, *BusinessDomainStore)`
 - `func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
@@ -1423,7 +1423,7 @@
 - `func TestUpdateBusinessDomainNotFound(t *testing.T)`
 - `func TestUpdateBusinessDomainEmptyNameRejected(t *testing.T)`
 
-### `platform\config\resource\business_test.go`
+### `platform/config/resource/business_test.go`
 
 - `func testBizFixtures() []models.BusinessDomain`
 - `func openBizTestDB(t *testing.T, fixtures ...models.BusinessDomain) *gorm.DB`
@@ -1436,7 +1436,7 @@
 - `func TestListBusinessDomainsHandlerDBBacked(t *testing.T)`
 - `func strPtrT(s string) *string`
 
-### `platform\config\resource\cloud_dict.go`
+### `platform/config/resource/cloud_dict.go`
 
 - `type CloudDict struct`
 - `type CloudDictStore struct`
@@ -1447,12 +1447,12 @@
 - `method (*CloudDictStore) GetEnabledMap() (map[string]CloudDict, error)`
 - `func ListCloudDicts(store *CloudDictStore) gin.HandlerFunc`
 
-### `platform\config\resource\cloud_dict_test.go`
+### `platform/config/resource/cloud_dict_test.go`
 
 - `func TestCloudDictStoreAndHandlerReturnAllEntries(t *testing.T)`
 - `func TestCloudDictStoreNilDBReturnsError(t *testing.T)`
 
-### `platform\config\resource\create.go`
+### `platform/config/resource/create.go`
 
 - `func networkDomainExistsFunc(db *gorm.DB) func(string) bool`
 - `func newResourceID() (string, error)`
@@ -1468,7 +1468,7 @@
 - `func applyInterfaceServiceInput(o *models.InterfaceService, in *ResourceInput)`
 - `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictS…`
 
-### `platform\config\resource\create_update_test.go`
+### `platform/config/resource/create_update_test.go`
 
 - `func openCreateUpdateTestDB(t *testing.T) *gorm.DB`
 - `func mountCreateUpdate(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1498,11 +1498,11 @@
 - `func TestCreateResource_Application_MissingAddressRejected(t *testing.T)`
 - `func TestUpdateResource_Application_AddressPersistsAsGiven(t *testing.T)`
 
-### `platform\config\resource\delete.go`
+### `platform/config/resource/delete.go`
 
 - `func DeleteResource(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\config\resource\delete_test.go`
+### `platform/config/resource/delete_test.go`
 
 - `func openDeleteTestDB(t *testing.T) *gorm.DB`
 - `func mountDelete(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1515,7 +1515,7 @@
 - `func TestDeleteResource_DoubleDelete(t *testing.T)`
 - `func TestDeleteResource_CleansResourceLabels(t *testing.T)`
 
-### `platform\config\resource\excel.go`
+### `platform/config/resource/excel.go`
 
 - `type ImportRow struct`
 - `type ImportRowError struct`
@@ -1535,7 +1535,7 @@
 - `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
 - `func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomain…`
 
-### `platform\config\resource\excel_declare.go`
+### `platform/config/resource/excel_declare.go`
 
 - `type DeclareEntry struct`
 - `type DeclareSheets struct`
@@ -1550,7 +1550,7 @@
 - `func sheetNameField(sheet string) string`
 - `func applyDeclaredDicts(db *gorm.DB, sheets *DeclareSheets) error`
 
-### `platform\config\resource\excel_declare_test.go`
+### `platform/config/resource/excel_declare_test.go`
 
 - `func writeSheetRows(t *testing.T, f *excelize.File, sheet string, header []string, rows [][]string)`
 - `func buildDeclareXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares [][]stri…`
@@ -1584,7 +1584,7 @@
 - `func TestApplyDeclaredDicts_CreatesPlatform(t *testing.T)`
 - `func TestImportResource_PlatformDeclareAtomic(t *testing.T)`
 
-### `platform\config\resource\excel_test.go`
+### `platform/config/resource/excel_test.go`
 
 - `func buildXLSXWithHeader(t *testing.T, header []string, dataRows [][]string) []byte`
 - `func buildXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string) []byte`
@@ -1618,20 +1618,20 @@
 - `func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T)`
 - `func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T)`
 
-### `platform\config\resource\import.go`
+### `platform/config/resource/import.go`
 
 - `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDict…`
 - `func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *ImportRow) (model any, found bool, err error)`
 - `func setSourceType(model any, st models.SourceType)`
 - `func newImportNo() string`
 
-### `platform\config\resource\import_records.go`
+### `platform/config/resource/import_records.go`
 
 - `func ListImports(db *gorm.DB) gin.HandlerFunc`
 - `func GetImportRecord(db *gorm.DB) gin.HandlerFunc`
 - `func isValidImportStatus(s string) bool`
 
-### `platform\config\resource\import_test.go`
+### `platform/config/resource/import_test.go`
 
 - `func openImportTestDB(t *testing.T) *gorm.DB`
 - `func mountImport(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1664,7 +1664,7 @@
 - `func TestGetImportRecord_Detail(t *testing.T)`
 - `func TestGetImportRecord_NotFound(t *testing.T)`
 
-### `platform\config\resource\label_read.go`
+### `platform/config/resource/label_read.go`
 
 - `type labelItem struct`
 - `func GetResourceLabels(db *gorm.DB) gin.HandlerFunc`
@@ -1672,7 +1672,7 @@
 - `func readStoredLabels(db *gorm.DB, resourceID string) ([]labelItem, error)`
 - `func mergeLabels(system, stored []labelItem) []labelItem`
 
-### `platform\config\resource\label_read_test.go`
+### `platform/config/resource/label_read_test.go`
 
 - `func openLabelReadTestDB(t *testing.T) *gorm.DB`
 - `func mountGetResourceLabels(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1693,7 +1693,7 @@
 - `func TestGetResourceLabelsNotFound(t *testing.T)`
 - `func TestGetResourceLabelsNoDefaultTemplate(t *testing.T)`
 
-### `platform\config\resource\label_write.go`
+### `platform/config/resource/label_write.go`
 
 - `type labelWriteRequest struct`
 - `type labelValueRequest struct`
@@ -1705,7 +1705,7 @@
 - `func findLabelByID(db *gorm.DB, resourceID string, labelID uint) (*models.ResourceLabel, error)`
 - `func labelKeyIsSystem(db *gorm.DB, category models.ResourceCategory, model any, key string) bool`
 
-### `platform\config\resource\label_write_test.go`
+### `platform/config/resource/label_write_test.go`
 
 - `func openLabelWriteTestDB(t *testing.T) *gorm.DB`
 - `func mountLabelWriteHandlers(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1742,7 +1742,7 @@
 - `func TestDeleteResourceLabel_ResourceNotFound(t *testing.T)`
 - `func TestResourceLabelUniqueIndex(t *testing.T)`
 
-### `platform\config\resource\list.go`
+### `platform/config/resource/list.go`
 
 - `func ListResources(db *gorm.DB) gin.HandlerFunc`
 - `func listCategory(db *gorm.DB, category models.ResourceCategory, f ListFilter) ([]map[string]interface{}, int64, error)`
@@ -1751,7 +1751,7 @@
 - `func loadDomainCloudZone[T any](db *gorm.DB, rows []T) (map[string]models.NetworkDomain, error)`
 - `func buildListItem(res any, category models.ResourceCategory) map[string]interface{}`
 
-### `platform\config\resource\list_test.go`
+### `platform/config/resource/list_test.go`
 
 - `func openListTestDB(t *testing.T) *gorm.DB`
 - `func mountListResources(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -1784,19 +1784,19 @@
 - `func TestAppCodeColumn(t *testing.T)`
 - `func TestColumnSchemaHelpersCoverAllCategories(t *testing.T)`
 
-### `platform\config\resource\monitored.go`
+### `platform/config/resource/monitored.go`
 
 - `func ParseIsMonitored(raw string) (valid, monitored bool)`
 
-### `platform\config\resource\os_options.go`
+### `platform/config/resource/os_options.go`
 
 - `func ListOSOptions() gin.HandlerFunc`
 
-### `platform\config\resource\os_options_test.go`
+### `platform/config/resource/os_options_test.go`
 
 - `func TestListOSOptions(t *testing.T)`
 
-### `platform\config\resource\platform.go`
+### `platform/config/resource/platform.go`
 
 - `type PlatformDict struct`
 - `type PlatformDictStore struct`
@@ -1815,14 +1815,14 @@
 - `func CreatePlatformDict(store *PlatformDictStore) gin.HandlerFunc`
 - `func UpdatePlatformDict(store *PlatformDictStore) gin.HandlerFunc`
 
-### `platform\config\resource\platform_test.go`
+### `platform/config/resource/platform_test.go`
 
 - `func openPlatformTestDB(t *testing.T, fixtures ...models.PlatformDict) *gorm.DB`
 - `func newPlatformStore(t *testing.T) *PlatformDictStore`
 - `func TestPlatformDictEndpoints(t *testing.T)`
 - `func TestPlatformDictStoreEnabledSemantics(t *testing.T)`
 
-### `platform\config\resource\query.go`
+### `platform/config/resource/query.go`
 
 - `type PageParams struct`
 - `func ParsePageParams(values url.Values) PageParams`
@@ -1832,13 +1832,13 @@
 - `func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter) *gorm.DB`
 - `func parseIntDefault(raw string, def, min int) int`
 
-### `platform\config\resource\references.go`
+### `platform/config/resource/references.go`
 
 - `type ResourceReferenceJob struct`
 - `func ListResourceReferences(db *gorm.DB) gin.HandlerFunc`
 - `func containsInstance(ids []string, target string) bool`
 
-### `platform\config\resource\references_test.go`
+### `platform/config/resource/references_test.go`
 
 - `func openReferencesTestDB(t *testing.T) *gorm.DB`
 - `func refJob(jobName, domain string, ids []string, enabled bool) models.ScrapeJob`
@@ -1849,13 +1849,13 @@
 - `func TestListResourceReferences_NoReference(t *testing.T)`
 - `func TestListResourceReferences_NotFound(t *testing.T)`
 
-### `platform\config\resource\routes.go`
+### `platform/config/resource/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, c…`
 - `func withTypeParam(h gin.HandlerFunc) gin.HandlerFunc`
 - `func listDomainOptions(db *gorm.DB) func() ([]DomainOption, error)`
 
-### `platform\config\resource\status_mapping.go`
+### `platform/config/resource/status_mapping.go`
 
 - `type Rule struct`
 - `func MapStatus(source string, category models.ResourceCategory, extraRules []Rule) (models.ResourceStatus, error)`
@@ -1865,7 +1865,7 @@
 - `func defaultRules() []Rule`
 - `func validStatus(s models.ResourceStatus) bool`
 
-### `platform\config\resource\status_mapping_test.go`
+### `platform/config/resource/status_mapping_test.go`
 
 - `func TestMapStatusDefaultChineseMappings(t *testing.T)`
 - `func TestMapStatusEnglishValuesAndCaseInsensitive(t *testing.T)`
@@ -1876,7 +1876,7 @@
 - `func TestMapStatusDefaultTargetFallback(t *testing.T)`
 - `func TestMapStatusInvalidTargetReturnsError(t *testing.T)`
 
-### `platform\config\resource\template.go`
+### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
 - `type templateColumnDoc struct`
@@ -1887,7 +1887,7 @@
 - `func statusValueDescription() string`
 - `func buildTemplateXLSX(category models.ResourceCategory, valueRows [][]string) ([]byte, error)`
 
-### `platform\config\resource\template_test.go`
+### `platform/config/resource/template_test.go`
 
 - `func fakeDomains() ([]DomainOption, error)`
 - `func setupTemplateRouter(t *testing.T) *gin.Engine`
@@ -1916,14 +1916,14 @@
 - `func TestDownloadedTemplateParsesToZeroRows(t *testing.T)`
 - `func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T)`
 
-### `platform\config\resource\update.go`
+### `platform/config/resource/update.go`
 
 - `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
 - `func sourceTypeOf(model any) models.SourceType`
 - `func updatableColumns(category models.ResourceCategory) []string`
 - `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictS…`
 
-### `platform\config\resource\validate.go`
+### `platform/config/resource/validate.go`
 
 - `type ResourceInput struct`
 - `type KeepDisabledValues struct`
@@ -1956,7 +1956,7 @@
 - `func isValidStatus(s string) bool`
 - `func containsString(list []string, v string) bool`
 
-### `platform\config\resource\validate_test.go`
+### `platform/config/resource/validate_test.go`
 
 - `func alwaysExists(string) bool`
 - `func validHostInput() *ResourceInput`
@@ -1990,7 +1990,7 @@
 - `func TestGetResourceField_ScrapePort(t *testing.T)`
 - `func TestScrapePort_CreateUpdateListChannels(t *testing.T)`
 
-### `platform\configcenter\change\watcher.go`
+### `platform/configcenter/change/watcher.go`
 
 - `func Start(ctx context.Context, db *gorm.DB, minInterval, maxInterval time.Duration)`
 - `func runDetectionPass(db *gorm.DB, minInterval, maxInterval time.Duration) error`
@@ -2000,7 +2000,7 @@
 - `func upsertBaseline( db *gorm.DB, domainID, sourceVersion string, status models.ChangeDetectStatus, lastErr string, checkedA…`
 - `func recordDetectFailed(db *gorm.DB, domainID, stage string, cause error, minInterval, maxInterval time.Duration) error`
 
-### `platform\configcenter\change\watcher_test.go`
+### `platform/configcenter/change/watcher_test.go`
 
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func seedDomain(t *testing.T, db *gorm.DB, id string, monitored bool)`
@@ -2019,7 +2019,7 @@
 - `func TestProcessDomain_AdaptiveBackoff(t *testing.T)`
 - `func versionAtInit(t *testing.T, db *gorm.DB, domainID string) string`
 
-### `platform\configcenter\deployment\callback.go`
+### `platform/configcenter/deployment/callback.go`
 
 - `func writebackChangeStatus(db *gorm.DB, domainID string) error`
 - `func writebackRuleChangeStatus(db *gorm.DB) error`
@@ -2029,7 +2029,7 @@
 - `func writebackAlertmanagerSource(db *gorm.DB, version *models.ConfigVersion, sourceID uint, at time.Time) error`
 - `func applyAlertmanagerWriteback(db *gorm.DB, cfg *models.AlertmanagerConfigVersion, changeNo string, at time.Time) error`
 
-### `platform\configcenter\deployment\callback_alertmanager_test.go`
+### `platform/configcenter/deployment/callback_alertmanager_test.go`
 
 - `func TestDispatchAlertmanagerWritebackPreciseSource(t *testing.T)`
 - `func TestDispatchAlertmanagerWritebackMarksSiblings(t *testing.T)`
@@ -2039,7 +2039,7 @@
 - `func seedAMVersionPending(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
 - `func seedAMSourceDraft(t *testing.T, db *gorm.DB, domainID, changeNo string, sourceAMVersionID uint) *models.ConfigDraft`
 
-### `platform\configcenter\deployment\deployment_test.go`
+### `platform/configcenter/deployment/deployment_test.go`
 
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func seedLocalDomain(t *testing.T, db *gorm.DB, id string)`
@@ -2087,7 +2087,7 @@
 - `func mustJSON(t *testing.T, s string) *strings.Reader`
 - `func adminInjector() gin.HandlerFunc`
 
-### `platform\configcenter\deployment\handler.go`
+### `platform/configcenter/deployment/handler.go`
 
 - `func queryPage(c *gin.Context) (page, pageSize int)`
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
@@ -2099,7 +2099,7 @@
 - `func RollbackDeploymentHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondDeploymentError(c *gin.Context, err error)`
 
-### `platform\configcenter\deployment\history.go`
+### `platform/configcenter/deployment/history.go`
 
 - `func ListVersions(db *gorm.DB, domainID, changeNo string, page, pageSize int) ([]models.ConfigVersion, int64, error)`
 - `func GetVersion(db *gorm.DB, ref string) (*models.ConfigVersion, error)`
@@ -2109,14 +2109,14 @@
 - `func pagedVersions(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigVersion, int64, error)`
 - `func pagedDeployments(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigDeployment, int64, error)`
 
-### `platform\configcenter\deployment\rollback_preview.go`
+### `platform/configcenter/deployment/rollback_preview.go`
 
 - `func RollbackPreview(db *gorm.DB, versionID string) (*models.RollbackPreview, error)`
 - `func currentEffectiveVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
 - `func changeItemsOfVersion(db *gorm.DB, v *models.ConfigVersion) ([]models.ConfigChangeItem, error)`
 - `func deriveRollbackDiff(targetItems, currentItems []models.ConfigChangeItem) []models.RollbackDiffItem`
 
-### `platform\configcenter\deployment\service.go`
+### `platform/configcenter/deployment/service.go`
 
 - `type Applier interface`
 - `type noopApplier struct`
@@ -2142,7 +2142,7 @@
 - `func nextDeploymentID(db *gorm.DB) (string, error)`
 - `func writeFileAtomic(path, content string) error`
 
-### `platform\configcenter\domain\onboard.go`
+### `platform/configcenter/domain/onboard.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `func MonitorDomainHandler(db *gorm.DB) gin.HandlerFunc`
@@ -2150,7 +2150,7 @@
 - `func ResetTokenHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondDomainError(c *gin.Context, err error)`
 
-### `platform\configcenter\domain\onboard_test.go`
+### `platform/configcenter/domain/onboard_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func seedDomain(t *testing.T, db *gorm.DB, id string, domainType models.DomainType, monitored bool) *models.NetworkDomain`
@@ -2175,7 +2175,7 @@
 - `func TestMonitorHandlerRoutes(t *testing.T)`
 - `func TestResetTokenHandler(t *testing.T)`
 
-### `platform\configcenter\domain\service.go`
+### `platform/configcenter/domain/service.go`
 
 - `type MonitorParams struct`
 - `type MonitorOutcome struct`
@@ -2187,7 +2187,7 @@
 - `func newToken() (string, error)`
 - `func validateMaxDiskUsage(v string) error`
 
-### `platform\configcenter\draft\change_items.go`
+### `platform/configcenter/draft/change_items.go`
 
 - `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
 - `func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
@@ -2208,7 +2208,7 @@
 - `func normalizeYAML(v interface{}) string`
 - `func sortedKeys(m map[string]string) []string`
 
-### `platform\configcenter\draft\change_items_target_test.go`
+### `platform/configcenter/draft/change_items_target_test.go`
 
 - `func seedHostWithIP(t *testing.T, db *gorm.DB, domainID, resourceID, ip string)`
 - `func seedJobWithInstances(t *testing.T, db *gorm.DB, domainID, name string, instanceIDs []string) *models.ScrapeJob`
@@ -2225,7 +2225,7 @@
 - `func TestTargetLevelItemsTolerateBrokenBaseSnapshot(t *testing.T)`
 - `func TestBuildSummaryTargetLabel(t *testing.T)`
 
-### `platform\configcenter\draft\draft_test.go`
+### `platform/configcenter/draft/draft_test.go`
 
 - `func TestMain(m *testing.M)`
 - `func stubValidationTools(t *testing.T)`
@@ -2276,7 +2276,7 @@
 - `func TestGenerateDraftDiscardsOrphanPendings(t *testing.T)`
 - `func TestGenerateDraftConcurrentSameDomain(t *testing.T)`
 
-### `platform\configcenter\draft\handler.go`
+### `platform/configcenter/draft/handler.go`
 
 - `func queryPage(c *gin.Context) (page, pageSize int)`
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
@@ -2289,7 +2289,7 @@
 - `func DiscardImpactHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondDraftError(c *gin.Context, err error)`
 
-### `platform\configcenter\draft\service.go`
+### `platform/configcenter/draft/service.go`
 
 - `func lockDomain(domainID string) func()`
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
@@ -2327,7 +2327,7 @@
 - `func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, error)`
 
-### `platform\configcenter\draft\service_alertmanager_discard_test.go`
+### `platform/configcenter/draft/service_alertmanager_discard_test.go`
 
 - `func TestDiscardDraftMarksOrphanAlertmanagerVersions(t *testing.T)`
 - `func TestDiscardDraftKeepsAppliedAlertmanagerVersion(t *testing.T)`
@@ -2338,7 +2338,7 @@
 - `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
 - `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
 
-### `platform\configcenter\draft\service_route_preset_test.go`
+### `platform/configcenter/draft/service_route_preset_test.go`
 
 - `type presetRouteView struct`
 - `type presetAMView struct`
@@ -2356,7 +2356,7 @@
 - `func TestSeedManagedRoutePreset_NoRouteDegradesWithoutError(t *testing.T)`
 - `func TestSeedManagedRoutePreset_NoAlertmanagerYMLNoOp(t *testing.T)`
 
-### `platform\configcenter\draft\service_route_test.go`
+### `platform/configcenter/draft/service_route_test.go`
 
 - `func seedAlertmanagerContent(t *testing.T, db *gorm.DB, content string)`
 - `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) uint`
@@ -2366,7 +2366,7 @@
 - `func TestGenerateDraft_RootRouteRebuiltEmitsChangeItem(t *testing.T)`
 - `func TestGenerateDraft_NoRootRouteChangeNoChangeItem(t *testing.T)`
 
-### `platform\configcenter\draft\service_test.go`
+### `platform/configcenter/draft/service_test.go`
 
 - `func newTestDB(t *testing.T) *gorm.DB`
 - `func seedDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain`
@@ -2386,13 +2386,13 @@
 - `func TestShouldSupersedePending_BrokenMetadata(t *testing.T)`
 - `func TestGenerateDraft_RulesOnlyForCenterEvaluator(t *testing.T)`
 
-### `platform\configcenter\generator\change_detect.go`
+### `platform/configcenter/generator/change_detect.go`
 
 - `type sourceVersionRow struct`
 - `func SourceDataVersion(db *gorm.DB, domainID string) (string, error)`
 - `func NeedsRegeneration(prevSourceVersion, newSourceVersion string) bool`
 
-### `platform\configcenter\generator\data_source.go`
+### `platform/configcenter/generator/data_source.go`
 
 - `type Inputs struct`
 - `type resourceTarget struct`
@@ -2409,7 +2409,7 @@
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
 
-### `platform\configcenter\generator\generator.go`
+### `platform/configcenter/generator/generator.go`
 
 - `type ConfigArtifacts struct`
 - `type TargetDiagnostics struct`
@@ -2421,7 +2421,7 @@
 - `func NormalizeJobFilename(jobName string) string`
 - `func normalizeJobFilename(jobName string) string`
 
-### `platform\configcenter\generator\generator_test.go`
+### `platform/configcenter/generator/generator_test.go`
 
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func TestAssemblePrometheusExternalLabels(t *testing.T)`
@@ -2483,13 +2483,13 @@
 - `func TestDefaultMappingBuildersPlatformMapping(t *testing.T)`
 - `func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T)`
 
-### `platform\configcenter\generator\labels.go`
+### `platform/configcenter/generator/labels.go`
 
 - `func mergeLabels(system, user, cmdb map[string]string) map[string]string`
 - `func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string) map[string]string`
 - `func mergeIntoLabels(system, templateLabels map[string]string) map[string]string`
 
-### `platform\configcenter\generator\notify_receivers.go`
+### `platform/configcenter/generator/notify_receivers.go`
 
 - `type NotifyReceiverInput struct`
 - `type NotifyReceiverConflict struct`
@@ -2506,7 +2506,7 @@
 - `func receiverNameOnly(recv *yaml.Node) bool`
 - `func isPlatformBridgeURL(u string) bool`
 
-### `platform\configcenter\generator\notify_receivers_test.go`
+### `platform/configcenter/generator/notify_receivers_test.go`
 
 - `func chWithID(id uint, name string) models.NotifyChannel`
 - `func TestMaterializeNotifyReceiversAppendsPlatformReceiver(t *testing.T)`
@@ -2522,7 +2522,7 @@
 - `func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T)`
 
-### `platform\configcenter\generator\notify_route_generate.go`
+### `platform/configcenter/generator/notify_route_generate.go`
 
 - `type RouteEditMatcher struct`
 - `type RouteEditNode struct`
@@ -2543,7 +2543,7 @@
 - `func routeSectionNode(generated string) (*yaml.Node, error)`
 - `func routeSectionReceiverNames(routeYAML string) ([]string, error)`
 
-### `platform\configcenter\generator\notify_route_generate_test.go`
+### `platform/configcenter/generator/notify_route_generate_test.go`
 
 - `func ptrBool(b bool) *bool`
 - `func sampleRouteEditTree() []RouteEditNode`
@@ -2568,7 +2568,7 @@
 - `method (*amtoolFailure) Error() string`
 - `func collectYAMLKeys(t *testing.T, content string) []string`
 
-### `platform\configcenter\generator\notify_route_preset.go`
+### `platform/configcenter/generator/notify_route_preset.go`
 
 - `type RoutePresetInput struct`
 - `type RoutePresetDiagnostic struct`
@@ -2584,7 +2584,7 @@
 - `func appendPresetInhibitRule(root *yaml.Node)`
 - `func presetMatcherSequence(shorthand string) *yaml.Node`
 
-### `platform\configcenter\generator\notify_route_preset_test.go`
+### `platform/configcenter/generator/notify_route_preset_test.go`
 
 - `func managedPresetInput() RoutePresetInput`
 - `func TestSeedManagedRoutePreset_ManagedInjectsCompleteExample(t *testing.T)`
@@ -2608,14 +2608,14 @@
 - `func TestSeedManagedRoutePreset_EmptyBaseIsNoOp(t *testing.T)`
 - `func TestSeedManagedRoutePreset_DiagnosticMessagesAreActionable(t *testing.T)`
 
-### `platform\configcenter\generator\notify_route_skeleton.go`
+### `platform/configcenter/generator/notify_route_skeleton.go`
 
 - `type RootRouteInput struct`
 - `type RootRouteDiagnostic struct`
 - `func MaterializeRootRouteReceiver(baseYAML string, in RootRouteInput) (string, []RootRouteDiagnostic, error)`
 - `func knownReceiverNames(root *yaml.Node, platformNames []string) map[string]bool`
 
-### `platform\configcenter\generator\notify_route_skeleton_test.go`
+### `platform/configcenter/generator/notify_route_skeleton_test.go`
 
 - `func TestMaterializeRootRouteReceiverDisabledByteIdentical(t *testing.T)`
 - `func TestMaterializeRootRouteReceiverReplacesOnlyRootReceiver(t *testing.T)`
@@ -2632,7 +2632,7 @@
 - `func parseRootRoute(t *testing.T, yml string) routeNodeView`
 - `func parseRouteTree(t *testing.T, yml string) []routeNodeView`
 
-### `platform\configcenter\generator\render.go`
+### `platform/configcenter/generator/render.go`
 
 - `type cfgGlobal struct`
 - `type cfgAlerting struct`
@@ -2655,7 +2655,7 @@
 - `func renderBlackbox(modules map[string]struct{}) string`
 - `func renderBlackboxModule(module string) string`
 
-### `platform\configcenter\generator\targets.go`
+### `platform/configcenter/generator/targets.go`
 
 - `type SkippedInstance struct`
 - `func addressEmptyDetail(category string) string`
@@ -2667,7 +2667,7 @@
 - `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
 - `func EnsureTargetsFilename(name string) error`
 
-### `platform\configcenter\generator\validate.go`
+### `platform/configcenter/generator/validate.go`
 
 - `type ToolCheckStatus = int`
 - `func ValidateTargetGroups(groups []TargetGroup) error`
@@ -2687,7 +2687,7 @@
 - `func runBlackboxCheck(blackboxYAML string) error`
 - `func runAmmtoolCheck(alertmanagerYAML string) error`
 
-### `platform\configcenter\generator\validate_toolcheck_test.go`
+### `platform/configcenter/generator/validate_toolcheck_test.go`
 
 - `func TestToolCheckErrorKeepsToolOutput(t *testing.T)`
 - `func TestToolCheckErrorEmptyOutputFallsBackToExecError(t *testing.T)`
@@ -2700,11 +2700,11 @@
 - `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
 - `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
 
-### `platform\configcenter\portchain\portchain.go`
+### `platform/configcenter/portchain/portchain.go`
 
 - `func Resolve(scrapePort, mappingPort, templatePort, businessPort int) (port int, source string)`
 
-### `platform\configcenter\portchain\portchain_test.go`
+### `platform/configcenter/portchain/portchain_test.go`
 
 - `func TestResolveFourLevelPermutations(t *testing.T)`
 - `func TestResolveAllZeroUnresolved(t *testing.T)`
@@ -2712,11 +2712,11 @@
 - `func TestResolveHostNoBusinessTier(t *testing.T)`
 - `func TestResolveHostCallFormNeverBusiness(t *testing.T)`
 
-### `platform\configcenter\register.go`
+### `platform/configcenter/register.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\dashboard\collection_health.go`
+### `platform/dashboard/collection_health.go`
 
 - `type CollectionHealth struct`
 - `type UpHealthIndex struct`
@@ -2727,7 +2727,7 @@
 - `method (*PromUpHealthQuerier) queryResourceIDs(ctx context.Context, expr string) (map[string]bool, map[string]bool, error)`
 - `func classifyCollectionHealth(dispatched []string, idx *UpHealthIndex) *CollectionHealth`
 
-### `platform\dashboard\collection_health_test.go`
+### `platform/dashboard/collection_health_test.go`
 
 - `type fakeUpHealthQuerier struct`
 - `method (*fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error)`
@@ -2739,7 +2739,7 @@
 - `func TestPromUpHealthQuerierUpHealth(t *testing.T)`
 - `func TestPromUpHealthQuerierNilBase(t *testing.T)`
 
-### `platform\dashboard\probe.go`
+### `platform/dashboard/probe.go`
 
 - `type ProbeSample struct`
 - `type ProbeQuerier interface`
@@ -2747,18 +2747,21 @@
 - `func NewPromProbeQuerier(baseURL *url.URL, client *http.Client) *PromProbeQuerier`
 - `method (*PromProbeQuerier) ProbeSuccess(ctx context.Context) (map[string]map[string]ProbeSample, error)`
 
-### `platform\dashboard\probe_test.go`
+### `platform/dashboard/probe_test.go`
 
 - `func TestPromProbeQuerierProbeSuccess(t *testing.T)`
 - `func TestPromProbeQuerierNilBase(t *testing.T)`
 
-### `platform\dashboard\summary.go`
+### `platform/dashboard/summary.go`
 
 - `func resourceModels() []interface{}`
 - `type DeploymentItem struct`
 - `type ProbeTargetItem struct`
 - `func lookupProbeSample( index map[string]map[string]ProbeSample, jobName string, addr string, ) (ProbeSample, bool)`
 - `type Summary struct`
+- `type PlatformAppSummary struct`
+- `type PlatformAppCell struct`
+- `type CloudSummary struct`
 - `type CategorySummary struct`
 - `type SubtypeSummary struct`
 - `type AppSummary struct`
@@ -2767,6 +2770,18 @@
 - `func WithProbeQuerier(q ProbeQuerier) Option`
 - `func WithUpHealthQuerier(q UpHealthQuerier) Option`
 - `func Build(db *gorm.DB, opts ...Option) (*Summary, error)`
+- `func accumulateHostCell(cells map[string]map[string]int, platformCode, appCode string)`
+- `func buildPlatformAppSummary( hostCells map[string]map[string]int, platformNames map[string]string, appNames map[string]stri…`
+- `func platformAppRow( platformCode string, row map[string]int, platformNames map[string]string, appNames map[string]string, )…`
+- `func resolvePlatformName(code string, platformNames map[string]string) string`
+- `func resolveAppName(code string, appNames map[string]string) string`
+- `type cloudAgg struct`
+- `func accumulateCloudCell(aggs map[string]*cloudAgg, cloudCode string, monitored bool)`
+- `func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) []CloudSummary`
+- `func cloudSummaryRow(code string, agg *cloudAgg, cloudNames map[string]string) CloudSummary`
+- `func resolveCloudName(code string, cloudNames map[string]string) string`
+- `func loadDomainCloudCodes(db *gorm.DB) (map[string]string, error)`
+- `func loadCloudNames(db *gorm.DB) (map[string]string, error)`
 - `type categoryAgg struct`
 - `type subAgg struct`
 - `type appAgg struct`
@@ -2776,7 +2791,7 @@
 - `func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error)`
 - `func SummaryHandler(db *gorm.DB, opts ...Option) gin.HandlerFunc`
 
-### `platform\dashboard\summary_test.go`
+### `platform/dashboard/summary_test.go`
 
 - `func strPtr(s string) *string`
 - `func newTestDB(t *testing.T) *gorm.DB`
@@ -2792,17 +2807,34 @@
 - `func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T)`
 - `func TestSummaryProbeTargetsUnknownWhenNoSample(t *testing.T)`
 - `func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T)`
+- `func TestSummaryProbeTargetsCoversBothCategories(t *testing.T)`
+- `func TestSummaryProbeTargetAppFallsBackToCodes(t *testing.T)`
 - `func TestLookupProbeSampleMatchesAddress(t *testing.T)`
 - `func TestLookupProbeSampleNilIndex(t *testing.T)`
 - `func TestResourceModelsAlignWithValidCategories(t *testing.T)`
+- `func seedMatrixHosts(t *testing.T, db *gorm.DB)`
+- `func findPlatformRow(rows []PlatformAppSummary, code string) *PlatformAppSummary`
+- `func TestSummaryByPlatformAppInvariants(t *testing.T)`
+- `func TestSummaryByPlatformAppTopNAndOther(t *testing.T)`
+- `func TestSummaryByPlatformAppEmptyAndNoHost(t *testing.T)`
+- `func TestSummaryByPlatformAppWithSeedFixture(t *testing.T)`
+- `func TestPlatformAppOtherCodeDoesNotCollide(t *testing.T)`
+- `func seedCloudHosts(t *testing.T, db *gorm.DB)`
+- `func findCloudRow(rows []CloudSummary, code string) *CloudSummary`
+- `func TestSummaryByCloudInvariants(t *testing.T)`
+- `func categoryOfHost(t *testing.T, s *Summary) (int, int)`
+- `func TestSummaryByCloudZeroResourceCountNoDivideByZero(t *testing.T)`
+- `func TestSummaryByCloudOnlyHosts(t *testing.T)`
+- `func TestSummaryByCloudWithSeedFixture(t *testing.T)`
+- `func TestSummaryByCloudJSONTags(t *testing.T)`
 
-### `platform\db\db.go`
+### `platform/db/db.go`
 
 - `func Init() error`
 - `func AutoMigrate() error`
 - `func Health() error`
 
-### `platform\db\db_test.go`
+### `platform/db/db_test.go`
 
 - `func TestInitWithEnvDSN(t *testing.T)`
 - `func TestAutoMigrate(t *testing.T)`
@@ -2811,11 +2843,11 @@
 - `func TestHealthWithoutInit(t *testing.T)`
 - `func TestSharedTablesCreatedAndHealthOK(t *testing.T)`
 
-### `platform\db\seed\admin.go`
+### `platform/db/seed/admin.go`
 
 - `func runAdminUser(db *gorm.DB) error`
 
-### `platform\db\seed\admin_test.go`
+### `platform/db/seed/admin_test.go`
 
 - `func TestRunSeedsAdminUser(t *testing.T)`
 - `func TestRunAdminIsIdempotent(t *testing.T)`
@@ -2823,11 +2855,11 @@
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
 
-### `platform\db\seed\app_platform_rel.go`
+### `platform/db/seed/app_platform_rel.go`
 
 - `func runAppPlatformBackfill(db *gorm.DB) error`
 
-### `platform\db\seed\app_platform_rel_test.go`
+### `platform/db/seed/app_platform_rel_test.go`
 
 - `func relOf(t *testing.T, db *gorm.DB, appCode, platformCode string) models.AppPlatformRel`
 - `func primaryOf(t *testing.T, db *gorm.DB, appCode string) string`
@@ -2835,18 +2867,18 @@
 - `func TestRunAppPlatformBackfillIdempotent(t *testing.T)`
 - `func TestRunAppPlatformBackfillSkipsExistingPrimary(t *testing.T)`
 
-### `platform\db\seed\application_dict.go`
+### `platform/db/seed/application_dict.go`
 
 - `func ApplicationDict(db *gorm.DB) error`
 
-### `platform\db\seed\business_domain.go`
+### `platform/db/seed/business_domain.go`
 
 - `type yamlBusinessDomain struct`
 - `func BusinessDomains(db *gorm.DB, path string) error`
 - `func readBusinessDomainsFile(path string) ([]yamlBusinessDomain, error)`
 - `func containsBizCode(entries []yamlBusinessDomain, code string) bool`
 
-### `platform\db\seed\business_domain_test.go`
+### `platform/db/seed/business_domain_test.go`
 
 - `func openBizSeedTestDB(t *testing.T) *gorm.DB`
 - `func writeBizSeedYAML(t *testing.T, content string) string`
@@ -2858,38 +2890,38 @@
 - `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
 - `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
 
-### `platform\db\seed\cloud_dict.go`
+### `platform/db/seed/cloud_dict.go`
 
 - `func runCloudDicts(db *gorm.DB) error`
 
-### `platform\db\seed\cloud_dict_test.go`
+### `platform/db/seed/cloud_dict_test.go`
 
 - `func TestRunSeedsCloudDictIdempotently(t *testing.T)`
 - `func TestRunCloudDictsRealignsPresetValues(t *testing.T)`
 
-### `platform\db\seed\domain_channel.go`
+### `platform/db/seed/domain_channel.go`
 
 - `func runDomainChannelBackfill(db *gorm.DB) error`
 
-### `platform\db\seed\domain_channel_test.go`
+### `platform/db/seed/domain_channel_test.go`
 
 - `func channelOf(t *testing.T, db *gorm.DB, id string) models.ChannelType`
 - `func TestRunBackfillsDomainChannelFromDomainType(t *testing.T)`
 - `func TestRunBackfillsManagementChannel(t *testing.T)`
 - `func TestRunLeavesDomainTypeUnsetRowsUntouched(t *testing.T)`
 
-### `platform\db\seed\exporter.go`
+### `platform/db/seed/exporter.go`
 
 - `func runExporters(db *gorm.DB) error`
 
-### `platform\db\seed\label_template.go`
+### `platform/db/seed/label_template.go`
 
 - `func runLabelTemplates(db *gorm.DB) error`
 - `func ensurePlatformMapping(db *gorm.DB, name string) error`
 - `func ensureLabelMapping(db *gorm.DB, name string, mapping models.LabelMapping) error`
 - `func ensureResourceIDMapping(db *gorm.DB, name string) error`
 
-### `platform\db\seed\label_template_test.go`
+### `platform/db/seed/label_template_test.go`
 
 - `func legacyLabelMappingSet(cat models.ResourceCategory) []models.LabelMapping`
 - `func seedLegacyLabelTemplates(t *testing.T, db *gorm.DB)`
@@ -2900,28 +2932,28 @@
 - `func TestRunLabelTemplatesBackfillIdempotent(t *testing.T)`
 - `func TestEnsurePlatformMappingAppendOnce(t *testing.T)`
 
-### `platform\db\seed\metric_library.go`
+### `platform/db/seed/metric_library.go`
 
 - `type builtinMetricSeed struct`
 - `func BuiltinMetricLibrary() []builtinMetricSeed`
 - `func runMetricLibrary(db *gorm.DB) error`
 
-### `platform\db\seed\scrape_path.go`
+### `platform/db/seed/scrape_path.go`
 
 - `func runScrapeJobMetricsPathBackfill(db *gorm.DB) error`
 
-### `platform\db\seed\scrape_path_test.go`
+### `platform/db/seed/scrape_path_test.go`
 
 - `func metricsPathOf(t *testing.T, db *gorm.DB, id uint) string`
 - `func TestRunScrapeJobMetricsPathBackfillTrimsDirtyPath(t *testing.T)`
 - `func TestRunScrapeJobMetricsPathBackfillHandlesPureWhitespace(t *testing.T)`
 
-### `platform\db\seed\seed.go`
+### `platform/db/seed/seed.go`
 
 - `func Run(db *gorm.DB) error`
 - `func firstOrCreate(db *gorm.DB, out interface{}, query string, args ...interface{}) error`
 
-### `platform\db\seed\seed_test.go`
+### `platform/db/seed/seed_test.go`
 
 - `func newTestDB(t *testing.T) *gorm.DB`
 - `func countRows(t *testing.T, db *gorm.DB, model interface{}, out *int64)`
@@ -2938,22 +2970,22 @@
 - `func TestRunSeedsDefaultDomainAuthorized(t *testing.T)`
 - `func TestRunBackfillsAuthorizedOnExistingDefault(t *testing.T)`
 
-### `platform\db\seed\ten_domain.go`
+### `platform/db/seed/ten_domain.go`
 
 - `func runTenantAndDomain(db *gorm.DB) error`
 
-### `platform\db\seed\zone_type.go`
+### `platform/db/seed/zone_type.go`
 
 - `func runZoneTypes(db *gorm.DB) error`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\heartbeat.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go`
 
 - `func buildHeartbeatRequest( cfg *config.Config, configVersion string, queueBacklogBytes int64, remoteWriteQueueSize int, hos…`
 - `type runtimeProvider struct`
 - `method (*runtimeProvider) Snapshot() puller.RuntimeSnapshot`
 - `method (*runtimeProvider) warnf(format string, args ...any)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\heartbeat_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat_test.go`
 
 - `func TestBuildHeartbeatRequestMapping(t *testing.T)`
 - `func badApplyZip(t *testing.T, version string) []byte`
@@ -2973,7 +3005,7 @@
 - `func TestEnvOr(t *testing.T)`
 - `func TestVersionFlagString(t *testing.T)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\main.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/main.go`
 
 - `func main()`
 - `func run() error`
@@ -2981,23 +3013,23 @@
 - `func hasBlackboxYML(dep *deployer.Deployer, ver string) bool`
 - `func localIP() string`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\pdeathsig_linux.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux.go`
 
 - `func configureSysProcAttr(cmd *exec.Cmd)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\pdeathsig_linux_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux_test.go`
 
 - `func TestConfigureSysProcAttrSetsPdeathsig(t *testing.T)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\pdeathsig_other.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other.go`
 
 - `func configureSysProcAttr(_ *exec.Cmd)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\pdeathsig_other_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other_test.go`
 
 - `func TestConfigureSysProcAttrNoopOnNonLinux(t *testing.T)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\probe.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go`
 
 - `func sameArgs(a, b []string) bool`
 - `type procSpec struct`
@@ -3022,7 +3054,7 @@
 - `func resolveMaxDiskUsagePerURL(metadataVal string) string`
 - `func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\probe_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
 
 - `func TestHTTPGetOK200AndNon200(t *testing.T)`
 - `func TestHTTPPostOKReload(t *testing.T)`
@@ -3037,7 +3069,7 @@
 - `func TestMetadataMaxDiskUsage(t *testing.T)`
 - `func TestCollectorArgsCarryMaxDiskUsage(t *testing.T)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\vmremote.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote.go`
 
 - `type vmRemoteWriteStats struct`
 - `method (vmRemoteWriteStats) BacklogBytes() int64`
@@ -3047,7 +3079,7 @@
 - `func cutMetricLine(line, metric string) (string, bool)`
 - `func parsePromValue(rest string) (float64, bool)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\vmremote_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote_test.go`
 
 - `func TestParsePromGauge(t *testing.T)`
 - `func TestFetchVMAgentRemoteWriteStats(t *testing.T)`
@@ -3057,7 +3089,7 @@
 - `func TestBacklogBytes(t *testing.T)`
 - `func TestFetchVMAgentRemoteWriteStatsPersistentQueue(t *testing.T)`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\vmtargets.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets.go`
 
 - `type vmTargetResp struct`
 - `type vmTargetRespData struct`
@@ -3066,7 +3098,7 @@
 - `func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) []co…`
 - `func newVMTargetsClient() *http.Client`
 
-### `platform\edge-sync-agent\cmd\edge-sync-agent\vmtargets_test.go`
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets_test.go`
 
 - `func TestParseEdgeTargetsFullMapping(t *testing.T)`
 - `func TestParseEdgeTargetsEmptyActive(t *testing.T)`
@@ -3074,7 +3106,7 @@
 - `func TestFetchVMAgentTargets(t *testing.T)`
 - `func TestFetchVMAgentTargetsContractType(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\client\client.go`
+### `platform/edge-sync-agent/internal/client/client.go`
 
 - `type Client struct`
 - `func NewClient(cfg *config.Config, tok *token.Store, logg *logger.Logger) *Client`
@@ -3088,7 +3120,7 @@
 - `method (*Client) warnf(f string, a ...any)`
 - `method (*Client) sleep(ctx context.Context, d time.Duration)`
 
-### `platform\edge-sync-agent\internal\client\client_test.go`
+### `platform/edge-sync-agent/internal/client/client_test.go`
 
 - `func testCfg(endpoint string) *config.Config`
 - `func newTestClient(endpoint string, clock func() time.Time) *Client`
@@ -3099,7 +3131,7 @@
 - `func TestWaitAuthBackoffBackoffSequenceAndDowngrade(t *testing.T)`
 - `func TestWaitAuthBackoffLogsDowngrade(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\config\config.go`
+### `platform/edge-sync-agent/internal/config/config.go`
 
 - `type Config struct`
 - `func Defaults() *Config`
@@ -3107,13 +3139,13 @@
 - `func DefaultAgentTypeOverride(envKey string) string`
 - `func envDefault(key, def string) string`
 
-### `platform\edge-sync-agent\internal\config\config_test.go`
+### `platform/edge-sync-agent/internal/config/config_test.go`
 
 - `func TestDefaultsValues(t *testing.T)`
 - `func TestLoadMissingRequired(t *testing.T)`
 - `func TestLoadWithEnv(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\contract\contract.go`
+### `platform/edge-sync-agent/internal/contract/contract.go`
 
 - `type EdgeTargetSnapshot struct`
 - `type Component struct`
@@ -3121,7 +3153,7 @@
 - `type HeartbeatResponse struct`
 - `type Metadata struct`
 
-### `platform\edge-sync-agent\internal\contract\contract_test.go`
+### `platform/edge-sync-agent/internal/contract/contract_test.go`
 
 - `func TestHeartbeatRequestJSONRoundTrip(t *testing.T)`
 - `func TestHeartbeatRequestJSONCarriesRemoteWriteStats(t *testing.T)`
@@ -3132,7 +3164,7 @@
 - `func TestHeartbeatRequestJSONCarriesTargets(t *testing.T)`
 - `func TestHeartbeatRequestJSONCarriesApplyError(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\deployer\deployer.go`
+### `platform/edge-sync-agent/internal/deployer/deployer.go`
 
 - `type ComponentType = string`
 - `type Reloader`
@@ -3159,7 +3191,7 @@
 - `method (*Deployer) stagingDir() string`
 - `func writePackage(dir string, pkg *Package) error`
 
-### `platform\edge-sync-agent\internal\deployer\deployer_test.go`
+### `platform/edge-sync-agent/internal/deployer/deployer_test.go`
 
 - `func buildZip(t *testing.T, prom string, targets map[string]string, rules, blackbox string) []byte`
 - `func defaultTargets() map[string]string`
@@ -3184,7 +3216,7 @@
 - `func TestApplySameVersionParamsUnchangedSkips(t *testing.T)`
 - `func TestApplySameVersionRemoteWriteURLChangedReapply(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\deployer\extract.go`
+### `platform/edge-sync-agent/internal/deployer/extract.go`
 
 - `type Package struct`
 - `func extractPackage(zipBytes []byte, meta *contract.Metadata) (*Package, error)`
@@ -3192,13 +3224,13 @@
 - `func validateTargetName(name string) error`
 - `func readEntry(f *zip.File) ([]byte, error)`
 
-### `platform\edge-sync-agent\internal\deployer\validate.go`
+### `platform/edge-sync-agent/internal/deployer/validate.go`
 
 - `func StructuralValidate(pkg *Package) error`
 - `func hasLineKey(content, key string) bool`
 - `func marshalMetadata(m *contract.Metadata) ([]byte, error)`
 
-### `platform\edge-sync-agent\internal\logger\logger.go`
+### `platform/edge-sync-agent/internal/logger/logger.go`
 
 - `type Logger struct`
 - `func New(w io.Writer) *Logger`
@@ -3208,26 +3240,26 @@
 - `method (*Logger) Errorf(format string, a ...any)`
 - `method (*Logger) Close()`
 
-### `platform\edge-sync-agent\internal\logger\logger_test.go`
+### `platform/edge-sync-agent/internal/logger/logger_test.go`
 
 - `func TestLoggerLevelsToWriter(t *testing.T)`
 - `func TestSyslogOrStderrNonNil(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\logger\syslog_linux.go`
+### `platform/edge-sync-agent/internal/logger/syslog_linux.go`
 
 - `func syslogWriter() (io.Writer, bool)`
 
-### `platform\edge-sync-agent\internal\logger\syslog_other.go`
+### `platform/edge-sync-agent/internal/logger/syslog_other.go`
 
 - `func syslogWriter() (io.Writer, bool)`
 
-### `platform\edge-sync-agent\internal\puller\checksum.go`
+### `platform/edge-sync-agent/internal/puller/checksum.go`
 
 - `func VerifyChecksum(zipBytes []byte) (*contract.Metadata, error)`
 - `func recomputeChecksum(content map[string]string) string`
 - `func readZipFile(f *zip.File) ([]byte, error)`
 
-### `platform\edge-sync-agent\internal\puller\puller.go`
+### `platform/edge-sync-agent/internal/puller/puller.go`
 
 - `type RuntimeSnapshot struct`
 - `type RuntimeProvider interface`
@@ -3253,7 +3285,7 @@
 - `method (*Puller) infof(f string, a ...any)`
 - `method (*Puller) warnf(f string, a ...any)`
 
-### `platform\edge-sync-agent\internal\puller\puller_test.go`
+### `platform/edge-sync-agent/internal/puller/puller_test.go`
 
 - `func buildZip(t *testing.T, promYML string, metaChecksum string) []byte`
 - `type fakeDeploy struct`
@@ -3280,7 +3312,7 @@
 - `func TestRunOnceFlushSeqFailureRetries(t *testing.T)`
 - `func TestNoFlushCallbackStillAdvancesSeq(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\supervisor\supervisor.go`
+### `platform/edge-sync-agent/internal/supervisor/supervisor.go`
 
 - `type Params struct`
 - `func DefaultParams() Params`
@@ -3302,7 +3334,7 @@
 - `func pruneRestarts(ts []time.Time, now time.Time, window time.Duration) []time.Time`
 - `func minDur(a, b time.Duration) time.Duration`
 
-### `platform\edge-sync-agent\internal\supervisor\supervisor_test.go`
+### `platform/edge-sync-agent/internal/supervisor/supervisor_test.go`
 
 - `type fakeProbe struct`
 - `func newFakeProbe() *fakeProbe`
@@ -3320,7 +3352,7 @@
 - `func TestSnapshotReportsContractView(t *testing.T)`
 - `func TestResetClearsCrashLoopAndRetainsGuard(t *testing.T)`
 
-### `platform\edge-sync-agent\internal\token\token.go`
+### `platform/edge-sync-agent/internal/token/token.go`
 
 - `type Store struct`
 - `func NewStore(token string) *Store`
@@ -3332,14 +3364,14 @@
 - `method (*Throttle) Next() (interval time.Duration, downgraded bool)`
 - `method (*Throttle) Consecutive() int`
 
-### `platform\edge-sync-agent\internal\token\token_test.go`
+### `platform/edge-sync-agent/internal/token/token_test.go`
 
 - `func TestThrottleBackoffSequence(t *testing.T)`
 - `func TestThrottleDowngradeAfterDuration(t *testing.T)`
 - `func TestThrottleReset(t *testing.T)`
 - `func TestTokenStore(t *testing.T)`
 
-### `platform\edge\config_handler.go`
+### `platform/edge/config_handler.go`
 
 - `type ConfigService struct`
 - `func NewConfigService(db *gorm.DB) *ConfigService`
@@ -3347,7 +3379,7 @@
 - `method (*ConfigService) latestVersion(domainID string) (*models.ConfigVersion, error)`
 - `func trimETag(v string) string`
 
-### `platform\edge\edge_test.go`
+### `platform/edge/edge_test.go`
 
 - `func newEdgeTestDB(t *testing.T) *gorm.DB`
 - `func seedEdgeDomain(db *gorm.DB, id, channel, token, agentType, endpoint string) *models.NetworkDomain`
@@ -3386,17 +3418,17 @@
 - `func TestHeartbeatParamsChangedFingerprint(t *testing.T)`
 - `func TestHeartbeatCarriesRestartSeq(t *testing.T)`
 
-### `platform\edge\flush_handler.go`
+### `platform/edge/flush_handler.go`
 
 - `func RequestFlushBacklog(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
 - `func FlushBacklogHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondFlushError(c *gin.Context, err error)`
 
-### `platform\edge\heartbeat_handler.go`
+### `platform/edge/heartbeat_handler.go`
 
 - `func HeartbeatHandler(svc *HeartbeatService) gin.HandlerFunc`
 
-### `platform\edge\heartbeat_service.go`
+### `platform/edge/heartbeat_service.go`
 
 - `type HeartbeatRequest struct`
 - `type EdgeTargetSnapshot struct`
@@ -3408,7 +3440,7 @@
 - `method (*HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, req *HeartbeatRequest, now time.Time) error`
 - `method (*HeartbeatService) findOrRegisterAgent(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*models.EdgeA…`
 
-### `platform\edge\helpers.go`
+### `platform/edge/helpers.go`
 
 - `func configVersionString(v *models.ConfigVersion) string`
 - `func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
@@ -3418,7 +3450,7 @@
 - `func requestAuthority(c *gin.Context) string`
 - `func nowUTC() time.Time`
 
-### `platform\edge\management_handler.go`
+### `platform/edge/management_handler.go`
 
 - `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier)`
 - `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
@@ -3431,7 +3463,7 @@
 - `func DownloadPackageHandler(dir string) gin.HandlerFunc`
 - `func servePackageArtifact(c *gin.Context, dir string, art PackageArtifact)`
 
-### `platform\edge\management_service.go`
+### `platform/edge/management_service.go`
 
 - `func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
 - `type AgentView struct`
@@ -3447,7 +3479,7 @@
 - `func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time)`
 - `func backlogInsight(hbs []models.EdgeHeartbeat) (age, growth *int64, channel string)`
 
-### `platform\edge\management_test.go`
+### `platform/edge/management_test.go`
 
 - `func seedMonitoredEdgeDomain(t *testing.T, db *gorm.DB, id, token, agentType, endpoint string) *models.NetworkDomain`
 - `func tPtr(t time.Time) *time.Time`
@@ -3497,14 +3529,14 @@
 - `func TestFillBacklogInsightsStaleHeartbeatsStayNil(t *testing.T)`
 - `func TestFillBacklogInsightsNoHeartbeats(t *testing.T)`
 
-### `platform\edge\middleware.go`
+### `platform/edge/middleware.go`
 
 - `func bearerToken(c *gin.Context) string`
 - `func domainIDFromRequest(c *gin.Context) string`
 - `func EdgeTokenMiddleware(db *gorm.DB) gin.HandlerFunc`
 - `func tokenMatches(expect, got string) bool`
 
-### `platform\edge\offline_detector.go`
+### `platform/edge/offline_detector.go`
 
 - `type SiteOfflineHook`
 - `type OfflineDetector struct`
@@ -3515,7 +3547,7 @@
 - `func agentLiveStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration) string`
 - `func aggregateDomainStatus(agents []*models.EdgeAgent) string`
 
-### `platform\edge\packages_service.go`
+### `platform/edge/packages_service.go`
 
 - `type PackageComponent struct`
 - `type PackageArtifact struct`
@@ -3526,11 +3558,11 @@
 - `func FindPackage(dir, version string) (PackageArtifact, error)`
 - `func OpenPackageFile(dir string, art PackageArtifact) (*os.File, error)`
 
-### `platform\edge\register.go`
+### `platform/edge/register.go`
 
 - `func RegisterRoutes(group *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\edge\remote_write_lag.go`
+### `platform/edge/remote_write_lag.go`
 
 - `type SampleLagQuerier interface`
 - `type PromSampleLagQuerier struct`
@@ -3540,7 +3572,7 @@
 - `method (*PromSampleLagQuerier) fetch(ctx context.Context) (map[string]int64, error)`
 - `func toSeconds(v interface{}) (int64, bool)`
 
-### `platform\edge\remote_write_lag_test.go`
+### `platform/edge/remote_write_lag_test.go`
 
 - `func TestPromSampleLagQuerierParsesVector(t *testing.T)`
 - `func TestPromSampleLagQuerierTTLCache(t *testing.T)`
@@ -3551,30 +3583,30 @@
 - `func TestFillSampleLags(t *testing.T)`
 - `func mustParseURL(t *testing.T, raw string) *url.URL`
 
-### `platform\edge\restart_handler.go`
+### `platform/edge/restart_handler.go`
 
 - `func RequestVMAgentRestart(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
 - `func RestartAgentHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondRestartError(c *gin.Context, err error)`
 
-### `platform\edge\zipper.go`
+### `platform/edge/zipper.go`
 
 - `type metadata struct`
 - `type targetsCarrier`
 - `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL, maxDiskUsagePerURL string) ([]byte,…`
 - `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
 
-### `platform\examples\simple-agent\main.go`
+### `platform/examples/simple-agent/main.go`
 
 - `func init()`
 - `func main()`
 - `func simulateMetrics()`
 
-### `platform\gateway\auth\admin_middleware.go`
+### `platform/gateway/auth/admin_middleware.go`
 
 - `func RequireAdmin() gin.HandlerFunc`
 
-### `platform\gateway\auth\admin_middleware_test.go`
+### `platform/gateway/auth/admin_middleware_test.go`
 
 - `func ctxUserRouter(u *models.User, noContext bool) *gin.Engine`
 - `func TestRequireAdmin_AdminAllowed(t *testing.T)`
@@ -3583,7 +3615,7 @@
 - `func TestRequireAdmin_DisabledAdminRejected(t *testing.T)`
 - `func TestRequireAdmin_WrongContextTypeRejected(t *testing.T)`
 
-### `platform\gateway\auth\handler.go`
+### `platform/gateway/auth/handler.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `type Handler struct`
@@ -3600,7 +3632,7 @@
 - `func writeError(c *gin.Context, err error)`
 - `func errInvalidPayload(err error) error`
 
-### `platform\gateway\auth\handler_test.go`
+### `platform/gateway/auth/handler_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newTestRouter(db *gorm.DB) *gin.Engine`
@@ -3628,13 +3660,13 @@
 - `func TestAuthenticate_ReuseFixture(t *testing.T)`
 - `func TestGenerateToken_StrengthAndUniqueness(t *testing.T)`
 
-### `platform\gateway\auth\middleware.go`
+### `platform/gateway/auth/middleware.go`
 
 - `func CurrentUser(c *gin.Context) *models.User`
 - `func CurrentUsername(c *gin.Context) string`
 - `func AuthMiddleware(svc *Service) gin.HandlerFunc`
 
-### `platform\gateway\auth\middleware_test.go`
+### `platform/gateway/auth/middleware_test.go`
 
 - `func newMiddlewareRouter(db *gorm.DB) *gin.Engine`
 - `func loginToken(t *testing.T, db *gorm.DB, username, password string) string`
@@ -3647,7 +3679,7 @@
 - `func TestMiddleware_NoAuthorization(t *testing.T)`
 - `func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T)`
 
-### `platform\gateway\auth\ratelimit_test.go`
+### `platform/gateway/auth/ratelimit_test.go`
 
 - `func TestLoginRateLimiter_ThresholdLocksAndExpires(t *testing.T)`
 - `func TestLoginRateLimiter_WindowSlidingReset(t *testing.T)`
@@ -3655,7 +3687,7 @@
 - `func TestLogin_RateLimitLocksAfterThreshold(t *testing.T)`
 - `func TestLogin_RateLimitResetAfterSuccess(t *testing.T)`
 
-### `platform\gateway\auth\repository.go`
+### `platform/gateway/auth/repository.go`
 
 - `type Repository struct`
 - `func NewRepository(db *gorm.DB) *Repository`
@@ -3668,7 +3700,7 @@
 - `method (*Repository) DeleteSessionsByUserID(userID string) error`
 - `method (*Repository) CreateLoginLog(log *models.LoginLog) error`
 
-### `platform\gateway\auth\service.go`
+### `platform/gateway/auth/service.go`
 
 - `type loginAttempt struct`
 - `type loginRateLimiter struct`
@@ -3689,12 +3721,12 @@
 - `method (*Service) logLogin(username string, success bool, message, ip string)`
 - `func validatePassword(password string) error`
 
-### `platform\gateway\auth\token.go`
+### `platform/gateway/auth/token.go`
 
 - `func generateToken() (string, error)`
 - `func newID() (string, error)`
 
-### `platform\models\alertmanager_config.go`
+### `platform/models/alertmanager_config.go`
 
 - `type AlertmanagerConfigStatus = string`
 - `type AlertmanagerConfigVersion struct`
@@ -3709,7 +3741,7 @@
 - `method (*AuthorizedMatcherScope) Violations(matchers []SilenceMatcher) []SilenceMatcher`
 - `type ValidateErrorItem struct`
 
-### `platform\models\alertmanager_config_test.go`
+### `platform/models/alertmanager_config_test.go`
 
 - `func TestAlertmanagerConfigStatusEnum(t *testing.T)`
 - `func TestAlertmanagerConfigChecksum(t *testing.T)`
@@ -3722,7 +3754,7 @@
 - `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
 - `func TestValidateErrorItemJSON(t *testing.T)`
 
-### `platform\models\alertmanager_notify.go`
+### `platform/models/alertmanager_notify.go`
 
 - `func SanitizeReceiverName(raw string) string`
 - `method (NotifyChannel) ReceiverName() string`
@@ -3735,7 +3767,7 @@
 - `type NotifyTemplate struct`
 - `method (NotifyTemplate) TableName() string`
 
-### `platform\models\alertmanager_notify_test.go`
+### `platform/models/alertmanager_notify_test.go`
 
 - `func newNotifyModelDB(t *testing.T) *gorm.DB`
 - `func TestNotifyChannelMigrateAndPersist(t *testing.T)`
@@ -3743,14 +3775,14 @@
 - `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
 - `func TestValidNotifyChannelTypes(t *testing.T)`
 
-### `platform\models\alertmanager_route_setting.go`
+### `platform/models/alertmanager_route_setting.go`
 
 - `type RouteMode = string`
 - `type AlertmanagerRouteSetting struct`
 - `method (AlertmanagerRouteSetting) TableName() string`
 - `method (AlertmanagerRouteSetting) EffectiveDefaultReceiver(channels []NotifyChannel) (string, bool)`
 
-### `platform\models\alertmanager_route_setting_test.go`
+### `platform/models/alertmanager_route_setting_test.go`
 
 - `func newRouteSettingDB(t *testing.T) *gorm.DB`
 - `func TestAlertmanagerRouteSettingMigrateAndPersist(t *testing.T)`
@@ -3760,67 +3792,67 @@
 - `func TestAlertmanagerRouteSettingUniquePerDomain(t *testing.T)`
 - `func TestAlertmanagerRouteSettingReceiverNameFallback(t *testing.T)`
 
-### `platform\models\app_platform_rel.go`
+### `platform/models/app_platform_rel.go`
 
 - `type AppPlatformRel struct`
 - `func ValidateAppPlatformPrimaryUnique(tx *gorm.DB, appCode string, excludeRelID uint) error`
 
-### `platform\models\app_platform_rel_test.go`
+### `platform/models/app_platform_rel_test.go`
 
 - `func TestAppPlatformRelManyToManyAndUniquePair(t *testing.T)`
 - `func TestValidateAppPlatformPrimaryUnique(t *testing.T)`
 - `func TestResourcePlatformCodeFieldMappings(t *testing.T)`
 
-### `platform\models\application_dict.go`
+### `platform/models/application_dict.go`
 
 - `type ApplicationDict struct`
 - `func NormalizeAppCode(raw string) string`
 
-### `platform\models\blackbox_probe.go`
+### `platform/models/blackbox_probe.go`
 
 - `type BlackboxProbeConfig struct`
 
-### `platform\models\blackbox_target.go`
+### `platform/models/blackbox_target.go`
 
 - `type BlackboxTargetProtocol = string`
 - `func ValidBlackboxTargetProtocols() []BlackboxTargetProtocol`
 - `func ValidBlackboxTargetProtocol(p string) bool`
 - `type BlackboxTarget struct`
 
-### `platform\models\business_domain.go`
+### `platform/models/business_domain.go`
 
 - `type DictSource = string`
 - `type BusinessDomain struct`
 
-### `platform\models\business_domain_test.go`
+### `platform/models/business_domain_test.go`
 
 - `func TestBusinessDomainJSONTags(t *testing.T)`
 - `func TestInfraBizCodeConstant(t *testing.T)`
 
-### `platform\models\business_metric.go`
+### `platform/models/business_metric.go`
 
 - `type BusinessMetricSource = string`
 - `type BusinessMetricStatus = string`
 - `type BusinessMetric struct`
 - `method (BusinessMetric) TableName() string`
 
-### `platform\models\ci_exporter_mapping.go`
+### `platform/models/ci_exporter_mapping.go`
 
 - `type CITypeExporterMapping struct`
 - `method (CITypeExporterMapping) TableName() string`
 
-### `platform\models\cloud_dict.go`
+### `platform/models/cloud_dict.go`
 
 - `type CloudType = string`
 - `type CloudCarrier = string`
 - `type CloudDict struct`
 
-### `platform\models\cloud_dict_test.go`
+### `platform/models/cloud_dict_test.go`
 
 - `func TestCloudDictModel(t *testing.T)`
 - `func TestCloudDictDisabledPersistsWithoutGORMDefault(t *testing.T)`
 
-### `platform\models\config.go`
+### `platform/models/config.go`
 
 - `type DraftStatus = string`
 - `type ConfigDraft struct`
@@ -3839,7 +3871,7 @@
 - `type RollbackPreview struct`
 - `method (ConfigDeployment) MarshalJSON() ([]byte, error)`
 
-### `platform\models\config_center_rules.go`
+### `platform/models/config_center_rules.go`
 
 - `type ValidationStatus = string`
 - `type ValidationCause = string`
@@ -3863,31 +3895,31 @@
 - `func IsValidRisk(r string) bool`
 - `func TokenMasked(token string) string`
 
-### `platform\models\config_change_baseline.go`
+### `platform/models/config_change_baseline.go`
 
 - `type ChangeDetectStatus = string`
 - `type ConfigChangeBaseline struct`
 - `method (ConfigChangeBaseline) TableName() string`
 
-### `platform\models\database.go`
+### `platform/models/database.go`
 
 - `type Database struct`
 - `method (*Database) GetResourceType() ResourceType`
 - `method (*Database) GetResourceCategory() ResourceCategory`
 
-### `platform\models\edge_agent.go`
+### `platform/models/edge_agent.go`
 
 - `func IsValidEdgeAgentStatus(status string) bool`
 - `func CanTransitionToEdgeAgentStatus(from, to string) error`
 - `type EdgeAgent struct`
 - `method (EdgeAgent) TableName() string`
 
-### `platform\models\edge_agent_test.go`
+### `platform/models/edge_agent_test.go`
 
 - `func TestIsValidEdgeAgentStatus(t *testing.T)`
 - `func TestCanTransitionToEdgeAgentStatus(t *testing.T)`
 
-### `platform\models\edge_heartbeat.go`
+### `platform/models/edge_heartbeat.go`
 
 - `type ComponentType = string`
 - `type ComponentStatus = string`
@@ -3895,18 +3927,18 @@
 - `type EdgeHeartbeat struct`
 - `method (EdgeHeartbeat) TableName() string`
 
-### `platform\models\edge_target_snapshot.go`
+### `platform/models/edge_target_snapshot.go`
 
 - `type EdgeTargetSnapshot struct`
 - `method (EdgeTargetSnapshot) TableName() string`
 
-### `platform\models\exporter_installation_confirmation.go`
+### `platform/models/exporter_installation_confirmation.go`
 
 - `type InstallationStatus = string`
 - `type ExporterInstallationConfirmation struct`
 - `method (ExporterInstallationConfirmation) TableName() string`
 
-### `platform\models\exporter_metric_library.go`
+### `platform/models/exporter_metric_library.go`
 
 - `type MetricType = string`
 - `func ValidMetricTypes() []MetricType`
@@ -3915,19 +3947,19 @@
 - `type ExporterMetricLibrary struct`
 - `method (ExporterMetricLibrary) TableName() string`
 
-### `platform\models\exporter_template.go`
+### `platform/models/exporter_template.go`
 
 - `type ExporterSource = string`
 - `type ExporterTemplate struct`
 - `func BuiltinExporterTemplates() []ExporterTemplate`
 
-### `platform\models\generic_target.go`
+### `platform/models/generic_target.go`
 
 - `type GenericTarget struct`
 - `method (*GenericTarget) GetResourceType() ResourceType`
 - `method (*GenericTarget) GetResourceCategory() ResourceCategory`
 
-### `platform\models\host.go`
+### `platform/models/host.go`
 
 - `type Host struct`
 - `method (*Host) GetResourceID() string`
@@ -3942,25 +3974,25 @@
 - `method (*Host) InstanceIP() string`
 - `method (*Host) OSType() string`
 
-### `platform\models\import_record.go`
+### `platform/models/import_record.go`
 
 - `type ImportMode = string`
 - `type ImportStatus = string`
 - `type ImportErrorDetail struct`
 - `type ImportRecord struct`
 
-### `platform\models\interface_service.go`
+### `platform/models/interface_service.go`
 
 - `type InterfaceService struct`
 - `method (*InterfaceService) GetResourceType() ResourceType`
 - `method (*InterfaceService) GetResourceCategory() ResourceCategory`
 
-### `platform\models\label_rules.go`
+### `platform/models/label_rules.go`
 
 - `func IsProtectedLabel(key string) bool`
 - `func ValidateLabelKey(key string) error`
 
-### `platform\models\label_template.go`
+### `platform/models/label_template.go`
 
 - `type LabelSourceType = string`
 - `type LabelMapping struct`
@@ -3968,12 +4000,12 @@
 - `method (*LabelTemplate) NormalizeMappings()`
 - `func DefaultMappingBuilders(category ResourceCategory) []LabelMapping`
 
-### `platform\models\label_template_snapshot.go`
+### `platform/models/label_template_snapshot.go`
 
 - `type MappingChange struct`
 - `type LabelTemplateSnapshot struct`
 
-### `platform\models\models_test.go`
+### `platform/models/models_test.go`
 
 - `func TestResourceTypeConstants(t *testing.T)`
 - `func TestHostImplementsResource(t *testing.T)`
@@ -4025,7 +4057,7 @@
 - `func TestEdgeAgentSyncFieldsAndComponents(t *testing.T)`
 - `func TestDefaultMappingBuildersInterfaceServiceHasNoComposite(t *testing.T)`
 
-### `platform\models\monitor_type.go`
+### `platform/models/monitor_type.go`
 
 - `func ValidMonitorTypes() []string`
 - `func ValidMonitorType(mt string) bool`
@@ -4035,13 +4067,13 @@
 - `func DeriveResourceFilter(monitorType string) (MonitorTypeDerivation, bool)`
 - `method (MonitorTypeDerivation) hostOSMatches(image string) bool`
 
-### `platform\models\monitoring_rule.go`
+### `platform/models/monitoring_rule.go`
 
 - `type RuleContentMode = string`
 - `type ScopeType = string`
 - `type MonitoringRule struct`
 
-### `platform\models\network_domain.go`
+### `platform/models/network_domain.go`
 
 - `type DomainType = string`
 - `type DomainStatus = string`
@@ -4054,17 +4086,17 @@
 - `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`
 - `method (NetworkDomain) TableName() string`
 
-### `platform\models\network_domain_label.go`
+### `platform/models/network_domain_label.go`
 
 - `func ResolveNetworkDomain(labels map[string]string) string`
 - `func EnsureNetworkDomain(labels map[string]string, domain string) map[string]string`
 
-### `platform\models\network_domain_label_test.go`
+### `platform/models/network_domain_label_test.go`
 
 - `func TestResolveNetworkDomain(t *testing.T)`
 - `func TestEnsureNetworkDomain(t *testing.T)`
 
-### `platform\models\os_dict.go`
+### `platform/models/os_dict.go`
 
 - `type OSOption struct`
 - `func ListOSOptions() []OSOption`
@@ -4078,7 +4110,7 @@
 - `func containsWord(lower, word string) bool`
 - `func isWordChar(r rune) bool`
 
-### `platform\models\os_dict_test.go`
+### `platform/models/os_dict_test.go`
 
 - `func TestNormalizeOSType(t *testing.T)`
 - `func TestResolveOSFamily(t *testing.T)`
@@ -4087,11 +4119,11 @@
 - `func familyNames(family string) []string`
 - `func contains(kws []string, kw string) bool`
 
-### `platform\models\platform_dict.go`
+### `platform/models/platform_dict.go`
 
 - `type PlatformDict struct`
 
-### `platform\models\resource.go`
+### `platform/models/resource.go`
 
 - `type ResourceType = string`
 - `type BaseModel struct`
@@ -4115,7 +4147,7 @@
 - `method (*Middleware) GetResourceCategory() ResourceCategory`
 - `method (*Application) GetResourceCategory() ResourceCategory`
 
-### `platform\models\resource_base.go`
+### `platform/models/resource_base.go`
 
 - `type SourceType = string`
 - `type ResourceBase struct`
@@ -4126,7 +4158,7 @@
 - `method (*ResourceBase) GetCluster() string`
 - `method (*ResourceBase) GetStatus() string`
 
-### `platform\models\resource_category.go`
+### `platform/models/resource_category.go`
 
 - `type ResourceCategory = string`
 - `func ValidResourceCategories() []ResourceCategory`
@@ -4135,7 +4167,7 @@
 - `func BlackboxTargetField(cat ResourceCategory) (string, bool)`
 - `func BlackboxCategoriesHint() string`
 
-### `platform\models\resource_fields.go`
+### `platform/models/resource_fields.go`
 
 - `func LegacyFieldMap(category ResourceCategory) map[string]string`
 - `func GetResourceField(res any, field string) (string, bool)`
@@ -4146,12 +4178,12 @@
 - `func getGenericTargetField(g *GenericTarget, field string) (string, bool)`
 - `func getInterfaceServiceField(o *InterfaceService, field string) (string, bool)`
 
-### `platform\models\resource_label.go`
+### `platform/models/resource_label.go`
 
 - `type LabelSource = string`
 - `type ResourceLabel struct`
 
-### `platform\models\scrape_job.go`
+### `platform/models/scrape_job.go`
 
 - `type JobType = string`
 - `type AuthType = string`
@@ -4161,19 +4193,19 @@
 - `func ValidPromDuration(s string) bool`
 - `type ScrapeJob struct`
 
-### `platform\models\status_mapping.go`
+### `platform/models/status_mapping.go`
 
 - `type ResourceStatus = string`
 - `type ResourceStatusMapping struct`
 - `func DefaultStatusMappings() []ResourceStatusMapping`
 
-### `platform\models\tenant.go`
+### `platform/models/tenant.go`
 
 - `type TenantStatus = string`
 - `type Tenant struct`
 - `method (Tenant) TableName() string`
 
-### `platform\models\user.go`
+### `platform/models/user.go`
 
 - `type UserStatus = string`
 - `type User struct`
@@ -4183,7 +4215,7 @@
 - `type LoginLog struct`
 - `method (LoginLog) TableName() string`
 
-### `platform\models\user_test.go`
+### `platform/models/user_test.go`
 
 - `func TestUserTableNames(t *testing.T)`
 - `func TestUserJSONDoesNotExposePasswordHash(t *testing.T)`
@@ -4192,12 +4224,12 @@
 - `func TestSessionJSONContract(t *testing.T)`
 - `func TestLoginLogJSONContract(t *testing.T)`
 
-### `platform\models\zone_type.go`
+### `platform/models/zone_type.go`
 
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
-### `platform\query\alert_annotation.go`
+### `platform/query/alert_annotation.go`
 
 - `type annotationTemplateData struct`
 - `func RenderAnnotation(src string, labels map[string]string, value string) (string, error)`
@@ -4209,7 +4241,7 @@
 - `func humanizeTimestampValue(v interface{}) string`
 - `func titleCase(s string) string`
 
-### `platform\query\alert_annotation_test.go`
+### `platform/query/alert_annotation_test.go`
 
 - `func TestRenderAnnotationLabels(t *testing.T)`
 - `func TestRenderAnnotationNoLeakOnMissingLabel(t *testing.T)`
@@ -4218,7 +4250,7 @@
 - `func TestRenderHistorySummaryDegradesToEmpty(t *testing.T)`
 - `func TestRenderHistorySummaryInjectsNetworkDomain(t *testing.T)`
 
-### `platform\query\alerts.go`
+### `platform/query/alerts.go`
 
 - `type promAlert struct`
 - `func AlertsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
@@ -4226,7 +4258,7 @@
 - `func tenantAuthorizedDomains(_ *gin.Context) []string`
 - `func alertDomainAllowed(authorized []string, domain string) bool`
 
-### `platform\query\alerts_history.go`
+### `platform/query/alerts_history.go`
 
 - `type AlertHistoryItem struct`
 - `type alertHistoryQuery struct`
@@ -4244,7 +4276,7 @@
 - `func fetchRuleSummaryTemplates(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
 - `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
 
-### `platform\query\alerts_history_test.go`
+### `platform/query/alerts_history_test.go`
 
 - `func historyMatrixFixture() map[string]interface{}`
 - `func historyRulesFixture() map[string]interface{}`
@@ -4273,7 +4305,7 @@
 - `func TestAlertHistoryExplicitStepPreserved(t *testing.T)`
 - `func TestAlertHistoryDefaultStepUnchanged(t *testing.T)`
 
-### `platform\query\alerts_test.go`
+### `platform/query/alerts_test.go`
 
 - `func promAlertsFixture() map[string]interface{}`
 - `type alertsResp struct`
@@ -4292,7 +4324,7 @@
 - `func TestAlertsInstanceFieldsWriteBack(t *testing.T)`
 - `func TestAlertsInstanceFieldsWithoutResourceID(t *testing.T)`
 
-### `platform\query\coverage.go`
+### `platform/query/coverage.go`
 
 - `type CoverageItem struct`
 - `type CoverageSummary struct`
@@ -4315,7 +4347,7 @@
 - `func validCategory(c models.ResourceCategory) bool`
 - `func instanceIPPort(ip string, port int) string`
 
-### `platform\query\coverage_test.go`
+### `platform/query/coverage_test.go`
 
 - `func openCoverageTestDB(t *testing.T) *gorm.DB`
 - `func seedCoverageHost(t *testing.T, db *gorm.DB, id, domain, name string)`
@@ -4340,7 +4372,7 @@
 - `func TestCoverageNoUpAggDependency(t *testing.T)`
 - `func TestCoverageBlackboxResourceSelectionCountsAsMonitored(t *testing.T)`
 
-### `platform\query\resource_identity.go`
+### `platform/query/resource_identity.go`
 
 - `type ResourceIdentity struct`
 - `type InstanceFields struct`
@@ -4349,7 +4381,7 @@
 - `func ResolveResourceIdentities(db *gorm.DB, ids []string) (map[string]ResourceIdentity, error)`
 - `func ResolveResourceIdentitiesSafe(db *gorm.DB, ids []string) map[string]ResourceIdentity`
 
-### `platform\query\resource_identity_test.go`
+### `platform/query/resource_identity_test.go`
 
 - `func openResourceIdentityTestDB(t *testing.T) *gorm.DB`
 - `func seedIdentityHost(t *testing.T, db *gorm.DB, id, name, ip string)`
@@ -4364,12 +4396,12 @@
 - `func TestResolveResourceIdentitiesIsBatched(t *testing.T)`
 - `func TestInstanceFieldsOf(t *testing.T)`
 
-### `platform\query\routes.go`
+### `platform/query/routes.go`
 
 - `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
 - `func RegisterRuleInspectRoutes(platform *gin.RouterGroup, promURL *url.URL)`
 
-### `platform\query\rule_labels.go`
+### `platform/query/rule_labels.go`
 
 - `type InspectRuleLabelsRequest struct`
 - `type InspectRuleLabel struct`
@@ -4383,7 +4415,7 @@
 - `func sampleValueString(v []interface{}) string`
 - `func summarizeSeriesLabels(series []inspectSeries) []InspectRuleLabel`
 
-### `platform\query\rule_labels_test.go`
+### `platform/query/rule_labels_test.go`
 
 - `func newInspectRouter(t *testing.T, upstream http.Handler) *gin.Engine`
 - `func doInspect(t *testing.T, r *gin.Engine, ruleContent string) []InspectRuleResult`
@@ -4395,7 +4427,7 @@
 - `func TestInspectRuleLabelsSkipsNonAlertEntries(t *testing.T)`
 - `func TestInspectRuleLabelsInvalidYAML(t *testing.T)`
 
-### `platform\query\targets.go`
+### `platform/query/targets.go`
 
 - `type promTargetsData struct`
 - `func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
@@ -4413,7 +4445,7 @@
 - `func hostPortFromURL(raw string) string`
 - `func asString(v interface{}) string`
 
-### `platform\query\targets_test.go`
+### `platform/query/targets_test.go`
 
 - `func promTargetsFixture() map[string]interface{}`
 - `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB)`
@@ -4458,7 +4490,7 @@
 - `func TestTargetsFusionBlackboxMatchIsExact(t *testing.T)`
 - `func TestTargetsFusionBlackboxFilterLocalUntouched(t *testing.T)`
 
-### `platform\strategy\ci-exporter\ci_exporter_test.go`
+### `platform/strategy/ci-exporter/ci_exporter_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newGin() *gin.Engine`
@@ -4483,7 +4515,7 @@
 - `func TestMappingExporterSupportTypeGuard(t *testing.T)`
 - `func TestUpdateCITypeExporterMappingDurationValidation(t *testing.T)`
 
-### `platform\strategy\ci-exporter\create.go`
+### `platform/strategy/ci-exporter/create.go`
 
 - `type CreateCITypeExporterMappingRequest struct`
 - `func CreateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
@@ -4491,11 +4523,11 @@
 - `func ensureSingleDefault(db *gorm.DB, monitorType string, wantDefault bool, excludeID uint) error`
 - `func ensureExporterSupportsType(tmpl *models.ExporterTemplate, monitorType string) error`
 
-### `platform\strategy\ci-exporter\delete.go`
+### `platform/strategy/ci-exporter/delete.go`
 
 - `func DeleteCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\ci-exporter\list.go`
+### `platform/strategy/ci-exporter/list.go`
 
 - `type mappingListItem struct`
 - `func ListCITypeExporterMappings(db *gorm.DB) gin.HandlerFunc`
@@ -4503,36 +4535,36 @@
 - `func mappingReferenced(db *gorm.DB, m models.CITypeExporterMapping) bool`
 - `func findExporterTemplate(db *gorm.DB, id string) (*models.ExporterTemplate, error)`
 
-### `platform\strategy\ci-exporter\routes.go`
+### `platform/strategy/ci-exporter/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\ci-exporter\update.go`
+### `platform/strategy/ci-exporter/update.go`
 
 - `type UpdateCITypeExporterMappingRequest struct`
 - `func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
 - `func loadExporterByID(db *gorm.DB, id string) (*models.ExporterTemplate, error)`
 - `func parseMappingID(c *gin.Context) (uint, bool)`
 
-### `platform\strategy\common\paging.go`
+### `platform/strategy/common/paging.go`
 
 - `type PageParams struct`
 - `func ParsePageParams(values url.Values) PageParams`
 - `func parseIntDefaultWithMax(raw string, def int) int`
 - `func parseIntDefault(raw string, def, min int) int`
 
-### `platform\strategy\exporter-template\create.go`
+### `platform/strategy/exporter-template/create.go`
 
 - `type CreateExporterTemplateRequest struct`
 - `func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc`
 - `func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error`
 
-### `platform\strategy\exporter-template\delete.go`
+### `platform/strategy/exporter-template/delete.go`
 
 - `func DeleteExporterTemplate(db *gorm.DB) gin.HandlerFunc`
 - `func exporterTemplateReferenced(db *gorm.DB, id uint) (bool, error)`
 
-### `platform\strategy\exporter-template\exporter_template_test.go`
+### `platform/strategy/exporter-template/exporter_template_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newGin() *gin.Engine`
@@ -4563,37 +4595,37 @@
 - `func TestUpdateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
 - `func quotedJoin(items []string) string`
 
-### `platform\strategy\exporter-template\list.go`
+### `platform/strategy/exporter-template/list.go`
 
 - `func ListExporterTemplates(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\exporter-template\routes.go`
+### `platform/strategy/exporter-template/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\exporter-template\update.go`
+### `platform/strategy/exporter-template/update.go`
 
 - `type UpdateExporterTemplateRequest struct`
 - `func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc`
 - `func parseTemplateID(c *gin.Context) (uint, bool)`
 
-### `platform\strategy\exporter-template\validate.go`
+### `platform/strategy/exporter-template/validate.go`
 
 - `func validateHTTPURL(field, raw string) error`
 - `func normalizeSupportedMonitorTypes(types []string) ([]string, error)`
 
-### `platform\strategy\metric-library\create.go`
+### `platform/strategy/metric-library/create.go`
 
 - `type CreateMetricLibraryRequest struct`
 - `func CreateMetricLibrary(db *gorm.DB) gin.HandlerFunc`
 - `func validateCreate(req CreateMetricLibraryRequest, db *gorm.DB) error`
 - `func UpdateMetricLibrary(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\metric-library\list.go`
+### `platform/strategy/metric-library/list.go`
 
 - `func ListMetricLibrary(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\metric-library\metric_library_test.go`
+### `platform/strategy/metric-library/metric_library_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -4603,22 +4635,22 @@
 - `func TestCreateAndUpdateMetricLibrary(t *testing.T)`
 - `func TestUpdateBuiltinForbidden(t *testing.T)`
 
-### `platform\strategy\metric-library\routes.go`
+### `platform/strategy/metric-library/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\routes.go`
+### `platform/strategy/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\rule\create.go`
+### `platform/strategy/rule/create.go`
 
 - `type CreateMonitoringRuleRequest struct`
 - `func CreateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
 - `func readRuleByID(c *gin.Context, db *gorm.DB, id uint) (*models.MonitoringRule, bool)`
 - `func parseRuleID(c *gin.Context) (uint, bool)`
 
-### `platform\strategy\rule\jobref\jobref.go`
+### `platform/strategy/rule/jobref/jobref.go`
 
 - `type Severity = string`
 - `type Issue struct`
@@ -4629,7 +4661,7 @@
 - `func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issue`
 - `func jobExists(jobs map[string]struct{}, op, ref string) (hit bool, determinable bool)`
 
-### `platform\strategy\rule\jobref\jobref_test.go`
+### `platform/strategy/rule/jobref/jobref_test.go`
 
 - `func TestValidateMatchesExistingJobs(t *testing.T)`
 - `func TestValidateLiteralMissingIsWarning(t *testing.T)`
@@ -4641,11 +4673,11 @@
 - `func TestValidateDedupesRepeatedMatcher(t *testing.T)`
 - `func TestValidateInvalidRegexSkipped(t *testing.T)`
 
-### `platform\strategy\rule\list.go`
+### `platform/strategy/rule/list.go`
 
 - `func ListMonitoringRules(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\rule\monitoring_rule_test.go`
+### `platform/strategy/rule/monitoring_rule_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
@@ -4671,7 +4703,7 @@
 - `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
 
-### `platform\strategy\rule\promtool_check.go`
+### `platform/strategy/rule/promtool_check.go`
 
 - `type promQLCheckStatus = string`
 - `type promQLCheckResult struct`
@@ -4679,7 +4711,7 @@
 - `func isToolNotExecutable(err error) bool`
 - `func promQLCheckMessage(r promQLCheckResult) string`
 
-### `platform\strategy\rule\promtool_check_test.go`
+### `platform/strategy/rule/promtool_check_test.go`
 
 - `func stubPromtool(t *testing.T, script string)`
 - `func TestCheckPromQLSyntaxPassed(t *testing.T)`
@@ -4688,11 +4720,11 @@
 - `func TestCheckPromQLSyntaxUnavailableWhenNotExecutable(t *testing.T)`
 - `func TestValidateRuleYAMLHandlerPromQLGate(t *testing.T)`
 
-### `platform\strategy\rule\routes.go`
+### `platform/strategy/rule/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\rule\update.go`
+### `platform/strategy/rule/update.go`
 
 - `type UpdateMonitoringRuleRequest struct`
 - `func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
@@ -4701,7 +4733,7 @@
 - `func ruleIDFromContext(raw string) uint`
 - `func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\rule\validate.go`
+### `platform/strategy/rule/validate.go`
 
 - `type ruleFile struct`
 - `func validateRuleYAML(content string) error`
@@ -4716,14 +4748,14 @@
 - `func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue`
 - `func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error`
 
-### `platform\strategy\scrapejob\batch.go`
+### `platform/strategy/scrapejob/batch.go`
 
 - `type BatchSubmitReadyRequest struct`
 - `func BatchSubmitReady(db *gorm.DB, ids []uint) ([]models.ScrapeJob, error)`
 - `func BatchUpdateDraftStatusHandler(db *gorm.DB) gin.HandlerFunc`
 - `func BatchDeleteScrapeJobs(_ *gorm.DB, _ []uint) ([]uint, error)`
 
-### `platform\strategy\scrapejob\batch_test.go`
+### `platform/strategy/scrapejob/batch_test.go`
 
 - `func newBatchTestDB(t *testing.T) *gorm.DB`
 - `func seedBatchDomain(t *testing.T, db *gorm.DB)`
@@ -4734,17 +4766,17 @@
 - `func TestBatchSubmitReady_ResolvesEmptyScrapeParams(t *testing.T)`
 - `func TestBatchSubmitReady_MissingID(t *testing.T)`
 
-### `platform\strategy\scrapejob\create.go`
+### `platform/strategy/scrapejob/create.go`
 
 - `type CreateScrapeJobRequest struct`
 - `func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc`
 - `func validateBasicJobRequest(job *models.ScrapeJob) error`
 
-### `platform\strategy\scrapejob\delete.go`
+### `platform/strategy/scrapejob/delete.go`
 
 - `func DeleteScrapeJob(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\scrapejob\installation.go`
+### `platform/strategy/scrapejob/installation.go`
 
 - `type jobInstanceItem struct`
 - `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
@@ -4754,19 +4786,19 @@
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
 - `func CancelInstallation(db *gorm.DB) gin.HandlerFunc`
 
-### `platform\strategy\scrapejob\installation_test.go`
+### `platform/strategy/scrapejob/installation_test.go`
 
 - `func TestListInstancesPortSourceInstanceAndMapping(t *testing.T)`
 - `func TestListInstancesPortSourceTemplate(t *testing.T)`
 - `func TestListInstancesPortSourceUnresolvedHostNeverBusiness(t *testing.T)`
 - `func TestListInstancesPortSourceBusinessMiddlewareNotBlocked(t *testing.T)`
 
-### `platform\strategy\scrapejob\list.go`
+### `platform/strategy/scrapejob/list.go`
 
 - `func ListScrapeJobs(db *gorm.DB) gin.HandlerFunc`
 - `func listJobsByLabelTemplate(c *gin.Context, db *gorm.DB, labelTemplateID string)`
 
-### `platform\strategy\scrapejob\preview.go`
+### `platform/strategy/scrapejob/preview.go`
 
 - `type previewTarget struct`
 - `func PreviewTargets(db *gorm.DB) gin.HandlerFunc`
@@ -4778,7 +4810,7 @@
 - `func mappingDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
 - `func templateDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
 
-### `platform\strategy\scrapejob\preview_test.go`
+### `platform/strategy/scrapejob/preview_test.go`
 
 - `type previewEnvelope struct`
 - `func postPreviewTargets(t *testing.T, r *gin.Engine, jobID string) (previewEnvelope, int)`
@@ -4796,11 +4828,11 @@
 - `func TestPreviewTargetsBlackboxNoPortChain(t *testing.T)`
 - `func TestPreviewTargetsBlackboxNonInterfaceService(t *testing.T)`
 
-### `platform\strategy\scrapejob\routes.go`
+### `platform/strategy/scrapejob/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
-### `platform\strategy\scrapejob\scrape_job_test.go`
+### `platform/strategy/scrapejob/scrape_job_test.go`
 
 - `func openTestDB(t *testing.T) *gorm.DB`
 - `func newGin() *gin.Engine`
@@ -4861,7 +4893,7 @@
 - `func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T)`
 - `func TestCreateScrapeJobDurationValidation(t *testing.T)`
 
-### `platform\strategy\scrapejob\selection.go`
+### `platform/strategy/scrapejob/selection.go`
 
 - `type InstanceCandidate struct`
 - `func ListInstanceCandidates(db *gorm.DB) gin.HandlerFunc`
@@ -4875,14 +4907,14 @@
 - `func queryGenericTargetCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int…`
 - `func queryInterfaceServiceCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (…`
 
-### `platform\strategy\scrapejob\update.go`
+### `platform/strategy/scrapejob/update.go`
 
 - `type UpdateScrapeJobRequest struct`
 - `func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc`
 - `func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest)`
 - `func parseJobID(c *gin.Context) (uint, bool)`
 
-### `platform\strategy\scrapejob\validate.go`
+### `platform/strategy/scrapejob/validate.go`
 
 - `func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error`
 - `func validateBlackboxSelectedInstances(db *gorm.DB, job *models.ScrapeJob) error`
@@ -4901,15 +4933,15 @@
 
 ## ui-custom/web/src/（React 前端）
 
-### `ui-custom\web\src\App.tsx`
+### `ui-custom/web/src/App.tsx`
 
 - `function RequireAuth`
 
-### `ui-custom\web\src\SkinProvider.tsx`
+### `ui-custom/web/src/SkinProvider.tsx`
 
 - `function SkinProvider`
 
-### `ui-custom\web\src\api\admin.ts`
+### `ui-custom/web/src/api/admin.ts`
 
 - `interface UsersListParams`
 - `interface LoginLogsListParams`
@@ -4917,7 +4949,7 @@
 - `const loginLogApi`
 - `const tenantAdminApi`
 
-### `ui-custom\web\src\api\alertmanager.ts`
+### `ui-custom/web/src/api/alertmanager.ts`
 
 - `function readValidateErrors`
 - `interface AlertmanagerListParams`
@@ -4935,14 +4967,14 @@
 - `const notifyTemplatesApi`
 - `const alertmanagerRoutesApi`
 
-### `ui-custom\web\src\api\ciExporterMappings.ts`
+### `ui-custom/web/src/api/ciExporterMappings.ts`
 
 - `interface CITypeExporterMappingListParams`
 - `interface CITypeExporterMappingInput`
 - `interface CITypeExporterMappingUpdateInput`
 - `const ciExporterMappingApi`
 
-### `ui-custom\web\src\api\client.ts`
+### `ui-custom/web/src/api/client.ts`
 
 - `function getToken`
 - `function setToken`
@@ -4956,19 +4988,19 @@
 - `function request`
 - `const apiClient`
 
-### `ui-custom\web\src\api\configCenter.ts`
+### `ui-custom/web/src/api/configCenter.ts`
 
 - `interface ConfigListParams`
 - `const networkDomainMonitorApi`
 - `const configDraftApi`
 - `const deploymentApi`
 
-### `ui-custom\web\src\api\coverage.ts`
+### `ui-custom/web/src/api/coverage.ts`
 
 - `interface CoverageListParams`
 - `const coverageApi`
 
-### `ui-custom\web\src\api\dashboard.ts`
+### `ui-custom/web/src/api/dashboard.ts`
 
 - `interface RecentDeployment`
 - `interface SubtypeSummary`
@@ -4977,10 +5009,12 @@
 - `interface ProbeTargetItem`
 - `interface CloudSummary`
 - `interface CollectionHealth`
+- `interface PlatformAppCell`
+- `interface PlatformAppSummary`
 - `interface DashboardSummary`
 - `const dashboardApi`
 
-### `ui-custom\web\src\api\domain.ts`
+### `ui-custom/web/src/api/domain.ts`
 
 - `interface ListParams`
 - `interface NetworkDomainCreateInput`
@@ -4990,22 +5024,22 @@
 - `function resolveNetworkDomainImpact`
 - `const tenantApi`
 
-### `ui-custom\web\src\api\edgeAgents.ts`
+### `ui-custom/web/src/api/edgeAgents.ts`
 
 - `const edgeAgentsApi`
 
-### `ui-custom\web\src\api\edgePackages.ts`
+### `ui-custom/web/src/api/edgePackages.ts`
 
 - `const edgePackageApi`
 
-### `ui-custom\web\src\api\exporterTemplates.ts`
+### `ui-custom/web/src/api/exporterTemplates.ts`
 
 - `interface ExporterTemplateListParams`
 - `interface ExporterTemplateInput`
 - `interface ExporterTemplateUpdateInput`
 - `const exporterTemplateApi`
 
-### `ui-custom\web\src\api\health.ts`
+### `ui-custom/web/src/api/health.ts`
 
 - `interface HealthResponse`
 - `interface StatusResponse`
@@ -5013,7 +5047,7 @@
 - `function getHealthDb`
 - `function getStatus`
 
-### `ui-custom\web\src\api\labelTemplates.ts`
+### `ui-custom/web/src/api/labelTemplates.ts`
 
 - `interface LabelTemplateListParams`
 - `interface TemplateInstanceListParams`
@@ -5021,14 +5055,14 @@
 - `interface MappingRemoveResult`
 - `const labelTemplateApi`
 
-### `ui-custom\web\src\api\metricLibrary.ts`
+### `ui-custom/web/src/api/metricLibrary.ts`
 
 - `interface MetricLibraryListParams`
 - `interface MetricLibraryInput`
 - `interface MetricLibraryUpdateInput`
 - `const metricLibraryApi`
 
-### `ui-custom\web\src\api\monitoringRules.ts`
+### `ui-custom/web/src/api/monitoringRules.ts`
 
 - `interface MonitoringRuleListParams`
 - `interface MonitoringRuleInput`
@@ -5041,12 +5075,12 @@
 - `interface JobRefIssue`
 - `const monitoringRuleApi`
 
-### `ui-custom\web\src\api\query.ts`
+### `ui-custom/web/src/api/query.ts`
 
 - `interface PromQueryParams`
 - `const queryApi`
 
-### `ui-custom\web\src\api\resources.ts`
+### `ui-custom/web/src/api/resources.ts`
 
 - `interface ResourceListParams`
 - `interface ResourceLabelsResponse`
@@ -5078,7 +5112,7 @@
 - `const osOptionApi`
 - `const importApi`
 
-### `ui-custom\web\src\api\scrapeJobs.ts`
+### `ui-custom/web/src/api/scrapeJobs.ts`
 
 - `interface ScrapeJobListParams`
 - `interface ScrapeJobMappingOverrideInput`
@@ -5089,52 +5123,52 @@
 - `interface PreviewTargetsResult`
 - `const scrapeJobApi`
 
-### `ui-custom\web\src\api\storage.ts`
+### `ui-custom/web/src/api/storage.ts`
 
 - `const storageLogApi`
 
-### `ui-custom\web\src\api\targets.ts`
+### `ui-custom/web/src/api/targets.ts`
 
 - `interface TargetsListParams`
 - `const targetsApi`
 
-### `ui-custom\web\src\components\Callout.tsx`
+### `ui-custom/web/src/components/Callout.tsx`
 
 - `function Callout`
 
-### `ui-custom\web\src\components\EllipsisText.tsx`
+### `ui-custom/web/src/components/EllipsisText.tsx`
 
 - `function EllipsisText`
 
-### `ui-custom\web\src\components\FieldLabel.tsx`
+### `ui-custom/web/src/components/FieldLabel.tsx`
 
 - `function FieldLabel`
 
-### `ui-custom\web\src\components\FilterBar.tsx`
+### `ui-custom/web/src/components/FilterBar.tsx`
 
 - `function FilterBar`
 - `function FilterItem`
 
-### `ui-custom\web\src\components\FormSection.tsx`
+### `ui-custom/web/src/components/FormSection.tsx`
 
 - `function FormSection`
 
-### `ui-custom\web\src\components\LoadingPlaceholder.tsx`
+### `ui-custom/web/src/components/LoadingPlaceholder.tsx`
 
 - `function LoadingPlaceholder`
 
-### `ui-custom\web\src\components\MonitorStatusBadge.tsx`
+### `ui-custom/web/src/components/MonitorStatusBadge.tsx`
 
 - `function MonitorStatusBadge`
 
-### `ui-custom\web\src\components\PageIntro.tsx`
+### `ui-custom/web/src/components/PageIntro.tsx`
 
 - `const PAGE_INTRO_GUIDE_TITLE`
 - `const PAGE_INTRO_GUIDE_HINT`
 - `interface PageIntroProps`
 - `function PageIntro`
 
-### `ui-custom\web\src\components\RuleGuideLink.tsx`
+### `ui-custom/web/src/components/RuleGuideLink.tsx`
 
 - `const RULES_PATH`
 - `const RULE_GUIDE_TEXT`
@@ -5142,16 +5176,16 @@
 - `function RuleGuideLink`
 - `function RuleGuideEmpty`
 
-### `ui-custom\web\src\components\tablePresets.ts`
+### `ui-custom/web/src/components/tablePresets.ts`
 
 - `const TABLE_SCROLL_X`
 - `const TABLE_PAGINATION`
 
-### `ui-custom\web\src\layouts\MainLayout.tsx`
+### `ui-custom/web/src/layouts/MainLayout.tsx`
 
 - `function MainLayout`
 
-### `ui-custom\web\src\layouts\siderPreference.ts`
+### `ui-custom/web/src/layouts/siderPreference.ts`
 
 - `const SIDER_COLLAPSED_KEY`
 - `const SIDER_WIDTH`
@@ -5159,153 +5193,153 @@
 - `function readSiderCollapsed`
 - `function writeSiderCollapsed`
 
-### `ui-custom\web\src\pages\admin\appearance\AppearanceSettingsPage.tsx`
+### `ui-custom/web/src/pages/admin/appearance/AppearanceSettingsPage.tsx`
 
 - `function AppearanceSettingsPage`
 
-### `ui-custom\web\src\pages\admin\clouddict\CloudDictPage.tsx`
+### `ui-custom/web/src/pages/admin/clouddict/CloudDictPage.tsx`
 
 - `function CloudDictPage`
 
-### `ui-custom\web\src\pages\admin\domains\DeleteDomainModal.tsx`
+### `ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx`
 
 - `function DeleteDomainModal`
 
-### `ui-custom\web\src\pages\admin\domains\DisableDomainModal.tsx`
+### `ui-custom/web/src/pages/admin/domains/DisableDomainModal.tsx`
 
 - `function DisableDomainModal`
 
-### `ui-custom\web\src\pages\admin\domains\DomainForm.tsx`
+### `ui-custom/web/src/pages/admin/domains/DomainForm.tsx`
 
 - `function DomainDrawer`
 
-### `ui-custom\web\src\pages\admin\domains\DomainsPage.tsx`
+### `ui-custom/web/src/pages/admin/domains/DomainsPage.tsx`
 
 - `function DomainsPage`
 
-### `ui-custom\web\src\pages\admin\domains\domainRules.ts`
+### `ui-custom/web/src/pages/admin/domains/domainRules.ts`
 
 - `function isVacantDomain`
 
-### `ui-custom\web\src\pages\admin\domains\useDomains.ts`
+### `ui-custom/web/src/pages/admin/domains/useDomains.ts`
 
 - `type DomainFilters`
 - `interface UseDomainsResult`
 - `function useDomains`
 
-### `ui-custom\web\src\pages\admin\login-logs\LoginLogsPage.tsx`
+### `ui-custom/web/src/pages/admin/login-logs/LoginLogsPage.tsx`
 
 - `function LoginLogsPage`
 
-### `ui-custom\web\src\pages\admin\login-logs\useLoginLogs.ts`
+### `ui-custom/web/src/pages/admin/login-logs/useLoginLogs.ts`
 
 - `interface LoginLogFilters`
 - `interface UseLoginLogsResult`
 - `function useLoginLogs`
 
-### `ui-custom\web\src\pages\admin\storagelog\StorageLogPage.tsx`
+### `ui-custom/web/src/pages/admin/storagelog/StorageLogPage.tsx`
 
 - `function StorageLogPage`
 
-### `ui-custom\web\src\pages\admin\tenants\TenantDetailDrawer.tsx`
+### `ui-custom/web/src/pages/admin/tenants/TenantDetailDrawer.tsx`
 
 - `function TenantDetailDrawer`
 
-### `ui-custom\web\src\pages\admin\tenants\TenantEditModal.tsx`
+### `ui-custom/web/src/pages/admin/tenants/TenantEditModal.tsx`
 
 - `function TenantEditModal`
 
-### `ui-custom\web\src\pages\admin\tenants\TenantsPage.tsx`
+### `ui-custom/web/src/pages/admin/tenants/TenantsPage.tsx`
 
 - `function TenantsPage`
 
-### `ui-custom\web\src\pages\admin\tenants\useTenants.ts`
+### `ui-custom/web/src/pages/admin/tenants/useTenants.ts`
 
 - `interface TenantFilters`
 - `interface UseTenantsResult`
 - `function useTenants`
 
-### `ui-custom\web\src\pages\admin\users\ResetPasswordModal.tsx`
+### `ui-custom/web/src/pages/admin/users/ResetPasswordModal.tsx`
 
 - `function ResetPasswordModal`
 
-### `ui-custom\web\src\pages\admin\users\UserFormModal.tsx`
+### `ui-custom/web/src/pages/admin/users/UserFormModal.tsx`
 
 - `function UserFormModal`
 
-### `ui-custom\web\src\pages\admin\users\UsersPage.tsx`
+### `ui-custom/web/src/pages/admin/users/UsersPage.tsx`
 
 - `function UsersPage`
 
-### `ui-custom\web\src\pages\admin\users\useUsers.ts`
+### `ui-custom/web/src/pages/admin/users/useUsers.ts`
 
 - `interface UseUsersResult`
 - `function useUsers`
 
-### `ui-custom\web\src\pages\alerts\AlertConfigDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`
 
 - `function AlertConfigDrawer`
 
-### `ui-custom\web\src\pages\alerts\AlertConfigPage.tsx`
+### `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`
 
 - `function AlertConfigPage`
 
-### `ui-custom\web\src\pages\alerts\AlertStatusPage.tsx`
+### `ui-custom/web/src/pages/alerts/AlertStatusPage.tsx`
 
 - `function AlertStatusPage`
 
-### `ui-custom\web\src\pages\alerts\AlertsPage.tsx`
+### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
 - `function AlertsPage`
 
-### `ui-custom\web\src\pages\alerts\CreateSilenceDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx`
 
 - `interface CreateSilenceDrawerProps`
 - `function CreateSilenceDrawer`
 
-### `ui-custom\web\src\pages\alerts\HistoryAlertsPage.tsx`
+### `ui-custom/web/src/pages/alerts/HistoryAlertsPage.tsx`
 
 - `function HistoryAlertsPage`
 
-### `ui-custom\web\src\pages\alerts\NotifyChannelDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/NotifyChannelDrawer.tsx`
 
 - `interface NotifyChannelDrawerProps`
 - `function NotifyChannelDrawer`
 
-### `ui-custom\web\src\pages\alerts\NotifyChannelsPage.tsx`
+### `ui-custom/web/src/pages/alerts/NotifyChannelsPage.tsx`
 
 - `function NotifyChannelsPage`
 
-### `ui-custom\web\src\pages\alerts\NotifyTemplateDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/NotifyTemplateDrawer.tsx`
 
 - `interface NotifyTemplateInitial`
 - `interface NotifyTemplateDrawerProps`
 - `function NotifyTemplateDrawer`
 
-### `ui-custom\web\src\pages\alerts\NotifyTemplatesPage.tsx`
+### `ui-custom/web/src/pages/alerts/NotifyTemplatesPage.tsx`
 
 - `function NotifyTemplatesPage`
 
-### `ui-custom\web\src\pages\alerts\ReceiverSnippetDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`
 
 - `interface ReceiverSnippetDrawerProps`
 - `function ReceiverSnippetDrawer`
 
-### `ui-custom\web\src\pages\alerts\RouteEditorDrawer.tsx`
+### `ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx`
 
 - `interface RouteEditorParentOption`
 - `interface RouteEditorDrawerProps`
 - `function RouteEditorDrawer`
 
-### `ui-custom\web\src\pages\alerts\RoutesPage.tsx`
+### `ui-custom/web/src/pages/alerts/RoutesPage.tsx`
 
 - `function RoutesPage`
 
-### `ui-custom\web\src\pages\alerts\SilencesPage.tsx`
+### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
 
 - `function SilencesPage`
 
-### `ui-custom\web\src\pages\alerts\alertmanagerConstants.ts`
+### `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`
 
 - `const CURRENT_USER`
 - `const CONFIG_PREVIEW_PATH`
@@ -5377,7 +5411,7 @@
 - `const notifyTemplateStatusLabel`
 - `const NOTIFY_TEMPLATE_BUILTIN_TIP`
 
-### `ui-custom\web\src\pages\alerts\routeLabels.ts`
+### `ui-custom/web/src/pages/alerts/routeLabels.ts`
 
 - `const ROUTE_LABEL_OPTION_LIMIT`
 - `interface RouteLabelOption`
@@ -5387,7 +5421,7 @@
 - `function toRouteLabelSelectOptions`
 - `function useRouteLabelOptions`
 
-### `ui-custom\web\src\pages\alerts\routeTree.ts`
+### `ui-custom/web/src/pages/alerts/routeTree.ts`
 
 - `const ROUTE_ROOT_ID`
 - `const ROUTE_NAME_COMMENT_PREFIX`
@@ -5417,12 +5451,12 @@
 - `function generateRouteSection`
 - `function mergeRouteSection`
 
-### `ui-custom\web\src\pages\alerts\useAlertConfig.ts`
+### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
 - `interface UseAlertConfigResult`
 - `function useAlertConfig`
 
-### `ui-custom\web\src\pages\alerts\useAlertStatus.ts`
+### `ui-custom/web/src/pages/alerts/useAlertStatus.ts`
 
 - `interface AlertViewState`
 - `interface DomainOption`
@@ -5430,13 +5464,13 @@
 - `function usePromAlerts`
 - `function useNetworkDomains`
 
-### `ui-custom\web\src\pages\alerts\useDerivedReceivers.ts`
+### `ui-custom/web/src/pages/alerts/useDerivedReceivers.ts`
 
 - `interface DerivedReceiverRow`
 - `interface UseDerivedReceiversResult`
 - `function useDerivedReceivers`
 
-### `ui-custom\web\src\pages\alerts\useHistoryAlerts.ts`
+### `ui-custom/web/src/pages/alerts/useHistoryAlerts.ts`
 
 - `interface HistoryAlertsQuery`
 - `interface HistoryAlertsResult`
@@ -5445,17 +5479,17 @@
 - `function useNetworkDomains`
 - `function defaultTimeRange`
 
-### `ui-custom\web\src\pages\alerts\useNotifyChannels.ts`
+### `ui-custom/web/src/pages/alerts/useNotifyChannels.ts`
 
 - `interface UseNotifyChannelsResult`
 - `function useNotifyChannels`
 
-### `ui-custom\web\src\pages\alerts\useNotifyTemplates.ts`
+### `ui-custom/web/src/pages/alerts/useNotifyTemplates.ts`
 
 - `interface UseNotifyTemplatesResult`
 - `function useNotifyTemplates`
 
-### `ui-custom\web\src\pages\alerts\useRouteSetting.ts`
+### `ui-custom/web/src/pages/alerts/useRouteSetting.ts`
 
 - `const NONE_RECEIVER_VALUE`
 - `interface RouteSettingOption`
@@ -5463,7 +5497,7 @@
 - `const ROUTE_SETTING_NONE_LABEL`
 - `function useRouteSetting`
 
-### `ui-custom\web\src\pages\alerts\useRoutes.ts`
+### `ui-custom/web/src/pages/alerts/useRoutes.ts`
 
 - `interface RouteRow`
 - `function buildTreeRows`
@@ -5477,17 +5511,17 @@
 - `function useRouteEditor`
 - `function isRouteEditable`
 
-### `ui-custom\web\src\pages\alerts\useSilences.ts`
+### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
 - `interface UseSilencesResult`
 - `interface SilenceQuery`
 - `function useSilences`
 
-### `ui-custom\web\src\pages\collection\CollectionPage.tsx`
+### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
 
 - `function CollectionPage`
 
-### `ui-custom\web\src\pages\config-center\configCenterConstants.ts`
+### `ui-custom/web/src/pages/config-center/configCenterConstants.ts`
 
 - `const CURRENT_USER`
 - `const TOKEN_MASK`
@@ -5524,51 +5558,51 @@
 - `function formatRelativeTime`
 - `function formatLocalTime`
 
-### `ui-custom\web\src\pages\config-center\deployments\DeploymentsPage.tsx`
+### `ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx`
 
 - `function DeploymentsPage`
 
-### `ui-custom\web\src\pages\config-center\deployments\useDeployments.ts`
+### `ui-custom/web/src/pages/config-center/deployments/useDeployments.ts`
 
 - `interface UseDeploymentsResult`
 - `function useDeployments`
 - `function fetchAllDomains`
 
-### `ui-custom\web\src\pages\config-center\domains\EdgePackageDownloadPanel.tsx`
+### `ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.tsx`
 
 - `function EdgePackageDownloadPanel`
 
-### `ui-custom\web\src\pages\config-center\domains\NetworkDomainDetailDrawer.tsx`
+### `ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx`
 
 - `function NetworkDomainDetailDrawer`
 
-### `ui-custom\web\src\pages\config-center\domains\NetworkDomainsPage.tsx`
+### `ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`
 
 - `function NetworkDomainsPage`
 
-### `ui-custom\web\src\pages\config-center\domains\OnboardDomainDrawer.tsx`
+### `ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx`
 
 - `interface OnboardInput`
 - `function OnboardDomainDrawer`
 
-### `ui-custom\web\src\pages\config-center\domains\PlainTokenModal.tsx`
+### `ui-custom/web/src/pages/config-center/domains/PlainTokenModal.tsx`
 
 - `function PlainTokenModal`
 
-### `ui-custom\web\src\pages\config-center\domains\useNetworkDomains.ts`
+### `ui-custom/web/src/pages/config-center/domains/useNetworkDomains.ts`
 
 - `interface UseNetworkDomainsResult`
 - `function useNetworkDomains`
 
-### `ui-custom\web\src\pages\config-center\nodes\EdgeAgentDrawer.tsx`
+### `ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx`
 
 - `function EdgeAgentDrawer`
 
-### `ui-custom\web\src\pages\config-center\nodes\EdgeAgentsPage.tsx`
+### `ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx`
 
 - `function EdgeAgentsPage`
 
-### `ui-custom\web\src\pages\config-center\nodes\edgeConstants.ts`
+### `ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts`
 
 - `const agentStatusLabel`
 - `const agentStatusBadgeStatus`
@@ -5601,17 +5635,17 @@
 - `function compareVersions`
 - `function latestPackageVersion`
 
-### `ui-custom\web\src\pages\config-center\nodes\useEdgeAgents.ts`
+### `ui-custom/web/src/pages/config-center/nodes/useEdgeAgents.ts`
 
 - `interface EdgeFilters`
 - `interface UseEdgeAgentsResult`
 - `function useEdgeAgents`
 
-### `ui-custom\web\src\pages\config-center\preview\ConfigPreviewPage.tsx`
+### `ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`
 
 - `function ConfigPreviewPage`
 
-### `ui-custom\web\src\pages\config-center\preview\configPreviewYaml.ts`
+### `ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts`
 
 - `const PREVIEW_TABS`
 - `function previewTabsFor`
@@ -5624,14 +5658,14 @@
 - `interface DiffRow`
 - `function computeDiff`
 
-### `ui-custom\web\src\pages\config-center\preview\triggerConfigDraft.ts`
+### `ui-custom/web/src/pages/config-center/preview/triggerConfigDraft.ts`
 
 - `const CONFIG_PREVIEW_PATH`
 - `interface TriggerDraftOptions`
 - `function triggerConfigDrafts`
 - `function triggerConfigDraftsForAllDomains`
 
-### `ui-custom\web\src\pages\config-center\preview\useConfigDrafts.ts`
+### `ui-custom/web/src/pages/config-center/preview/useConfigDrafts.ts`
 
 - `type DraftStatusFilter`
 - `const ALL_DOMAINS_ID`
@@ -5640,11 +5674,11 @@
 - `function useConfigDrafts`
 - `function fetchMonitoredDomains`
 
-### `ui-custom\web\src\pages\config\ConfigPage.tsx`
+### `ui-custom/web/src/pages/config/ConfigPage.tsx`
 
 - `function ConfigPage`
 
-### `ui-custom\web\src\pages\home\AlertStatusCard.tsx`
+### `ui-custom/web/src/pages/home/AlertStatusCard.tsx`
 
 - `interface AlertCounts`
 - `const LATEST_ALERT_LIMIT`
@@ -5653,85 +5687,104 @@
 - `function AlertRow`
 - `function AlertStatusCard`
 
-### `ui-custom\web\src\pages\home\AppDetailTable.tsx`
-
-- `function AppDetailTable`
-
-### `ui-custom\web\src\pages\home\CloudDistributionPanel.tsx`
+### `ui-custom/web/src/pages/home/CloudDistributionPanel.tsx`
 
 - `function CloudDistributionPanel`
 
-### `ui-custom\web\src\pages\home\CollectionHealthPanel.tsx`
+### `ui-custom/web/src/pages/home/CollectionHealthPanel.tsx`
 
 - `function CollectionHealthPanel`
 
-### `ui-custom\web\src\pages\home\HomePage.tsx`
+### `ui-custom/web/src/pages/home/CoverageDonut.tsx`
+
+- `function CoverageDonut`
+
+### `ui-custom/web/src/pages/home/HomePage.tsx`
 
 - `function HomePage`
 
-### `ui-custom\web\src\pages\home\OnboardingSteps.tsx`
+### `ui-custom/web/src/pages/home/OnboardingSteps.tsx`
 
 - `function OnboardingSteps`
 
-### `ui-custom\web\src\pages\home\ProbePanel.tsx`
+### `ui-custom/web/src/pages/home/PlatformAppMatrixPanel.tsx`
+
+- `function PlatformAppMatrixPanel`
+
+### `ui-custom/web/src/pages/home/ProbeHealthDonut.tsx`
+
+- `function ProbeHealthDonut`
+
+### `ui-custom/web/src/pages/home/ProbePanel.tsx`
 
 - `function ProbePanel`
 
-### `ui-custom\web\src\pages\home\ResourceTypeGrid.tsx`
+### `ui-custom/web/src/pages/home/ResourceTypeGrid.tsx`
 
 - `function ResourceTypeGrid`
 
-### `ui-custom\web\src\pages\home\SurfaceCard.tsx`
+### `ui-custom/web/src/pages/home/SurfaceCard.tsx`
 
 - `function SurfaceCard`
 
-### `ui-custom\web\src\pages\home\homeLayout.ts`
+### `ui-custom/web/src/pages/home/TableHeaderText.tsx`
+
+- `function TableHeaderText`
+
+### `ui-custom/web/src/pages/home/homeDonut.ts`
+
+- `const DONUT_GEOMETRY`
+- `const DONUT_CIRCUMFERENCE`
+
+### `ui-custom/web/src/pages/home/homeLayout.ts`
 
 - `const ALERT_PAGE_SIZE`
 - `function computeAlertPageSize`
 
-### `ui-custom\web\src\pages\home\homeResponsive.ts`
+### `ui-custom/web/src/pages/home/homePanelVisibility.ts`
+
+- `const RESOURCE_PANELS_COLLAPSED_KEY`
+- `function readResourcePanelsCollapsed`
+- `function writeResourcePanelsCollapsed`
+
+### `ui-custom/web/src/pages/home/homeResponsive.ts`
 
 - `const NARROW_LAYOUT_QUERY`
 - `function useNarrowLayout`
 
-### `ui-custom\web\src\pages\home\resourceTypeMeta.ts`
+### `ui-custom/web/src/pages/home/homeTypography.ts`
+
+- `const HOME_FONT`
+- `const HOME_WEIGHT`
+
+### `ui-custom/web/src/pages/home/resourceTypeMeta.ts`
 
 - `type ResourceCategoryKey`
 - `const L1_CATEGORY_ORDER`
 - `const L1_CATEGORY_META`
-- `const APPLICATION_SUBTYPE_TIP`
-- `const APPLICATION_SUBTYPE_LABEL`
-- `const INTERFACE_SERVICE_SUBTYPE_TIP`
-- `const INTERFACE_SERVICE_SUBTYPE_LABEL`
-- `const SINGLE_SUBTYPE_CHIP`
 - `const SUBTYPE_COVERAGE_WARN_THRESHOLD`
 - `function coveragePercent`
 - `function coverageText`
 - `function uncoveredCount`
-- `function firingAlerts`
-- `function resourceListHref`
-- `function appResourceListHref`
-- `const RESOURCE_IMPORT_HREF`
 
-### `ui-custom\web\src\pages\label-templates\LabelTemplatesPage.tsx`
+### `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`
 
 - `function LabelTemplatesPage`
 
-### `ui-custom\web\src\pages\label-templates\MappingDrawer.tsx`
+### `ui-custom/web/src/pages/label-templates/MappingDrawer.tsx`
 
 - `function MappingDrawer`
 
-### `ui-custom\web\src\pages\label-templates\TemplateDetailTabs.tsx`
+### `ui-custom/web/src/pages/label-templates/TemplateDetailTabs.tsx`
 
 - `function TemplateDetailTabs`
 
-### `ui-custom\web\src\pages\label-templates\TemplateList.tsx`
+### `ui-custom/web/src/pages/label-templates/TemplateList.tsx`
 
 - `type TemplateFilter`
 - `function TemplateList`
 
-### `ui-custom\web\src\pages\label-templates\labelTemplateConstants.ts`
+### `ui-custom/web/src/pages/label-templates/labelTemplateConstants.ts`
 
 - `const RESOURCE_TYPE_MAP`
 - `const INSTANCE_LEVEL_CUSTOM_CATEGORIES`
@@ -5747,67 +5800,67 @@
 - `const CMDB_FIELD_OPTIONS`
 - `const PROMETHEUS_BUILTIN_OPTIONS`
 
-### `ui-custom\web\src\pages\login\LoginPage.tsx`
+### `ui-custom/web/src/pages/login/LoginPage.tsx`
 
 - `function LoginPage`
 
-### `ui-custom\web\src\pages\query\QueryPage.tsx`
+### `ui-custom/web/src/pages/query/QueryPage.tsx`
 
 - `function QueryPage`
 
-### `ui-custom\web\src\pages\query\TargetStatusPage.tsx`
+### `ui-custom/web/src/pages/query/TargetStatusPage.tsx`
 
 - `function TargetStatusPage`
 
-### `ui-custom\web\src\pages\resources\ApplicationDictPage.tsx`
+### `ui-custom/web/src/pages/resources/ApplicationDictPage.tsx`
 
 - `function ApplicationDictPage`
 - `function ApplicationDictDrawer`
 
-### `ui-custom\web\src\pages\resources\BusinessDomainPage.tsx`
+### `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`
 
 - `function BusinessDomainPage`
 - `function BusinessDomainDrawer`
 
-### `ui-custom\web\src\pages\resources\DictLifecycleNotice.tsx`
+### `ui-custom/web/src/pages/resources/DictLifecycleNotice.tsx`
 
 - `const DICT_LIFECYCLE_NOTICE`
 - `function DictLifecycleNotice`
 
-### `ui-custom\web\src\pages\resources\ImportModal.tsx`
+### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 
 - `function ImportModal`
 
-### `ui-custom\web\src\pages\resources\ImportRecordsPanel.tsx`
+### `ui-custom/web/src/pages/resources/ImportRecordsPanel.tsx`
 
 - `function ImportRecordsPanel`
 
-### `ui-custom\web\src\pages\resources\PlatformManagementPage.tsx`
+### `ui-custom/web/src/pages/resources/PlatformManagementPage.tsx`
 
 - `function PlatformManagementPage`
 - `function PlatformDictDrawer`
 
-### `ui-custom\web\src\pages\resources\ResourceDetailDrawer.tsx`
+### `ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx`
 
 - `function ResourceDetailDrawer`
 
-### `ui-custom\web\src\pages\resources\ResourceFormDrawer.tsx`
+### `ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx`
 
 - `function ResourceFormDrawer`
 
-### `ui-custom\web\src\pages\resources\ResourcePage.tsx`
+### `ui-custom/web/src/pages/resources/ResourcePage.tsx`
 
 - `function ResourcePage`
 
-### `ui-custom\web\src\pages\resources\ResourcesPage.tsx`
+### `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
 
 - `function ResourcesPage`
 
-### `ui-custom\web\src\pages\resources\TemplateDownloadModal.tsx`
+### `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`
 
 - `function TemplateDownloadModal`
 
-### `ui-custom\web\src\pages\resources\resourceColumnPrefs.ts`
+### `ui-custom/web/src/pages/resources/resourceColumnPrefs.ts`
 
 - `type ResourceColumnGroup`
 - `const COLUMN_GROUP_ORDER`
@@ -5822,85 +5875,85 @@
 - `function resetVisibleColumnKeys`
 - `function isDefaultVisibleColumnKeys`
 
-### `ui-custom\web\src\pages\resources\useResourceCoverage.ts`
+### `ui-custom/web/src/pages/resources/useResourceCoverage.ts`
 
 - `interface UseResourceCoverageResult`
 - `function useResourceCoverage`
 
-### `ui-custom\web\src\pages\resources\useResources.ts`
+### `ui-custom/web/src/pages/resources/useResources.ts`
 
 - `interface ResourceListItem`
 - `interface ResourceFilters`
 - `interface UseResourcesResult`
 - `function useResources`
 
-### `ui-custom\web\src\pages\strategy\CollectorListPage.tsx`
+### `ui-custom/web/src/pages/strategy/CollectorListPage.tsx`
 
 - `function CollectorListPage`
 
-### `ui-custom\web\src\pages\strategy\CollectorTemplatesTab.tsx`
+### `ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx`
 
 - `function CollectorTemplatesTab`
 
-### `ui-custom\web\src\pages\strategy\ExporterInstallationPanel.tsx`
+### `ui-custom/web/src/pages/strategy/ExporterInstallationPanel.tsx`
 
 - `function ExporterInstallationPanel`
 
-### `ui-custom\web\src\pages\strategy\ExporterTemplateDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/ExporterTemplateDrawer.tsx`
 
 - `function ExporterTemplateDrawer`
 
-### `ui-custom\web\src\pages\strategy\InstanceSelector.tsx`
+### `ui-custom/web/src/pages/strategy/InstanceSelector.tsx`
 
 - `function InstanceSelector`
 
-### `ui-custom\web\src\pages\strategy\LabelTemplatePreview.tsx`
+### `ui-custom/web/src/pages/strategy/LabelTemplatePreview.tsx`
 
 - `function LabelTemplatePreview`
 
-### `ui-custom\web\src\pages\strategy\LabelTemplateSelectDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/LabelTemplateSelectDrawer.tsx`
 
 - `function LabelTemplateSelectDrawer`
 
-### `ui-custom\web\src\pages\strategy\MappingDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/MappingDrawer.tsx`
 
 - `function MappingDrawer`
 
-### `ui-custom\web\src\pages\strategy\MetricLibraryPage.tsx`
+### `ui-custom/web/src/pages/strategy/MetricLibraryPage.tsx`
 
 - `function MetricLibraryPage`
 
-### `ui-custom\web\src\pages\strategy\RuleMountDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`
 
 - `function RuleMountDrawer`
 
-### `ui-custom\web\src\pages\strategy\RulesPage.tsx`
+### `ui-custom/web/src/pages/strategy/RulesPage.tsx`
 
 - `function RulesPage`
 
-### `ui-custom\web\src\pages\strategy\ScrapeJobDetailDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.tsx`
 
 - `interface ScrapeJobDetailDrawerProps`
 - `function ScrapeJobDetailDrawer`
 
-### `ui-custom\web\src\pages\strategy\ScrapeJobFormDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`
 
 - `function ScrapeJobFormDrawer`
 
-### `ui-custom\web\src\pages\strategy\ScrapeJobListPage.tsx`
+### `ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`
 
 - `function ScrapeJobListPage`
 
-### `ui-custom\web\src\pages\strategy\jobStatus.ts`
+### `ui-custom/web/src/pages/strategy/jobStatus.ts`
 
 - `interface JobStatusView`
 - `function aggregateJobStatus`
 
-### `ui-custom\web\src\pages\strategy\rulesYaml.ts`
+### `ui-custom/web/src/pages/strategy/rulesYaml.ts`
 
 - `function validateYamlClient`
 
-### `ui-custom\web\src\pages\strategy\strategyConstants.ts`
+### `ui-custom/web/src/pages/strategy/strategyConstants.ts`
 
 - `const MONITOR_TYPE_MAP`
 - `const CATEGORY_MAP`
@@ -5922,8 +5975,9 @@
 - `const EFFECTIVE_STATUS_TOOLTIP`
 - `const CHANGE_PROGRESS_TOOLTIP`
 
-### `ui-custom\web\src\pages\strategy\upStatus.ts`
+### `ui-custom/web/src/pages/strategy/upStatus.ts`
 
+- `interface ProbeTarget`
 - `function hostOf`
 - `function upQueryForJob`
 - `function lastUpQueryForJob`
@@ -5931,26 +5985,26 @@
 - `function probeQueryForJob`
 - `function probeStatusOfTarget`
 
-### `ui-custom\web\src\pages\strategy\useJobScrapeStatus.ts`
+### `ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`
 
 - `type JobScrapeAggState`
 - `interface JobScrapeStatusView`
 - `function useJobScrapeStatus`
 
-### `ui-custom\web\src\pages\strategy\useScrapeJobStatus.ts`
+### `ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts`
 
 - `type JobInstanceScrapeStatus`
 - `interface JobScrapeStatusSummary`
 - `function queryVector`
 - `function useScrapeJobStatus`
 
-### `ui-custom\web\src\pages\strategy\useScrapeJobs.ts`
+### `ui-custom/web/src/pages/strategy/useScrapeJobs.ts`
 
 - `interface ScrapeJobFilters`
 - `interface UseScrapeJobsResult`
 - `function useScrapeJobs`
 
-### `ui-custom\web\src\productNamePreference.ts`
+### `ui-custom/web/src/productNamePreference.ts`
 
 - `const PRODUCT_NAME_STORAGE_KEY`
 - `const DEFAULT_PRODUCT_NAME`
@@ -5960,20 +6014,20 @@
 - `function writeProductName`
 - `function clearProductName`
 
-### `ui-custom\web\src\skinContext.ts`
+### `ui-custom/web/src/skinContext.ts`
 
 - `interface AppearanceConfig`
 - `const AppearanceContext`
 - `function useSkin`
 - `function useProductName`
 
-### `ui-custom\web\src\skinPreference.ts`
+### `ui-custom/web/src/skinPreference.ts`
 
 - `const SKIN_STORAGE_KEY`
 - `function readSkin`
 - `function writeSkin`
 
-### `ui-custom\web\src\skins.ts`
+### `ui-custom/web/src/skins.ts`
 
 - `type SkinKey`
 - `interface SkinTokens`
@@ -5987,7 +6041,7 @@
 - `const CSS_VAR_BY_TOKEN`
 - `function buildSkinTheme`
 
-### `ui-custom\web\src\test\antdTestUtils.tsx`
+### `ui-custom/web/src/test/antdTestUtils.tsx`
 
 - `function setupAntdTest`
 - `interface MockedModal`
@@ -5996,7 +6050,7 @@
 - `function mockAntdMessage`
 - `function selectAntdOption`
 
-### `ui-custom\web\src\types\admin.ts`
+### `ui-custom/web/src/types/admin.ts`
 
 - `type UserStatus`
 - `interface UserItem`
@@ -6007,7 +6061,7 @@
 - `interface TenantEditInput`
 - `interface ItemsResult`
 
-### `ui-custom\web\src\types\alertmanager.ts`
+### `ui-custom/web/src/types/alertmanager.ts`
 
 - `interface PaginatedItems`
 - `type AlertmanagerConfigStatus`
@@ -6052,7 +6106,7 @@
 - `interface DeadReceiver`
 - `interface RouteTreeData`
 
-### `ui-custom\web\src\types\api.ts`
+### `ui-custom/web/src/types/api.ts`
 
 - `type ApiStatus`
 - `interface ApiResponse`
@@ -6060,12 +6114,12 @@
 - `type ApiError`
 - `interface Paginated`
 
-### `ui-custom\web\src\types\auth.ts`
+### `ui-custom/web/src/types/auth.ts`
 
 - `interface AuthUser`
 - `interface LoginResult`
 
-### `ui-custom\web\src\types\config-center.ts`
+### `ui-custom/web/src/types/config-center.ts`
 
 - `interface PaginatedItems`
 - `type Channel`
@@ -6099,7 +6153,7 @@
 - `interface EdgePackageComponent`
 - `interface EdgePackage`
 
-### `ui-custom\web\src\types\config.ts`
+### `ui-custom/web/src/types/config.ts`
 
 - `type DraftStatus`
 - `type DeploymentStatus`
@@ -6107,7 +6161,7 @@
 - `interface ConfigVersion`
 - `interface ConfigDeployment`
 
-### `ui-custom\web\src\types\domain.ts`
+### `ui-custom/web/src/types/domain.ts`
 
 - `type DomainType`
 - `type DomainStatus`
@@ -6122,7 +6176,7 @@
 - `type TenantStatus`
 - `interface Tenant`
 
-### `ui-custom\web\src\types\edge.ts`
+### `ui-custom/web/src/types/edge.ts`
 
 - `type AgentStatus`
 - `type AgentOverall`
@@ -6135,7 +6189,7 @@
 - `interface EdgeAgentsSummary`
 - `interface EdgeAgentsResponse`
 
-### `ui-custom\web\src\types\label.ts`
+### `ui-custom/web/src/types/label.ts`
 
 - `type LabelSourceType`
 - `interface Mapping`
@@ -6148,7 +6202,7 @@
 - `interface TemplateInstanceItem`
 - `interface LabelTemplateListItem`
 
-### `ui-custom\web\src\types\query.ts`
+### `ui-custom/web/src/types/query.ts`
 
 - `type TargetHealth`
 - `interface TargetItem`
@@ -6163,7 +6217,7 @@
 - `interface PromMatrixItem`
 - `type PromQueryData`
 
-### `ui-custom\web\src\types\resource.ts`
+### `ui-custom/web/src/types/resource.ts`
 
 - `type ResourceCategory`
 - `type ResourceType`
@@ -6199,7 +6253,7 @@
 - `type ImportMode`
 - `interface ImportRecord`
 
-### `ui-custom\web\src\types\storage.ts`
+### `ui-custom/web/src/types/storage.ts`
 
 - `interface RetentionValues`
 - `interface RetentionState`
@@ -6208,7 +6262,7 @@
 - `interface StorageLogOverview`
 - `interface RetentionInput`
 
-### `ui-custom\web\src\types\strategy.ts`
+### `ui-custom/web/src/types/strategy.ts`
 
 - `type JobType`
 - `type AuthType`
@@ -6234,11 +6288,11 @@
 - `interface ScrapeJobInstanceItem`
 - `interface ScrapeJobMappingOverride`
 
-### `ui-custom\web\src\utils\shortChecksum.ts`
+### `ui-custom/web/src/utils/shortChecksum.ts`
 
 - `function shortChecksum`
 
-### `ui-custom\web\src\utils\triggerBlobDownload.ts`
+### `ui-custom/web/src/utils/triggerBlobDownload.ts`
 
 - `function triggerBlobDownload`
 

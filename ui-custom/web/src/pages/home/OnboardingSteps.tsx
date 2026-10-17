@@ -1,12 +1,18 @@
 /**
- * 首页使用指引区（Module_05 §3.1 决策 72-1 六步监控闭环；决策 93 改纵向六步，与告警状态卡同排等高）。
+ * 首页使用指引区（Module_05 §3.1 决策 72-1 六步监控闭环；决策 93 改纵向六步；
+ * **2026-10-17 走查改回一行横排**）。
  *
  * 六步：登记网域 → 导入资源 → 建采集 Job → 下发 → 配置告警通知 → 查指标 / 看告警。
  * 第 5 步「配置告警通知」深链 /alert-config；第 6 步主入口 /query、次入口 /alert-status。
- * 决策 93 版式：**纵向 Steps**（direction vertical + size small），每步 title 深链 + desc 次要小字 +
- * 图标品牌色；step 文案沿用既有 ONBOARDING_STEPS 数据。完成态当前静态未勾选，v0.3 接入真实数据后自动打勾。
+ * step 文案沿用既有 ONBOARDING_STEPS 数据。完成态当前静态未勾选，v0.3 接入真实数据后自动打勾。
+ *
+ * 一行横排口径（2026-10-17 走查，产品负责人裁定）：「使用指引改成一行」——
+ * 六步是**闭环动线**（从登记到看告警的一次完整路径），纵向六步占近半屏高、
+ * 把拨测 / 采集健康等数据面板挤出首屏；横排一行后动线一眼看完，页面高度也让位给数据。
+ * 手机竖屏（≤767px）六步一行放不下 → 卡片内横向滚动（隐藏滚动条，触屏可左右滑），
+ * 与模块导航 / 矩阵表格同一滚动模式；不给手机单独做卡片化（那会退回多行）。
  */
-import { Space, Steps, theme } from 'antd'
+import { Steps, theme } from 'antd'
 import type { ReactNode } from 'react'
 import {
   ApiOutlined,
@@ -18,6 +24,8 @@ import {
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { SurfaceCard } from './SurfaceCard'
+import { HOME_FONT } from './homeTypography'
+import { useNarrowLayout } from './homeResponsive'
 
 interface OnboardingStep {
   /** 主入口文案与深链 */
@@ -50,17 +58,19 @@ function StepTitle({ step }: { step: OnboardingStep }) {
     return <Link to={step.href}>{step.title}</Link>
   }
   return (
-    <Space size={4}>
+    <>
       <Link to={step.href}>{step.title}</Link>
+      {' / '}
       <Link to={step.secondary.href} style={{ color: 'inherit' }}>
         {step.secondary.title}
       </Link>
-    </Space>
+    </>
   )
 }
 
 export function OnboardingSteps() {
   const { token } = theme.useToken()
+  const narrow = useNarrowLayout()
   return (
     <SurfaceCard
       title="使用指引"
@@ -68,18 +78,25 @@ export function OnboardingSteps() {
       style={{ height: '100%' }}
       styles={{ body: { display: 'flex', flexDirection: 'column' } }}
     >
-      <Steps
-        direction="vertical"
-        size="small"
-        current={-1}
-        items={ONBOARDING_STEPS.map((step) => ({
-          title: <StepTitle step={step} />,
-          description: (
-            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>{step.description}</span>
-          ),
-          icon: <span style={{ color: token.colorPrimary }}>{step.icon}</span>,
-        }))}
-      />
+      {/* 一行横排：宽屏六步等宽一行；窄屏卡片内横向滚动（隐藏滚动条），
+          给 Steps 一个最小宽度防止六步被压缩到不可读。 */}
+      <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+        <Steps
+          direction="horizontal"
+          size="small"
+          current={-1}
+          style={{ minWidth: narrow ? 760 : undefined }}
+          items={ONBOARDING_STEPS.map((step) => ({
+            title: <StepTitle step={step} />,
+            description: (
+              <span style={{ fontSize: HOME_FONT.body, color: token.colorTextSecondary }}>
+                {step.description}
+              </span>
+            ),
+            icon: <span style={{ color: token.colorPrimary }}>{step.icon}</span>,
+          }))}
+        />
+      </div>
     </SurfaceCard>
   )
 }

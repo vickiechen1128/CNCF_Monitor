@@ -30,7 +30,7 @@ import { useSkin } from '../../skinContext'
 const { Text } = Typography
 
 /** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target', 'interface_service']
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']
 
 /** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
 const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {

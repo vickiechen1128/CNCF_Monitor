@@ -128,8 +128,13 @@ function dbItem(resource_id: string, instance_ip: string, extra: Record<string, 
 }
 
 function renderPage() {
+  return renderPageAt('/resources')
+}
+
+/** 带首页下钻 query 串渲染（决策 91 / design-proposal §2.1：cloud / subtype / app_code 预筛） */
+function renderPageAt(path: string) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       {/* antd App 上下文：页面经 App.useApp().modal.confirm 弹出删除二次确认，
           须由 <App> 提供 modal 实例，否则 modal 为 undefined（dev-feedback §15 F-21）。 */}
       <App>
@@ -1697,6 +1702,76 @@ describe('ResourcesPage', () => {
       if (original) Object.defineProperty(window, 'localStorage', original)
       else Reflect.deleteProperty(window, 'localStorage')
     }
+  })
+
+  describe('首页云卡下钻（design-proposal §2.1：cloud 客户端过滤）', () => {
+    /** 三台主机：两台分属 PUB-TX / GM-CU，一台未派生云编码（cloud_code 缺失 → 空串） */
+    const CLOUD_HOSTS = [
+      hostItem('res-1', 'tx-web-01', { cloud_code: 'PUB-TX' }),
+      hostItem('res-2', 'cu-web-01', { cloud_code: 'GM-CU' }),
+      hostItem('res-3', 'no-cloud-01'),
+    ]
+
+    function setupCloudHosts() {
+      listMock.mockResolvedValue({
+        status: 'success',
+        data: { list: CLOUD_HOSTS, total: 3, page: 1, page_size: 50 },
+      })
+      cloudDictListMock.mockResolvedValue({
+        status: 'success',
+        data: {
+          list: [
+            { cloud_code: 'PUB-TX', cloud_name: '腾讯云', enabled: true },
+            { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', enabled: true },
+          ],
+          total: 2,
+        },
+      })
+    }
+
+    it('filters to the deep-linked cloud, defaults to the host tab and discloses the page-only limit', async () => {
+      setupCloudHosts()
+      renderPageAt('/resources?cloud=PUB-TX')
+
+      await screen.findByText('tx-web-01')
+      // 只留该云主机（云口径仅主机，默认 Tab 落 host）
+      expect(screen.queryByText('cu-web-01')).toBeNull()
+      expect(screen.queryByText('no-cloud-01')).toBeNull()
+      expect(screen.getByRole('tab', { name: '主机' })).toHaveAttribute('aria-selected', 'true')
+
+      // 提示条：云名经云字典解析（腾讯云），并显式披露「前端过滤、仅当前页」
+      const hint = screen.getByTestId('deep-link-hint')
+      expect(hint).toHaveTextContent('已按首页下钻条件预筛选： 云 腾讯云（PUB-TX）（共 1 条）')
+      expect(hint).toHaveTextContent('该条件为前端过滤，仅作用于当前页；分页总数为未按此条件过滤的总数')
+
+      // 一键清除：回落到本页自己的筛选条件（不做导航），三台主机全部可见
+      fireEvent.click(within(hint).getByRole('button', { name: '清除' }))
+      await waitFor(() => expect(screen.queryByTestId('deep-link-hint')).toBeNull())
+      expect(screen.getByText('tx-web-01')).toBeInTheDocument()
+      expect(screen.getByText('cu-web-01')).toBeInTheDocument()
+      expect(screen.getByText('no-cloud-01')).toBeInTheDocument()
+    })
+
+    it('falls back to the cloud_code when the cloud dict has no matching entry', async () => {
+      setupCloudHosts()
+      // 字典为空 → 提示条回落展示 cloud_code（不臆造云名，也不显示 '-'）
+      cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+      renderPageAt('/resources?cloud=GM-CU')
+
+      await screen.findByText('cu-web-01')
+      expect(screen.queryByText('tx-web-01')).toBeNull()
+      expect(screen.getByTestId('deep-link-hint')).toHaveTextContent('云 GM-CU（GM-CU）（共 1 条）')
+    })
+
+    it('does not filter and shows no hint when the cloud param is absent', async () => {
+      setupCloudHosts()
+      renderPageAt('/resources')
+
+      await screen.findByText('tx-web-01')
+      expect(screen.getByText('cu-web-01')).toBeInTheDocument()
+      expect(screen.getByText('no-cloud-01')).toBeInTheDocument()
+      expect(screen.queryByTestId('deep-link-hint')).toBeNull()
+    })
   })
 
   it('F-17：「列设置」下拉内含语义分组小标题，且不占表头', async () => {

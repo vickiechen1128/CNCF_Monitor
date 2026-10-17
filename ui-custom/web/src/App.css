@@ -46,6 +46,9 @@
   color: var(--app-header-text, #fff);
   font-size: 14px;
   white-space: nowrap;
+  /* 2026-10-17 手机走查：不收缩，否则窄屏下账号名被模块导航挤压，
+     视觉上与「监控对象管理」等 tab 连成一片（看起来像重叠） */
+  flex-shrink: 0;
 }
 
 .app-header-role {
@@ -239,8 +242,21 @@
     display: none;
   }
 
+  /* 账号区与左侧横向滚动导航之间留间距：导航末项被裁切时不与账号名粘连 */
+  .app-header-right {
+    margin-left: 12px;
+  }
+
   /* 内容区内边距收窄，为卡片让出宽度（24px → 12px，两侧共省 24px） */
   .app-content {
     padding: 12px;
+  }
+
+  /* 卡片内边距 20 → 12（第七轮走查手机端修复）：04 纳管表的窄屏列宽合计 300px，
+     390 机型内容区 = 390 − 24(内容区) − 24(卡内) = 342，360 机型 = 312，均零横向滚动；
+     走查前卡内 20px 时 390 机型只有 326，328 的列宽合计必然溢出、末列「未配置」被切。
+     必须 `!important`：antd 的 `styles.body` 把 padding 渲染成内联样式。 */
+  .app-content .ant-card-body {
+    padding: 12px !important;
   }
 }

@@ -27,7 +27,7 @@ import { RESOURCE_TYPE_MAP } from './labelTemplateConstants'
 const { Text } = Typography
 
 /** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target', 'interface_service']
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']
 
 /**
  * 标签模板管理页（Module_07 §3.2/§11.1，L3 任务 T07-F7）。
