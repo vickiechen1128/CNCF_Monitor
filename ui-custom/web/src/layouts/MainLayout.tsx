@@ -53,7 +53,7 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 网域与边缘配置中心 / 监控对象管理 / 采集策略」等一级模块；
+ * D3（临时）：MVP 一级模块顶部栏顺序为「首页 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
  * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
  * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置变更确认 / 下发记录）；
@@ -111,26 +111,6 @@ const MODULES: ModuleDef[] = [
         icon: <FundProjectionScreenOutlined />,
         disabled: true,
       },
-    ],
-  },
-  {
-    key: 'platform-admin',
-    label: '系统与平台管理',
-    path: '/admin/domains',
-    subItems: [
-      { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
-      { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
-      // 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）：云归属取值唯一来源，只读不维护
-      { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
-      { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
-      { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
-      // 外观设置（用户 2026-09-18 补充）：界面皮肤 + 产品名称。
-      // 落在「系统与平台管理」而非顶栏——观感配置是低频设置项，不该占用高频操作区，
-      // 与租户 / 用户 / 登录日志等平台级设置同属一处。
-      { key: '/admin/appearance', label: '外观设置', icon: <BgColorsOutlined /> },
-      // 存储与日志管理（M06 F-41）：TSDB 保留策略（写 env，重启生效）+ 磁盘占用 /
-      // 日志轮转只读展示——同属平台级低频设置，置于「系统与平台管理」末尾。
-      { key: '/admin/storage-logs', label: '存储与日志管理', icon: <HddOutlined /> },
     ],
   },
   {
@@ -223,6 +203,26 @@ const MODULES: ModuleDef[] = [
       // M08 v0.3-a：「路由规则」只读路由树（T08-F10），与「告警配置」同组（模式开关落在该页）
       { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
+    ],
+  },
+  {
+    key: 'platform-admin',
+    label: '系统与平台管理',
+    path: '/admin/domains',
+    subItems: [
+      { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
+      { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+      // 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）：云归属取值唯一来源，只读不维护
+      { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
+      { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
+      { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
+      // 外观设置（用户 2026-09-18 补充）：界面皮肤 + 产品名称。
+      // 落在「系统与平台管理」而非顶栏——观感配置是低频设置项，不该占用高频操作区，
+      // 与租户 / 用户 / 登录日志等平台级设置同属一处。
+      { key: '/admin/appearance', label: '外观设置', icon: <BgColorsOutlined /> },
+      // 存储与日志管理（M06 F-41）：TSDB 保留策略（写 env，重启生效）+ 磁盘占用 /
+      // 日志轮转只读展示——同属平台级低频设置，置于「系统与平台管理」末尾。
+      { key: '/admin/storage-logs', label: '存储与日志管理', icon: <HddOutlined /> },
     ],
   },
 ]
