@@ -488,129 +488,177 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     })
   }
 
-  /** 五类资源共享字段（§5.2 公共字段） */
-  const renderSharedFields = () => (
-    <>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
-            <Select showSearch optionFilterProp="label" placeholder="请选择网域">
-              {networkDomains.map((d) => (
-                <Select.Option key={d.id} value={d.id} label={`${d.name} (${d.id})`}>
-                  {d.name} ({d.id})
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item
-            label="业务"
-            name="biz_code"
-            extra="仅启用业务可选；停用业务不可选"
-            rules={[{ required: true, message: '请选择业务' }]}
-          >
-            <Select showSearch optionFilterProp="label" placeholder="请选择业务">
-              {enabledBizDomains.map((d) => (
-                <Select.Option key={d.code} value={d.code} label={`${d.name} (${d.code})`}>
-                  {d.name} ({d.code})
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]}>
-            <Select placeholder="请选择环境">
-              {ENV_VALUES.map((e) => (
-                <Select.Option key={e} value={e}>
-                  {e}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]}>
-            <Select placeholder="请选择运行状态">
-              {STATUS_OPTIONS.map((s) => (
-                <Select.Option key={s.value} value={s.value}>
-                  {s.label}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Col>
-      </Row>
-      {/* {v2026-09-28 决策 110 ④} 级联首项：平台归属（资源行一等字段，可选）。
-          排在「应用」之前——平台归属是登记期第一个确定的业务信息；选中后应用下拉按平台过滤。 */}
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item
-            label="平台归属"
-            name="platform_code"
-            extra="可选：取平台字典启用条目；留空则按所属应用的主平台兜底"
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              allowClear
-              placeholder="请选择平台归属（可选）"
-              onChange={handlePlatformChange}
+  /**
+   * 六类资源共享字段（§5.2 公共字段）。两列紧凑布局，避免单列留白。
+   * 行序：网域 /（平台归属｜环境）→ 业务 / 应用 →（环境｜运行状态）/（运行状态｜集群）→（集群 / 负责人｜负责人满宽）。
+   * 「业务」与「应用」固定在**同一行**靠拢；「平台归属」仅对接口服务以外的类别渲染
+   * （接口服务由 blackbox 拨测承载、无平台归属概念，后端 Excel 导入模板亦不含 platform_code 列）。
+   * 平台归属仍排在「应用」之前，保留「平台 → 应用」级联（选中平台后应用下拉按平台过滤）。
+   */
+  const renderSharedFields = () => {
+    const isInterface = displayCategory === 'interface_service'
+    return (
+      <>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="请选择网域">
+                {networkDomains.map((d) => (
+                  <Select.Option key={d.id} value={d.id} label={`${d.name} (${d.id})`}>
+                    {d.name} ({d.id})
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            {/* 接口服务无平台归属：该格换为「环境」，使两列填满（0 留白） */}
+            {isInterface ? (
+              <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]}>
+                <Select placeholder="请选择环境">
+                  {ENV_VALUES.map((e) => (
+                    <Select.Option key={e} value={e}>
+                      {e}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            ) : (
+              <Form.Item
+                label="平台归属"
+                name="platform_code"
+                extra="可选：取平台字典启用条目；留空则按所属应用的主平台兜底"
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  allowClear
+                  placeholder="请选择平台归属（可选）"
+                  onChange={handlePlatformChange}
+                >
+                  {enabledPlatformDicts.map((d) => (
+                    <Select.Option key={d.platform_code} value={d.platform_code} label={`${d.platform_name} (${d.platform_code})`}>
+                      {d.platform_name} ({d.platform_code})
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              label="业务"
+              name="biz_code"
+              extra="仅启用业务可选；停用业务不可选"
+              rules={[{ required: true, message: '请选择业务' }]}
             >
-              {enabledPlatformDicts.map((d) => (
-                <Select.Option key={d.platform_code} value={d.platform_code} label={`${d.platform_name} (${d.platform_code})`}>
-                  {d.platform_name} ({d.platform_code})
-                </Select.Option>
-              ))}
-            </Select>
+              <Select showSearch optionFilterProp="label" placeholder="请选择业务">
+                {enabledBizDomains.map((d) => (
+                  <Select.Option key={d.code} value={d.code} label={`${d.name} (${d.code})`}>
+                    {d.name} ({d.code})
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            {/* 应用与「业务」同排靠拢 */}
+            <Form.Item
+              label="应用"
+              name="app_code"
+              extra={
+                selectedPlatformCode
+                  ? '仅列出关联到所选平台的应用；`app` 标签取编码，展示名由字典解析'
+                  : '取应用字典启用条目；`app` 标签取编码，展示名由字典解析'
+              }
+              rules={appCodeRequired ? [{ required: true, message: '请选择应用' }] : []}
+            >
+              <Select showSearch optionFilterProp="label" placeholder={appCodeRequired ? '请选择应用' : '请选择应用（可选）'} allowClear>
+                {enabledAppDicts.map((d) => (
+                  <Select.Option key={d.app_code} value={d.app_code} label={`${d.app_name} (${d.app_code})`}>
+                    {d.app_name} ({d.app_code})
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col span={12}>
+            {/* 非接口：环境；接口：运行状态（因环境已上移到首行） */}
+            {isInterface ? (
+              <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]}>
+                <Select placeholder="请选择运行状态">
+                  {STATUS_OPTIONS.map((s) => (
+                    <Select.Option key={s.value} value={s.value}>
+                      {s.label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            ) : (
+              <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]}>
+                <Select placeholder="请选择环境">
+                  {ENV_VALUES.map((e) => (
+                    <Select.Option key={e} value={e}>
+                      {e}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
+          </Col>
+          <Col span={12}>
+            {/* 非接口：运行状态；接口：集群（因运行状态已上移） */}
+            {isInterface ? (
+              <Form.Item
+                label="集群"
+                name="cluster"
+                rules={clusterRequired ? [{ required: true, message: '请填写集群' }] : []}
+              >
+                <Input placeholder={clusterRequired ? '请填写集群' : '集群名（可选）'} maxLength={64} />
+              </Form.Item>
+            ) : (
+              <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]}>
+                <Select placeholder="请选择运行状态">
+                  {STATUS_OPTIONS.map((s) => (
+                    <Select.Option key={s.value} value={s.value}>
+                      {s.label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
+          </Col>
+        </Row>
+        {isInterface ? (
+          /* 接口服务共 6 个网格字段，末行「负责人」满宽，整体 0 留白 */
+          <Form.Item label="负责人" name="owner">
+            <Input placeholder="负责人（可选）" maxLength={32} />
           </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item
-            label="应用"
-            name="app_code"
-            extra={
-              selectedPlatformCode
-                ? '仅列出关联到所选平台的应用；`app` 标签取编码，展示名由字典解析'
-                : '取应用字典启用条目；`app` 标签取编码，展示名由字典解析'
-            }
-            rules={appCodeRequired ? [{ required: true, message: '请选择应用' }] : []}
-          >
-            <Select showSearch optionFilterProp="label" placeholder={appCodeRequired ? '请选择应用' : '请选择应用（可选）'} allowClear>
-              {enabledAppDicts.map((d) => (
-                <Select.Option key={d.app_code} value={d.app_code} label={`${d.app_name} (${d.app_code})`}>
-                  {d.app_name} ({d.app_code})
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item
-            label="集群"
-            name="cluster"
-            rules={clusterRequired ? [{ required: true, message: '请填写集群' }] : []}
-          >
-            {/* 决策 F（§5.2）：placeholder 与必填口径同步分化——可空类才标「可选」，
-                必填类标「可选」会与 rules 自相矛盾 */}
-            <Input placeholder={clusterRequired ? '请填写集群' : '集群名（可选）'} maxLength={64} />
-          </Form.Item>
-        </Col>
-        {/* 决策 103 scheme-B：表单不再提供「云」录入项——
-            云由资源所属网域派生，仅在列表 / 详情以只读形式呈现。 */}
-      </Row>
-      <Form.Item label="负责人" name="owner">
-        <Input placeholder="负责人（可选）" maxLength={32} />
-      </Form.Item>
-    </>
-  )
+        ) : (
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="集群"
+                name="cluster"
+                rules={clusterRequired ? [{ required: true, message: '请填写集群' }] : []}
+              >
+                <Input placeholder={clusterRequired ? '请填写集群' : '集群名（可选）'} maxLength={64} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="负责人" name="owner">
+                <Input placeholder="负责人（可选）" maxLength={32} />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+      </>
+    )
+  }
 
   /**
    * {T01-P5} host / database / middleware 三类表单共用的「采集端口（选填）」
