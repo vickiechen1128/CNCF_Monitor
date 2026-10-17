@@ -59,9 +59,28 @@ export interface AppSummary {
  * `status` 空串表示未知（无 probe_success 样本），'up' / 'down' 为明确态；
  * `network_domain_name` 为归属网域展示名（字典缺条目回落网域 ID）；
  * `last_probe_at` 为指针时间，序列化为 ISO 字符串，空（nil）时前端显示 '-'。
+ *
+ * `service_name` / `url` 按 `resource_category` 取源：接口服务（偏业务）取
+ * `api_name` / `api_url`；应用服务（偏平台）取**应用字典中文名**（`app_code` → `app_name`，
+ * 字典缺条目回落 `app_code`，**不是** service_name 实例名）/ `health_check_url`。
+ * 应用↔平台为 M:N（`AppPlatformRel`），同一应用可部署多个平台，故 `platform_names`
+ * 以「、」连接全部关联平台展示名；接口服务恒为空串。
  */
 export interface ProbeTargetItem {
-  /** 拨测 URL，缺失时前端显示 '-' */
+  /**
+   * 服务名：接口服务取 api_name；应用服务取**应用字典中文名**（app_code → app_name，
+   * 字典缺条目回落 app_code）——多个模型服务实例同属一个应用（如「大模型应用」）时，
+   * 领导视角关心的是该应用整体的拨测情况，故不用 service_name 实例名。空串显示 '-'。
+   */
+  service_name: string
+  /** 所属平台展示名：应用服务取应用↔平台关联的全部平台（「、」连接），接口服务恒为空串 */
+  platform_names: string
+  /**
+   * 资源类别：`interface_service` 接口服务（偏业务） / `application` 应用服务（偏平台）。
+   * 面板据此分区展示两类拨测目标；空串（后端未返回）归入接口服务分区。
+   */
+  resource_category: string
+  /** 拨测 URL：接口服务取 api_url、应用服务取 health_check_url；缺失时前端显示 '-' */
   url: string
   /** 拨测状态：'' 未知；'up' 正常；'down' 异常 */
   status: string
@@ -117,6 +136,39 @@ export interface CollectionHealth {
 }
 
 /**
+ * 「平台 × 应用」矩阵单元格（M05 反馈 11 §11.4，对应后端 summary `by_platform_app[]`）。
+ * 度量单位统一为**主机台数**（`resource_category = host`），非主机资源不参与本矩阵。
+ */
+export interface PlatformAppCell {
+  /** 应用标识（`app_code`；空串表示「未指定应用」列） */
+  app_code: string
+  /** 应用展示名（应用字典解析；缺条目回落 `app_code`，空串回落「未指定应用」） */
+  app_name: string
+  /** 该平台 × 该应用的主机台数（0 是有效值，必须渲染成 0） */
+  host_count: number
+}
+
+/**
+ * 「平台 × 应用」矩阵行（M05 反馈 11 §11.4）。
+ *
+ * 四条不变量：
+ * 1. `sum(行 host_count) == sum(列 host_count) == 主机资源总数`；
+ * 2. `platform_code` 为空串（`""`）的行是「未指定平台」兜底行，值等于 host 中 `platform_code` 为空的资源数；
+ * 3. 除 Top N 真实平台外，另有「其他」聚合行表示被折叠的尾部平台，**不参与点击下钻**；
+ * 4. 后端未实现 / 查询失败时整个字段缺失（`undefined`），前端渲染「不可用」态，绝不误报全 0 矩阵。
+ */
+export interface PlatformAppSummary {
+  /** 平台标识（`platform_code`；空串 = 未指定平台，另有约定值表示「其他」聚合行） */
+  platform_code: string
+  /** 平台展示名（平台字典解析；缺条目回落 `platform_code`） */
+  platform_name: string
+  /** 该平台下按应用拆分的主机台数（缺失的应用补 0 值单元格由前端负责） */
+  cells: PlatformAppCell[]
+  /** 该平台主机合计（应等于 `sum(cells.host_count)`） */
+  host_count: number
+}
+
+/**
  * Dashboard 聚合概览。
  * 决策 72-3（M05 首页内容重构，design-proposals/homepage-mvp-content-restructure.md §4.2）
  * 新增 monitored_count / scrape_job_count / scrape_job_enabled_count 三个计数字段。
@@ -165,6 +217,11 @@ export interface DashboardSummary {
    * 前端据此渲染「不可用」而非 0。详见 `CollectionHealth`。
    */
   collection_health?: CollectionHealth
+  /**
+   * 「平台 × 应用」矩阵行（M05 反馈 11 §11.4）：按主机台数统计，行列合计均等于主机总数。
+   * 后端未实现 / 查询失败时字段缺失，前端据此渲染「平台 × 应用数据暂不可用」而非全 0 矩阵。
+   */
+  by_platform_app?: PlatformAppSummary[]
 }
 
 export const dashboardApi = {
