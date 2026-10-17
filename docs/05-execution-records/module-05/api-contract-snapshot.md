@@ -1,8 +1,8 @@
 > **模块**: Module 05 — 自定义前端门户  
 > **PRD 版本**: v1.7  
 > **计划版本**: v1.7（对应 `05_Code_Implementation_Plan.md` / `task-sequence.yaml`）  
-> **日期**: 2026-09-19（本版按 PRD v1.7 / 决策 91 刷新；初版 2026-09-14）  
-> **说明**: 首页 MVP 子集（决策 72 / 72-1 / 72-2）为前端增量，仅消费既有接口并在前端本地计数；决策 72-3（v1.5）放宽该约束——`dashboard/summary` 新增 3 个计数字段（增字段、向后兼容）；**决策 91（v1.7）再增 6 个分组聚合字段**（`by_category` 含 `by_subtype` / `by_app` / `unclassified_*` / `probe_target_*`），并首次引入「**L0 / L1 / L2 三处『未恢复』均由 `/api/v1/alerts` 前端分组**」的消费方式——仍**不新增接口**。本快照记录前端任务消费的既有 API 契约、新增前端路由与页面级深链。  
+> **日期**: 2026-10-16（v1.8 按 M05 dev-feedback 反馈 11 刷新首页版式与两个新聚合字段；v1.7 = 2026-09-19 按 PRD v1.7 / 决策 91；初版 2026-09-14）  
+> **说明**: 首页 MVP 子集（决策 72 / 72-1 / 72-2）为前端增量，仅消费既有接口并在前端本地计数；决策 72-3（v1.5）放宽该约束——`dashboard/summary` 新增 3 个计数字段（增字段、向后兼容）；**决策 91（v1.7）再增 6 个分组聚合字段**（`by_category` 含 `by_subtype` / `by_app` / `unclassified_*` / `probe_target_*`）；**反馈 11（v1.8）再增 2 个**（`by_platform_app` 平台 × 应用主机矩阵 / `by_cloud` 按云主机数，权威来源见 §1.1 `by_cloud` 口径段）——全程**不新增接口**。本快照记录前端任务消费的既有 API 契约、新增前端路由与页面级深链。  
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1.1 GET /api/v2/platform/dashboard/summary
 
-- **用途**: 首页 L0 全局态势卡与 L1 资源类型区取数（v1.7 起首页**不再消费** `recent_deployments`，下发表随决策 91 移除，字段与接口保留，见 §3.4 注）。
+- **用途**: 首页各区块取数——**反馈 11（v1.8）定稿版式**：02「按云主机数」读 `by_cloud`、03「平台 × 应用 · 主机数」矩阵读 `by_platform_app`、04「纳管覆盖率」读 `resource_count` / `monitored_count`（**首页唯一整体纳管率呈现点**）+ 下方 `by_category` 六类卡、05 拨测读 `probe_targets`、L2 应用明细读 `by_app`；**原 L0 全局态势卡已整块删除**（v1.7 起亦不再消费 `recent_deployments`，下发表随决策 91 移除，字段与接口保留，见 §3.4 注）。
 - **消费位置**: `ui-custom/web/src/api/dashboard.ts`（`dashboardApi.getSummary`）。
 - **本次变更（决策 91，v1.7）**: **新增 6 个分组聚合字段**（增字段、向后兼容）——`by_category`（含 `by_subtype`）/ `by_app` / `unclassified_resource_count` / `unclassified_monitored_count` / `probe_target_count` / `probe_target_abnormal_count`；**不含任何告警字段**（告警计数归 `/api/v1/alerts` 前端分组，见 §1.2）；`recent_deployments` 首页不再消费。既有变更（决策 72-3，v1.5）：新增 `monitored_count` / `scrape_job_count` / `scrape_job_enabled_count`；`resource_count` / `pending_draft_count` / `domain_count` / `recent_deployments` 语义不变。
 - **请求**: 无参数。
@@ -18,7 +18,7 @@
 
 ```ts
 interface DashboardSummary {
-  resource_count: number              // M07 五类资源表行数之和；不含拨测目标；空库返回 0
+  resource_count: number              // M07 六类资源表行数之和（host/database/middleware/application/generic_target/interface_service）；不含拨测目标；空库返回 0
   pending_draft_count: number
   domain_count: number
   recent_deployments: RecentDeployment[]   // v1.7 起首页不再消费（决策 91 移除下发表）；字段保留
@@ -27,7 +27,7 @@ interface DashboardSummary {
   scrape_job_count: number           // 未软删 ScrapeJob 总数
   scrape_job_enabled_count: number   // 其中 enabled=true 的数量
   // —— 决策 91 新增（v1.7，供首页 L1 资源类型区 / L2 应用明细表使用）——
-  by_category: CategorySummary[]          // 按 resource_category 分组，驱动 L1 五张资源类型卡；五类 resource_count 之和 === resource_count
+  by_category: CategorySummary[]          // 按 resource_category 分组，驱动 L1 资源类型卡（6 类，缺则补 0 值条目）；六类 resource_count 之和 === resource_count
   by_app: AppSummary[]                    // 按应用归属分组，驱动 L2 应用明细表；与 unclassified_* 之和 === resource_count
   unclassified_resource_count: number     // 未标注应用归属的资源数（L2「未归类应用」行）
   unclassified_monitored_count: number    // 上项中已被采集任务覆盖的资源数
@@ -35,10 +35,35 @@ interface DashboardSummary {
   probe_target_abnormal_count: number     // 当前探测失败的拨测目标数
   // —— 反馈 10 新增（路线 B，供首页「采集健康」面板使用）——
   collection_health?: CollectionHealth    // 已下发资源的采集健康四态聚合；后端查询失败 / 未实现时字段缺失（前端按「不可用」呈现，绝不误报 0）
+  // —— 反馈 11 新增（供首页「平台 × 应用 · 主机数」矩阵使用）——
+  by_platform_app: PlatformAppSummary[]  // 恒为数组（空库返回 []，绝不 null）；空数组表示无主机台账，前端按「不可用态」呈现，不渲染全 0 矩阵
+  // —— by_cloud 新增（供首页「按云分布」使用；云归属权威来源见下方口径段）——
+  by_cloud: CloudSummary[]                // 按云分组的主机台数；恒为数组（空库返回 []，绝不 null）；空数组表示无主机台账，前端渲染空态「暂无主机数据」，**不得回落静态样例**伪造云台数
+}
+
+interface PlatformAppSummary {
+  platform_code: string              // 平台编码。约定值：'' = 「未指定平台」兜底行；'__other__' = 「其他」聚合行（其下所有落选平台合并，不可点击下钻）
+  platform_name: string              // 平台展示名；字典缺条目时回落 platform_code 本身（不臆造、不返回空串）。'' 与 '__other__' 为固定名「未指定平台」/「其他」
+  cells: PlatformAppCell[]           // 该平台下各应用的主机台数；恒非空数组
+  host_count: number                 // 该平台主机合计（恒等于 cells 之和）
+}
+
+interface PlatformAppCell {
+  app_code: string                   // 应用编码；'' = 「未指定应用」列（恒保留，不丢弃）
+  app_name: string                   // 应用展示名；字典缺条目时回落 app_code 本身（不臆造、不返回空串）。'' 为固定名「未指定应用」
+  host_count: number                 // 该平台 × 该应用的主机台数
+}
+
+interface CloudSummary {
+  cloud_code: string                 // 云字典主键（NetworkDomain.CloudCode 派生）；'' = 「未指定云」兜底行（恒保留，不丢弃）
+  cloud_name: string                 // 云展示名；查云字典（CloudDict.CloudName），缺条目时回落 cloud_code 本身（不臆造、不返回空串）。'' 为固定名「未指定云」
+  resource_count: number             // 该云主机数（仅 host）
+  monitored_count: number            // 该云主机中已被采集任务纳管（已下发）的台数
+  coverage_rate: number              // 取整百分数（0-100）：monitored_count * 100 / resource_count 整数除法；resource_count = 0 时取 0
 }
 
 interface CollectionHealth {
-  dispatched_count: number               // 分母 = 已下发资源数（=== monitored_count）；不含「未下发」，未下发进度归 L0「纳管覆盖率」
+  dispatched_count: number               // 分母 = 已下发资源数（=== monitored_count）；不含「未下发」，未下发进度归 04「纳管覆盖率」区块与各类型卡
   collecting_count: number               // 采集中：5min 内有 up==1 样本
   stale_count: number                    // 回传延迟中（F-40 独立一态）：5min 内无样本、1h 内有历史样本
   down_count: number                     // 已下发未采到：5min 内有 up==0 样本
@@ -46,7 +71,7 @@ interface CollectionHealth {
 }
 
 interface CategorySummary {
-  resource_category: 'host' | 'database' | 'middleware' | 'application' | 'generic_target'
+  resource_category: 'host' | 'database' | 'middleware' | 'application' | 'generic_target' | 'interface_service'
   resource_count: number
   monitored_count: number
   coverage_rate: number              // 取整百分数（0-100）
@@ -79,11 +104,11 @@ interface RecentDeployment {
 ```
 
 - **既有新增字段口径与边界**（决策 72-3，v1.5；后端 `platform/dashboard/summary.go`）:
-  - `monitored_count`：`loadSelectedResourceIDs()` 聚合 `job_type=standard AND draft_status='ready' AND enabled=true` 的 `selected_instance_ids`，再与五类资源表现存 `resource_id` 求交集（排除已软删资源）；`blackbox` Job 不计入；**恒有 `monitored_count ≤ resource_count`**。
+  - `monitored_count`：`loadSelectedResourceIDs()` 聚合 `job_type=standard AND draft_status='ready' AND enabled=true` 的 `selected_instance_ids`，再与六类资源表现存 `resource_id` 求交集（排除已软删资源）；`blackbox` Job 不计入；**恒有 `monitored_count ≤ resource_count`**。
   - `scrape_job_count` / `scrape_job_enabled_count`：软删 Job 不计入；空库均返回 `0`。
   - 失败/字段缺失时前端按源降级显示 `-`（禁止 `NaN%` / `启用 undefined`），**不与「恒 0」混淆**（决策 68-2 口径）。
 - **新增字段口径与边界**（决策 91；后端 `platform/dashboard/summary.go`）:
-  - `by_category`：五类 `resource_count` 之和**必须等于** `resource_count`（前端据此校验分项加得齐）；`by_subtype` 的 `resource_count` 之和也须等于该类型的 `resource_count`；`application` 的 `by_subtype` 恒为空数组。
+  - `by_category`：六类（`host` / `database` / `middleware` / `application` / `generic_target` / `interface_service`）`resource_count` 之和**必须等于** `resource_count`（前端据此校验分项加得齐）；`by_subtype` 的 `resource_count` 之和也须等于该类型的 `resource_count`；`application` 的 `by_subtype` 恒为空数组。
   - `by_app`：与 `unclassified_*` 之和等于 `resource_count`；`app_code` 为不可变简称、`app_name` 为必填展示名。
   - `probe_target_*`：来源为 `job_type=blackbox` 的采集 Job 拨测目标，**不计入** `resource_count`，也不参与覆盖率。
   - 失败 / 字段缺失时前端按源降级显示 `-`（禁止 `NaN%`），**不与「恒 0」混淆**（决策 68-2 口径）。
@@ -92,16 +117,37 @@ interface RecentDeployment {
   - 分母 `dispatched_count`：恒等于 `monitored_count`（已下发资源数，按 `resource_id` 去重），**不含「未下发」**；不变量 `dispatched_count === collecting_count + stale_count + down_count + pending_count`。
   - 四态判定沿用 F-40（与 M07 采集状态、M01 `useJobScrapeStatus` 同口径）；`stale`（回传延迟中）**独立一态**，不并入其他态；拨测目标不参与。
   - 聚合口径按 `up` 序列的 `resource_id` 标签匹配已下发资源集合（与 M02 `/api/v1/health/coverage` 一致）；无 `resource_id` 标签的 series 不计入。
-- **使用方式**: `HomePage` 通过 `dashboardApi.getSummary()` 获取数据，渲染 L0 五张 KPI 卡（含「拨测」）、L1 资源类型区、L2 应用明细表与「采集健康」面板（反馈 10，固定位于「告警状态」区块之前；v1.7 版式见 `frontend-prototype-map.md` §5.5 W-1~W-5）。
-- **文案口径（反馈 10 §10.4 正名）**: `monitored_count` 为**下发口径**——首页 L1 类型卡 / L2 应用覆盖表 / 按云分布三处原「已采 / 覆盖率」字样统一正名为「**已下发 / 纳管率**」；L0 卡名「纳管覆盖率」保留。新面板名「采集健康」**禁用「覆盖率」字样**（避免与下发口径同词不同义）。
+- **新增字段口径与边界**（反馈 11，2026-10-16；后端 `platform/dashboard/summary.go`，需求落档见 `dev-feedback.md` §11.4）:
+  - **仅统计 `resource_category = host`**：数据库 / 中间件 / 应用服务 / 通用目标 / 接口服务与拨测目标一律不进入矩阵（否则行列合计无法与主机总数闭合）。
+  - **度量单位是主机台数，不是应用数**：每台主机恰有一个 `platform_code` + 一个 `app_code`，故 **各行 `host_count` 之和 === 各列 `host_count` 之和 === `by_category` 中 `resource_category='host'` 的 `resource_count`**。右下角单一合计格同时闭合两个方向。
+  - **Top 4 +「其他」收敛**：非空平台按主机台数**降序**取前 4 个单独成行（并列时按 `platform_code` 字典序升序，保证输出确定性），其余平台**全部合并**为一行 `platform_code = '__other__'`；「其他」行的每个格子是其下所有落选平台 × 同一应用的计数之和。收敛只改呈现粒度，**不改变合计**。`__other__` 不符合 `models.ValidPlatformCode`（`^[a-z0-9-]{1,64}$`，不含下划线），故与任何真实平台编码天然不碰撞；前端据此判定「该行**不可点击下钻**」。
+  - **「未指定平台」兜底行恒保留、且不占用 Top 4 名额**：其 `host_count` 恒等于 host 类中 `platform_code` 为空的资源数，固定排在末位（`platform_name = '未指定平台'`）。同理 `app_code` 为空的格子恒保留为「未指定应用」列（`app_name = '未指定应用'`）。**这两类行/列一律不丢弃**——丢弃则合计对不上。
+  - **行内格子顺序**：按该平台下各应用主机台数降序（并列按 `app_code` 字典序升序）。行输出顺序固定为 `Top 4（台数降序）→「其他」→「未指定平台」`。
+  - **名称回落不臆造**：`platform_name` / `app_name` 一律「查字典 → 缺条目回落编码本身」，**不返回空串、不编造展示名**；仅 `''` 与 `'__other__'` 三处因回落无意义而给固定展示名。
+  - **空库 / 无主机资源**：返回 `[]`（非 `null`），不 panic；前端对 `undefined` / `[]` 一律按**不可用态**呈现，**不渲染全 0 矩阵**（决策 68-2）。
+  - 本字段为**纯新增**：`by_category` / `by_app` / `collection_health` / `probe_targets` 等既有字段语义**一律未改动**。
+- **`by_cloud` 口径与权威来源（M06 决策 103 scheme-B；后端 `platform/dashboard/summary.go`）**:
+  - **权威来源是派生链，不是主机表的云字段**：`Host.NetworkDomainID → NetworkDomain.CloudCode → CloudDict.CloudName`。`CloudCode` 取自网域（与 `platform/config/resource/list.go` §资源列表云列派生同源），`CloudName` 取自云字典。
+  - **明确不使用 `Host.CloudCode`**：该列是决策 103 scheme-B 之前的**历史残留**，可与网域不一致；后端一律**不读**该列做云归属（即使残留值非空），以网域派生值为唯一权威。
+  - **`CloudType`（公有/政务/行业/私有）与 `Carrier`（运营商）是描述性元数据，不是分类轴**：`by_cloud` 只按 `cloud_code` 分组，**不在响应中扩展** `cloud_type` / `carrier` 维度；需要按这三者筛选时走 M06 云字典 / 网域列表接口。
+  - **仅统计主机**：只聚合 `resource_category = host`；数据库 / 中间件 / 应用服务 / 通用目标 / 接口服务与拨测目标一律不进入（否则合计无法与主机总数闭合）。
+  - **「未指定云」兜底行恒保留、且不丢弃**：网域缺失（`network_domain_id` 为空或指向已删网域）或网域 `cloud_code` 为空的主机，一律归入 `cloud_code = ''` 行（`cloud_name` = 固定名「未指定云」），固定排在**末位**。丢弃该行则行合计与主机总数对不上。
+  - **名称回落不臆造**：`cloud_name` 一律「查云字典 → 缺条目回落 `cloud_code` 本身」，**不返回空串、不编造展示名**；仅 `''` 因回落无意义而给固定展示名「未指定云」。
+  - **纳管口径与全局一致**：`monitored_count` 复用 `by_category` / 全局 `monitored_count` 的**同一套已下发判定**（`job_type=standard AND draft_status='ready' AND enabled=true` 的 `selected_instance_ids` 并集，按 `resource_id` 去重），不另起口径；因 `by_cloud` 只统计主机，其行合计**小于等于**全局 `monitored_count`（差额为其他资源类型），前端**不得**用全局值直接比对。
+  - **`coverage_rate` 为取整百分数**：`monitored_count * 100 / resource_count` 整数除法；`resource_count = 0` 时取 `0`（不除零）。
+  - **输出顺序**：按 `resource_count` **降序**，并列时按 `cloud_code` **字典序升序**（保证输出确定性）；「未指定云」（`cloud_code = ''`）不参与降序竞争，**恒排末位**。
+  - **空库 / 无主机资源**：返回 `[]`（非 `null`），不 panic；前端对 `undefined` / `[]` 一律渲染面板空态「暂无主机数据」（含「去导入主机资源 →」深链），**绝不回落静态样例云卡**——样例只在 `VITE_STATIC_PREVIEW=true` 下生效，真库回落会向领导展示虚构云台数（决策 68-2 同源红线：取数失败不伪造、不静默成 0）。
+- 本字段为**纯新增**：`by_category` / `by_app` / `by_platform_app` / `collection_health` 等既有字段语义**一律未改动**。
+- **使用方式（反馈 11 定稿版式，2026-10-16）**: `HomePage` 通过 `dashboardApi.getSummary()` 获取数据，区块自上而下为 **02「按云主机数」（`by_cloud` 云卡）→ 03「平台 × 应用 · 主机数」（`by_platform_app` 矩阵）→ 04「纳管覆盖率」（**首页唯一整体纳管率呈现点**：全局 `monitored_count` / `resource_count` + 进度条 + 口径脚注 + 下方 `by_category` 六类卡）→ 告警状态（独立整宽）→ 05「拨测态势」→ 采集健康（`collection_health`）→ L2 应用明细表（`by_app`）→ 06「使用指引」**。原 L0 五张 KPI 卡（资源总数 / 已下发 / 覆盖率 / 告警数 / 拨测数）已整块删除，不再消费对应字段做首屏呈现；定稿版式见 `dev-feedback.md` §11.3。
+- **文案口径（反馈 10 §10.4 正名 + 反馈 11 §11.2 归口）**: `monitored_count` 为**下发口径**——首页 L1 类型卡 / L2 应用覆盖表原「已采 / 覆盖率」字样统一正名为「**已下发 / 纳管率**」；**整体纳管率只在 04 区块头部呈现一次**（02 云卡不显示已下发 / 纳管率，避免同屏两个同源纳管率）。新面板名「采集健康」**禁用「覆盖率」字样**（避免与下发口径同词不同义），且 04 区块须带口径脚注「反映纳管/下发进度，不代表数据已采到」。
 
 ---
 
 ### 1.2 GET /api/v1/alerts
 
-- **用途**: 首页**三处「未恢复」数字的唯一取数来源**（决策 91）——L0 第 4 卡（全量）、L1 各资源类型卡右上角胶囊（按 `resource_category`）、L2 应用明细行「未恢复」（按应用归属）；告警状态卡的四格统计条与列表另行消费（见 §1.3）。
+- **用途**: 首页**告警数字的唯一取数来源**（决策 91 + 反馈 11）——告警状态卡的四格统计条与最新告警列表、底部「Prometheus 原始求值」参考行（`firing` / `pending`）；L1 各资源类型卡与 L2 应用明细行的「未下发」仍由 `dashboard/summary` 的 `monitored_count` 供给，**不再**从本接口按类型分组（见 §1.1）。
 - **消费位置**: `ui-custom/web/src/api/alertmanager.ts`（`alertStatusApi.getPromAlerts`，M08 v1.12 封装）。
-- **本次变更**: **零后端改动**，前端新增消费；决策 91 明确本接口独立承担全部「未恢复」计数，`dashboard/summary` **不含告警字段**（在 L0/L1/L2 之间保持一致口径的唯一手段）。
+- **本次变更**: **零后端改动**，前端新增消费；决策 91 明确本接口独立承担全部告警计数，`dashboard/summary` **不含告警字段**（首页唯一告警呈现点位于告警状态卡，见 §1.3）。
 - **请求参数**（可选透传，本次首页不加筛选）：
 
 ```ts
@@ -127,13 +173,9 @@ interface PromAlertItem {
 }
 ```
 
-- **首页使用方式（决策 91，v1.7）**:
-  - **L0 第 4 卡「当前未恢复告警」**：`alerts.filter(a => a.state === 'firing').length`（不含 `pending`；条数 >0 时红色语义）。
-  - **L1 分类计数**：按响应项的 `resource_category`（`AlertInstanceFields` 子集，由 `platform/query/resource_identity.go` 回填）
-    分组计数，落到对应资源类型卡的「未恢复 N」胶囊；**零告警显示「无未恢复」**（灰底灰字），不显示 `0`。
-  - **无 `resource_category` 的告警**（拨测目标 / 聚合规则 / 用户自写规则）：不计入任何资源类型卡，
-    在 L1 入口卡下方以附注呈现「另有 N 条未恢复告警不属于资源台账对象」。
-  - **L2 应用计数**：按告警标签中的应用归属（`app` = `app_code`）分组计数。
+- **首页使用方式（决策 91 + 反馈 11，v1.8）**:
+  - **告警状态卡「Prometheus 原始求值」参考行**：`firing` = `alerts.filter(a => a.state === 'firing').length`（不含 `pending`），`pending` 同理按 `state === 'pending'` 计数——两者并列在卡片底部 11px 灰字行（`prom-reference-line`），**不占用任何 KPI 卡位**。
+  - **首页不再按 `resource_category` / 应用归属对告警分组**：反馈 11 删除了 L0 告警卡与 L1/L2 的「未恢复」胶囊，告警数字收敛到告警状态卡一处；资源侧「未下发」改由 `dashboard/summary` 的 `monitored_count` 供给（口径不同，见 §1.1）。
 - **与告警状态卡的口径分工**：本接口出**当前实时**口径（判断「现在有没有问题」）；
   `/api/v1/alerts/history` 出**历史累计**口径（`fired_at` 计数当日 / 近 7 天，判断「这段时间告警多不多」）；两者并存不互替。
 - **既有消费（v1.5 及以前）**：按 `state` 分组的 `firingCount` / `pendingCount` 仍供告警状态卡 11px 灰字参考行使用
@@ -288,16 +330,16 @@ interface PromQueryResponse {
 | L2 应用明细行「看明细 / 补齐监控」 | `/resources` | `app_code=<应用简称>` | 同上 |
 | L2「未归类应用」行「去补填」 | `/resources` | `app_code=__empty__`（或等价空值约定） | 同上 |
 | L1 拨测附注 | `/strategy`（采集 Job 列表） | `job_type=blackbox` | M01/M09 |
-| L0 第 4 卡 / L1 未恢复胶囊 | `/alert-status` | `resource_category=<类型>`（胶囊点击时携带） | M08 告警状态页需支持入参预筛 |
+| 告警状态卡「查看全部」 | `/alert-status` | 无 | M08；`resource_category` 预筛随 L1 胶囊删除后暂无入口 |
 
 
 ## 4. 版本与变更控制
 
-- **版本**: v1.7（与 PRD v1.7 / 决策 91 一致；初版随 PRD v1.5）。
-- **变更类型**: 前端增量消费既有接口 + **`dashboard/summary` 增 6 个分组聚合字段**（增字段、向后兼容）；**不新增接口、无破坏性契约变更**；告警计数**零后端改动**（全部由 `/api/v1/alerts` 前端分组）。
+- **版本**: v1.8（2026-10-16，反馈 11 首页改版：`dashboard/summary` 再增 `by_platform_app` / `by_cloud` 两个聚合字段，L0 五张 KPI 卡删除、整体纳管率归口 04 区块）；v1.7 与 PRD v1.7 / 决策 91 一致；初版随 PRD v1.5。
+- **变更类型**: 前端增量消费既有接口 + **`dashboard/summary` 增 8 个分组聚合字段**（增字段、向后兼容）；**不新增接口、无破坏性契约变更**；告警计数**零后端改动**（全部由 `/api/v1/alerts` 前端分组）。
 - **第一权威契约**: M08 告警相关接口以 `docs/05-execution-records/module-08/api-contract-snapshot.md` 为第一权威；M02 查询代理以 `docs/05-execution-records/module-02/api-contract-snapshot.md` 为第一权威；本文件仅记录 M05 首页/查询页消费视角。
 - **下游影响**:
   - 若 M08 `/api/v2/platform/alertmanager/alerts` 或 M02 `/api/v1/alerts` 响应结构变化，需同步更新 `src/types/alertmanager.ts` 与首页计数逻辑。
-  - 若 `dashboard/summary` 分组字段口径调整（如 M07 资源类型 / 应用归属枚举变化），需同步更新 `src/api/dashboard.ts`、L1/L2 组件与「五类之和 = 总数」自洽校验，并与 M07 采集覆盖率页对齐（见 `design-decisions.md` 决策 72-3 / 91）。
-  - **不变量红线**：`by_category` 之和 === `resource_count`；`by_app` + `unclassified_*` 之和 === `resource_count`；`monitored_count ≤ resource_count`；`probe_target_*` 永不进入 `resource_count` 与覆盖率。破坏任一条即属契约回归。
+  - 若 `dashboard/summary` 分组字段口径调整（如 M07 资源类型 / 应用归属枚举变化），需同步更新 `src/api/dashboard.ts`、L1/L2 组件与「六类之和 = 总数」自洽校验，并与 M07 采集覆盖率页对齐（见 `design-decisions.md` 决策 72-3 / 91）。
+  - **不变量红线**：`by_category` 之和 === `resource_count`；`by_app` + `unclassified_*` 之和 === `resource_count`；`monitored_count ≤ resource_count`；`probe_target_*` 永不进入 `resource_count` 与覆盖率；**`by_platform_app` 各行 `host_count` 之和 === 各列之和 === `by_category` 中 `resource_category='host'` 的 `resource_count`**；**`by_cloud` 各行 `resource_count` 之和 === 同上 host 类 `resource_count`**。破坏任一条即属契约回归。
   - 若 M02 `/api/v1/query` 代理形状变化，需同步更新 `QueryPage` 的结果渲染分支。
