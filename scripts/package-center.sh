@@ -52,10 +52,25 @@
 # 完整性保证：collect_bundle 末尾 verify_bundle_bins 强制核对 bin/ 必含
 #   metric-center / prometheus / promtool（＋启用时的 alertmanager / amtool /
 #   blackbox_exporter），缺任何一个即报错中止，杜绝「WARNING 跳过、带病交付」。
+#
+# 洁净度保证：archive_bundle 先 prune_mac_metadata 剔除 .DS_Store / ._* / __MACOSX，
+#   再以 --format=ustar --no-xattrs + 属主归一化 root:root 打包（实现在
+#   scripts/lib/packaging-clean.sh，与 package-edge-agent.sh 共用同一份）；
+#   verify_bundle_archive 打包后复检，不洁即删除产物并中止。
+#   背景：macOS 打包机会把 com.apple.provenance 写成 pax xattr 扩展头、把 501/20 属主写进归档，
+#   Linux 解压时刷 unknown extended header keyword，并在 /opt 下留下非 root 属主文件。
+#
+# 交叉编译不污染源码树：CROSS 模式下所有二进制落到 $DIST_DIR/.cross-stage/<os>-<arch>/，
+#   不再覆盖 upstream/、platform/ 下的本机二进制。这些路径是 M08/M09 草稿校验的
+#   exec.LookPath 目标（Makefile 注入 PATH），一旦被 Linux ELF 覆盖，开发机上
+#   新增拨测/告警配置会直接报「exec format error / 环境未就绪」。
 
 set -e
 
 PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# 交付包洁净度工具（prune_mac_metadata / create_clean_tarball / verify_clean_tarball）：
+# 与 package-edge-agent.sh 共用同一份实现，避免两处 tar 参数漂移。
+. "$PROJECT_ROOT/scripts/lib/packaging-clean.sh"
 DIST_DIR=${DIST_DIR:-"$PROJECT_ROOT/dist"}
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
@@ -103,15 +118,53 @@ esac
 IS_CROSS=0
 [ "$TARGET_OS/$TARGET_ARCH" != "$HOST_OS/$HOST_ARCH" ] && IS_CROSS=1
 
+# 交叉编译产物暂存目录（仅 IS_CROSS=1 时使用）。
+#
+# 为什么必须有：M09 配置草稿校验在开发机上通过 exec.LookPath("blackbox_exporter")
+# / ("promtool") / ("amtool") 调用 upstream/ 下的二进制做 --config.check / check-config
+# （见 Makefile:115-120 的 PATH 注入）。若交叉编译把 Linux ELF 原地写回这些路径，
+# 开发机（macOS）执行即报 "fork/exec ...: exec format error"，M01/M09 随即判定
+# 「环境未就绪」，新增拨测任务直接失败——历史事故即此。
+# 故交叉产物一律落到暂存目录，源码树中的宿主平台二进制保持可执行。
+STAGE_DIR="$DIST_DIR/.cross-stage/${TARGET_OS}-${TARGET_ARCH}"
+if [ "$IS_CROSS" -eq 1 ]; then
+    rm -rf "$STAGE_DIR"
+    mkdir -p "$STAGE_DIR"
+fi
+
+# 取二进制来源：交叉模式取暂存目录（源码树已被刻意保护，不覆盖），
+# 非交叉模式取源码树原路径（make build-* 的产物位置）。
+bin_src() {
+    if [ "$IS_CROSS" -eq 1 ]; then
+        echo "$STAGE_DIR/$1"
+        return
+    fi
+    case "$1" in
+        metric-center)    echo "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" ;;
+        prometheus)       echo "$PROJECT_ROOT/upstream/prometheus/prometheus" ;;
+        promtool)         echo "$PROJECT_ROOT/upstream/prometheus/promtool" ;;
+        alertmanager)     echo "$PROJECT_ROOT/upstream/alertmanager/alertmanager" ;;
+        amtool)           echo "$PROJECT_ROOT/upstream/alertmanager/amtool" ;;
+        blackbox_exporter) echo "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ;;
+        *) echo ">>> ERROR: 未知二进制名 '$1'" >&2; exit 1 ;;
+    esac
+}
+
 # 包名承载「环境 + 操作系统 + 架构」三重区分，避免生产/开发、多平台产物互相误用：
 #   metric-center-bundle-prod-linux-arm64-kylin-v10-<ts>.tar.gz
 #   metric-center-bundle-dev-linux-amd64-ubuntu-<ts>.tar.gz
 DEPLOY_ENV=${DEPLOY_ENV:-prod}
 if [ -z "$TARGET_OS_NAME" ]; then
-    case "$TARGET_ARCH" in
-        arm64) TARGET_OS_NAME="kylin-v10" ;;
-        *) TARGET_OS_NAME="ubuntu" ;;
-    esac
+    # 仅 linux 交付目标能按架构推断 OS 名称；非 linux（本机验证包等）直接用 TARGET_OS，
+    # 否则会算出 macOS/arm64 -> kylin-v10 这类无意义的组合。
+    if [ "$TARGET_OS" = "linux" ]; then
+        case "$TARGET_ARCH" in
+            arm64) TARGET_OS_NAME="kylin-v10" ;;
+            *) TARGET_OS_NAME="ubuntu" ;;
+        esac
+    else
+        TARGET_OS_NAME="$TARGET_OS"
+    fi
 fi
 BUNDLE_NAME=${BUNDLE_NAME:-"metric-center-bundle-${DEPLOY_ENV}-${TARGET_OS}-${TARGET_ARCH}-${TARGET_OS_NAME}-${TIMESTAMP}"}
 BUNDLE_DIR="$DIST_DIR/$BUNDLE_NAME"
@@ -164,7 +217,7 @@ build_metric_center() {
         CC="zig cc -target $zig_target" \
         CXX="zig c++ -target $zig_target" \
         CGO_ENABLED=1 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
-            "$GO_BIN" build -o "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" ./platform/cmd/metric-center
+            "$GO_BIN" build -o "$(bin_src metric-center)" ./platform/cmd/metric-center
     fi
 }
 
@@ -191,13 +244,14 @@ var EmbedFS embed.FS
 EOF
     fi
     # 3) 编译（含 builtinassets，资源内嵌）
+    #    交叉模式下产物落暂存目录，不覆盖源码树中的宿主平台 prometheus（见 STAGE_DIR 注释）
     if [ "$IS_CROSS" -eq 0 ]; then
         make -C "$PROJECT_ROOT" build-prometheus
     else
         cd "$prom_dir"
         CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
         GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
-            "$GO_BIN" build -tags builtinassets -o prometheus ./cmd/prometheus
+            "$GO_BIN" build -tags builtinassets -o "$(bin_src prometheus)" ./cmd/prometheus
     fi
 }
 
@@ -223,7 +277,7 @@ build_optional() {
         cd "$PROJECT_ROOT/upstream/prometheus"
         CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
             GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
-            "$GO_BIN" build -o promtool ./cmd/promtool
+            "$GO_BIN" build -o "$(bin_src promtool)" ./cmd/promtool
     fi
 
     if enabled "$WITH_ALERTMANAGER"; then
@@ -233,13 +287,13 @@ build_optional() {
         else
             cd "$PROJECT_ROOT/upstream/alertmanager"
             CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
-                "$GO_BIN" build -o alertmanager ./cmd/alertmanager
+                "$GO_BIN" build -o "$(bin_src alertmanager)" ./cmd/alertmanager
             # amtool：M08 Alertmanager 配置挂载校验通过 exec.LookPath("amtool")
             # 调用做 `amtool check-config`；与 alertmanager 同源，交叉编译时必须显式构建
             # （非交叉路径走 make build-alertmanager，已在 Makefile:322 一并产出 amtool）。
             CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
                 GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
-                "$GO_BIN" build -o amtool ./cmd/amtool
+                "$GO_BIN" build -o "$(bin_src amtool)" ./cmd/amtool
         fi
     fi
     if enabled "$WITH_BLACKBOX"; then
@@ -249,7 +303,7 @@ build_optional() {
         else
             cd "$PROJECT_ROOT/upstream/blackbox_exporter"
             CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
-                "$GO_BIN" build -o blackbox_exporter ./
+                "$GO_BIN" build -o "$(bin_src blackbox_exporter)" ./
         fi
     fi
 }
@@ -259,12 +313,12 @@ collect_bundle() {
     rm -rf "$BUNDLE_DIR"
     mkdir -p "$BUNDLE_DIR"/{bin,config,env,scripts,web/ui}
 
-    cp "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" "$BUNDLE_DIR/bin/"
-    cp "$PROJECT_ROOT/upstream/prometheus/prometheus" "$BUNDLE_DIR/bin/"
+    cp "$(bin_src metric-center)" "$BUNDLE_DIR/bin/"
+    cp "$(bin_src prometheus)" "$BUNDLE_DIR/bin/"
     # promtool：M09 草稿校验依赖（exec.LookPath("promtool")）；随包常驻，缺失即中止。
     # start.sh 已 export PATH="$ROOT/bin:$PATH"，部署机上即可被控制面命中。
-    if [ -f "$PROJECT_ROOT/upstream/prometheus/promtool" ]; then
-        cp "$PROJECT_ROOT/upstream/prometheus/promtool" "$BUNDLE_DIR/bin/"
+    if [ -f "$(bin_src promtool)" ]; then
+        cp "$(bin_src promtool)" "$BUNDLE_DIR/bin/"
     else
         echo ">>> ERROR: promtool not built（build_optional 应已产出），打包中止"
         exit 1
@@ -277,11 +331,11 @@ collect_bundle() {
     if enabled "$WITH_ALERTMANAGER"; then
         AM_ENABLED=1
         for b in alertmanager amtool; do
-            if [ ! -f "$PROJECT_ROOT/upstream/alertmanager/$b" ]; then
+            if [ ! -f "$(bin_src "$b")" ]; then
                 echo ">>> ERROR: $b not built（build_optional 应已产出），打包中止"
                 exit 1
             fi
-            cp "$PROJECT_ROOT/upstream/alertmanager/$b" "$BUNDLE_DIR/bin/"
+            cp "$(bin_src "$b")" "$BUNDLE_DIR/bin/"
         done
         # M08：写入中心 Alertmanager 配置——它是决策 60 里 AM 配置下发（--config.am-dir）的落盘目标，
         # 也是 alertmanager 进程 --config.file 读取的文件，二者必须指向同一份。
@@ -311,11 +365,11 @@ EOF
     BB_ENABLED=0
     if enabled "$WITH_BLACKBOX"; then
         BB_ENABLED=1
-        if [ ! -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ]; then
+        if [ ! -f "$(bin_src blackbox_exporter)" ]; then
             echo ">>> ERROR: blackbox_exporter not built（build_optional 应已产出），打包中止"
             exit 1
         fi
-        cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" "$BUNDLE_DIR/bin/"
+        cp "$(bin_src blackbox_exporter)" "$BUNDLE_DIR/bin/"
         # M01/M09：blackbox.yml 是 blackbox_exporter 进程 --config.file 读取的文件，
         # 也是控制面下发探测模块（blackbox.yml）的落盘目标，二者必须指向同一份。
         # - config/blackbox.yml          开箱即用，解压后启动即生效
@@ -644,6 +698,11 @@ done
 
 BUNDLE_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
+# 兜底清理：包内若残留 macOS/Windows 元数据（打包侧已剔除，此处防第三方重打包或
+# U 盘/共享目录往返再次引入），不清理会被下面的 cp -rf 带进只读程序目录。
+find "$BUNDLE_DIR" \( -name '.DS_Store' -o -name '._*' -o -name '__MACOSX' \
+    -o -name 'Thumbs.db' -o -name 'desktop.ini' \) -prune -exec rm -rf {} + 2>/dev/null || true
+
 APP_DIR=${APP_DIR:-/opt/apps/metric-center}
 DATA_DIR=${DATA_DIR:-/opt/data/metric-center}
 LOG_DIR=${LOG_DIR:-/opt/log/metric-center}
@@ -836,6 +895,24 @@ EOF
 - data/          [解压即用模式运行时生成] SQLite 数据库、Prometheus TSDB 数据
 - logs/          [解压即用模式运行时生成] 进程日志与 pid 文件
 
+## 交付包洁净度
+
+本包在 macOS 上构建，但已剔除全部宿主系统元数据（归档为 ustar 格式，结构上不携带 xattr 扩展头）：
+
+- **无** `.DS_Store` / `._*` AppleDouble / `__MACOSX` / `Thumbs.db`
+- **无** xattr 扩展属性（macOS 给每个文件挂的 `com.apple.provenance`）
+- **属主属组统一 `root:root`**，不是打包机身份（`501 staff`）
+
+自检：
+
+```bash
+tar -tzf metric-center-bundle-*.tar.gz | grep -E '\.DS_Store|(^|/)\._|__MACOSX'   # 应无输出
+tar -tvzf metric-center-bundle-*.tar.gz | head -3                                  # 第 2、3 列应为 root root
+```
+
+> 解压：root 解压得到 root 属主，`scripts/install.sh` 随后按程序账户重新 chown；普通用户解压则属主为该用户（「解压即用」模式推荐这样，无需 root）。
+> **不要二次压缩**：用 Finder / 7-Zip / 解压软件重新打包会重新引入 `__MACOSX` 与 `.DS_Store`，分发时请直接传输原始 `tar.gz`。
+
 ## 快速启动（解压即用）
 
 > 未安装（无 `env/env.sh`）时自动回落「解压即用」模式：数据/日志落在本目录 `data/`、`logs/`，无需 root。
@@ -993,11 +1070,25 @@ verify_bundle_bins() {
 }
 
 archive_bundle() {
-    cd "$DIST_DIR"
-    tar -czf "$(basename "$TARBALL")" "$(basename "$BUNDLE_DIR")"
+    # 打包前剔除宿主系统元数据（.DS_Store / ._* / __MACOSX / 卷元数据），
+    # 再以「无 xattr 扩展头 + 属主 root:root」打包。详见 scripts/lib/packaging-clean.sh 头注释：
+    # macOS 打包机的 com.apple.provenance 扩展属性与 501:20 属主会一路带到生产机
+    #（Linux 解压刷 unknown extended header keyword、/opt/apps 下留 uid 501 文件）。
+    prune_mac_metadata "$BUNDLE_DIR"
+    create_clean_tarball "$DIST_DIR" "$TARBALL" "$(basename "$BUNDLE_DIR")"
     echo ">>> Archive created: $TARBALL"
     echo ">>> Bundle directory: $BUNDLE_DIR"
     ls -lh "$TARBALL"
+}
+
+# verify_bundle_archive：交付前对 tarball 本身复核（条目名 / xattr 扩展头 / 属主归一化）。
+# 与 verify_bundle_bins 互补——「二进制齐」不等于「包干净」；缺这层，元数据会持续回流。
+verify_bundle_archive() {
+    if ! verify_clean_tarball "$TARBALL"; then
+        echo ">>> 打包中止，已删除不洁产物 $TARBALL"
+        rm -f "$TARBALL"
+        exit 1
+    fi
 }
 
 main() {
@@ -1009,6 +1100,7 @@ main() {
     collect_bundle
     verify_bundle_bins
     archive_bundle
+    verify_bundle_archive
 }
 
 main "$@"

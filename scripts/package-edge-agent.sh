@@ -14,6 +14,11 @@
 #       size_bytes=tarball 字节数；sha256=整包校验和；
 #       components=[edge-sync-agent + vmagent + blackbox_exporter]
 #
+# 洁净打包：归档前 prune_mac_metadata 剔除 .DS_Store / ._* / __MACOSX，再以
+#   --format=ustar --no-xattrs + 属主归一化 root:root 打包（实现在 scripts/lib/packaging-clean.sh，
+#   与 package-center.sh 共用）；打包后 verify_clean_tarball 复检，不洁即删包中止。
+#   离线包最终在 Linux 边缘节点解压，macOS 打包机的 xattr 与 501/20 属主不能带过去。
+#
 # 离线包内部结构：
 #   edge-sync-agent/
 #   ├── bin/                       # 三组件 × 两架构二进制（部署机按 arch 选装）
@@ -46,6 +51,8 @@
 set -e
 
 PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# 交付包洁净度工具（去 macOS 元数据 / 归一化属主）：与 package-center.sh 共用同一份实现。
+. "$PROJECT_ROOT/scripts/lib/packaging-clean.sh"
 EDGE_AGENT_VERSION=${EDGE_AGENT_VERSION:-v0.2.0}
 DIST_DIR=${DIST_DIR:-"$PROJECT_ROOT/dist"}
 EDGE_SRC_DIST=${EDGE_SRC_DIST:-"$PROJECT_ROOT/platform/edge-sync-agent/dist"}
@@ -198,9 +205,15 @@ if grep -q "__VERSION__" "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-ag
     exit 1
 fi
 
-# 打包离线 tar.gz
-cd "$PKG_ROOT"
-tar -czf "${TARBALL##*/}" "$PACK_NAME"
+# 打包离线 tar.gz（洁净打包：先剔除宿主元数据，再以「无 xattr + 属主 root」打包）。
+# 离线包最终在 Linux 边缘节点解压，macOS 打包机的 xattr 与属主会一并带过去。
+prune_mac_metadata "$PACK_DIR"
+create_clean_tarball "$PKG_ROOT" "$TARBALL" "$PACK_NAME"
+if ! verify_clean_tarball "$TARBALL"; then
+    echo ">>> 打包中止，已删除不洁产物 $TARBALL"
+    rm -f "$TARBALL"
+    exit 1
+fi
 echo ">>> Archive created: $TARBALL"
 ls -lh "$TARBALL"
 
