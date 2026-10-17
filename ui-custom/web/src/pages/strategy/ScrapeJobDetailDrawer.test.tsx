@@ -6,11 +6,15 @@ import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
 import type { ScrapeJob } from '../../types/strategy'
 
 const instancesMock = vi.fn()
+const previewTargetsMock = vi.fn()
 const targetsListMock = vi.fn()
 const queryMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
-  scrapeJobApi: { instances: (...args: unknown[]) => instancesMock(...args) },
+  scrapeJobApi: {
+    instances: (...args: unknown[]) => instancesMock(...args),
+    previewTargets: (...args: unknown[]) => previewTargetsMock(...args),
+  },
 }))
 
 vi.mock('../../api/targets', () => ({
@@ -78,6 +82,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
 
   beforeEach(() => {
     instancesMock.mockReset()
+    previewTargetsMock.mockReset()
     targetsListMock.mockReset()
     queryMock.mockReset()
   })
@@ -158,19 +163,29 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     expect(targetsListMock).toHaveBeenCalledWith({ job: 'job-x' })
   })
 
+  // F-12：拨测目标不再手填 blackbox_targets，改由 selected_instance_ids 经
+  // preview-targets 解析为探测地址（与生成侧 generator.resolveSelectedInstanceTargets 同源）。
+  function mockPreviewTargets(address = 'https://example.com') {
+    previewTargetsMock.mockResolvedValue({
+      status: 'success',
+      data: { targets: [{ resource_id: 'res-1', address, protocol: 'https' }] },
+    })
+  }
+
   it('blackbox Job 展示拨测目标列表与探测结果，不展示实例采集状态区块（B4/F-12）', async () => {
-    // probe_success 的 instance 即拨测目标地址，值 1 表示通过
+    mockPreviewTargets()
+    // probe_success 的 resource_id 回连所选实例，值 1 表示通过
     queryMock.mockResolvedValue({
       status: 'success',
       data: {
         resultType: 'vector',
-        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com' }, value: [1735780000, '1'] }],
+        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com', resource_id: 'res-1' }, value: [1735780000, '1'] }],
       },
     })
     renderDrawer(
       <ScrapeJobDetailDrawer
         open
-        job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }], selected_instance_ids: [] })}
+        job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', selected_instance_ids: ['res-1'] })}
         onClose={() => {}}
         getDefaultMapping={() => undefined}
       />,
@@ -188,17 +203,18 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
   })
 
   it('blackbox Job 拨测失败时回显「失败」状态与失败计数（F-12）', async () => {
+    mockPreviewTargets()
     queryMock.mockResolvedValue({
       status: 'success',
       data: {
         resultType: 'vector',
-        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com' }, value: [1735780000, '0'] }],
+        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com', resource_id: 'res-1' }, value: [1735780000, '0'] }],
       },
     })
     renderDrawer(
       <ScrapeJobDetailDrawer
         open
-        job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }], selected_instance_ids: [] })}
+        job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', selected_instance_ids: ['res-1'] })}
         onClose={() => {}}
         getDefaultMapping={() => undefined}
       />,
@@ -209,6 +225,8 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
   })
 
   it('blackbox Job 未下发时拨测目标统一「待拨测」且不调 query（F-12）', async () => {
+    // 未下发也要拉目标清单（供目标清单展示），只是不查探测结果
+    mockPreviewTargets()
     renderDrawer(
       <ScrapeJobDetailDrawer
         open
@@ -216,8 +234,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
           job_type: 'blackbox',
           change_status: 'confirmed',
           blackbox_module: 'http_2xx',
-          blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }],
-          selected_instance_ids: [],
+          selected_instance_ids: ['res-1'],
         })}
         onClose={() => {}}
         getDefaultMapping={() => undefined}

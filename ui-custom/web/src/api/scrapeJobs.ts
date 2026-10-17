@@ -120,10 +120,13 @@ export interface ConfirmInstanceInput {
   notes?: string
 }
 
-/** preview-targets 目标清单（standard→实例地址；blackbox→targets，§6） */
+/** preview-targets 目标清单（standard→实例地址；blackbox→所选实例在 target_field 上的值，§6） */
 export interface PreviewTargetsResult {
   targets: {
+    /** 所选资源 id（拨测 Job 据此回连 probe_success 的 resource_id 标签） */
+    resource_id?: string
     address: string
+    /** 目标地址的 scheme（仅 URL 类字段有值，如 http/https） */
     protocol?: string
     /** {T01-P6} standard 目标生效端口（blackbox 恒 0，不进端口解析链，D3 矩阵） */
     port?: number

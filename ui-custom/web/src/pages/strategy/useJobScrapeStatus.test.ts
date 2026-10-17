@@ -5,10 +5,14 @@ import type { ScrapeJob } from '../../types/strategy'
 import type { PromVectorItem } from '../../types/query'
 
 const instancesMock = vi.fn()
+const previewTargetsMock = vi.fn()
 const queryMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
-  scrapeJobApi: { instances: (...args: unknown[]) => instancesMock(...args) },
+  scrapeJobApi: {
+    instances: (...args: unknown[]) => instancesMock(...args),
+    previewTargets: (...args: unknown[]) => previewTargetsMock(...args),
+  },
 }))
 
 vi.mock('../../api/query', () => ({
@@ -59,6 +63,7 @@ function vector(result: PromVectorItem[]) {
 describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标）', () => {
   beforeEach(() => {
     instancesMock.mockReset()
+    previewTargetsMock.mockReset()
     queryMock.mockReset()
   })
 
@@ -140,42 +145,66 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
     expect(result.current[1]).toMatchObject({ state: 'pending', online: 0, pending: 1, total: 1 })
   })
 
-  it('拨测 Job（blackbox）按 probe_success 聚合「通过 x / 总数 y」，不查实例（F-12）', async () => {
+  it('拨测 Job（blackbox）按 preview-targets 目标 + probe_success 聚合「通过 x / 总数 y」，不查实例（F-12）', async () => {
+    previewTargetsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        targets: [
+          { resource_id: 'res-1', address: 'http://1.1.1.1:3000/login', protocol: 'http' },
+          { resource_id: 'res-2', address: 'http://2.2.2.2:3000/login', protocol: 'http' },
+        ],
+      },
+    })
     queryMock.mockResolvedValue(
       vector([
-        { metric: { __name__: 'probe_success', job: 'bb', instance: 'http://1.1.1.1:3000/login' }, value: [1735780000, '1'] },
-        { metric: { __name__: 'probe_success', job: 'bb', instance: 'http://2.2.2.2:3000/login' }, value: [1735780000, '0'] },
+        {
+          metric: { __name__: 'probe_success', job: 'bb', instance: 'http://1.1.1.1:3000/login', resource_id: 'res-1' },
+          value: [1735780000, '1'],
+        },
+        {
+          metric: { __name__: 'probe_success', job: 'bb', instance: 'http://2.2.2.2:3000/login', resource_id: 'res-2' },
+          value: [1735780000, '0'],
+        },
       ]),
     )
     const bb = job({
       id: 9,
       job_name: 'bb',
       job_type: 'blackbox',
-      selected_instance_ids: [],
-      blackbox_targets: [
-        { target: 'http://1.1.1.1:3000/login', protocol: 'http' },
-        { target: 'http://2.2.2.2:3000/login', protocol: 'http' },
-      ],
+      selected_instance_ids: ['res-1', 'res-2'],
     })
     const { result } = renderHook(() => useJobScrapeStatus([bb]))
     await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
+    expect(previewTargetsMock).toHaveBeenCalledWith(9)
     expect(queryMock).toHaveBeenCalledWith({ query: 'probe_success{job="bb"}' })
     expect(instancesMock).not.toHaveBeenCalled()
     expect(result.current[9]).toMatchObject({ state: 'collecting', online: 1, down: 1, pending: 0, total: 2 })
   })
 
   it('拨测 Job 未下发时不查 probe_success，目标统一「待拨测」（F-12）', async () => {
+    previewTargetsMock.mockResolvedValue({
+      status: 'success',
+      data: { targets: [{ resource_id: 'res-1', address: 'http://1.1.1.1:3000/login', protocol: 'http' }] },
+    })
     const bb = job({
       id: 9,
       job_name: 'bb',
       job_type: 'blackbox',
       change_status: 'confirmed',
-      selected_instance_ids: [],
-      blackbox_targets: [{ target: 'http://1.1.1.1:3000/login', protocol: 'http' }],
+      selected_instance_ids: ['res-1'],
     })
     const { result } = renderHook(() => useJobScrapeStatus([bb]))
     await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
     expect(result.current[9]).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 1, total: 1 })
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('拨测 Job preview-targets 解析失败时降级为无目标（total=0）', async () => {
+    previewTargetsMock.mockRejectedValue(new Error('boom'))
+    const bb = job({ id: 9, job_name: 'bb', job_type: 'blackbox', selected_instance_ids: ['res-1'] })
+    const { result } = renderHook(() => useJobScrapeStatus([bb]))
+    await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
+    expect(result.current[9]).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 0, total: 0 })
     expect(queryMock).not.toHaveBeenCalled()
   })
 

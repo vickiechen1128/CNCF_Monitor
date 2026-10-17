@@ -27,8 +27,19 @@
  * 不能表达拨测结果，故拨测 Job 不复用 `statusFromUp`。
  */
 import type { PromVectorItem } from '../../types/query'
-import type { BlackboxTarget, ScrapeJobInstanceItem } from '../../types/strategy'
+import type { ScrapeJobInstanceItem } from '../../types/strategy'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
+
+/**
+ * 拨测目标（F-12）：来自 `POST /scrape-jobs/:id/preview-targets` 的解析结果，
+ * 与生成侧 generator.resolveSelectedInstanceTargets 同源（同一 `selected_instance_ids`
+ * + `target_field` 读取入口），故与最终下发的 `__param_target` 地址逐字一致。
+ */
+export interface ProbeTarget {
+  resource_id?: string
+  address: string
+  protocol?: string
+}
 
 /** 从 `instance`（host:port）提取 host（IPv4 / 主机名按最后一个 ':' 截断；无冒号即原值） */
 export function hostOf(instance?: string): string {
@@ -86,12 +97,16 @@ export function probeQueryForJob(jobName: string): string {
  *
  * 背景：blackbox 拨测 Job 无实例维度，其执行状态看 `probe_success`（1=通过 / 0=失败）；
  * `up` 仅代表「抓取 blackbox_exporter 本身是否成功」，不能表达拨测结果。
- * 匹配口径：`probe_success` 的 `instance` 标签即拨测目标地址，优先用 `url`（含协议头形态），
- * 回落 `target`（无协议头形态）。
+ *
+ * 匹配口径与 statusFromUp 对齐：优先 `resource_id` 标签回连（拨测 Job 的目标同样
+ * 由资源台账选出，生成侧 render.go 把 `__param_target`（=目标地址）复制为 `instance`，
+ * 并保留 `resource_id`），缺失时回落按 `instance` 地址匹配。
  */
-export function probeStatusOfTarget(probeItems: PromVectorItem[], target: BlackboxTarget): JobInstanceScrapeStatus {
-  const series =
-    probeItems.find((x) => x.metric.instance === target.url) ?? probeItems.find((x) => x.metric.instance === target.target)
+export function probeStatusOfTarget(probeItems: PromVectorItem[], target: ProbeTarget): JobInstanceScrapeStatus {
+  const byRes = target.resource_id
+    ? probeItems.find((x) => x.metric.resource_id === target.resource_id)
+    : undefined
+  const series = byRes ?? probeItems.find((x) => x.metric.instance === target.address)
   if (!series) return 'pending'
   return series.value?.[1] === '1' ? 'collecting' : 'down'
 }
