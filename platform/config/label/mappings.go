@@ -23,21 +23,21 @@ const mappingTargetInstance = "instance"
 // resource_field 缺省时默认预填为 source_field、composite 锁定为 instance；
 // enabled 可选，缺省为 true。
 type CreateMappingRequest struct {
-	TargetLabel   string                `json:"target_label"`
+	TargetLabel   string                 `json:"target_label"`
 	SourceType    models.LabelSourceType `json:"source_type"`
-	SourceField   string                `json:"source_field"`
-	TransformRule *string               `json:"transform_rule"`
-	Enabled       *bool                 `json:"enabled"`
+	SourceField   string                 `json:"source_field"`
+	TransformRule *string                `json:"transform_rule"`
+	Enabled       *bool                  `json:"enabled"`
 }
 
 // UpdateMappingRequest 是编辑映射的请求体（PRD §6.6.3）：全部字段可选（部分
 // 更新）；transform_rule 显式传空字符串即清空为原样，缺省（null）表示不修改。
 type UpdateMappingRequest struct {
-	TargetLabel   *string                `json:"target_label"`
+	TargetLabel   *string                 `json:"target_label"`
 	SourceType    *models.LabelSourceType `json:"source_type"`
-	SourceField   *string                `json:"source_field"`
-	TransformRule *string                `json:"transform_rule"`
-	Enabled       *bool                  `json:"enabled"`
+	SourceField   *string                 `json:"source_field"`
+	TransformRule *string                 `json:"transform_rule"`
+	Enabled       *bool                   `json:"enabled"`
 }
 
 // validSourceType 报告 source_type 是否为合法枚举（§5.11：resource_field /
@@ -54,19 +54,36 @@ func validSourceType(st models.LabelSourceType) bool {
 }
 
 // validTransformRules 是 transform 枚举（§5.11）：空=原样透传；lower/upper/
-// prefix/replace 为 P1 MVP 置灰但枚举接受。
+// prefix/replace 为 P1 MVP 置灰但枚举接受；dict=字典翻译（引用字典的字段专用）。
 var validTransformRules = map[string]struct{}{
-	"":        {},
-	"lower":   {},
-	"upper":   {},
-	"prefix":  {},
-	"replace": {},
+	"":                        {},
+	models.LabelTransformDict: {},
+	"lower":                   {},
+	"upper":                   {},
+	"prefix":                  {},
+	"replace":                 {},
 }
 
 // validateTransformRule 校验 transform_rule 枚举（§5.11）。
 func validateTransformRule(rule string) error {
 	if _, ok := validTransformRules[rule]; !ok {
-		return fmt.Errorf("transform_rule %q 非法，可选：lower/upper/prefix/replace 或空", rule)
+		return fmt.Errorf("transform_rule %q 非法，可选：dict/lower/upper/prefix/replace 或空", rule)
+	}
+	return nil
+}
+
+// validateTransformRuleForMapping 校验 transform_rule 与来源字段的组合约束：
+// dict（字典翻译）只适用于 resource_field 来源中引用字典 / 固定枚举的字段，
+// 其余组合直接拒绝，避免生成期静默不生效。
+func validateTransformRuleForMapping(rule string, sourceType models.LabelSourceType, sourceField string) error {
+	if rule != models.LabelTransformDict {
+		return nil
+	}
+	if sourceType != models.LabelSourceTypeResourceField {
+		return fmt.Errorf("transform_rule %q 仅支持 resource_field 来源", rule)
+	}
+	if !models.IsDictTranslatableSourceField(sourceField) {
+		return fmt.Errorf("来源字段 %q 不支持字典翻译（仅支持 app_code/biz_code/platform_code/network_domain_id/env）", sourceField)
 	}
 	return nil
 }
@@ -192,6 +209,10 @@ func CreateLabelMapping(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
+		if err := validateTransformRuleForMapping(transform, req.SourceType, sourceField); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
 
 		// 同模板 target_label 唯一（§5.11）。
 		for _, m := range tmpl.Mappings {
@@ -312,6 +333,11 @@ func UpdateLabelMapping(db *gorm.DB) gin.HandlerFunc {
 				response.BadRequest(c, err)
 				return
 			}
+		}
+		// 来源字段也可能同时变更，故无论 transform 是否显式传入都校验组合约束。
+		if err := validateTransformRuleForMapping(newMapping.Transform, newMapping.SourceType, newMapping.SourceField); err != nil {
+			response.BadRequest(c, err)
+			return
 		}
 		if req.Enabled != nil {
 			newMapping.Enabled = *req.Enabled

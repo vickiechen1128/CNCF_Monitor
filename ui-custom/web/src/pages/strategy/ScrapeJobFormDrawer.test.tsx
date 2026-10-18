@@ -213,6 +213,47 @@ describe('ScrapeJobFormDrawer', () => {
     expect(await screen.findByText(/目标地址固定取所选实例的健康检查 URL/)).toBeInTheDocument()
   })
 
+  it('blackbox：按拨测资源类别展示标签模板并可切换方案', async () => {
+    labelListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 11, name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 12, name: '接口服务自定义模板', resource_category: 'interface_service', is_default: false, mappings: [], created_at: '', updated_at: '' },
+          { id: 21, name: '应用服务默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        ],
+        total: 3,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    createMock.mockResolvedValue({ status: 'success', data: { id: 9, job_name: 'probe-label', job_type: 'blackbox' } })
+    renderDrawer()
+    fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
+
+    // 未选资源类别时给出引导（此前拨测分支因 monitorType 为空而不渲染选择器）
+    expect(await screen.findByText('选择拨测目标资源类别后按资源类别列出')).toBeInTheDocument()
+
+    // 选择接口服务：只列该类别模板；留空选项明确为「使用默认标签模板」
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    await selectAntdOption('接口服务')
+    expect(await screen.findByText('使用默认标签模板（接口服务默认模板）')).toBeInTheDocument()
+    expect(screen.getByText('接口服务自定义模板')).toBeInTheDocument()
+    expect(screen.queryByText('应用服务默认模板')).not.toBeInTheDocument()
+
+    // 切换为自定义方案并提交
+    fireEvent.click(screen.getByRole('radio', { name: /接口服务自定义模板/ }))
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'probe-label')
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+    fireEvent.mouseDown(await screen.findByText('选择拨测模块'))
+    await userEvent.click(await screen.findByText('http_2xx', { selector: '.ant-select-item-option-content' }))
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('12')
+  })
+
   it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 10, job_name: 'draft-job', job_type: 'standard' } })
     renderDrawer()
@@ -451,7 +492,8 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.queryByDisplayValue('99s')).toBeNull()
     // 标签模板卡片选中已挂模板「MySQL 标准标签」（value=7），label_template_id 未被默认映射清空
     expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /MySQL 标准标签/ })).toBeChecked()
+    // 限定以模板名开头，避免命中「使用默认标签模板（MySQL 标准标签）」空选项
+    expect(screen.getByRole('radio', { name: /^MySQL 标准标签/ })).toBeChecked()
   })
 
   // 回归：#19 同源问题（采集 Job 抽屉）。用户实测「刷新页面后，勾选多选框再点编辑才有回显；

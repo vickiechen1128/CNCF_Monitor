@@ -79,14 +79,18 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			AppCode:         host.GetAppCode(),
 			Raw:             &host,
 			Fields: map[string]string{
-				"app_name":         host.AppCode,
-				"biz_code":         host.BizCode,
-				"cluster":          host.SubAppCode,
-				"instance_ip":      host.PrivateIP,
-				"service_name":     host.InstanceName,
-				"health_check_url": "",
-				"env":              host.GetEnv(),
-				"platform_code":    host.PlatformCode,
+				// app_code 是 §5.12.1 的权威来源字段；app_name 为历史键名（值同为
+				// app_code），保留以兼容存量模板映射（见 generator_test 既有用例）。
+				"app_code":          host.AppCode,
+				"app_name":          host.AppCode,
+				"biz_code":          host.BizCode,
+				"cluster":           host.SubAppCode,
+				"instance_ip":       host.PrivateIP,
+				"service_name":      host.InstanceName,
+				"health_check_url":  "",
+				"env":               host.GetEnv(),
+				"platform_code":     host.PlatformCode,
+				"network_domain_id": host.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -103,12 +107,14 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			AppCode:         database.GetAppCode(),
 			Raw:             &database,
 			Fields: map[string]string{
-				"app_name":      database.GetAppCode(),
-				"biz_code":      database.BizCode,
-				"cluster":       database.GetCluster(),
-				"instance_ip":   database.InstanceIP,
-				"env":           database.GetEnv(),
-				"platform_code": database.PlatformCode,
+				"app_code":          database.GetAppCode(),
+				"app_name":          database.GetAppCode(),
+				"biz_code":          database.BizCode,
+				"cluster":           database.GetCluster(),
+				"instance_ip":       database.InstanceIP,
+				"env":               database.GetEnv(),
+				"platform_code":     database.PlatformCode,
+				"network_domain_id": database.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -125,12 +131,14 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			AppCode:         middleware.GetAppCode(),
 			Raw:             &middleware,
 			Fields: map[string]string{
-				"app_name":      middleware.AppName,
-				"biz_code":      middleware.BizCode,
-				"cluster":       middleware.GetCluster(),
-				"instance_ip":   middleware.InstanceIP,
-				"env":           middleware.GetEnv(),
-				"platform_code": middleware.PlatformCode,
+				"app_code":          middleware.GetAppCode(),
+				"app_name":          middleware.AppName,
+				"biz_code":          middleware.BizCode,
+				"cluster":           middleware.GetCluster(),
+				"instance_ip":       middleware.InstanceIP,
+				"env":               middleware.GetEnv(),
+				"platform_code":     middleware.PlatformCode,
+				"network_domain_id": middleware.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -145,13 +153,14 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			AppCode:         application.GetAppCode(),
 			Raw:             &application,
 			Fields: map[string]string{
-				"app_code":         application.GetAppCode(),
-				"biz_code":         application.BizCode,
-				"cluster":          application.GetCluster(),
-				"service_name":     application.ServiceName,
-				"health_check_url": application.HealthCheckURL,
-				"env":              application.GetEnv(),
-				"platform_code":    application.PlatformCode,
+				"app_code":          application.GetAppCode(),
+				"biz_code":          application.BizCode,
+				"cluster":           application.GetCluster(),
+				"service_name":      application.ServiceName,
+				"health_check_url":  application.HealthCheckURL,
+				"env":               application.GetEnv(),
+				"platform_code":     application.PlatformCode,
+				"network_domain_id": application.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -166,12 +175,14 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			AppCode:         generic.GetAppCode(),
 			Raw:             &generic,
 			Fields: map[string]string{
-				"app_name":      generic.GetAppCode(),
-				"biz_code":      generic.BizCode,
-				"cluster":       generic.GetCluster(),
-				"instance_ip":   generic.InstanceIP,
-				"env":           generic.GetEnv(),
-				"platform_code": generic.PlatformCode,
+				"app_code":          generic.GetAppCode(),
+				"app_name":          generic.GetAppCode(),
+				"biz_code":          generic.BizCode,
+				"cluster":           generic.GetCluster(),
+				"instance_ip":       generic.InstanceIP,
+				"env":               generic.GetEnv(),
+				"platform_code":     generic.PlatformCode,
+				"network_domain_id": generic.NetworkDomainID,
 			},
 		}, nil
 	}
@@ -296,6 +307,8 @@ func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *mod
 	// network_domain_id / app_code 重复回查（避免 N+1）。
 	domainCache := make(map[string]*models.NetworkDomain)
 	primaryPlatformCache := make(map[string]string)
+	// 标签模板 transform=dict（字典翻译）所需的字典缓存：一次 Job 生成只加载一次。
+	labelDict := newLabelDictionary(db)
 	for _, rid := range job.SelectedInstanceIDs {
 		rt, err := resolveResource(db, rid, exporterPort)
 		if err != nil || rt == nil {
@@ -331,7 +344,7 @@ func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *mod
 			})
 			continue
 		}
-		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), address)
+		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), address, labelDict)
 		// 决策 103 scheme-B：cloud / zone / network_domain 三标签在 TARGET-LEVEL SYSTEM
 		// 层强制注入（不可被 LabelTemplate 覆盖，亦不经 external_labels）：
 		//   - network_domain = 资源所属网域 id；
