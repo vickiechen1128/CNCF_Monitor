@@ -26,10 +26,10 @@ const snapshotOperator = models.PlatformAdminTenantID
 //     platform/models/），解析后暂不落库，见 CreateLabelTemplate 内 TODO；
 //   - mappings 可选：传入时走 validateMappings 基础校验（T07-16 增强完整规则）。
 type CreateLabelTemplateRequest struct {
-	Name             string                 `json:"name"`
+	Name             string                  `json:"name"`
 	ResourceCategory models.ResourceCategory `json:"resource_category"`
-	Description      *string                `json:"description"`
-	Mappings         []models.LabelMapping  `json:"mappings"`
+	Description      *string                 `json:"description"`
+	Mappings         []models.LabelMapping   `json:"mappings"`
 }
 
 // UpdateLabelTemplateRequest 是更新模板的请求体：仅可改 name / description，
@@ -70,6 +70,9 @@ func validateMappings(mappings []models.LabelMapping) error {
 			return fmt.Errorf("mappings[%d].source_field 不能为空", i)
 		}
 		if err := validateTransformRule(strings.TrimSpace(m.Transform)); err != nil {
+			return fmt.Errorf("mappings[%d]: %w", i, err)
+		}
+		if err := validateTransformRuleForMapping(strings.TrimSpace(m.Transform), m.SourceType, strings.TrimSpace(m.SourceField)); err != nil {
 			return fmt.Errorf("mappings[%d]: %w", i, err)
 		}
 		if m.SourceType == models.LabelSourceTypeComposite && m.TargetLabel != mappingTargetInstance {

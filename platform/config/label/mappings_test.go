@@ -217,6 +217,22 @@ func TestCreateLabelMappingTransformValidation(t *testing.T) {
 		code, _ := decodeMappings(t, doJSON(t, r, http.MethodPost, path, body))
 		assert.Equal(t, http.StatusOK, code, "transform_rule=%q 应被接受", tc.rule)
 	}
+
+	// dict（字典翻译）仅接受引用字典 / 固定枚举的来源字段。
+	code, _ = decodeMappings(t, doJSON(t, r, http.MethodPost, path,
+		`{"source_type":"resource_field","source_field":"app_code","target_label":"app_dict","transform_rule":"dict"}`))
+	assert.Equal(t, http.StatusOK, code, "app_code + dict 应被接受")
+
+	code, e = decodeErr(t, doJSON(t, r, http.MethodPost, path,
+		`{"source_type":"resource_field","source_field":"os_type","target_label":"os_dict","transform_rule":"dict"}`))
+	assert.Equal(t, http.StatusBadRequest, code, "非字典字段 + dict 应被拒绝")
+	assert.Contains(t, e.Error, "不支持字典翻译")
+
+	// dict 不允许用于 composite 来源。
+	code, e = decodeErr(t, doJSON(t, r, http.MethodPost, path,
+		`{"source_type":"composite","source_field":"instance_ip:port","target_label":"instance","transform_rule":"dict"}`))
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Contains(t, e.Error, "仅支持 resource_field")
 }
 
 func TestCreateLabelMappingInvalidSourceType(t *testing.T) {

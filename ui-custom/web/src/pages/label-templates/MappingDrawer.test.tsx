@@ -119,6 +119,33 @@ describe('MappingDrawer', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 
+  it('offers dict transform for dictionary-backed source field and submits it', async () => {
+    addMappingMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer()
+    await selectOption(1, 'app_code')
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.mouseDown(combos[2])
+    const options = await screen.findAllByText('字典翻译（显示名）')
+    fireEvent.click(options[options.length - 1])
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() =>
+      expect(addMappingMock).toHaveBeenCalledWith(1, {
+        target_label: 'app_code',
+        source_type: 'resource_field',
+        source_field: 'app_code',
+        transform_rule: 'dict',
+      }),
+    )
+  })
+
+  it('does not offer dict transform for non-dictionary source field', async () => {
+    renderDrawer()
+    await selectOption(1, 'os_type')
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.mouseDown(combos[2])
+    expect(screen.queryByText('字典翻译（显示名）')).not.toBeInTheDocument()
+  })
+
   it('pre-fills values in edit mode and calls updateMapping', async () => {
     const existing = mapping('app_code', 'resource_field', 'app', { enabled: true })
     updateMappingMock.mockResolvedValue({ status: 'success', data: [existing] })

@@ -72,14 +72,41 @@ export const MAPPING_SOURCE_TYPE_OPTIONS: { value: LabelSourceType; label: strin
   { value: 'cmdb_field', label: 'CMDB 字段（后续版本开放）', disabled: true },
 ]
 
-/** 转换规则选项（§5.11：空=原样透传 / lower / upper；prefix / replace 需参数，P1 置灰） */
+/**
+ * 「字典翻译」转换规则（transform=dict）支持的来源字段，与后端
+ * `models.IsDictTranslatableSourceField` 对齐：
+ * 应用编码 → 应用名、业务编码 → 业务名、平台编码 → 平台名、
+ * 网域 id → 网域名、环境枚举 → 中文环境名。
+ */
+export const DICT_TRANSLATABLE_FIELDS = [
+  'app_code',
+  'app_name',
+  'biz_code',
+  'platform_code',
+  'network_domain_id',
+  'env',
+]
+
+/** 转换规则选项（§5.11：空=原样透传 / lower / upper；prefix / replace 需参数，P1 置灰）
+ *  dict=字典翻译，仅对 DICT_TRANSLATABLE_FIELDS 中引用字典 / 固定枚举的字段开放。 */
 export const TRANSFORM_OPTIONS: { value: string; label: string; disabled?: boolean }[] = [
   { value: '', label: '无（原样透传）' },
+  { value: 'dict', label: '字典翻译（显示名）' },
   { value: 'lower', label: 'lower（转小写）' },
   { value: 'upper', label: 'upper（转大写）' },
   { value: 'prefix', label: 'prefix（加前缀，后续开放）', disabled: true },
   { value: 'replace', label: 'replace（正则替换，后续开放）', disabled: true },
 ]
+
+/** 转换规则展示名（标签模板映射明细表格用；未知值回退原始 code） */
+export const TRANSFORM_LABELS: Record<string, string> = {
+  '': '原样透传',
+  dict: '字典翻译',
+  lower: '转小写',
+  upper: '转大写',
+  prefix: '加前缀',
+  replace: '正则替换',
+}
 
 /** 保护 label 清单（§5.3/§5.11：禁止作为目标标签；composite→instance 例外），与后端一致 */
 export const PROTECTED_PROMETHEUS_LABELS = [

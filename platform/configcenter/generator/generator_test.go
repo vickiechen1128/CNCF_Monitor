@@ -1061,9 +1061,77 @@ func TestExpandLabelTemplateComposite(t *testing.T) {
 		{SourceField: "instance_ip:port", SourceType: models.LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
 		{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 	}}
-	labels := expandLabelTemplate(tmpl, map[string]string{"app_name": "pay"}, "10.0.1.1:9100")
+	labels := expandLabelTemplate(tmpl, map[string]string{"app_name": "pay"}, "10.0.1.1:9100", nil)
 	assert.Equal(t, "10.0.1.1:9100", labels["instance"])
 	assert.Equal(t, "pay", labels["app"])
+}
+
+// TestExpandLabelTemplateDictTransform：transform=dict 把字典编码翻译为展示名；
+// 未命中字典时回退原始 code（不丢标签、不阻断生成）。
+func TestExpandLabelTemplateDictTransform(t *testing.T) {
+	dict := &labelDictionary{
+		appNames:      map[string]string{"ceshi": "测试应用"},
+		bizNames:      map[string]string{"authorized-ops": "授权运营"},
+		platformNames: map[string]string{"k8s-prod": "生产 K8s 平台"},
+		domainNames:   map[string]string{"nd-1": "政务网 A 区"},
+	}
+	tmpl := &models.LabelTemplate{Mappings: []models.LabelMapping{
+		{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true, Transform: models.LabelTransformDict},
+		{SourceField: "biz_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true, Transform: models.LabelTransformDict},
+		{SourceField: "platform_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "platform", Enabled: true, Transform: models.LabelTransformDict},
+		{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true, Transform: models.LabelTransformDict},
+		{SourceField: "network_domain_id", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "domain_name", Enabled: true, Transform: models.LabelTransformDict},
+		{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app_unknown", Enabled: true, Transform: models.LabelTransformDict},
+	}}
+	labels := expandLabelTemplate(tmpl, map[string]string{
+		"app_code":          "ceshi",
+		"biz_code":          "authorized-ops",
+		"platform_code":     "k8s-prod",
+		"env":               "prod",
+		"network_domain_id": "nd-1",
+	}, "10.0.1.1:9100", dict)
+
+	assert.Equal(t, "测试应用", labels["app"])
+	assert.Equal(t, "授权运营", labels["biz"])
+	assert.Equal(t, "生产 K8s 平台", labels["platform"])
+	assert.Equal(t, "生产", labels["env"])
+	assert.Equal(t, "政务网 A 区", labels["domain_name"])
+
+	// 字典未命中：回退原始 code。
+	unknown := expandLabelTemplate(&models.LabelTemplate{Mappings: []models.LabelMapping{
+		{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true, Transform: models.LabelTransformDict},
+	}}, map[string]string{"app_code": "not-registered"}, "", dict)
+	assert.Equal(t, "not-registered", unknown["app"])
+}
+
+// TestResolveTargetsDictTransform：生成链路端到端验证——host 字段视图必须暴露
+// app_code（§5.12.1 权威来源字段），且 transform=dict 使用应用字典展示名。
+func TestResolveTargetsDictTransform(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{}, &models.ApplicationDict{}, &models.BusinessDomain{},
+		&models.PlatformDict{}, &models.NetworkDomain{}, &models.LabelTemplate{},
+	))
+	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "dict-app", AppName: "字典应用", Status: "enabled"}).Error)
+	require.NoError(t, db.Create(&models.Host{
+		ServerID: "dict-host-1", ResourceID: "dict-host-1", NetworkDomainID: "dict-nd",
+		PrivateIP: "10.9.0.1", Status: "online", AppCode: "dict-app", EnvFlag: "prod",
+	}).Error)
+
+	tmpl := &models.LabelTemplate{Name: "dict-tmpl", ResourceCategory: models.ResourceCategoryHost,
+		Mappings: []models.LabelMapping{
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true, Transform: models.LabelTransformDict},
+			{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true, Transform: models.LabelTransformDict},
+		}}
+	require.NoError(t, db.Create(tmpl).Error)
+
+	job := models.ScrapeJob{JobName: "dict-job", ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "dict-nd", SelectedInstanceIDs: []string{"dict-host-1"}}
+	groups, _, err := ResolveJobTargets(db, job, tmpl, 9100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "字典应用", groups[0].Labels["app"])
+	assert.Equal(t, "生产", groups[0].Labels["env"])
 }
 
 func TestMarshalTargetGroupsJSON(t *testing.T) {

@@ -93,7 +93,12 @@ describe('TemplateDetailTabs', () => {
     expect(screen.getByText('app_code')).toBeInTheDocument()
     expect(screen.getByText('instance_ip:port')).toBeInTheDocument()
     expect(screen.getByText('app')).toBeInTheDocument()
-    expect(screen.getByText('lower')).toBeInTheDocument()
+    expect(screen.getByText('转小写')).toBeInTheDocument()
+  })
+
+  it('renders dict transform with Chinese label', async () => {
+    renderTabs(template({ mappings: [mapping('app_code', 'resource_field', 'app', { transform: 'dict' })] }))
+    expect(await screen.findByText('字典翻译')).toBeInTheDocument()
   })
 
   it('shows empty hint when template has no mappings', async () => {

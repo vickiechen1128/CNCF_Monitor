@@ -33,7 +33,12 @@ func mergeLabels(system, user, cmdb map[string]string) map[string]string {
 
 // expandLabelTemplate 将标签模板的启用映射按字段视图展开为标签集。
 // composite("instance_ip:port") 使用给出地址；resource_field 从字段视图取值。
-func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string) map[string]string {
+//
+// transform=dict（字典翻译）在 resource_field 分支生效：把字典编码翻译为展示名
+// （app_code → 应用名 / biz_code → 业务名 / platform_code → 平台名 /
+// network_domain_id → 网域名 / env → 中文环境名）；字典未命中回退原始 code，
+// 保证存量数据与未登记编码仍能生成标签。dicts 为 nil 时等价于原样透传。
+func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string, dicts *labelDictionary) map[string]string {
 	labels := map[string]string{}
 	if tmpl == nil {
 		return labels
@@ -49,6 +54,11 @@ func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, a
 			}
 		case m.SourceType == models.LabelSourceTypeResourceField:
 			if v, ok := fields[m.SourceField]; ok && v != "" {
+				if m.Transform == models.LabelTransformDict {
+					if translated, ok := dicts.translate(m.SourceField, v); ok {
+						v = translated
+					}
+				}
 				labels[m.TargetLabel] = v
 			}
 		}

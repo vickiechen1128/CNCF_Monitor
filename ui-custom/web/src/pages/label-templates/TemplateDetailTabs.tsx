@@ -47,6 +47,7 @@ import {
   RESOURCE_TYPE_MAP,
   SOURCE_TYPE_COLOR,
   SOURCE_TYPE_LABEL,
+  TRANSFORM_LABELS,
 } from './labelTemplateConstants'
 import MappingDrawer from './MappingDrawer'
 
@@ -235,7 +236,12 @@ export default function TemplateDetailTabs({
     {
       title: '转换规则',
       key: 'transform',
-      render: (_, row) => (row.mapping.transform ? <Tag>{row.mapping.transform}</Tag> : '-'),
+      render: (_, row) =>
+        row.mapping.transform ? (
+          <Tag>{TRANSFORM_LABELS[row.mapping.transform] ?? row.mapping.transform}</Tag>
+        ) : (
+          '-'
+        ),
     },
     {
       title: '启用',

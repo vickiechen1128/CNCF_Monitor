@@ -160,14 +160,23 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     return MONITOR_TYPE_CASCADE.find((g) => g.category === resourceCategorySelected)?.types ?? []
   }, [resourceCategorySelected])
 
-  // F1-4：按当前 monitor_type 推导资源类别，过滤可选的标签模板（卡片式）
+  // F1-4：按当前资源类别过滤可选的标签模板（卡片式）。
+  // 采集 Job 由 monitor_type 推导类别；拨测 Job 没有 monitor_type，类别取 resource_type
+  // （接口服务 / 应用服务），否则拨测场景下选择器会因 monitorType 为空而不渲染。
   const resourceCategory = useMemo<ResourceCategory | undefined>(() => {
+    if (jobType === 'blackbox') return blackboxCategory
     if (!monitorType) return undefined
     return MONITOR_TYPE_CASCADE.find((g) => g.types.includes(monitorType))?.category
-  }, [monitorType])
+  }, [jobType, blackboxCategory, monitorType])
   const filteredLabelTemplates = useMemo(
     () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
     [labelTemplates, resourceCategory],
+  )
+  // 类别默认模板：label_template_id 留空时后端按该类别默认模板生成标签，
+  // 选项文案据此明确「使用默认标签模板（xxx）」而非误导性的「不关联」。
+  const defaultLabelTemplate = useMemo(
+    () => filteredLabelTemplates.find((t) => t.is_default),
+    [filteredLabelTemplates],
   )
 
   // 打开抽屉时装载网域与初始值
@@ -205,7 +214,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         scrape_timeout: record.scrape_timeout,
         metrics_path: record.metrics_path,
         scheme: record.scheme,
-        label_template_id: record.label_template_id,
+        // 留空 = 使用该类别默认模板；显式置 '' 让「使用默认标签模板」单选项默认选中
+        label_template_id: record.label_template_id ?? '',
         auth_type: record.auth_type,
         username: record.username,
         // 认证密文仅存储不回显（决策31）：编辑回填 token/password 一律置空，仅保留 auth 类型选择与密文占位说明
@@ -222,7 +232,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       setParamsState((record.mapping_overrides?.length ?? 0) > 0 ? 'pending' : 'none')
     } else {
       setSelectedIds([])
-      form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: undefined } as Partial<ScrapeJobInput>)
+      form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: '' } as Partial<ScrapeJobInput>)
     }
   }, [open, record, form])
 
@@ -258,7 +268,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           setMappingDefaults(def)
           form.setFieldsValue({
             exporter_template_id: def.exporter_template_id as string,
-            label_template_id: def.label_template_id || undefined,
+            label_template_id: def.label_template_id || '',
           })
           setParamsState('inherited')
         }
@@ -396,6 +406,76 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     }
   }
 
+  /**
+   * 标签模板选择区（采集 / 拨测共用）。
+   * 采集 Job 的类别来自 monitor_type，拨测 Job 的类别来自 resource_type；
+   * 不选择具体模板时后端回落到该类别默认模板，故空选项明确文案为「使用默认标签模板」。
+   */
+  const renderLabelTemplateSection = () => (
+    <Form.Item
+      label="标签模板"
+      extra={
+        resourceCategory
+          ? jobType === 'blackbox'
+            ? '按拨测目标资源类别过滤；不选择时使用该类别默认标签模板，也可切换为其他自定义方案'
+            : '按资源类别过滤；映射自动继承，补配请前往标签模板管理（M07）'
+          : jobType === 'blackbox'
+            ? '选择拨测目标资源类别后列出可用标签模板'
+            : '选择监控对象类型后按资源类别列出可用标签模板'
+      }
+    >
+      {resourceCategory && filteredLabelTemplates.length > 0 ? (
+        <Form.Item name="label_template_id" noStyle>
+          <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
+            <Space direction="vertical" style={{ width: '100%' }} size={4}>
+              <Radio.Button value="" style={{ width: '100%', textAlign: 'left' }}>
+                <Text type="secondary">
+                  {defaultLabelTemplate
+                    ? `使用默认标签模板（${defaultLabelTemplate.name}）`
+                    : '不关联标签模板'}
+                </Text>
+              </Radio.Button>
+              {filteredLabelTemplates.map((t) => (
+                <Radio.Button
+                  key={t.id}
+                  value={String(t.id)}
+                  style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}
+                >
+                  <Space size={6} direction="vertical" align="start">
+                    <Space size={6}>
+                      <Text strong>{t.name}</Text>
+                      {t.is_default && <Tag color="blue">默认</Tag>}
+                    </Space>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
+                    </Text>
+                  </Space>
+                </Radio.Button>
+              ))}
+            </Space>
+          </Radio.Group>
+        </Form.Item>
+      ) : (
+        <Space direction="vertical" size={4}>
+          {resourceCategory && filteredLabelTemplates.length === 0 ? (
+            <>
+              <Text type="secondary">该资源类别下暂无标签模板</Text>
+              <Button type="link" size="small" onClick={openLabelTemplateGuide}>
+                前往补配标签模板
+              </Button>
+            </>
+          ) : (
+            <Text type="secondary">
+              {jobType === 'blackbox'
+                ? '选择拨测目标资源类别后按资源类别列出'
+                : '选择监控对象类型后按资源类别列出'}
+            </Text>
+          )}
+        </Space>
+      )}
+    </Form.Item>
+  )
+
   return (
     <>
       <Drawer
@@ -440,7 +520,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         // network_domain_id/blackbox_* 等值，且 StrictMode 开发态 StrictEffects
         // 模拟卸载会二次删除，导致编辑态回显清空。提交语义不受影响：
         // getFieldsValue()/validateFields() 仅收集已挂载字段，buildBody 按 job_type 显式组装。
-        initialValues={{ job_type: 'standard', auth_type: 'none', tls_skip_verify: false }}
+        initialValues={{ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, label_template_id: '' }}
       >
         <Row gutter={16}>
           <Col span={14}>
@@ -450,7 +530,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           </Col>
           <Col span={10}>
             <Form.Item label="任务类型" name="job_type" rules={[{ required: true }]}>
-              <Radio.Group buttonStyle="solid" onChange={(e) => setJobType(e.target.value as JobType)}>
+              <Radio.Group
+                buttonStyle="solid"
+                onChange={(e) => {
+                  setJobType(e.target.value as JobType)
+                  // 采集 / 拨测的资源类别不同，切换任务类型后回到「使用默认标签模板」，避免跨类别残留
+                  form.setFieldsValue({ label_template_id: '' })
+                }}
+              >
                 <Radio.Button value="standard">采集</Radio.Button>
                 <Radio.Button value="blackbox">拨测</Radio.Button>
               </Radio.Group>
@@ -571,48 +658,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Space>
             </Card>
 
-            <Form.Item
-              label="标签模板"
-              extra={resourceCategory ? '按资源类别过滤；映射自动继承，补配请前往标签模板管理（M07）' : '选择监控对象类型后按资源类别列出可用标签模板'}
-            >
-              {monitorType && filteredLabelTemplates.length > 0 ? (
-                <Form.Item name="label_template_id" noStyle>
-                  <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
-                    <Space direction="vertical" style={{ width: '100%' }} size={4}>
-                      <Radio.Button value="" style={{ width: '100%', textAlign: 'left' }}>
-                        <Text type="secondary">不关联标签模板</Text>
-                      </Radio.Button>
-                      {filteredLabelTemplates.map((t) => (
-                        <Radio.Button key={t.id} value={String(t.id)} style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}>
-                          <Space size={6} direction="vertical" align="start">
-                            <Space size={6}>
-                              <Text strong>{t.name}</Text>
-                              {t.is_default && <Tag color="blue">默认</Tag>}
-                            </Space>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                              {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
-                            </Text>
-                          </Space>
-                        </Radio.Button>
-                      ))}
-                    </Space>
-                  </Radio.Group>
-                </Form.Item>
-              ) : (
-                <Space direction="vertical" size={4}>
-                  {monitorType && filteredLabelTemplates.length === 0 ? (
-                    <>
-                      <Text type="secondary">该资源类别下暂无标签模板</Text>
-                      <Button type="link" size="small" onClick={openLabelTemplateGuide}>
-                        前往补配标签模板
-                      </Button>
-                    </>
-                  ) : (
-                    <Text type="secondary">选择监控对象类型后按资源类别列出</Text>
-                  )}
-                </Space>
-              )}
-            </Form.Item>
+            {renderLabelTemplateSection()}
 
             <Collapse ghost>
               <Collapse.Panel header="认证与 TLS" key="auth">
@@ -720,8 +766,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                     // 只列接口服务 / 应用服务两类（与后端 models.BlackboxProbeCategories 一致）
                     options={BLACKBOX_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_MAP[c] }))}
                     onChange={() => {
-                      // 换类别 → 探测地址字段随之改变，已选实例不再适用，清空
+                      // 换类别 → 探测地址字段与可用标签模板随之改变，已选实例/模板不再适用，回到默认模板
                       setSelectedIds([])
+                      form.setFieldsValue({ label_template_id: '' })
                     }}
                   />
                 </Form.Item>
@@ -768,6 +815,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 onChange={setSelectedIds}
               />
             </Form.Item>
+
+            {renderLabelTemplateSection()}
           </>
         )}
       </Form>

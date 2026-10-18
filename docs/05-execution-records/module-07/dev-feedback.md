@@ -863,3 +863,115 @@
 | 编号 | 事项 | 落点 | 状态 |
 | --- | --- | --- | --- |
 | F-31 | 拨测类别收敛两类 + 探测地址字段写死 | M01 / M07 | ✅ 已实现，待 PRD 回写 |
+
+## 20. 新增登记（2026-10-18，标签模板新增「字典翻译」转换规则）
+
+> 用户拍板：指标的标签值目前直接落字典编码（如 `app="ceshi"`、`env="prod"`），
+> 面板上不可读。标签模板新增一种转换规则 `dict`（字典翻译），把引用字典 /
+> 固定枚举的来源字段值翻译为展示名后再生成 Prometheus 标签；只改标签模板能力，
+> 不改动其他页面。
+
+### F-32. 标签模板转换规则新增 `dict`（字典翻译）
+
+- **类别**：② 决策已拍板、待设计侧回写 `Module_07` §5.11 / API 契约快照
+- **需求口径（用户 2026-10-18）**：
+  - 只新增一种转换规则，选中后把字典编码翻译为中文展示名；
+  - 仅对「字典或引用字段」生效，普通字段不提供该选项；
+  - 存储层与 Prometheus 标签名不变，仅标签值在**配置生成时**翻译；
+  - 不修改其他页面（资源详情 / 查询 / 告警等）的展示逻辑。
+- **支持的来源字段（仅 `source_type=resource_field`）**：
+
+  | 来源字段 | 翻译来源 | 示例 |
+  | --- | --- | --- |
+  | `app_code` / `app_name`（历史键名） | 应用字典 `app_code → app_name` | `ceshi` → 测试应用 |
+  | `biz_code` | 业务字典 `code → name` | `authorized-ops` → 授权运营 |
+  | `platform_code` | 平台字典 `platform_code → platform_name` | `k8s-prod` → 生产 K8s 平台 |
+  | `network_domain_id` | 网域 `id → name` | `mc-a` → 政务网 A 区 |
+  | `env` | 固定枚举（非 DB 字典） | `prod` → 生产 |
+
+- **实现落点**：
+  - **模型 / 校验**：`platform/models/label_rules.go` 新增 `LabelTransformDict`、
+    可翻译字段集合与 `env` 中文枚举；`platform/config/label/mappings.go` 的
+    transform 枚举增加 `dict`，并新增「dict 仅允许 resource_field + 支持字段」的
+    组合校验（新增 / 编辑映射、模板级 mappings 校验三处入口）；
+  - **配置生成**：新增 `platform/configcenter/generator/label_dict.go`（一次 Job
+    生成内缓存应用 / 业务 / 平台 / 网域字典，避免 N+1）；`generator/labels.go`
+    在 `expandLabelTemplate` 的 resource_field 分支应用翻译，字典未命中回退原始
+    code；`generator/targets.go` 在目标解析前加载字典缓存；
+  - **前端**：`labelTemplateConstants.ts` 增加 `dict` 选项与可翻译字段清单；
+    `MappingDrawer.tsx` 仅对支持字段展示「字典翻译（显示名）」选项，切换来源
+    类型 / 字段时自动清理不兼容规则；`TemplateDetailTabs.tsx` 转换规则列显示
+    中文（字典翻译 / 转小写等）。
+- **生成期边界**：
+  - `composite` / `prometheus_builtin` / `cmdb_field` 来源使用 `dict` 会被
+    后端 400 拒绝；
+  - 字典缺条目 / 编码未登记时**回退原始 code**，不丢标签、不阻断生成；
+  - `network_domain` / `cloud` / `zone` 三个标签由 system 层强制注入且受保护，
+    模板层同名映射会被静默覆盖——如需翻译网域，请映射到自定义目标标签
+    （如 `network_domain_id → domain_name`）；
+  - 默认模板只读，需克隆后或使用自定义模板才能配置 `dict`。
+- **顺带修复（字典翻译前置缺陷）**：`generator/targets.go` 的资源字段视图
+  此前对 host / database / middleware / generic_target 只暴露历史键
+  `app_name`，不含 §5.12.1 权威字段 `app_code`，导致默认模板的
+  `app_code → app` 映射对这四类资源**恒不产出 `app` 标签**。本次补齐
+  `app_code`（同时保留 `app_name` 兼容）与 `network_domain_id`。**行为影响**：
+  四类资源重新生成配置后将按默认模板开始产出 `app` 标签，属修复而非回归。
+- **测试**：
+  - 后端：`platform/config/label` 新增 dict 合法 / 非字典字段拒绝 / composite
+    拒绝用例；`platform/configcenter/generator` 新增 `dict` 翻译与未命中回退
+    单测、host 生成链路 `app_code + dict` 端到端用例；
+  - 前端：`MappingDrawer.test.tsx` 新增「支持字段显示 dict 选项并提交」
+    「非字典字段不显示 dict 选项」；`TemplateDetailTabs.test.tsx` 断言
+    `dict` / `lower` 中文展示。
+  - 验证命令：`CGO_ENABLED=1 go test ./platform/config/label/...
+    ./platform/configcenter/generator/...`；`pnpm --dir ui-custom/web test --
+    src/pages/label-templates`。
+- **待设计侧回写**：
+  1. `Module_07` §5.11 转换规则枚举补 `dict`（字典翻译），并列出支持字段；
+  2. API 契约快照 `transform_rule` 枚举补 `dict` 及组合约束（仅
+     `resource_field` + 字典 / 枚举字段）；
+  3. §5.12.1 明确 `app_code` 为 host / database / middleware / generic_target
+     的字段视图键（`app_name` 仅历史兼容）。
+
+| 编号 | 事项 | 落点 | 状态 |
+| --- | --- | --- | --- |
+| F-32 | 标签模板转换规则新增 `dict`（字典翻译） | M07 / M09 | ✅ 已实现，待 PRD 回写 |
+
+## 21. 新增登记（2026-10-18，拨测 Job 标签模板选择缺失）
+
+> 用户实测：在采集 Job 中配置「拨测」任务时，表单不显示标签模板选择区，
+> 无法确认当前用的是哪套标签方案，也无法更换。经排查为前端条件渲染缺陷，
+> 配置生成侧实际会回落到资源类别的默认模板。
+
+### F-33. 拨测 Job 无法查看 / 更换标签模板
+
+- **类别**：③ 实现缺口（前端），待设计侧确认 `Module_01` 拨测表单口径
+- **根因（代码证据）**：
+  - `ScrapeJobFormDrawer` 的 `resourceCategory` 仅由 `monitor_type` 推导；
+  - 拨测分支隐藏 `monitor_type`、改用 `resource_type`（接口服务 / 应用服务），
+    因此 `resourceCategory` 恒为 `undefined`，`filteredLabelTemplates` 为空；
+  - 标签模板区渲染条件为 `monitorType && filteredLabelTemplates.length > 0`，
+    拨测场景直接落入空态，选择器完全不渲染。
+- **实际生效行为**：`configcenter/generator/data_source.go::LoadTemplateForJob` 在
+  `job.LabelTemplateID == ""` 时回落 `LoadDefaultTemplate(db, job.ResourceType)`，
+  即**拨测 Job 默认使用所选资源类别的默认标签模板**，但 UI 既不可见也不可改。
+- **修复**：
+  1. `resourceCategory` 在 `jobType === 'blackbox'` 时取 `resource_type`
+     （`blackboxCategory`），采集场景仍取 `monitor_type` 推导值；
+  2. 标签模板区抽取为 `renderLabelTemplateSection()`，采集 / 拨测两个分支共用；
+  3. 空选项文案由「不关联标签模板」改为「使用默认标签模板（模板名）」，
+     与生成侧回落语义一致；无默认模板时才显示「不关联」；
+  4. 切换任务类型或拨测资源类别时把 `label_template_id` 重置为 `''`
+     （回到默认模板），避免跨类别残留；表单初值同样为 `''`，保证默认态可见；
+  5. 拨测类别变更同时清空已选实例（原有行为）与已选模板。
+- **兼容性**：未改变提交契约 —— `label_template_id` 留空仍提交 `undefined`，
+  生成侧回落逻辑不变；存量拨测 Job 未挂模板者继续使用类别默认模板。
+- **测试**：`ScrapeJobFormDrawer.test.tsx` 新增「blackbox：按拨测资源类别展示
+  标签模板并可切换方案」（断言只列所选类别模板、默认选项文案、切换后提交
+  `label_template_id`）；原编辑态单选断言改为前缀匹配，避免命中默认选项文案。
+- **待设计侧回写**：`Module_01` §5.4 拨测表单补「标签模板」选择项，并明确
+  「留空 = 使用该资源类别默认标签模板」；API 契约无变化。
+
+| 编号 | 事项 | 落点 | 状态 |
+| --- | --- | --- | --- |
+| F-33 | 拨测 Job 无法查看 / 更换标签模板 | M01 / M07 | ✅ 已实现，待 PRD 回写 |

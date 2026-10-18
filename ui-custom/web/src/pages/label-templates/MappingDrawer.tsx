@@ -31,6 +31,7 @@ import type { LabelSourceType, LabelTemplate, Mapping, MappingInput } from '../.
 import {
   CMDB_FIELD_OPTIONS,
   COMPOSITE_OPTIONS,
+  DICT_TRANSLATABLE_FIELDS,
   MAPPING_SOURCE_TYPE_OPTIONS,
   PROMETHEUS_BUILTIN_OPTIONS,
   PROTECTED_PROMETHEUS_LABELS,
@@ -125,6 +126,20 @@ export default function MappingDrawer({
     }
   }, [watchedSourceType, template])
 
+  // 「字典翻译」仅对引用字典 / 固定枚举的来源字段开放；编辑存量 dict 映射时保留选项，
+  // 避免回显值在选项中缺失。
+  const dictTransformSupported =
+    watchedSourceType === 'resource_field' &&
+    !!watchedSourceField &&
+    DICT_TRANSLATABLE_FIELDS.includes(watchedSourceField)
+  const transformOptions = useMemo(
+    () =>
+      TRANSFORM_OPTIONS.filter(
+        (o) => o.value !== 'dict' || dictTransformSupported || editingMapping?.transform === 'dict',
+      ),
+    [dictTransformSupported, editingMapping],
+  )
+
   // 抽屉打开时初始化表单：新增默认 resource_field / 无转换 / 启用；编辑回填存量映射
   useEffect(() => {
     if (!open) return
@@ -150,6 +165,10 @@ export default function MappingDrawer({
     form.setFieldsValue({ source_field: undefined })
     // composite 目标标签锁定 instance；其余来源清空由来源字段联动预填
     form.setFieldValue('target_label', value === 'composite' ? 'instance' : '')
+    // 字典翻译仅适用于 resource_field 来源，切换来源类型时清掉不兼容的转换规则
+    if (value !== 'resource_field' && form.getFieldValue('transform') === 'dict') {
+      form.setFieldValue('transform', '')
+    }
   }
 
   // resource_field 来源新增时目标标签默认 = 来源字段（可修改，不覆盖用户手输值）
@@ -157,6 +176,10 @@ export default function MappingDrawer({
     const currentTarget = form.getFieldValue('target_label') as string | undefined
     if (!currentTarget || currentTarget === watchedSourceField) {
       form.setFieldValue('target_label', value)
+    }
+    // 字段不再支持字典翻译时，清掉 dict 转换规则（避免提交后端 400）
+    if (!DICT_TRANSLATABLE_FIELDS.includes(value) && form.getFieldValue('transform') === 'dict') {
+      form.setFieldValue('transform', '')
     }
   }
 
@@ -275,8 +298,16 @@ export default function MappingDrawer({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="转换规则" name="transform" extra="可留空（原样透传）；加前缀 / 正则替换需参数，后续版本开放">
-              <Select placeholder="无（原样透传）" options={TRANSFORM_OPTIONS} />
+            <Form.Item
+              label="转换规则"
+              name="transform"
+              extra={
+                dictTransformSupported
+                  ? '字典翻译：把来源编码翻译为字典展示名（如应用编码 → 应用名）；加前缀 / 正则替换后续版本开放'
+                  : '可留空（原样透传）；字典翻译仅支持应用编码 / 业务编码 / 平台编码 / 网域 / 环境字段'
+              }
+            >
+              <Select placeholder="无（原样透传）" options={transformOptions} />
             </Form.Item>
           </Col>
         </Row>
