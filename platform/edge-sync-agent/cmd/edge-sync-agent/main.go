@@ -87,6 +87,9 @@ func run() error {
 	}, cfg.CenterEndpoint, os.Stderr)
 
 	promReload := func(ctx context.Context, _ deployer.ComponentType, _ string) error {
+		// 配置应用成功说明外部状态已变化：若采集器此前因「长时间无配置」等原因进入
+		// crash_loop，先复位熔断，否则 supervisor tick 永远跳过它，节点无法自动恢复。
+		sv.ResetIfCrashLoop(contract.ComponentTypeCollector)
 		// 采集器重载：参数未变（仅 prometheus.yml）时 SIGHUP 热加载（probe.Reload 内部
 		// 判定）；remote_write_url 等 CLI 参数变化时 probe.Reload 自动 Stop+Start 重启
 		// vmagent 以应用新 -remoteWrite.url（F-9 缺陷②：SIGHUP 无法改启动时固定的参数）。
@@ -96,6 +99,7 @@ func run() error {
 		// 配置包含 blackbox.yml 后，先把 blackbox_exporter 纳入守护集（首次拉包时组件集
 		// 在启动期固定、不含 blackbox），再由 supervisor tick 拉起并 SIGHUP reload。
 		restoreComponents(sv, dep, cfg)
+		sv.ResetIfCrashLoop(contract.ComponentTypeBlackbox)
 		return probe.Signal(contract.ComponentTypeBlackbox, syscall.SIGHUP)
 	}
 

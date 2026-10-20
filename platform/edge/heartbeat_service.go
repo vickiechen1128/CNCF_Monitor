@@ -3,9 +3,11 @@ package edge
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/models"
 
 	"gorm.io/gorm"
@@ -156,6 +158,21 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	latest, err := latestConfigVersion(s.db, req.NetworkDomainID)
 	if err != nil {
 		return nil, err
+	}
+	// 空网域引导（M11）：agent_pull 网域尚无任何已确认版本时，补一份合法的零 Job
+	// 空配置版本。否则空白平台部署 agent 后永远拉不到 prometheus.yml，采集器无法
+	// 启动。引导失败不影响心跳，下一轮自动重试；只对已纳管网域生效（与 M09 一致）。
+	if latest == nil && dom.IsMonitored && dom.Status != models.DomainStatusDisabled &&
+		dom.Channel == models.ChannelTypeAgentPull {
+		if v, bErr := draft.EnsureBootstrapVersion(s.db, dom.ID); bErr != nil {
+			log.Printf("[edge-heartbeat] bootstrap config version for domain %s failed: %v", dom.ID, bErr)
+		} else if v != nil {
+			latest = v
+		} else if l2, err2 := latestConfigVersion(s.db, dom.ID); err2 == nil {
+			// 并发心跳可能已由另一请求完成引导：引导返回 nil 时重读一次，避免本次
+			// 响应仍判 config_changed=false、让该 agent 白等一轮心跳。
+			latest = l2
+		}
 	}
 	latestStr := ""
 	if latest != nil {

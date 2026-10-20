@@ -76,6 +76,42 @@ func TestTCPProbe(t *testing.T) {
 	}
 }
 
+func TestProcProbeReadyRequiresConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcProbe(func() string { return dir }, "", io.Discard)
+	collector := &supervisor.Component{Type: contract.ComponentTypeCollector}
+	blackbox := &supervisor.Component{Type: contract.ComponentTypeBlackbox}
+
+	if p.Ready(collector) || p.Ready(blackbox) {
+		t.Fatal("empty config dir should not be ready")
+	}
+	if p.Ready(&supervisor.Component{Type: "unknown"}) {
+		t.Fatal("unknown component should not be ready")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, contract.ZipEntryPrometheus), []byte("global:\nscrape_configs: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Ready(collector) {
+		t.Fatal("collector should be ready with prometheus.yml")
+	}
+	if p.Ready(blackbox) {
+		t.Fatal("blackbox should require blackbox.yml")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, contract.ZipEntryBlackbox), []byte("modules: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Ready(blackbox) {
+		t.Fatal("blackbox should be ready with blackbox.yml")
+	}
+
+	pEmpty := NewProcProbe(func() string { return "" }, "", io.Discard)
+	if pEmpty.Ready(collector) {
+		t.Fatal("empty config dir path should not be ready")
+	}
+}
+
 func TestProcProbeSignalWhenNotRunning(t *testing.T) {
 	cfgDir := func() string { return "" }
 	p := NewProcProbe(cfgDir, "", nil)
@@ -83,7 +119,7 @@ func TestProcProbeSignalWhenNotRunning(t *testing.T) {
 	if p.Alive(c) {
 		t.Fatal("should not be alive before start")
 	}
-	if err := p.Signal(contract.ComponentTypeCollector, syscall.SIGUSR1); err == nil {
+	if err := p.Signal(contract.ComponentTypeCollector, syscall.SIGHUP); err == nil {
 		t.Fatal("signal on not-running component should error")
 	}
 	// 无生效配置版本时 Start 应报错，不 panic。

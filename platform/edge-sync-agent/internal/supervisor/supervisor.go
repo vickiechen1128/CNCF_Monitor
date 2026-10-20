@@ -39,11 +39,13 @@ func DefaultParams() Params {
 
 // Probe 是进程级抽象，由外围注入真实实现；单测用假实现驱动状态机。
 //
+//	Ready   启动前置条件是否具备（当前生效配置目录里存在该组件所需的配置文件）
 //	Alive   进程存活判定（PID /proc/[pid] 或 process.Wait）
 //	Healthy 健康检查判定（collector 探 /-/healthy、blackbox 探 TCP 端口）
 //	Start   拉起进程（成功后置 running）
 //	Stop    停进程（编排/升级时用，本期可空实现）
 type Probe interface {
+	Ready(c *Component) bool
 	Alive(c *Component) bool
 	Healthy(c *Component) bool
 	Start(c *Component) error
@@ -180,6 +182,26 @@ func (s *Supervisor) Get(typ string) *Component {
 	return s.comps[typ]
 }
 
+// ResetIfCrashLoop 在组件处于 crash_loop 时清除熔断状态并返回 true；否则返回 false。
+// 用于「配置应用成功」等外部状态变化：空节点先失败进入 crash_loop 后，合法配置到达
+// 时必须复位，否则 tick 永远跳过该组件，节点无法自动恢复。
+func (s *Supervisor) ResetIfCrashLoop(typ string) bool {
+	c := s.Get(typ)
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Status != contract.ComponentStatusCrashLoop {
+		return false
+	}
+	c.Status = contract.ComponentStatusNotDeployed
+	c.restartTimes = nil
+	c.backoff = s.params.BackoffMin
+	c.LastError = ""
+	return true
+}
+
 // Reset 将指定组件恢复到初始守护状态（F-42 人工重启指令）：清 crash_loop 熔断判定、
 // 熔断滚动窗口与指数退避，LastError 清空。人工滚动重启后必须调用，否则 tick 对
 // crash_loop 组件直接跳过，重启后的进程不会被纳入守护判定；对未注册组件为 no-op。
@@ -298,6 +320,19 @@ func (s *Supervisor) tick(ctx context.Context, typ string) {
 	}
 
 	alive := s.probe.Alive(c)
+	// 「还没有生效配置」不是故障：启动前置文件不存在且进程未运行 → 置 not_deployed，
+	// 不计重启次数、不消耗退避、不触发熔断。避免空白节点首次启动时被记为失败，
+	// 在配置下发前就把采集器打成 crash_loop。已有进程存活时不做此判定，避免把
+	// 「配置被移除但旧进程仍在跑」误报为未部署。
+	if !alive && !s.probe.Ready(c) {
+		c.mu.Lock()
+		c.Status = contract.ComponentStatusNotDeployed
+		c.LastError = "no effective config version; waiting for config delivery"
+		c.restartTimes = nil
+		c.backoff = s.params.BackoffMin
+		c.mu.Unlock()
+		return
+	}
 	healthy := alive && s.probe.Healthy(c)
 	now := s.clock()
 

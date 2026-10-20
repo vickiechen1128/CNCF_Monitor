@@ -336,3 +336,18 @@
 - **验证**：同 F-21（全量门禁全绿）。
 - **PRD / 契约回写建议（供 design 条线合入 M11 PRD）**：§5.2 该字段已定义「最后拉取配置 / 以中心接收时间为准」，**建议补写入口径**——中心在「上报版本推进到最新已确认版本」或「上报最新版本应用失败」时留痕一次，同版本持续心跳不刷新；节点状态页抽屉需展示「最后心跳」「最后配置拉取」。契约字段无需变更。
 - **遗留（登记，不在本条修）**：① `remote_write_last_error` 仍为契约单向定义（F-17 已登记）；② 「同步中」长停留提示（阈值告警）按设计提案决策 4 本轮不做——本条的 `last_config_pull` 已为其备好数据基础。
+
+### F-23：空白平台部署 agent 必然无配置可拉，采集器起不来并进入 crash_loop（② 实现缺口，2026-10-20，已实现）
+
+- **现象**：全新平台（网域已纳管、但一个采集 Job 都没配）部署 edge-sync-agent 后，中心没有任何已确认 `ConfigVersion`，agent 永远拉不到 `prometheus.yml`；agent 启动时先同步跑一轮巡检、再启动心跳循环，首轮巡检必然在配置到达前尝试拉起 vmagent 并失败；连续失败后 collector 进入 `crash_loop`，之后即使补配 Job 并确认下发，也不会自动恢复。
+- **根因（四条叠加）**：
+  1. M09 零 Job 时 `GenerateDraft` 无变更项 → `ErrNoChanges`，不产生草稿/版本；
+  2. 生成器 `scrape_configs` 带 `omitempty`，零 Job 不输出该顶层键，边缘 `StructuralValidate` 拒收；
+  3. agent 先同步 `StepOnce` 再启动 puller，首轮拉起时配置文件尚未下发；
+  4. 无配置拉起失败被计入熔断，且配置应用成功不复位 `crash_loop`。
+- **处置**：
+  - **中心**：零 Job 仍输出 `scrape_configs: []`；新增 `EnsureBootstrapVersion`——agent_pull 已纳管网域无任何已确认版本时，自动生成并确认一份系统初始化空配置版本（`confirmed_by=system:bootstrap`），由心跳入口触发；幂等、失败只记日志不阻断心跳。
+  - **agent**：`Probe` 新增 `Ready`（按当前配置目录是否存在 `prometheus.yml` / `blackbox.yml` 判定）；未就绪且进程未运行 → `not_deployed`，不计重启、不退避、不进熔断；配置应用成功时对 `crash_loop` 组件执行 `ResetIfCrashLoop`，实现自动恢复。
+  - **兼容**：新中心对旧 agent 下发含 `scrape_configs: []` 的合法包；旧中心对新 agent 仅表现为等待态，不再熔断。
+- **验证**：`platform/configcenter/generator`、`platform/configcenter/draft`、`platform/edge` Go 测试通过（含新增引导版本、心跳集成、Ready、不熔断、复位用例）；agent 模块 `supervisor`、`cmd` 测试通过；`go vet` 与 `go build ./platform/...` 通过。`internal/deployer` 在本机 Windows 因 symlink 权限（`A required privilege is not held by the client`）失败，属既有环境限制，与本次改动无关。
+- **遗留（登记，不在本条修）**：黑盒启停生命周期——删除全部拨测任务后，已在运行的 blackbox 进程不会被主动停止，需后续按配置包重新核对守护清单并停止不再需要的组件；`docs/04-source-architecture/repo-map.md` 未随本次改动更新（按本次要求不改 md），提交前需运行 `make repo-map` 补齐。

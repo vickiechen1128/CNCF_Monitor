@@ -127,6 +127,31 @@ func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer)
 	return p
 }
 
+// Ready 实现 supervisor.Probe：启动所需配置文件已落在当前生效配置目录。
+// collector 要求 prometheus.yml，blackbox_exporter 要求 blackbox.yml。用「文件存在」
+// 而不是版本号判断，既覆盖首次下发前（current 软链不存在）的等待态，也避免在配置
+// 目录不完整时误启动。
+func (p *ProcProbe) Ready(c *supervisor.Component) bool {
+	if _, ok := p.specs[c.Type]; !ok {
+		return false
+	}
+	vd := p.configDir()
+	if vd == "" {
+		return false
+	}
+	var entry string
+	switch c.Type {
+	case contract.ComponentTypeCollector:
+		entry = contract.ZipEntryPrometheus
+	case contract.ComponentTypeBlackbox:
+		entry = contract.ZipEntryBlackbox
+	default:
+		return false
+	}
+	st, err := os.Stat(filepath.Join(vd, entry))
+	return err == nil && !st.IsDir()
+}
+
 // Alive 实现 supervisor.Probe：进程已启动且仍在运行。
 func (p *ProcProbe) Alive(c *supervisor.Component) bool {
 	p.mu.Lock()
