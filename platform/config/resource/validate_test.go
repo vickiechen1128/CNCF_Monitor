@@ -25,7 +25,7 @@ func validHostInput() *ResourceInput {
 		NetworkDomainID:  "default",
 		BizCode:          "infra",
 		Status:           "online",
-		Env:              "prod",
+		Env: "PRD",
 		InstanceName:     "web-01",
 		InstanceIP:       "10.0.0.1",
 		OSType:           "Linux",
@@ -111,7 +111,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 			AppCode:         "pay-db",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -180,7 +180,7 @@ func TestValidateResourceInput_Middleware(t *testing.T) {
 			AppCode:         "pay-mq",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			MiddlewareType:  "kafka",
 			InstanceIP:      "10.0.0.11",
 			Port:            9092,
@@ -225,7 +225,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.0.0.20:8080/health",
 			Protocol:        "http",
@@ -316,7 +316,7 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 			NetworkDomainID: "default",
 			BizCode:         "infra",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			TargetName:      "snmp-switch-01",
 			InstanceIP:      "10.0.0.30",
 			Port:            161,
@@ -384,7 +384,7 @@ func TestValidateResourceInput_InterfaceService(t *testing.T) {
 			BizCode:         "payment",
 			AppCode:         "pay-api",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			APIName:         "支付下单接口",
 			APIURL:          "https://api.example.com/v1/order",
 		}
@@ -568,7 +568,7 @@ func TestGetResourceField(t *testing.T) {
 		BizCode:         "infra",
 		AppCode:         "web",
 		SubAppCode:      "web-cluster",
-		EnvFlag:         "prod",
+		EnvFlag: "PRD",
 		Status:          "online",
 		PrivateIP:       "10.0.0.1",
 		InstanceName:    "web-01",
@@ -578,7 +578,7 @@ func TestGetResourceField(t *testing.T) {
 		{"instance_ip", "10.0.0.1"},
 		{"hostname", "web-01"},
 		{"os_type", "Linux"},
-		{"env", "prod"},
+		{"env", "PRD"},
 		{"cluster", "web-cluster"},
 		{"app_code", "web"},
 		{"biz_code", "infra"},
@@ -714,7 +714,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "pay-db",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -726,7 +726,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "kafka-app",
 			Cluster:         "kafka",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			MiddlewareType:  "kafka",
 			InstanceIP:      "10.0.0.11",
 			Port:            9092,
@@ -738,7 +738,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.0.0.20:8080/health",
 			Endpoint:        "10.0.0.20",
@@ -749,7 +749,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 		return &ResourceInput{
 			NetworkDomainID: "default",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			TargetName:      "snmp-switch-01",
 			InstanceIP:      "10.0.0.30",
 			Port:            161,
@@ -802,7 +802,7 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			AppCode:         "legacy-app", // 停用条目，保留历史值
 			Cluster:         "legacy",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -821,7 +821,7 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			AppCode:         "pay-db", // 启用条目
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -858,7 +858,7 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env:             "prod",
+			Env: "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.10.1.4:8081/actuator/health",
 			Endpoint:        "10.10.1.4",
@@ -948,7 +948,7 @@ func platformTestInput(appCode, platformCode string) *ResourceInput {
 		PlatformCode:    platformCode,
 		Cluster:         "pay",
 		Status:          "online",
-		Env:             "prod",
+		Env: "PRD",
 		DatabaseType:    "mysql",
 		InstanceIP:      "10.0.0.10",
 		Port:            3306,
@@ -1190,30 +1190,30 @@ func scrapePortInput(category models.ResourceCategory) *ResourceInput {
 	case models.ResourceCategoryDatabase:
 		return &ResourceInput{
 			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-db", Cluster: "pay",
-			Status: "online", Env: "prod", DatabaseType: "mysql", InstanceIP: "10.0.0.10", Port: 3306,
+			Status: "online", Env: "PRD", DatabaseType: "mysql", InstanceIP: "10.0.0.10", Port: 3306,
 		}
 	case models.ResourceCategoryMiddleware:
 		return &ResourceInput{
 			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-mq", Cluster: "pay",
-			Status: "online", Env: "prod", MiddlewareType: "kafka", InstanceIP: "10.0.0.11", Port: 9092,
+			Status: "online", Env: "PRD", MiddlewareType: "kafka", InstanceIP: "10.0.0.11", Port: 9092,
 		}
 	case models.ResourceCategoryApplication:
 		return &ResourceInput{
 			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-service", Cluster: "pay",
-			Status: "online", Env: "prod", ServiceName: "pay-service",
+			Status: "online", Env: "PRD", ServiceName: "pay-service",
 			HealthCheckURL: "http://10.0.0.20:8080/health", Protocol: "http",
 			Endpoint: "10.0.0.20", Port: 8080,
 		}
 	case models.ResourceCategoryGenericTarget:
 		return &ResourceInput{
-			NetworkDomainID: "default", BizCode: "infra", Status: "online", Env: "prod",
+			NetworkDomainID: "default", BizCode: "infra", Status: "online", Env: "PRD",
 			TargetName: "snmp-switch-01", InstanceIP: "10.0.0.30", Port: 161,
 			Scheme: "http", MetricsPath: "/metrics",
 		}
 	case models.ResourceCategoryInterfaceService:
 		return &ResourceInput{
 			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-api",
-			Status: "online", Env: "prod",
+			Status: "online", Env: "PRD",
 			APIName: "health-check", APIURL: "https://api.example.com/health?token=x",
 		}
 	}
@@ -1371,8 +1371,8 @@ func TestScrapePort_CreateUpdateListChannels(t *testing.T) {
 	// 不误清其他列（PUT 全量替换语义下请求体字段仍落库）。
 	assert.Equal(t, "web-01", hB.InstanceName)
 	assert.Equal(t, "web-01", hC.InstanceName)
-	assert.Equal(t, "prod", hB.EnvFlag)
-	assert.Equal(t, "prod", hC.EnvFlag)
+	assert.Equal(t, "PRD", hB.EnvFlag)
+	assert.Equal(t, "PRD", hC.EnvFlag)
 	assert.Equal(t, "Linux", hB.Image)
 	assert.Equal(t, "Linux", hC.Image)
 }

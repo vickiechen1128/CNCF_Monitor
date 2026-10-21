@@ -123,7 +123,7 @@ func hostBody() map[string]interface{} {
 		"network_domain_id": "default",
 		"biz_code":          "infra",
 		"status":            "online",
-		"env":               "prod",
+		"env": "PRD",
 		"instance_name":     "web-01",
 		"instance_ip":       "10.0.0.1",
 		"os_type":           "Linux",
@@ -152,7 +152,7 @@ func TestCreateResource_Host_Success(t *testing.T) {
 	assert.Equal(t, "manual", out.Data["source_type"])
 	assert.Equal(t, "default", out.Data["network_domain_id"])
 	assert.Equal(t, "infra", out.Data["biz_code"])
-	assert.Equal(t, "prod", out.Data["env"])
+	assert.Equal(t, "PRD", out.Data["env"])
 	assert.Equal(t, "online", out.Data["status"])
 	assert.Equal(t, "web-01", out.Data["instance_name"])
 	assert.Equal(t, "10.0.0.1", out.Data["instance_ip"])
@@ -166,7 +166,7 @@ func TestCreateResource_Host_Success(t *testing.T) {
 	assert.Equal(t, models.PlatformAdminTenantID, h.TenantID, "缺省 tenant_id=platform_admin")
 	assert.Equal(t, "10.0.0.1", h.PrivateIP, "instance_ip → private_ip（legacy）")
 	assert.Equal(t, "Linux", h.Image, "os_type → image（legacy）")
-	assert.Equal(t, "prod", h.EnvFlag, "env → env_flag（legacy）")
+	assert.Equal(t, "PRD", h.EnvFlag, "env → env_flag（legacy）")
 }
 
 // TestCreateResource_EachCategory_Success 验证五类资源创建均成功且契约一致。
@@ -183,7 +183,7 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 			body: map[string]interface{}{
 				"resource_category": "database", "network_domain_id": "default",
 				"biz_code": "payment", "app_code": "pay-db", "cluster": "pay",
-				"status": "online", "env": "prod",
+				"status": "online", "env": "PRD",
 				"database_type": "mysql", "instance_ip": "10.0.0.10", "port": 3306,
 			},
 		},
@@ -192,7 +192,7 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 			body: map[string]interface{}{
 				"resource_category": "middleware", "network_domain_id": "default",
 				"biz_code": "infra", "app_code": "kafka-app", "cluster": "kafka-cluster",
-				"status": "online", "env": "prod",
+				"status": "online", "env": "PRD",
 				"middleware_type": "kafka", "instance_ip": "10.0.0.11", "port": 9092,
 			},
 		},
@@ -201,7 +201,7 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 			body: map[string]interface{}{
 				"resource_category": "application", "network_domain_id": "default",
 				"biz_code": "payment", "app_code": "pay-service", "cluster": "pay-cluster",
-				"status": "online", "env": "prod",
+				"status": "online", "env": "PRD",
 				"service_name": "pay-service", "endpoint": "10.0.0.12:8080",
 				"health_check_url": "http://10.0.0.12:8080/health", "protocol": "http", "port": 8080,
 			},
@@ -210,7 +210,7 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 			name: "generic_target",
 			body: map[string]interface{}{
 				"resource_category": "generic_target", "network_domain_id": "default",
-				"biz_code": "infra", "status": "online", "env": "prod",
+				"biz_code": "infra", "status": "online", "env": "PRD",
 				"target_name": "switch-1", "instance_ip": "10.0.0.13", "port": 161,
 				"metrics_path": "/metrics", "scheme": "http", "exporter_type": "snmp_exporter",
 				"custom_labels": map[string]string{"device_type": "snmp_switch"},
@@ -327,7 +327,7 @@ func TestUpdateResource_Success(t *testing.T) {
 
 	body := hostBody()
 	body["status"] = "offline"
-	body["env"] = "staging"
+	body["env"] = "UAT"
 	body["instance_ip"] = "10.0.0.2"
 	body["os_type"] = "Windows"
 	w, out := doUpdate(t, r, resourceID, body)
@@ -336,7 +336,7 @@ func TestUpdateResource_Success(t *testing.T) {
 	require.NotNil(t, out.Data)
 	assert.Equal(t, resourceID, out.Data["resource_id"], "resource_id 更新后不可变")
 	assert.Equal(t, "offline", out.Data["status"])
-	assert.Equal(t, "staging", out.Data["env"])
+	assert.Equal(t, "UAT", out.Data["env"])
 	assert.Equal(t, "10.0.0.2", out.Data["instance_ip"])
 	assert.Equal(t, "Windows", out.Data["os_type"])
 	assert.Equal(t, "host", out.Data["resource_category"])
@@ -344,7 +344,7 @@ func TestUpdateResource_Success(t *testing.T) {
 
 	h := loadHostByResourceID(t, db, resourceID)
 	assert.Equal(t, "offline", h.Status)
-	assert.Equal(t, "staging", h.EnvFlag)
+	assert.Equal(t, "UAT", h.EnvFlag)
 	assert.Equal(t, "10.0.0.2", h.PrivateIP)
 	assert.Equal(t, "Windows", h.Image)
 	assert.Equal(t, models.SourceTypeManual, h.SourceType)
@@ -462,7 +462,7 @@ func appCreateBody() map[string]interface{} {
 		"app_code":          "pay-service",
 		"cluster":           "pay-cluster",
 		"status":            "online",
-		"env":               "prod",
+		"env": "PRD",
 		"service_name":      "pay-service",
 		"endpoint":          "10.10.1.4",
 		"port":              8081,

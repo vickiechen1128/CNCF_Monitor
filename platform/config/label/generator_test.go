@@ -44,7 +44,7 @@ func sampleHost() *models.Host {
 		SourceType:       models.SourceTypeManual,
 		AppCode:          "payment-api",
 		SubAppCode:       "cluster-a",
-		EnvFlag:          "prod",
+		EnvFlag: "PRD",
 		InstanceName:     "web-01.example.com",
 		Status:           "online",
 		Image:            "linux",
@@ -75,7 +75,7 @@ func TestComputeSystemLabelsHostDefaultTemplate(t *testing.T) {
 	got := labelsByKey(t, labels)
 
 	assert.Equal(t, "payment-api", got["app"].Value)
-	assert.Equal(t, "prod", got["env"].Value)
+	assert.Equal(t, "PRD", got["env"].Value)
 	assert.Equal(t, "cluster-a", got["cluster"].Value)
 	assert.Equal(t, "payment", got["biz"].Value)
 	assert.Equal(t, "web-01.example.com", got["hostname"].Value)
@@ -123,7 +123,7 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 		SourceType:       models.SourceTypeManual,
 		ServiceName:      "order-svc",
 		AppName:          "order-svc",
-		Env:              "staging",
+		Env: "UAT",
 		Cluster:          "cluster-b",
 		Status:           "online",
 		HealthCheckURL:   "http://10.0.0.5:8080/healthz",
@@ -134,7 +134,7 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 
 	assert.Equal(t, "order-svc", got["service_name"].Value)
 	assert.Equal(t, "order-svc", got["app"].Value)
-	assert.Equal(t, "staging", got["env"].Value)
+	assert.Equal(t, "UAT", got["env"].Value)
 	assert.Equal(t, "cluster-b", got["cluster"].Value)
 	assert.Equal(t, "payment", got["biz"].Value)
 	assert.Equal(t, "http://10.0.0.5:8080/healthz", got["health_check_url"].Value)
@@ -154,7 +154,7 @@ func TestComputeSystemLabelsSeedDefaultMappings(t *testing.T) {
 	got := labelsByKey(t, labels)
 
 	assert.Equal(t, "payment-api", got["app"].Value)
-	assert.Equal(t, "prod", got["env"].Value)
+	assert.Equal(t, "PRD", got["env"].Value)
 	assert.Equal(t, "cluster-a", got["cluster"].Value)
 	assert.Equal(t, "payment", got["biz"].Value)
 	assert.Equal(t, "", got["instance"].Value)

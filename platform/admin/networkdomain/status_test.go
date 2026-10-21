@@ -56,7 +56,7 @@ func TestDisableReturnsNestedImpact(t *testing.T) {
 	require.NoError(t, db.Create(&models.GenericTarget{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "g1", ResourceCategory: models.ResourceCategoryGenericTarget,
-			NetworkDomainID: "mc-edge-a", BizCode: "b", Env: "prod", Status: "up", SourceType: models.SourceTypeManual,
+			NetworkDomainID: "mc-edge-a", BizCode: "b", Env: "PRD", Status: "up", SourceType: models.SourceTypeManual,
 		},
 		TargetName: "t1", InstanceIP: "1.2.3.4", Port: 9100, ResourceType: models.ResourceTypeGenericTarget,
 	}).Error)

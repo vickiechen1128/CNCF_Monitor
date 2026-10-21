@@ -302,7 +302,7 @@ func resourcePayload(category string, overrides map[string]interface{}) map[stri
 		"app_code": "app",
 		"cluster":  "cluster-1",
 		"owner":    "ops",
-		"env":      "prod",
+		"env": "PRD",
 		"status":   "online",
 	}
 	switch category {
@@ -600,9 +600,9 @@ func TestEndToEndSmoke(t *testing.T) {
 	// 1. L-5：创建 3 台 host（infra/online、infra/offline、payment/online），
 	//    请求体使用 legacy 展示字段，列表应归一化回读。
 	hosts := []map[string]interface{}{
-		{"instance_name": "web-online-01", "instance_ip": "10.0.1.1", "env": "prod", "app_code": "pay-web", "cluster": "pay-cluster"},
-		{"instance_name": "web-offline-02", "instance_ip": "10.0.1.2", "env": "staging", "app_code": "pay-web", "cluster": "pay-cluster", "status": "offline"},
-		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "prod", "app_code": "pay-db", "cluster": "db-cluster", "biz_code": "data-innovation-lab"},
+		{"instance_name": "web-online-01", "instance_ip": "10.0.1.1", "env": "PRD", "app_code": "pay-web", "cluster": "pay-cluster"},
+		{"instance_name": "web-offline-02", "instance_ip": "10.0.1.2", "env": "UAT", "app_code": "pay-web", "cluster": "pay-cluster", "status": "offline"},
+		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "PRD", "app_code": "pay-db", "cluster": "db-cluster", "biz_code": "data-innovation-lab"},
 	}
 	for _, ov := range hosts {
 		code, out := c.json("POST", "/api/v2/platform/resources", mustJSON(t, resourcePayload("host", ov)))
@@ -623,7 +623,7 @@ func TestEndToEndSmoke(t *testing.T) {
 	assert.Equal(t, "web-online-01", web["instance_name"])
 	assert.Equal(t, "web-online-01", web["hostname"], "hostname 应归一化读回 instance_name")
 	assert.Equal(t, "Linux", web["os_type"], "os_type 应归一化读回 image 列（legacy）")
-	assert.Equal(t, "prod", web["env"], "env 应归一化读回 env_flag 列（legacy）")
+	assert.Equal(t, "PRD", web["env"], "env 应归一化读回 env_flag 列（legacy）")
 	assert.Equal(t, "pay-web", web["app_code"], "app_code 应归一化读回 host.app_code 物理列")
 	assert.Equal(t, "pay-cluster", web["cluster"], "cluster 应归一化读回 sub_app_code 列（legacy）")
 
@@ -695,7 +695,7 @@ func hostRows(ip, name, status string) [][]string {
 		"instance_ip":    ip,
 		"os_type":        "Linux",
 		"biz_code":       "authorized-ops",
-		"env":            "prod",
+		"env": "PRD",
 		"owner":          "ops",
 		"status":         status,
 	})
@@ -774,7 +774,7 @@ func TestEndToEndExcelImport(t *testing.T) {
 				"network_domain": "default",
 				"instance_name":  "bad-01", "hostname": "bad-01", "instance_ip": "10.9.0.99",
 				"os_type": "Linux", "biz_code": "no-such-biz",
-				"env": "prod", "owner": "ops", "status": "运行中",
+				"env": "PRD", "owner": "ops", "status": "运行中",
 			})))
 	require.Equal(t, http.StatusOK, code)
 	data = out["data"].(map[string]interface{})

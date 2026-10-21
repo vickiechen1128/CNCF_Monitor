@@ -76,7 +76,7 @@ export const MAPPING_SOURCE_TYPE_OPTIONS: { value: LabelSourceType; label: strin
  * 「字典翻译」转换规则（transform=dict）支持的来源字段，与后端
  * `models.IsDictTranslatableSourceField` 对齐：
  * 应用编码 → 应用名、业务编码 → 业务名、平台编码 → 平台名、
- * 网域 id → 网域名、环境枚举 → 中文环境名。
+ * 网域 id → 网域名、环境枚举 → 原样代码（OPS/PRD/UAT，当前恒等映射）。
  */
 export const DICT_TRANSLATABLE_FIELDS = [
   'app_code',

@@ -252,9 +252,9 @@ func TestDownloadTemplateValueSheet(t *testing.T) {
 	assert.Contains(t, flat, "pay-service（支付服务）")
 	assert.NotContains(t, flat, "legacy-app", "停用应用条目不应出现在取值说明")
 	// env 枚举
-	assert.Contains(t, flat, "dev")
-	assert.Contains(t, flat, "staging")
-	assert.Contains(t, flat, "prod")
+	assert.Contains(t, flat, "OPS")
+	assert.Contains(t, flat, "PRD")
+	assert.Contains(t, flat, "UAT")
 	// status 中文取值（§5.5.1 默认映射）
 	assert.Contains(t, flat, "运行中")
 	assert.Contains(t, flat, "已停止")

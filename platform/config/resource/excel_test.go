@@ -58,7 +58,7 @@ func baseValues(category models.ResourceCategory) map[string]string {
 		"app_code":       "app",
 		"cluster":        "cluster-1",
 		"owner":          "ops",
-		"env":            "prod",
+		"env": "PRD",
 		"status":         "运行中",
 	}
 	switch category {
@@ -152,7 +152,7 @@ func TestParseExcel_ValidRows(t *testing.T) {
 		makeRow(models.ResourceCategoryHost, map[string]string{
 			"network_domain": "gz-prod-01", "instance_name": "web-02", "hostname": "web-02",
 			"instance_ip": "10.0.0.2", "os_type": "Linux", "biz_code": "payment",
-			"app_code": "pay", "env": "staging", "cluster": "c2", "owner": "ops", "status": "已停止",
+			"app_code": "pay", "env": "UAT", "cluster": "c2", "owner": "ops", "status": "已停止",
 		}),
 	})
 	require.Len(t, rows, 2)

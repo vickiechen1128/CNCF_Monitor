@@ -233,7 +233,7 @@ export function TemplateDownloadModal({
           <Text style={{ fontSize: 13 }}>默认网域 default 必须在「系统设置 → 网域管理」里已登记，否则导入会直接失败，请先到该页面确认后再导入</Text>
         </li>
         <li>
-          <Text style={{ fontSize: 13 }}>环境（env）必填，填 dev / test / staging / prod 之一；负责人与集群按下方说明填写</Text>
+          <Text style={{ fontSize: 13 }}>环境（env）必填，填 OPS / PRD / UAT 之一；负责人与集群按下方说明填写</Text>
         </li>
         <li>
           <Text style={{ fontSize: 13 }}>运行状态填中文：运行中 / 已停止 / 维护中</Text>

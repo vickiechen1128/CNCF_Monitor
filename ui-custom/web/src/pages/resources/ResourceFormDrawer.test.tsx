@@ -126,7 +126,7 @@ function hostRecord(): ResourceListItem {
     app_code: 'order',
     // 决策 110：平台归属为资源行一等字段，编辑态应回显
     platform_code: 'ecommerce',
-    env: 'prod',
+    env: 'PRD',
     cluster: 'c1',
     owner: 'chenrt',
     status: 'online',
@@ -193,6 +193,18 @@ async function waitForDicts() {
   })
 }
 
+/**
+ * 点击当前展开下拉里的选项（按文本）。
+ * AntD 会把已选值也渲染成同名文本，直接 findByText 可能命中多个；这里只取
+ * `.ant-select-item-option` 内的那一份。
+ */
+async function clickSelectOption(text: string) {
+  const matches = await screen.findAllByText(text)
+  const option = matches.find((el) => el.closest('.ant-select-item-option'))
+  if (!option) throw new Error(`select option not found: ${text}`)
+  fireEvent.click(option)
+}
+
 /** 填必填共享字段 + host 差异化字段（网域/业务/环境/运行状态/实例名/IP/操作系统，§5.6 os_type 必填） */
 async function fillHostRequiredFields() {
   openSelect('请选择网域')
@@ -200,7 +212,7 @@ async function fillHostRequiredFields() {
   openSelect('请选择业务')
   fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
   openSelect('请选择环境')
-  fireEvent.click(await screen.findByText('prod'))
+  await clickSelectOption('PRD')
   openSelect('请选择运行状态')
   fireEvent.click(await screen.findByText('在线'))
   // 决策 103 scheme-B：表单已无「云」录入项（云由所属网域派生）
@@ -222,7 +234,7 @@ async function fillMiddlewareRequiredFields() {
   openSelect('请选择业务')
   fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
   openSelect('请选择环境')
-  fireEvent.click(await screen.findByText('prod'))
+  await clickSelectOption('PRD')
   openSelect('请选择运行状态')
   fireEvent.click(await screen.findByText('在线'))
   openSelect('请选择应用')
@@ -395,7 +407,7 @@ describe('ResourceFormDrawer', () => {
       resource_category: 'host',
       network_domain_id: 'mc-a',
       biz_code: 'infra',
-      env: 'prod',
+      env: 'PRD',
       instance_name: 'prod-web-01',
       instance_ip: '10.0.1.11',
       os_type: 'Ubuntu',
@@ -415,7 +427,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     // 决策 103 scheme-B：表单已无「云」录入项（云由所属网域派生）
     fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
     fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
@@ -652,7 +664,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
     openSelect('请选择应用')
@@ -711,7 +723,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
     fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), {
@@ -746,7 +758,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
     fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'core-sw-01' } })
@@ -794,7 +806,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
     fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'core-sw-01' } })
@@ -899,7 +911,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
     // database 的 app_code / database_type 必填（§5.2 / §5.7.1）
@@ -1020,7 +1032,7 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择业务')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
-    fireEvent.click(await screen.findByText('prod'))
+    await clickSelectOption('PRD')
     openSelect('请选择运行状态')
     fireEvent.click(await screen.findByText('在线'))
   }

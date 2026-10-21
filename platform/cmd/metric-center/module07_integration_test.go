@@ -108,7 +108,7 @@ func declareHostRow(ip, biz, app string) []string {
 		"os_type":        "Linux",
 		"biz_code":       biz,
 		"app_code":       app,
-		"env":            "prod",
+		"env": "PRD",
 		"cluster":        "cluster-1",
 		"owner":          "ops",
 		"status":         "运行中",

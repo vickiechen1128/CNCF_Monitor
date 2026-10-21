@@ -111,26 +111,26 @@ func seed(t *testing.T, db *gorm.DB) {
 		&models.Host{
 			ResourceID: "res-host-1", ResourceCategory: models.ResourceCategoryHost,
 			NetworkDomainID: "default", BizCode: "pay", SourceType: models.SourceTypeManual,
-			AppCode: "app", EnvFlag: "prod", SubAppCode: "cluster", InstanceName: "web-01",
+			AppCode: "app", EnvFlag: "PRD", SubAppCode: "cluster", InstanceName: "web-01",
 			ServerID: "srv-host-1", Status: "online", Image: "linux",
 		},
 		&models.Host{
 			ResourceID: "res-host-2", ResourceCategory: models.ResourceCategoryHost,
 			NetworkDomainID: "default", BizCode: "ops", SourceType: models.SourceTypeManual,
-			AppCode: "app", EnvFlag: "prod", SubAppCode: "cluster", InstanceName: "web-02",
+			AppCode: "app", EnvFlag: "PRD", SubAppCode: "cluster", InstanceName: "web-02",
 			ServerID: "srv-host-2", Status: "online", Image: "windows",
 		},
 		&models.Host{
 			ResourceID: "res-host-3", ResourceCategory: models.ResourceCategoryHost,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppCode: "", EnvFlag: "prod", SubAppCode: "cluster", InstanceName: "web-03",
+			AppCode: "", EnvFlag: "PRD", SubAppCode: "cluster", InstanceName: "web-03",
 			ServerID: "srv-host-3", Status: "online", Image: "linux",
 		},
 		&models.Database{
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-db-1", ResourceCategory: models.ResourceCategoryDatabase,
 				NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-				AppName: strPtr("db"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+				AppName: strPtr("db"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 			},
 			DatabaseType: "mysql", InstanceIP: "10.0.0.1", Port: 3306,
 		},
@@ -138,39 +138,39 @@ func seed(t *testing.T, db *gorm.DB) {
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-db-2", ResourceCategory: models.ResourceCategoryDatabase,
 				NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-				AppName: strPtr("db"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+				AppName: strPtr("db"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 			},
 			DatabaseType: "redis", InstanceIP: "10.0.0.2", Port: 6379,
 		},
 		&models.Middleware{
 			ResourceID: "res-mw-1", ResourceCategory: models.ResourceCategoryMiddleware,
 			NetworkDomainID: "default", BizCode: "pay", SourceType: models.SourceTypeManual,
-			AppName: "app", Env: "prod", Cluster: "cluster", Status: "online",
+			AppName: "app", Env: "PRD", Cluster: "cluster", Status: "online",
 			MiddlewareType: "nginx", InstanceIP: "10.0.0.3", Port: 80,
 		},
 		&models.Middleware{
 			ResourceID: "res-mw-2", ResourceCategory: models.ResourceCategoryMiddleware,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: "", Env: "prod", Cluster: "cluster", Status: "online",
+			AppName: "", Env: "PRD", Cluster: "cluster", Status: "online",
 			MiddlewareType: "kafka", InstanceIP: "10.0.0.4", Port: 9092,
 		},
 		&models.Application{
 			ResourceID: "res-app-1", ResourceCategory: models.ResourceCategoryApplication,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: "appsvc", Env: "prod", Cluster: "cluster", Status: "online",
+			AppName: "appsvc", Env: "PRD", Cluster: "cluster", Status: "online",
 			ServiceName: "order-svc", HealthCheckURL: "http://10.0.0.5/health", Protocol: "http", Port: 8080,
 		},
 		&models.Application{
 			ResourceID: "res-app-2", ResourceCategory: models.ResourceCategoryApplication,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: "", Env: "prod", Cluster: "cluster", Status: "online",
+			AppName: "", Env: "PRD", Cluster: "cluster", Status: "online",
 			ServiceName: "pay-svc", HealthCheckURL: "http://10.0.0.6/health", Protocol: "http", Port: 8081,
 		},
 		&models.GenericTarget{
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-gt-1", ResourceCategory: models.ResourceCategoryGenericTarget,
 				NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-				AppName: strPtr("gt"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+				AppName: strPtr("gt"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 			},
 			TargetName: "snmp-1", InstanceIP: "10.0.0.7", Port: 161, ExporterType: "snmp_exporter",
 		},
@@ -178,7 +178,7 @@ func seed(t *testing.T, db *gorm.DB) {
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-gt-2", ResourceCategory: models.ResourceCategoryGenericTarget,
 				NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-				AppName: strPtr("gt"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+				AppName: strPtr("gt"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 			},
 			TargetName: "snmp-2", InstanceIP: "10.0.0.8", Port: 161, ExporterType: "snmp_exporter",
 		},
@@ -186,7 +186,7 @@ func seed(t *testing.T, db *gorm.DB) {
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-gt-3", ResourceCategory: models.ResourceCategoryGenericTarget,
 				NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-				AppName: strPtr(""), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+				AppName: strPtr(""), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 			},
 			TargetName: "http-1", InstanceIP: "10.0.0.9", Port: 9115, ExporterType: "http_exporter",
 		},
@@ -194,7 +194,7 @@ func seed(t *testing.T, db *gorm.DB) {
 		&models.InterfaceService{
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
-				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				NetworkDomainID: "default", BizCode: "infra", Env: "PRD", Status: "online",
 				SourceType: models.SourceTypeManual,
 			},
 			APIName: "订单查询", APIURL: "https://api.example.com/order/health",
@@ -203,7 +203,7 @@ func seed(t *testing.T, db *gorm.DB) {
 		&models.InterfaceService{
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-is-2", ResourceCategory: models.ResourceCategoryInterfaceService,
-				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				NetworkDomainID: "default", BizCode: "infra", Env: "PRD", Status: "online",
 				SourceType: models.SourceTypeManual,
 			},
 			APIName: "支付回调", APIURL: "https://api.example.com/pay/health",
@@ -212,7 +212,7 @@ func seed(t *testing.T, db *gorm.DB) {
 		&models.InterfaceService{
 			ResourceBase: models.ResourceBase{
 				ResourceID: "res-is-3", ResourceCategory: models.ResourceCategoryInterfaceService,
-				NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+				NetworkDomainID: "default", BizCode: "infra", Env: "PRD", Status: "online",
 				SourceType: models.SourceTypeManual,
 			},
 			APIName: "用户查询", APIURL: "https://api.example.com/user/health",
@@ -509,7 +509,7 @@ func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T) {
 		BizCode:          "infra",
 		SourceType:       models.SourceTypeManual,
 		AppCode:          "app",
-		EnvFlag:          "prod",
+		EnvFlag: "PRD",
 		SubAppCode:       "cluster",
 		InstanceName:     "web-01",
 		Status:           "online",
@@ -818,7 +818,7 @@ func seedMatrixHosts(t *testing.T, db *gorm.DB) {
 			ResourceID: hs.id, ResourceCategory: models.ResourceCategoryHost,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
 			PlatformCode: hs.platformCode, AppCode: hs.appCode,
-			EnvFlag: "prod", SubAppCode: "cluster",
+			EnvFlag: "PRD", SubAppCode: "cluster",
 			InstanceName: fmt.Sprintf("node-%02d", i+1),
 			ServerID:     fmt.Sprintf("srv-m-%02d", i+1),
 			Status:       "online", Image: "linux",
@@ -830,7 +830,7 @@ func seedMatrixHosts(t *testing.T, db *gorm.DB) {
 		ResourceBase: models.ResourceBase{
 			ResourceID: "m-db-1", ResourceCategory: models.ResourceCategoryDatabase,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+			AppName: strPtr("app-a"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 		},
 		DatabaseType: "mysql", InstanceIP: "10.0.1.1", Port: 3306,
 	}).Error)
@@ -987,7 +987,7 @@ func TestSummaryByPlatformAppEmptyAndNoHost(t *testing.T) {
 		ResourceBase: models.ResourceBase{
 			ResourceID: "r-db-1", ResourceCategory: models.ResourceCategoryDatabase,
 			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+			AppName: strPtr("app-a"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 		},
 		DatabaseType: "mysql", InstanceIP: "10.0.2.1", Port: 3306,
 	}).Error)
@@ -1102,7 +1102,7 @@ func seedCloudHosts(t *testing.T, db *gorm.DB) {
 		require.NoError(t, db.Create(&models.Host{
 			ResourceID: hs.id, ResourceCategory: models.ResourceCategoryHost,
 			NetworkDomainID: hs.domainID, BizCode: "infra", SourceType: models.SourceTypeManual,
-			CloudCode: hs.cloudCode, EnvFlag: "prod", SubAppCode: "cluster",
+			CloudCode: hs.cloudCode, EnvFlag: "PRD", SubAppCode: "cluster",
 			InstanceName: fmt.Sprintf("cn-%02d", i+1),
 			ServerID:     fmt.Sprintf("srv-c-%02d", i+1),
 			Status:       "online", Image: "linux",
@@ -1121,7 +1121,7 @@ func seedCloudHosts(t *testing.T, db *gorm.DB) {
 		ResourceBase: models.ResourceBase{
 			ResourceID: "c-db-1", ResourceCategory: models.ResourceCategoryDatabase,
 			NetworkDomainID: "dom-tx", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: strPtr("app-a"), Env: "prod", Cluster: strPtr("cluster"), Status: "online",
+			AppName: strPtr("app-a"), Env: "PRD", Cluster: strPtr("cluster"), Status: "online",
 		},
 		DatabaseType: "mysql", InstanceIP: "10.0.3.1", Port: 3306,
 	}).Error)
@@ -1273,14 +1273,14 @@ func TestSummaryByCloudOnlyHosts(t *testing.T) {
 	require.NoError(t, db.Create(&models.Middleware{
 		ResourceID: "c-mw-1", ResourceCategory: models.ResourceCategoryMiddleware,
 		NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-		AppName: "app-a", Env: "prod", Cluster: "cluster", Status: "online",
+		AppName: "app-a", Env: "PRD", Cluster: "cluster", Status: "online",
 		MiddlewareType: "nginx", InstanceIP: "10.0.4.1", Port: 80,
 	}).Error)
 	// 该网域下 1 台主机（残留 CloudCode 列刻意填另一个编码，验证仍归 PUB-TX）。
 	require.NoError(t, db.Create(&models.Host{
 		ResourceID: "c-h1", ResourceCategory: models.ResourceCategoryHost,
 		NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-		CloudCode: "GHOST-CODE", EnvFlag: "prod", SubAppCode: "cluster",
+		CloudCode: "GHOST-CODE", EnvFlag: "PRD", SubAppCode: "cluster",
 		InstanceName: "cn-01", ServerID: "srv-c-01", Status: "online", Image: "linux",
 	}).Error)
 
