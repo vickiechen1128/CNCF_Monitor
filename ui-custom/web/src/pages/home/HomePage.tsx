@@ -299,15 +299,13 @@ const DASHBOARD_MOCK: DashboardSummary = {
     { service_name: '库存服务', resource_category: 'interface_service', platform_names: '', url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
     { service_name: '大模型应用', resource_category: 'application', platform_names: '私有云A平台、私有云B平台', url: 'http://10.0.0.5/health', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
   ],
-  // 「采集健康」静态预览样例（反馈 10 路线 B）。分母 `dispatched_count` 恒等于
-  // `monitored_count`=96（已下发资源数），四态计数之和 = 96；后端查询失败 / 未实现时字段缺失，
-  // 面板渲染「不可用」（本样例仅用于静态预览 / 缺失回退，不改变口径）。
+  // 「采集健康」静态预览样例（反馈 10 路线 B；反馈 12 起两态）。分母 `dispatched_count`
+  // 恒等于 `monitored_count`=96（已选中资源数），两态计数之和 = 96；后端查询失败 / 未实现时
+  // 字段缺失，面板渲染「不可用」（本样例仅用于静态预览 / 缺失回退，不改变口径）。
   collection_health: {
     dispatched_count: 96,
     collecting_count: 88,
-    stale_count: 4,
-    down_count: 2,
-    pending_count: 2,
+    down_count: 8,
   },
 }
 
