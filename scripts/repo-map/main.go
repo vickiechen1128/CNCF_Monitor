@@ -106,7 +106,12 @@ func main() {
 }
 
 // extractGo 用 go/parser 提取 Go 文件的顶层类型、函数与方法。
+//
+// path 统一转为正斜杠：filepath.WalkDir 在 Windows 上返回 `platform\...`，而 CI
+// （ubuntu-latest）生成的是 `platform/...`；不归一化会让仓库地图随生成平台漂移，
+// 导致 check-repo-map 在另一种操作系统上必然判定过期。
 func extractGo(path string) fileEntry {
+	path = filepath.ToSlash(path)
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
@@ -149,7 +154,9 @@ func extractGo(path string) fileEntry {
 }
 
 // extractTS 用正则提取 TS/TSX 文件的顶层 export 符号。
+// path 归一化为正斜杠，理由同 extractGo（跨 Windows / Linux 稳定）。
 func extractTS(path string) fileEntry {
+	path = filepath.ToSlash(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "repo-map: 读取 %s 失败（已跳过）: %v\n", path, err)
