@@ -77,18 +77,27 @@ func LoadRules(db *gorm.DB) ([]models.MonitoringRule, error) {
 
 // LoadDefaultTemplate 读取某资源类别的默认标签模板（M07 is_default）。
 // 未配置默认模板时返回 nil（targets 不带业务标签，仅地址）。
+//
+// 同类别出现多个 is_default=true 属数据异常：返回明确错误，不再按 created_at
+// 静默取第一条——否则前端选择与生成结果可能指向不同模板，问题难以排查。
 func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error) {
-	var tmpl models.LabelTemplate
-	err := db.Where("resource_category = ? AND is_default = ?", category, true).
+	var tmpls []models.LabelTemplate
+	if err := db.Where("resource_category = ? AND is_default = ?", category, true).
 		Order("created_at asc").
-		First(&tmpl).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
+		Find(&tmpls).Error; err != nil {
 		return nil, fmt.Errorf("load default label template %s: %w", category, err)
 	}
-	return &tmpl, nil
+	switch len(tmpls) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &tmpls[0], nil
+	default:
+		return nil, fmt.Errorf(
+			"资源类别 %s 存在 %d 个默认标签模板（is_default=true），请先修复数据",
+			category, len(tmpls),
+		)
+	}
 }
 
 // LoadTemplateForJob 解析某个采集 Job 应使用的标签模板：

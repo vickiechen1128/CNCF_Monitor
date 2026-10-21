@@ -1,4 +1,5 @@
 import type { ResourceCategory } from '../../types/resource'
+import { DEFAULT_COLUMN_WIDTH } from '../../components/tablePresets'
 
 /**
  * F-17「列设置」列显隐配置（资源列表宽表收敛）。
@@ -184,6 +185,42 @@ export const DEFAULT_VISIBLE_COLUMN_KEYS: Record<ResourceCategory, string[]> = {
   interface_service: ['api_name', 'api_url', 'network_domain_id', 'status', 'monitor_state', 'actions'],
 }
 
+/**
+ * 列默认宽度（px）。
+ *
+ * 只登记与兜底值（`DEFAULT_COLUMN_WIDTH`）不同的列；`buildColumns` 里已有的
+ * `width`（主标识 180 / 操作 200 / 应用·云·平台 150 / 采集状态 120）优先级更高，
+ * 本表用于其余未显式定宽的列，保证开启「固定布局 + 拖动列宽」后每列都有确定宽度。
+ */
+export const COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
+  instance_ip: 140,
+  port: 90,
+  scrape_port: 100,
+  os_type: 120,
+  env: 100,
+  cluster: 140,
+  network_domain_id: 150,
+  status: 110,
+  source_type: 110,
+  biz_code: 150,
+  database_type: 130,
+  middleware_type: 130,
+  version: 110,
+  health_check_url: 260,
+  protocol: 90,
+  endpoint: 220,
+  exporter_type: 140,
+  metrics_path: 160,
+  scheme: 90,
+  custom_labels: 160,
+  api_url: 220,
+}
+
+/** 某列的初始宽度：优先查列级默认表，未登记回落统一兜底值 */
+export function defaultColumnWidth(key: string): number {
+  return COLUMN_DEFAULT_WIDTHS[key] ?? DEFAULT_COLUMN_WIDTH
+}
+
 /** 偏好存储键前缀：按 `resource_category` 分区，切换 Tab 各自恢复 */
 const COLUMN_PREF_KEY_PREFIX = 'mc_res_list_cols_'
 
@@ -244,6 +281,16 @@ export function saveVisibleColumnKeys(category: ResourceCategory, keys: readonly
     // 隐私模式 / 配额超限：仅内存态，不报错
   }
 }
+
+/**
+ * 列宽（拖动表头调整列宽）。
+ *
+ * **纯前端会话态**：由页面按 `resource_category` 分区保存在 React state，
+ * 不落 localStorage、不上传后端；刷新页面即恢复默认列宽。
+ * 稀疏对象——只记录用户拖过的列，未命中的列走 `buildColumns` 的 `width`
+ * 或 `defaultColumnWidth` 兜底。
+ */
+export type ResourceColumnWidths = Record<string, number>
 
 /**
  * F-17 附加：恢复某类 Tab 的默认列集。

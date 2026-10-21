@@ -48,7 +48,7 @@ func TestEndToEndStrategyScrapeJob(t *testing.T) {
 	hostID := out["data"].(map[string]interface{})["resource_id"].(string)
 
 	// 3. 创建一个 standard 采集 Job（利用默认映射继承）。
-	jobBody := fmt.Sprintf(`{"job_name":"e2e-node","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["%s"],"enabled":true}`, hostID)
+	jobBody := fmt.Sprintf(`{"job_name":"e2e-node","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["%s"],"enabled":true}`, hostID)
 	code, out = c.json("POST", "/api/v2/platform/scrape-jobs", jobBody)
 	require.Equal(t, http.StatusOK, code, "创建采集 Job 应成功：%v", out)
 	data := out["data"].(map[string]interface{})
@@ -86,7 +86,7 @@ func TestEndToEndStrategyScrapeJob(t *testing.T) {
 		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusDisabled, IsMonitored: true,
 	}).Error)
 	code, _ = c.json("POST", "/api/v2/platform/scrape-jobs",
-		`{"job_name":"e2e-bad","job_type":"standard","monitor_type":"host_linux","network_domain_id":"frozen"}`)
+		`{"job_name":"e2e-bad","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"frozen"}`)
 	require.Equal(t, http.StatusBadRequest, code, "冻结域创建 Job 应被拒")
 }
 

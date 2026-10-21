@@ -46,6 +46,13 @@ import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 // 故不再需要 BLACKBOX_PROTOCOLS）。
 const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
 
+/**
+ * 表单值 = 提交后端的字段 + 仅用于「资源类别 → 监控对象类型」两级级联的
+ * `resource_category`。标准采集 Job 提交时把 `resource_category` 原样写入
+ * `resource_type`，后端不再从 monitor_type 二次推导。
+ */
+type ScrapeJobFormValues = ScrapeJobInput & { resource_category?: ResourceCategory }
+
 const { Text, Link } = Typography
 
 /** 参数继承来源 Tag（§5.4 参数同步）：inherited 灰 / overridden 蓝 / pending 橙 */
@@ -117,7 +124,7 @@ interface ScrapeJobFormDrawerProps {
  */
 export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: ScrapeJobFormDrawerProps) {
   const navigate = useNavigate()
-  const [form] = Form.useForm<ScrapeJobInput & { resource_category?: ResourceCategory }>()
+  const [form] = Form.useForm<ScrapeJobFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [domains, setDomains] = useState<NetworkDomain[]>([])
@@ -125,6 +132,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [paramsState, setParamsState] = useState<'inherited' | 'overridden' | 'pending' | 'none'>('none')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
+  // 模板列表加载状态：未加载完成 / 加载失败时禁止提交（避免静默提交空模板）
+  const [labelTemplatesLoading, setLabelTemplatesLoading] = useState(false)
+  const [labelTemplatesFailed, setLabelTemplatesFailed] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
   // F-28 稀疏覆盖：当前监控对象类型的默认采集配置（用于参数 placeholder 展示继承默认值；
   // 不再值预填进表单，留空=继承，保存时由后端按 映射→模板→全局 链解析生效快照）
@@ -172,12 +182,27 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
     [labelTemplates, resourceCategory],
   )
-  // 类别默认模板：label_template_id 留空时后端按该类别默认模板生成标签，
-  // 选项文案据此明确「使用默认标签模板（xxx）」而非误导性的「不关联」。
-  const defaultLabelTemplate = useMemo(
-    () => filteredLabelTemplates.find((t) => t.is_default),
+  // 类别默认模板：每个资源类别应恰好有一个 is_default=true 的系统预设模板。
+  // 选项 value 直接使用其真实模板 ID（不再用空串），提交时无需二次解析。
+  const defaultLabelTemplates = useMemo(
+    () => filteredLabelTemplates.filter((t) => t.is_default),
     [filteredLabelTemplates],
   )
+  const defaultLabelTemplate = defaultLabelTemplates[0]
+  /** 同类别出现多个默认模板 = 数据异常：页面报错并禁止提交，不静默挑一个 */
+  const multipleDefaultTemplates = defaultLabelTemplates.length > 1
+
+  /**
+   * 模板列表加载完成 / 切换资源类别后，若表单值为空，自动选中该类别默认模板的
+   * **真实 ID**。默认选项不再是空串，避免「空值到底表示继承映射还是类别默认」的歧义。
+   */
+  useEffect(() => {
+    if (!open || labelTemplatesLoading || multipleDefaultTemplates || !defaultLabelTemplate) return
+    const current = form.getFieldValue('label_template_id') as string | undefined
+    if (!current) {
+      form.setFieldsValue({ label_template_id: String(defaultLabelTemplate.id) })
+    }
+  }, [open, labelTemplatesLoading, multipleDefaultTemplates, defaultLabelTemplate, form])
 
   // 打开抽屉时装载网域与初始值
   useEffect(() => {
@@ -191,11 +216,18 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       .list({ page: 1, page_size: 100 })
       .then((res) => setDomains((res.data?.list ?? []).filter((d) => d.is_monitored && d.status === 'enabled')))
       .catch(() => setDomains([]))
-    // F1-4：装载标签模板（卡片式选择按资源类别过滤）
+    // F1-4：装载标签模板（卡片式选择按资源类别过滤）。
+    // 记录加载中 / 失败：未拿到模板时提交会被拦截，不能静默提交空模板。
+    setLabelTemplatesLoading(true)
+    setLabelTemplatesFailed(false)
     labelTemplateApi
       .list({ page: 1, page_size: 100 })
       .then((res) => setLabelTemplates(res.data?.list ?? []))
-      .catch(() => setLabelTemplates([]))
+      .catch(() => {
+        setLabelTemplates([])
+        setLabelTemplatesFailed(true)
+      })
+      .finally(() => setLabelTemplatesLoading(false))
     form.resetFields()
     setMappingDefaults(null)
     setPortEchoItems([])
@@ -214,7 +246,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         scrape_timeout: record.scrape_timeout,
         metrics_path: record.metrics_path,
         scheme: record.scheme,
-        // 留空 = 使用该类别默认模板；显式置 '' 让「使用默认标签模板」单选项默认选中
+        // 存量任务可能没有 label_template_id；空值时由下方 effect 选中该类别默认模板的 ID
         label_template_id: record.label_template_id ?? '',
         auth_type: record.auth_type,
         username: record.username,
@@ -266,9 +298,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         const def = res.data?.list?.[0]
         if (def) {
           setMappingDefaults(def)
+          const nextCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(next))?.category
+          const categoryDefault = labelTemplates.find(
+            (t) => t.resource_category === nextCategory && t.is_default,
+          )
           form.setFieldsValue({
             exporter_template_id: def.exporter_template_id as string,
-            label_template_id: def.label_template_id || '',
+            // 映射层未配模板时，直接选中该资源类别的默认模板 ID
+            label_template_id: def.label_template_id || (categoryDefault ? String(categoryDefault.id) : ''),
           })
           setParamsState('inherited')
         }
@@ -276,7 +313,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         // 无默认映射时保持空，用户可手填
       }
     },
-    [form],
+    [form, labelTemplates],
   )
 
   // F-28：参数字段 placeholder = 继承链下层生效值提示（映射 → 采集器/全局兜底）
@@ -313,7 +350,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
 
   // 将表单值组装为请求体；draftStatus 决定是「保存草稿」还是「提交生效」。
   const buildBody = useCallback(
-    (values: ScrapeJobInput, draftStatus: 'draft' | 'ready'): ScrapeJobInput => {
+    (values: ScrapeJobFormValues, draftStatus: 'draft' | 'ready'): ScrapeJobInput => {
       const body: ScrapeJobInput = {
         job_name: values.job_name,
         job_type: values.job_type ?? 'standard',
@@ -330,7 +367,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         token: values.token,
         tls_skip_verify: values.tls_skip_verify ?? false,
         ca_file: values.ca_file,
-        label_template_id: values.label_template_id || undefined,
+        // 默认模板选项与普通模板选项一样携带真实模板 ID；这里保留兜底，
+        // 避免表单值异常时提交 undefined（编辑态会被后端当成「未修改」）。
+        label_template_id: values.label_template_id || (defaultLabelTemplate ? String(defaultLabelTemplate.id) : ''),
         draft_status: draftStatus,
         enabled: true,
       }
@@ -342,13 +381,17 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         body.resource_type = values.resource_type
         body.selected_instance_ids = selectedIds
       } else {
+        // 标准采集 Job：用户在表单选定的资源类别原样提交，后端直接落库。
+        // 之前漏传该字段 → resource_type 存空串 → 默认标签模板按空类别查找不到，
+        // 整份模板标签集静默为空。
+        body.resource_type = values.resource_category
         body.monitor_type = values.monitor_type
         body.exporter_template_id = values.exporter_template_id
         body.selected_instance_ids = selectedIds
       }
       return body
     },
-    [selectedIds],
+    [selectedIds, defaultLabelTemplate],
   )
 
   // 保存草稿：仅基础校验（job_name / job_type），不进入 M09 变更管线。
@@ -377,10 +420,37 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
 
   // 提交生效（编辑/新建）：完整校验并进入 M09 变更管线。
   const handleSubmitReady = async () => {
-    let values: ScrapeJobInput
+    let values: ScrapeJobFormValues
     try {
       values = await form.validateFields()
     } catch {
+      return
+    }
+    // 标签模板是提交的硬前置：列表未加载/加载失败/数据异常/未选中时一律拦截，
+    // 不允许静默提交空模板（否则任务会没有任何模板标签，且不报错）。
+    if (labelTemplatesLoading) {
+      message.error('标签模板正在加载，请稍后重试')
+      return
+    }
+    if (labelTemplatesFailed) {
+      message.error('标签模板加载失败，请关闭抽屉后重试')
+      return
+    }
+    if (multipleDefaultTemplates) {
+      message.error('该资源类别存在多个默认标签模板，请先修复数据')
+      return
+    }
+    if (!defaultLabelTemplate) {
+      message.error('该资源类别缺少默认标签模板，请先检查标签模板数据')
+      return
+    }
+    if (!values.label_template_id) {
+      message.error('未选择标签模板')
+      return
+    }
+    // 所选模板必须属于当前资源类别（防止切换类别后残留旧类别模板 ID）
+    if (!filteredLabelTemplates.some((t) => String(t.id) === String(values.label_template_id))) {
+      message.error('所选标签模板不属于当前资源类别，请重新选择')
       return
     }
     setSubmitting(true)
@@ -417,44 +487,76 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       extra={
         resourceCategory
           ? jobType === 'blackbox'
-            ? '按拨测目标资源类别过滤；不选择时使用该类别默认标签模板，也可切换为其他自定义方案'
-            : '按资源类别过滤；映射自动继承，补配请前往标签模板管理（M07）'
+            ? '按拨测目标资源类别过滤；默认模板自动选中，也可切换为其他方案'
+            : '按资源类别过滤；默认模板自动选中，也可切换为其他方案'
           : jobType === 'blackbox'
             ? '选择拨测目标资源类别后列出可用标签模板'
             : '选择监控对象类型后按资源类别列出可用标签模板'
       }
     >
-      {resourceCategory && filteredLabelTemplates.length > 0 ? (
-        <Form.Item name="label_template_id" noStyle>
-          <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Radio.Button value="" style={{ width: '100%', textAlign: 'left' }}>
-                <Text type="secondary">
-                  {defaultLabelTemplate
-                    ? `使用默认标签模板（${defaultLabelTemplate.name}）`
-                    : '不关联标签模板'}
-                </Text>
-              </Radio.Button>
-              {filteredLabelTemplates.map((t) => (
-                <Radio.Button
-                  key={t.id}
-                  value={String(t.id)}
-                  style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}
-                >
-                  <Space size={6} direction="vertical" align="start">
-                    <Space size={6}>
-                      <Text strong>{t.name}</Text>
-                      {t.is_default && <Tag color="blue">默认</Tag>}
-                    </Space>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
-                    </Text>
-                  </Space>
-                </Radio.Button>
-              ))}
-            </Space>
-          </Radio.Group>
-        </Form.Item>
+      {resourceCategory && labelTemplatesLoading ? (
+        <Text type="secondary">标签模板加载中…</Text>
+      ) : resourceCategory && labelTemplatesFailed ? (
+        <Alert
+          type="error"
+          showIcon
+          message="标签模板加载失败"
+          description="模板列表未加载成功时无法提交，请关闭抽屉后重试。"
+        />
+      ) : resourceCategory && filteredLabelTemplates.length > 0 ? (
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          {multipleDefaultTemplates && (
+            <Alert
+              type="error"
+              showIcon
+              message="该资源类别存在多个默认标签模板"
+              description="每个资源类别只能有一个默认模板，请先在标签模板管理中修复数据，否则无法提交。"
+            />
+          )}
+          {!multipleDefaultTemplates && !defaultLabelTemplate && (
+            <Alert
+              type="error"
+              showIcon
+              message="该资源类别缺少默认标签模板"
+              description="每个资源类别都应有一个系统预设的默认模板，请检查标签模板数据，否则无法提交。"
+            />
+          )}
+          <Form.Item name="label_template_id" noStyle>
+            <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
+              <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                {!multipleDefaultTemplates && defaultLabelTemplate && (
+                  <Radio.Button
+                    value={String(defaultLabelTemplate.id)}
+                    style={{ width: '100%', textAlign: 'left' }}
+                  >
+                    <Text type="secondary">使用默认标签模板（{defaultLabelTemplate.name}）</Text>
+                  </Radio.Button>
+                )}
+                {filteredLabelTemplates
+                  // 恰好一个默认模板时由上方「使用默认」选项承载，避免同一 ID 出现两个选项；
+                  // 多个默认模板时全部平铺展示（页面已报错并禁止提交）。
+                  .filter((t) => multipleDefaultTemplates || !t.is_default)
+                  .map((t) => (
+                    <Radio.Button
+                      key={t.id}
+                      value={String(t.id)}
+                      style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}
+                    >
+                      <Space size={6} direction="vertical" align="start">
+                        <Space size={6}>
+                          <Text strong>{t.name}</Text>
+                          {t.is_default && <Tag color="blue">默认</Tag>}
+                        </Space>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
+                        </Text>
+                      </Space>
+                    </Radio.Button>
+                  ))}
+              </Space>
+            </Radio.Group>
+          </Form.Item>
+        </Space>
       ) : (
         <Space direction="vertical" size={4}>
           {resourceCategory && filteredLabelTemplates.length === 0 ? (
@@ -553,7 +655,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   <Select
                     placeholder="请选择"
                     options={MONITOR_TYPE_CASCADE.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
-                    onChange={() => form.setFieldsValue({ monitor_type: undefined })}
+                    // 换类别 → 监控对象类型与已选标签模板都不再适用，一并清空；
+                    // 新类别的默认模板加载后由 effect 自动选中其 ID
+                    onChange={() => form.setFieldsValue({ monitor_type: undefined, label_template_id: '' })}
                   />
                 </Form.Item>
                 <Form.Item label="监控对象类型" name="monitor_type" rules={[{ required: true, message: '请选择监控对象类型' }]}>

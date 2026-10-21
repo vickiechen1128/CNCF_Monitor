@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { HTMLAttributes } from 'react'
 import config from 'antd/locale/zh_CN'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
-import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { TABLE_PAGINATION } from '../../components/tablePresets'
+import { ResizableHeaderCell } from '../../components/ResizableHeaderCell'
 import {
   Alert,
   App,
@@ -68,12 +70,14 @@ import { useResourceCoverage } from './useResourceCoverage'
 import {
   COLUMN_GROUP_ORDER,
   RESOURCE_COLUMN_META,
+  defaultColumnWidth,
   isDefaultVisibleColumnKeys,
   loadVisibleColumnKeys,
   orderColumnKeys,
   resetVisibleColumnKeys,
   saveVisibleColumnKeys,
 } from './resourceColumnPrefs'
+import type { ResourceColumnWidths } from './resourceColumnPrefs'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
@@ -334,6 +338,38 @@ export function ResourcesPage() {
     for (const t of RESOURCE_TYPES) init[t] = loadVisibleColumnKeys(t)
     return init
   })
+
+  /**
+   * 列宽（拖动表头调整）：**纯前端会话态**，按 `resource_category` 分区保存在内存中。
+   * 不落 localStorage、不上传后端，刷新页面即恢复默认；未拖过的列不在对象里，
+   * 渲染时回落 `buildColumns` 的 width 或 `defaultColumnWidth`。
+   */
+  const [columnWidths, setColumnWidths] = useState<Record<ResourceCategory, ResourceColumnWidths>>(() => {
+    const init = {} as Record<ResourceCategory, ResourceColumnWidths>
+    for (const t of RESOURCE_TYPES) init[t] = {}
+    return init
+  })
+
+  /**
+   * 表格容器实测宽度：列宽改为固定布局后，`scroll.x` 取「所有可见列宽之和」与
+   * 「容器宽度」的较大值——列少时表格仍铺满容器，列多时出现横向滚动条。
+   * jsdom 无 ResizeObserver / getBoundingClientRect 返回 0 时回落为列宽之和。
+   */
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [tableContainerWidth, setTableContainerWidth] = useState(0)
+  useEffect(() => {
+    const el = tableContainerRef.current
+    if (!el) return
+    const update = () => setTableContainerWidth(el.getBoundingClientRect().width)
+    update()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   /**
    * F-17：「列设置」浮层展开状态（**受控**，H-1）。
@@ -1017,6 +1053,52 @@ export function ResourcesPage() {
     visibleColumnKeySet.has(String(c.key)),
   )
 
+  /** 列宽解析：用户拖过的宽度 → `buildColumns` 的列级 width → 默认宽度表 */
+  const columnWidthOf = (key: string, columnWidth?: number | string): number => {
+    const persisted = columnWidths[category][key]
+    if (typeof persisted === 'number') return persisted
+    if (typeof columnWidth === 'number') return columnWidth
+    return defaultColumnWidth(key)
+  }
+
+  /** 拖动列宽：只更新当前 Tab 的内存态（不落库，刷新即恢复默认） */
+  const handleColumnResize = (key: string, width: number) => {
+    setColumnWidths((prev) => ({
+      ...prev,
+      [category]: { ...prev[category], [key]: width },
+    }))
+  }
+
+  /**
+   * 注入可拖动表头。每列都必须有确定的 width：固定布局（`scroll.x` 为数字）下
+   * 无 width 的列会被浏览器按内容重新分配，拖动其他列时该列会跟着漂移。
+   */
+  const resizableColumns = visibleColumns.map((column) => {
+    const key = String(column.key)
+    const width = columnWidthOf(key, column.width)
+    return {
+      ...column,
+      width,
+      onHeaderCell: () =>
+        ({
+          width,
+          'data-column-key': key,
+          onColumnResize: (next: number) => handleColumnResize(key, next),
+        }) as unknown as HTMLAttributes<HTMLTableCellElement>,
+    }
+  })
+
+  /**
+   * 表格总宽 = 可见列宽之和与容器宽度取大：
+   * - 列少 → 铺满容器（固定布局会把富余宽度按比例分给各列）；
+   * - 列多 → 出现横向滚动条，固定列 sticky 照常生效。
+   */
+  const totalColumnWidth = resizableColumns.reduce(
+    (sum, column) => sum + (typeof column.width === 'number' ? column.width : 0),
+    0,
+  )
+  const tableScrollX = Math.max(totalColumnWidth, Math.round(tableContainerWidth), 600)
+
   /** F-17：列设置勾选变更 → 归一化（并入固定列）→ 更新状态 + 按 Tab 分区落库 */
   const handleVisibleColumnKeysChange = (next: string[]) => {
     const normalized = orderColumnKeys(category, next)
@@ -1340,45 +1422,50 @@ export function ResourcesPage() {
               </div>
             )}
 
-            <Table<ResourceListItem>
-              rowKey="resource_id"
-              dataSource={visibleList}
-              loading={loading || coverageLoading}
-              columns={visibleColumns}
-              size="small"
-              scroll={TABLE_SCROLL_X}
-              onRow={(record) => ({
-                onClick: (e) => {
-                  // T07-F6 行点击打开资源详情抽屉；行内按钮（详情/编辑/删除）点击不触发
-                  if ((e.target as HTMLElement).closest('button')) return
-                  openDetailDrawer(record)
-                },
-              })}
-              locale={{
-                emptyText: (
-                  <Empty description="暂无资源">
-                    <Space>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>
-                        新增资源
-                      </Button>
-                      <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
-                        下载模板
-                      </Button>
-                      <Button icon={<UploadOutlined />} onClick={openImportModal}>
-                        Excel 导入
-                      </Button>
-                    </Space>
-                  </Empty>
-                ),
-              }}
-              pagination={{
-                ...TABLE_PAGINATION,
-                current: page,
-                pageSize,
-                total: data.total,
-                onChange: (p, pz) => onPageSizeChange(p, pz),
-              }}
-            />
+            {/* 列宽拖动需要固定布局：scroll.x 取「可见列宽之和」与容器宽度的较大值。
+                容器宽度由 ResizeObserver 实测，列少时铺满、列多时横向滚动。 */}
+            <div ref={tableContainerRef}>
+              <Table<ResourceListItem>
+                rowKey="resource_id"
+                dataSource={visibleList}
+                loading={loading || coverageLoading}
+                columns={resizableColumns}
+                size="small"
+                scroll={{ x: tableScrollX }}
+                components={{ header: { cell: ResizableHeaderCell } }}
+                onRow={(record) => ({
+                  onClick: (e) => {
+                    // T07-F6 行点击打开资源详情抽屉；行内按钮（详情/编辑/删除）点击不触发
+                    if ((e.target as HTMLElement).closest('button')) return
+                    openDetailDrawer(record)
+                  },
+                })}
+                locale={{
+                  emptyText: (
+                    <Empty description="暂无资源">
+                      <Space>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>
+                          新增资源
+                        </Button>
+                        <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
+                          下载模板
+                        </Button>
+                        <Button icon={<UploadOutlined />} onClick={openImportModal}>
+                          Excel 导入
+                        </Button>
+                      </Space>
+                    </Empty>
+                  ),
+                }}
+                pagination={{
+                  ...TABLE_PAGINATION,
+                  current: page,
+                  pageSize,
+                  total: data.total,
+                  onChange: (p, pz) => onPageSizeChange(p, pz),
+                }}
+              />
+            </div>
           </Card>
         </ConfigProvider>
       )}

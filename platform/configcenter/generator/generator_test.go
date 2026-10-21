@@ -2,6 +2,7 @@ package generator
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +22,28 @@ func newMemDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	return db
+}
+
+// 同资源类别出现多个 is_default=true 属数据异常：LoadDefaultTemplate 必须报错，
+// 不能按 created_at 静默取第一条（否则前端选择与生成结果可能不一致）。
+func TestLoadDefaultTemplateRejectsMultipleDefaults(t *testing.T) {
+	db, err := gorm.Open(
+		sqlite.Open(fmt.Sprintf("file:generator_defaults_%d?mode=memory&cache=shared", time.Now().UnixNano())),
+		&gorm.Config{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.LabelTemplate{}))
+	for _, name := range []string{"default-a", "default-b"} {
+		require.NoError(t, db.Create(&models.LabelTemplate{
+			Name:             name,
+			ResourceCategory: models.ResourceCategoryHost,
+			IsDefault:        true,
+		}).Error)
+	}
+
+	_, err = LoadDefaultTemplate(db, models.ResourceCategoryHost)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2 个默认标签模板")
 }
 
 // ---- T09-02: prometheus.yml + rules.yml 主流程 ----

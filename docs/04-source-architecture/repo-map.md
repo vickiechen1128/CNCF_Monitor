@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-21 13:35 · commit: `b32c26f`
+> 生成时间: 2026-10-21 18:33 · commit: `f18fe7b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2436,6 +2436,7 @@
 ### `platform/configcenter/generator/generator_test.go`
 
 - `func newMemDB(t *testing.T) *gorm.DB`
+- `func TestLoadDefaultTemplateRejectsMultipleDefaults(t *testing.T)`
 - `func TestAssemblePrometheusExternalLabels(t *testing.T)`
 - `func TestAssembleFileSDNotInline(t *testing.T)`
 - `func TestAssembleAuthTLSPassthrough(t *testing.T)`
@@ -2958,6 +2959,15 @@
 - `type builtinMetricSeed struct`
 - `func BuiltinMetricLibrary() []builtinMetricSeed`
 - `func runMetricLibrary(db *gorm.DB) error`
+
+### `platform/db/seed/scrape_category.go`
+
+- `func runScrapeJobCategoryBackfill(db *gorm.DB) error`
+
+### `platform/db/seed/scrape_category_test.go`
+
+- `func resourceTypeOf(t *testing.T, db *gorm.DB, id uint) models.ResourceType`
+- `func TestRunScrapeJobCategoryBackfill(t *testing.T)`
 
 ### `platform/db/seed/scrape_path.go`
 
@@ -4881,6 +4891,7 @@
 - `func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceName, healthCheckURL, status string)`
 - `func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string)`
 - `func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T)`
+- `func TestCreateScrapeJobStandardRequiresResourceType(t *testing.T)`
 - `func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T)`
 - `func TestCreateScrapeJobTemplateFallback(t *testing.T)`
 - `func TestUpdateScrapeJobClearFieldReInherits(t *testing.T)`
@@ -5202,6 +5213,11 @@
 - `interface PageIntroProps`
 - `function PageIntro`
 
+### `ui-custom/web/src/components/ResizableHeaderCell.tsx`
+
+- `interface ResizableHeaderCellProps`
+- `function ResizableHeaderCell`
+
 ### `ui-custom/web/src/components/RuleGuideLink.tsx`
 
 - `const RULES_PATH`
@@ -5213,6 +5229,9 @@
 ### `ui-custom/web/src/components/tablePresets.ts`
 
 - `const TABLE_SCROLL_X`
+- `const MIN_COLUMN_WIDTH`
+- `const MAX_COLUMN_WIDTH`
+- `const DEFAULT_COLUMN_WIDTH`
 - `const TABLE_PAGINATION`
 
 ### `ui-custom/web/src/layouts/MainLayout.tsx`
@@ -5904,10 +5923,13 @@
 - `const RESOURCE_COLUMN_META`
 - `const FIXED_COLUMN_KEYS`
 - `const DEFAULT_VISIBLE_COLUMN_KEYS`
+- `const COLUMN_DEFAULT_WIDTHS`
+- `function defaultColumnWidth`
 - `function columnPrefStorageKey`
 - `function orderColumnKeys`
 - `function loadVisibleColumnKeys`
 - `function saveVisibleColumnKeys`
+- `type ResourceColumnWidths`
 - `function resetVisibleColumnKeys`
 - `function isDefaultVisibleColumnKeys`
 
