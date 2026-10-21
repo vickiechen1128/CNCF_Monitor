@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-18 13:08 · commit: `a8c5edb`
+> 生成时间: 2026-10-20 23:26 · commit: `cc12f5c`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2188,6 +2188,17 @@
 - `func newToken() (string, error)`
 - `func validateMaxDiskUsage(v string) error`
 
+### `platform\configcenter\draft\bootstrap.go`
+
+- `func EnsureBootstrapVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
+
+### `platform\configcenter\draft\bootstrap_test.go`
+
+- `func TestEnsureBootstrapVersionCreatesEmptyConfigVersion(t *testing.T)`
+- `func TestEnsureBootstrapVersionIdempotent(t *testing.T)`
+- `func TestEnsureBootstrapVersionSkipsNonEligibleDomains(t *testing.T)`
+- `func TestEnsureBootstrapVersionSkipsWhenVersionExists(t *testing.T)`
+
 ### `platform\configcenter\draft\change_items.go`
 
 - `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
@@ -2429,6 +2440,7 @@
 - `func TestAssembleFileSDNotInline(t *testing.T)`
 - `func TestAssembleAuthTLSPassthrough(t *testing.T)`
 - `func TestAssembleRulesYAMLPassthrough(t *testing.T)`
+- `func TestAssembleZeroJobsEmitsScrapeConfigs(t *testing.T)`
 - `func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T)`
 - `func TestAssembleRendersScrapeIntervalTimeout(t *testing.T)`
 - `func TestAssembleBlackbox(t *testing.T)`
@@ -3004,6 +3016,7 @@
 - `func TestRuntimeProviderSnapshotCarriesApplyError(t *testing.T)`
 - `func TestRuntimeProviderSnapshot(t *testing.T)`
 - `type stubProbe struct`
+- `method (stubProbe) Ready(*supervisor.Component) bool`
 - `method (stubProbe) Alive(*supervisor.Component) bool`
 - `method (stubProbe) Healthy(*supervisor.Component) bool`
 - `method (stubProbe) Start(*supervisor.Component) error`
@@ -3044,6 +3057,7 @@
 - `type procSpec struct`
 - `type ProcProbe struct`
 - `func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer) *ProcProbe`
+- `method (*ProcProbe) Ready(c *supervisor.Component) bool`
 - `method (*ProcProbe) Alive(c *supervisor.Component) bool`
 - `method (*ProcProbe) Healthy(c *supervisor.Component) bool`
 - `method (*ProcProbe) Start(c *supervisor.Component) error`
@@ -3068,6 +3082,7 @@
 - `func TestHTTPGetOK200AndNon200(t *testing.T)`
 - `func TestHTTPPostOKReload(t *testing.T)`
 - `func TestTCPProbe(t *testing.T)`
+- `func TestProcProbeReadyRequiresConfigFile(t *testing.T)`
 - `func TestProcProbeSignalWhenNotRunning(t *testing.T)`
 - `func TestProcProbeTimeoutSetting(t *testing.T)`
 - `func TestSameArgs(t *testing.T)`
@@ -3333,6 +3348,7 @@
 - `method (*Supervisor) Reconcile(want []contract.Component)`
 - `method (*Supervisor) getOrCreate(typ string) *Component`
 - `method (*Supervisor) Get(typ string) *Component`
+- `method (*Supervisor) ResetIfCrashLoop(typ string) bool`
 - `method (*Supervisor) Reset(typ string)`
 - `method (*Supervisor) SetInject(clock func() time.Time, sleep func(ctx context.Context, d time.Duration))`
 - `method (*Supervisor) Snapshot() []contract.Component`
@@ -3347,6 +3363,7 @@
 
 - `type fakeProbe struct`
 - `func newFakeProbe() *fakeProbe`
+- `method (*fakeProbe) Ready(c *Component) bool`
 - `method (*fakeProbe) Alive(c *Component) bool`
 - `method (*fakeProbe) Healthy(c *Component) bool`
 - `method (*fakeProbe) Start(c *Component) error`
@@ -3359,6 +3376,8 @@
 - `func TestBackoffAndBreakerEntersCrashLoop(t *testing.T)`
 - `func TestOrchestrationBlackboxBeforeCollector(t *testing.T)`
 - `func TestSnapshotReportsContractView(t *testing.T)`
+- `func TestNotReadyDoesNotCountRestarts(t *testing.T)`
+- `func TestResetIfCrashLoop(t *testing.T)`
 - `func TestResetClearsCrashLoopAndRetainsGuard(t *testing.T)`
 
 ### `platform\edge-sync-agent\internal\token\token.go`
@@ -3379,6 +3398,11 @@
 - `func TestThrottleDowngradeAfterDuration(t *testing.T)`
 - `func TestThrottleReset(t *testing.T)`
 - `func TestTokenStore(t *testing.T)`
+
+### `platform\edge\bootstrap_test.go`
+
+- `func TestHeartbeatBootstrapsBlankAgentPullDomain(t *testing.T)`
+- `func TestHeartbeatDoesNotBootstrapUnmonitoredDomain(t *testing.T)`
 
 ### `platform\edge\config_handler.go`
 

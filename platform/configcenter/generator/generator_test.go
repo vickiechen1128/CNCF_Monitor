@@ -97,6 +97,19 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 	assert.Contains(t, ca.PrometheusYML, "- rules.yml")
 }
 
+// 零 Job 也必须输出 scrape_configs 顶层键（边缘 agent 结构校验要求；空列表对
+// promtool / vmagent 合法）。空网域由此获得可下发的「空运行」配置。
+func TestAssembleZeroJobsEmitsScrapeConfigs(t *testing.T) {
+	ca, err := Assemble("default", "", "", nil, nil, "", "", true)
+	require.NoError(t, err)
+	assert.Contains(t, ca.PrometheusYML, "scrape_configs:")
+	var parsed struct {
+		ScrapeConfigs []map[string]interface{} `yaml:"scrape_configs"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(ca.PrometheusYML), &parsed))
+	assert.Empty(t, parsed.ScrapeConfigs)
+}
+
 func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T) {
 	ca, err := Assemble("default", "", "", nil, nil, "", "", true)
 	require.NoError(t, err)

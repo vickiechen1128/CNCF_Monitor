@@ -15,6 +15,7 @@ import (
 // 首次 Start 失败（用于编排/退避测试）。
 type fakeProbe struct {
 	mu           sync.Mutex
+	notReady     map[string]bool
 	alive        map[string]bool
 	healthy      map[string]bool
 	starts       []string
@@ -24,11 +25,19 @@ type fakeProbe struct {
 
 func newFakeProbe() *fakeProbe {
 	return &fakeProbe{
+		notReady:     map[string]bool{},
 		alive:        map[string]bool{},
 		healthy:      map[string]bool{},
 		startFails:   map[string]int{},
 		healthyCalls: map[string]int{},
 	}
+}
+
+// Ready 默认就绪；测试可用 notReady[type]=true 模拟「尚无生效配置」。
+func (f *fakeProbe) Ready(c *Component) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.notReady[c.Type]
 }
 func (f *fakeProbe) Alive(c *Component) bool {
 	f.mu.Lock()
@@ -216,6 +225,73 @@ func TestSnapshotReportsContractView(t *testing.T) {
 	}
 	if s.RestartCount != 0 {
 		t.Fatalf("snapshot restart_count = %d (component started healthy)", s.RestartCount)
+	}
+}
+
+// TestNotReadyDoesNotCountRestarts：尚无生效配置（Ready=false）时组件保持
+// not_deployed，不增加重启次数、不进入熔断；配置就绪后恢复正常拉起。
+func TestNotReadyDoesNotCountRestarts(t *testing.T) {
+	f := newFakeProbe()
+	f.notReady[contract.ComponentTypeCollector] = true
+	sv, _, _ := newTestSupervisor(t, f)
+	sv.Reconcile([]contract.Component{{Type: contract.ComponentTypeCollector, Name: "vmagent"}})
+
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		sv.StepOnce(ctx)
+	}
+	c := sv.Get(contract.ComponentTypeCollector)
+	if c.Status != contract.ComponentStatusNotDeployed {
+		t.Fatalf("status = %s want not_deployed", c.Status)
+	}
+	if c.RestartCount != 0 {
+		t.Fatalf("restart_count = %d want 0", c.RestartCount)
+	}
+	if f.CountStart(contract.ComponentTypeCollector) != 0 {
+		t.Fatal("should not start without effective config")
+	}
+
+	// 配置就绪 → 下一轮按正常路径拉起。
+	f.mu.Lock()
+	f.notReady[contract.ComponentTypeCollector] = false
+	f.mu.Unlock()
+	sv.StepOnce(ctx)
+	if c.Status != contract.ComponentStatusRunning {
+		t.Fatalf("status = %s want running after config ready", c.Status)
+	}
+	if got := f.CountStart(contract.ComponentTypeCollector); got != 1 {
+		t.Fatalf("starts = %d want 1", got)
+	}
+}
+
+// TestResetIfCrashLoop：配置应用成功时仅对 crash_loop 组件复位。
+func TestResetIfCrashLoop(t *testing.T) {
+	f := newFakeProbe()
+	f.alive["agent"] = false
+	f.startFails["agent"] = 999 // 永远失败 → 熔断
+	sv, _, tm := newTestSupervisor(t, f)
+	sv.Reconcile([]contract.Component{{Type: contract.ComponentTypeAgent, Name: "agent"}})
+
+	ctx := context.Background()
+	for i := 0; i < 6; i++ {
+		sv.StepOnce(ctx)
+		*tm = tm.Add(time.Second)
+	}
+	c := sv.Get(contract.ComponentTypeAgent)
+	if c.Status != contract.ComponentStatusCrashLoop {
+		t.Fatalf("precondition: status = %s want crash_loop", c.Status)
+	}
+	if !sv.ResetIfCrashLoop(contract.ComponentTypeAgent) {
+		t.Fatal("ResetIfCrashLoop should report true for crash_loop component")
+	}
+	if c.Status != contract.ComponentStatusNotDeployed {
+		t.Fatalf("status = %s want not_deployed", c.Status)
+	}
+	if sv.ResetIfCrashLoop(contract.ComponentTypeAgent) {
+		t.Fatal("second call should report false (already reset)")
+	}
+	if sv.ResetIfCrashLoop("not-exist") {
+		t.Fatal("unregistered component should report false")
 	}
 }
 

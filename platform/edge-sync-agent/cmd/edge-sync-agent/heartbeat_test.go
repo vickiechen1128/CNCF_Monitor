@@ -188,6 +188,7 @@ func TestRuntimeProviderSnapshot(t *testing.T) {
 // stubProbe 供 supervisor 构造（Snapshot 不需要探针真实启停）。
 type stubProbe struct{}
 
+func (stubProbe) Ready(*supervisor.Component) bool { return true }
 func (stubProbe) Alive(*supervisor.Component) bool { return false }
 func (stubProbe) Healthy(*supervisor.Component) bool {
 	return false

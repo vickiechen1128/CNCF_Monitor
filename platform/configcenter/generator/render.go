@@ -33,10 +33,13 @@ type cfgStaticConfig struct {
 }
 
 type cfgFile struct {
-	Global        cfgGlobal    `yaml:"global,omitempty"`
-	Alerting      *cfgAlerting `yaml:"alerting,omitempty"`
-	RuleFiles     []string     `yaml:"rule_files,omitempty"`
-	ScrapeConfigs []scrapeConf `yaml:"scrape_configs,omitempty"`
+	Global    cfgGlobal    `yaml:"global,omitempty"`
+	Alerting  *cfgAlerting `yaml:"alerting,omitempty"`
+	RuleFiles []string     `yaml:"rule_files,omitempty"`
+	// 不带 omitempty：零 Job 时也要输出 `scrape_configs: []`。边缘 agent 的结构校验
+	// 要求存在该顶层键；而一份只有 global 的配置对 promtool / vmagent 本身是合法的
+	// （空网域的合法运行态）。
+	ScrapeConfigs []scrapeConf `yaml:"scrape_configs"`
 }
 
 type scrapeConf struct {
@@ -107,7 +110,7 @@ type JobBuild struct {
 func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, zoneType, replica)
 
-	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}}
+	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}, ScrapeConfigs: []scrapeConf{}}
 	targets := map[string]string{}
 	modules := map[string]struct{}{}
 	var diagnostics []TargetDiagnostics
