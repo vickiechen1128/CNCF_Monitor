@@ -768,7 +768,7 @@ describe('ResourcesPage', () => {
     const cells = Array.from(bodyRow.querySelectorAll('td'))
     expect(cells[0].className).toContain('ant-table-cell-fix-left')
     expect(cells[cells.length - 1].className).toContain('ant-table-cell-fix-right')
-    // scroll={{ x: 'max-content' }} → 出现横向滚动容器
+    // scroll.x 为数字（可见列宽之和 / 容器宽度取大）→ 出现横向滚动容器
     expect(container.querySelector('.ant-table-content')).toBeTruthy()
 
     // F-17：隐藏「网域」后表宽重算 —— 主标识列与操作列的 sticky 不受影响
@@ -784,6 +784,29 @@ describe('ResourcesPage', () => {
     )
     expect(afterCells[0].className).toContain('ant-table-cell-fix-left')
     expect(afterCells[afterCells.length - 1].className).toContain('ant-table-cell-fix-right')
+  })
+
+  // 列宽拖动（用户诉求）：拖动表头右缘手柄只改前端会话态，刷新即恢复默认
+  it('拖动表头右缘手柄调整列宽，且宽度不落库', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+
+    const th = screen.getByRole('columnheader', { name: /实例名/ })
+    expect(th.style.width).toBe('180px')
+    const handle = within(th).getByTestId('column-resize-handle')
+
+    fireEvent.mouseDown(handle, { clientX: 100, clientY: 10, button: 0 })
+    fireEvent.mouseMove(document, { clientX: 160, clientY: 10 })
+    await waitFor(() => expect(th.style.width).toBe('240px'))
+    fireEvent.mouseUp(document, { clientX: 160, clientY: 10 })
+    expect(th.style.width).toBe('240px')
+
+    // 纯会话态：不写任何列宽偏好到 localStorage
+    expect(Array.from(storageMap.keys()).some((key) => key.startsWith('mc_res_list_col_widths_'))).toBe(false)
   })
 
   // F-8-c：应用名称列头 tooltip
