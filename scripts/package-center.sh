@@ -504,6 +504,11 @@ EOF
 
     cat >> "$start_sh" <<'EOF'
 echo ">>> Starting prometheus on :${PROM_PORT}"
+# G1 阻断级前置：--web.enable-remote-write-receiver 是边缘 vmagent 的回传写入口。
+# 缺失时 /api/v1/write 返回 404，vmagent 无限重试、磁盘持久队列只涨不降（且不进
+# errors_total，页面上可能看不到错误摘要）。不能只开在 Makefile 的 run-prometheus 里。
+# 安全边界见 module-11 design-decisions 决策 1：该入口无内置认证，9090 仅限内网/
+# 可信网段；跨公网必须经 G2 nginx（IP 白名单 + TLS + 每网域 Token）。
 nohup "$ROOT/bin/prometheus" \
     --config.file="$DATA_ROOT/config-output/prometheus.yml" \
     --storage.tsdb.path="$DATA_ROOT/prometheus" \
@@ -511,6 +516,7 @@ nohup "$ROOT/bin/prometheus" \
     --storage.tsdb.retention.size="$PROM_RETENTION_SIZE" \
     --enable-feature=promql-experimental-functions \
     --web.enable-lifecycle \
+    --web.enable-remote-write-receiver \
     --web.listen-address=":${PROM_PORT}" \
     > "$LOG_ROOT/prometheus.log" 2>&1 &
 echo $! > "$PID_DIR/prometheus.pid"
@@ -583,6 +589,15 @@ echo "把 <服务器IP> 换成部署机实际可达的 IP 或域名；本机访�
 echo "生产部署请先执行 scripts/install.sh（参考 README「生产安装」节）。"
 EOF
     chmod +x "$start_sh"
+
+    # 兜底自检（G1，2026-10-21）：交付包曾因生成器漏参，中心 /api/v1/write 返回 404，
+    # 边缘 vmagent 无限重试导致回传积压单调上涨。生成物缺该参数即中止打包，
+    # 杜绝「Makefile 的 run-prometheus 有、交付包没有」再次漂移。
+    if ! grep -Eq '^[[:space:]]*--web\.enable-remote-write-receiver([[:space:]]|$)' "$start_sh"; then
+        echo ">>> ERROR: $start_sh 缺少 --web.enable-remote-write-receiver（边缘 vmagent 回传写入口），打包中止" >&2
+        rm -rf "$BUNDLE_DIR"
+        exit 1
+    fi
 
     cat > "$BUNDLE_DIR/scripts/stop.sh" <<'EOF'
 #!/usr/bin/env bash
