@@ -121,7 +121,7 @@ func seedDatabase(t *testing.T, db *gorm.DB, resourceID string) {
 			ResourceCategory: models.ResourceCategoryDatabase,
 			NetworkDomainID:  "default",
 			BizCode:          "infra",
-			Env:              "prod",
+			Env: "PRD",
 			Status:           "online",
 			SourceType:       models.SourceTypeManual,
 		},

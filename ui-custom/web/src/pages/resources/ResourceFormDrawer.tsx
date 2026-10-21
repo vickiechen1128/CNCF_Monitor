@@ -67,8 +67,8 @@ const SOURCE_TYPE_MAP: Record<string, string> = {
   cmdb: 'CMDB 同步',
 }
 
-/** 环境取值（§5.16.1 / ValidEnvs） */
-const ENV_VALUES = ['dev', 'test', 'staging', 'prod']
+/** 环境取值（§5.16.1 / ValidEnvs）：2026-10-21 起收敛为 OPS / PRD / UAT */
+const ENV_VALUES = ['OPS', 'PRD', 'UAT']
 
 /** 运行状态取值（§5.2 / §8.1，UI 展示名「运行状态」；孤儿为后续版本预留不入选） */
 const STATUS_OPTIONS: { value: ResourceStatus; label: string }[] = [
@@ -250,7 +250,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     app_code: record.app_code,
     // {v2026-09-28 决策 110} 平台归属回显：资源行一等字段；空串归一为 undefined 交由 Select 走未选态
     platform_code: record.platform_code || undefined,
-    env: record.env,
+    // 存量环境值（dev/test/staging/prod）不在新枚举内：清空，保存时强制重新选择
+    env: record.env && ENV_VALUES.includes(record.env) ? record.env : undefined,
     cluster: record.cluster,
     owner: record.owner,
     status: record.status,
@@ -352,6 +353,9 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  /** 存量环境值（dev/test/staging/prod）不在新枚举内：不迁移，编辑时清空并提示重新选择 */
+  const legacyEnv = record?.env && !ENV_VALUES.includes(record.env) ? record.env : undefined
 
   /** 编辑态以行 resource_category 为准，新增态取传入 Tab 类型 */
   const displayCategory = record?.resource_category ?? category
@@ -514,7 +518,12 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
           <Col span={12}>
             {/* 接口服务无平台归属：该格换为「环境」，使两列填满（0 留白） */}
             {isInterface ? (
-              <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]}>
+              <Form.Item
+                label="环境"
+                name="env"
+                rules={[{ required: true, message: '请选择环境' }]}
+                extra={legacyEnv ? `原环境「${legacyEnv}」已停用，请重新选择` : undefined}
+              >
                 <Select placeholder="请选择环境">
                   {ENV_VALUES.map((e) => (
                     <Select.Option key={e} value={e}>
@@ -599,7 +608,12 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Select>
               </Form.Item>
             ) : (
-              <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]}>
+              <Form.Item
+                label="环境"
+                name="env"
+                rules={[{ required: true, message: '请选择环境' }]}
+                extra={legacyEnv ? `原环境「${legacyEnv}」已停用，请重新选择` : undefined}
+              >
                 <Select placeholder="请选择环境">
                   {ENV_VALUES.map((e) => (
                     <Select.Option key={e} value={e}>

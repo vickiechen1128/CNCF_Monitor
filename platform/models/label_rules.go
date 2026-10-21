@@ -56,16 +56,19 @@ func IsDictTranslatableSourceField(field string) bool {
 	return ok
 }
 
-// LabelEnvDisplayNames 是 env 标签值的固定中文展示名（环境为固定枚举，非 DB 字典）。
+// LabelEnvDisplayNames 是 env 标签值的字典翻译结果。
+// 环境为固定枚举、且当前产品口径要求**直接展示代码**，故这里做恒等映射；
+// 保留该表是为了让既有 transform=dict 的 env 映射仍能正常出值。
 var LabelEnvDisplayNames = map[string]string{
-	"dev":     "开发",
-	"test":    "测试",
-	"staging": "预发",
-	"prod":    "生产",
+	"OPS": "OPS",
+	"PRD": "PRD",
+	"UAT": "UAT",
 }
 
 // ValidEnvs lists the accepted environment values (Module_07 §5.16.2).
-var ValidEnvs = []string{"dev", "test", "staging", "prod"}
+// 2026-10-21 起由 dev/test/staging/prod 收敛为 OPS/PRD/UAT；存量旧值不迁移，
+// 用户下次编辑保存时必须重新选择。
+var ValidEnvs = []string{"OPS", "PRD", "UAT"}
 
 // ValidProtocols lists the accepted health-check protocol values
 // (Module_07 §5.16.2).

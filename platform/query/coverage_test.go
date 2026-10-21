@@ -357,7 +357,7 @@ func TestCoverageBlackboxResourceSelectionCountsAsMonitored(t *testing.T) {
 	require.NoError(t, db.Create(&models.InterfaceService{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
-			NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+			NetworkDomainID: "default", BizCode: "infra", Env: "PRD", Status: "online",
 			SourceType: models.SourceTypeManual,
 		},
 		APIName: "订单查询", APIURL: "https://api.example.com/order/health",

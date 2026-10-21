@@ -401,7 +401,7 @@ func TestImportResource_Upsert_InterfaceService(t *testing.T) {
 			ResourceCategory: models.ResourceCategoryInterfaceService,
 			NetworkDomainID:  "default",
 			BizCode:          "infra",
-			Env:              "prod",
+			Env: "PRD",
 			Status:           "online",
 			SourceType:       models.SourceTypeManual,
 		},

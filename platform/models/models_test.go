@@ -84,7 +84,7 @@ func TestMiddlewareImplementsResource(t *testing.T) {
 		ResourceID:     "redis-01",
 		ResourceType:   ResourceTypeMiddleware,
 		AppName:        "app-a",
-		Env:            "prod",
+		Env: "PRD",
 		Cluster:        "cluster-1",
 		Status:         "online",
 		MiddlewareType: "redis",
@@ -95,7 +95,7 @@ func TestMiddlewareImplementsResource(t *testing.T) {
 	assert.Equal(t, "redis-01", m.GetResourceID())
 	assert.Equal(t, ResourceTypeMiddleware, m.GetResourceType())
 	assert.Equal(t, "app-a", m.GetAppCode())
-	assert.Equal(t, "prod", m.GetEnv())
+	assert.Equal(t, "PRD", m.GetEnv())
 	assert.Equal(t, "cluster-1", m.GetCluster())
 	assert.Equal(t, "online", m.GetStatus())
 }
@@ -107,7 +107,7 @@ func TestApplicationImplementsResource(t *testing.T) {
 		ResourceID:     "svc-01",
 		ResourceType:   ResourceTypeApplication,
 		AppName:        "app-a",
-		Env:            "prod",
+		Env: "PRD",
 		Cluster:        "cluster-1",
 		Status:         "online",
 		ServiceName:    "order-service",
@@ -184,7 +184,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 			ResourceCategory: ResourceCategoryDatabase,
 			NetworkDomainID:  DefaultDomainID,
 			BizCode:          "pay",
-			Env:              "prod",
+			Env: "PRD",
 			Status:           "online",
 			SourceType:       SourceTypeManual,
 		},
@@ -194,7 +194,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 	assert.Equal(t, "db-01", db.GetResourceID())
 	assert.Equal(t, ResourceTypeDatabase, db.GetResourceType())
 	assert.Equal(t, ResourceCategoryDatabase, db.GetResourceCategory())
-	assert.Equal(t, "prod", db.GetEnv())
+	assert.Equal(t, "PRD", db.GetEnv())
 	assert.Equal(t, "online", db.GetStatus())
 
 	gt := &GenericTarget{
@@ -202,7 +202,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 			ResourceID:       "gt-01",
 			ResourceCategory: ResourceCategoryGenericTarget,
 			NetworkDomainID:  DefaultDomainID,
-			Env:              "prod",
+			Env: "PRD",
 			Status:           "online",
 			SourceType:       SourceTypeManual,
 		},
@@ -602,7 +602,7 @@ func TestLabelRules(t *testing.T) {
 	assert.Error(t, ValidateLabelKey(strings.Repeat("a", 129)))
 
 	// Enum slices.
-	assert.Equal(t, []string{"dev", "test", "staging", "prod"}, ValidEnvs)
+	assert.Equal(t, []string{"OPS", "PRD", "UAT"}, ValidEnvs)
 	assert.Equal(t, []string{"http", "https", "tcp"}, ValidProtocols)
 	assert.Equal(t, []string{"http", "https"}, ValidSchemes)
 }

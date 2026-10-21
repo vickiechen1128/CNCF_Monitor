@@ -216,7 +216,7 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 		return err
 	}
 	if !containsString(models.ValidEnvs, strings.TrimSpace(in.Env)) {
-		return fmt.Errorf("env 必须是 dev/test/staging/prod 之一，当前：%q", in.Env)
+		return fmt.Errorf("env 必须是 %s 之一，当前：%q", strings.Join(models.ValidEnvs, "/"), in.Env)
 	}
 	if !isValidStatus(in.Status) {
 		return fmt.Errorf("status 必须是 online/offline/maintenance 之一（API 写请求不接受中文状态），当前：%q", in.Status)

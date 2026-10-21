@@ -134,7 +134,7 @@ func seedInterfaceService(t *testing.T, db *gorm.DB, resourceID, domainID, apiNa
 	require.NoError(t, db.Create(&models.InterfaceService{
 		ResourceBase: models.ResourceBase{
 			ResourceID: resourceID, ResourceCategory: models.ResourceCategoryInterfaceService,
-			NetworkDomainID: domainID, BizCode: "infra", Env: "prod", Status: status,
+			NetworkDomainID: domainID, BizCode: "infra", Env: "PRD", Status: status,
 			SourceType: models.SourceTypeManual,
 		},
 		APIName: apiName, APIURL: apiURL, ResourceType: models.ResourceTypeInterfaceService,
@@ -145,7 +145,7 @@ func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceNam
 	t.Helper()
 	require.NoError(t, db.Create(&models.Application{
 		ResourceID: resourceID, ResourceCategory: models.ResourceCategoryApplication,
-		NetworkDomainID: domainID, BizCode: "infra", Env: "prod", Status: status,
+		NetworkDomainID: domainID, BizCode: "infra", Env: "PRD", Status: status,
 		SourceType: models.SourceTypeManual,
 		ServiceName: serviceName, HealthCheckURL: healthCheckURL, Protocol: "http", Port: 8080,
 	}).Error)
@@ -156,7 +156,7 @@ func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, s
 	require.NoError(t, db.Create(&models.Database{
 		ResourceBase: models.ResourceBase{
 			ResourceID: resourceID, ResourceCategory: models.ResourceCategoryDatabase,
-			NetworkDomainID: domainID, BizCode: "infra", Env: "prod", Status: status, SourceType: models.SourceTypeManual,
+			NetworkDomainID: domainID, BizCode: "infra", Env: "PRD", Status: status, SourceType: models.SourceTypeManual,
 		},
 		DatabaseType: dbType, InstanceIP: ip, ResourceType: models.ResourceTypeDatabase,
 	}).Error)

@@ -61,7 +61,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			AppCode:          "pay-db", // 已启用
 			Cluster:          "pay",
 			Status:           "online",
-			Env:              "prod",
+			Env: "PRD",
 			DatabaseType:     "mysql",
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
@@ -77,7 +77,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			AppCode:          "legacy-app", // 已停用
 			Cluster:          "pay",
 			Status:           "online",
-			Env:              "prod",
+			Env: "PRD",
 			DatabaseType:     "mysql",
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
@@ -95,7 +95,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			AppCode:          "not-registered",
 			Cluster:          "pay",
 			Status:           "online",
-			Env:              "prod",
+			Env: "PRD",
 			DatabaseType:     "mysql",
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,

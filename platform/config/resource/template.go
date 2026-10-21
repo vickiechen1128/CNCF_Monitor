@@ -62,7 +62,7 @@ var TemplateColumns = map[models.ResourceCategory][]string{
 	},
 	// 第 6 类「接口服务」：类型专属字段 api_name / api_url + 公共字段
 	// 网域/业务/应用/环境/运行状态；刻意不含 platform_code / cluster / owner。
-	// env 必须保留：validateCommon 对全部类别强制 env ∈ {dev,test,staging,prod}，
+	// env 必须保留：validateCommon 对全部类别强制 env ∈ ValidEnvs（OPS/PRD/UAT），
 	// 模板缺该列会导致导入恒失败。
 	// **不含 scrape_port**：拨测目标是完整 URL（端口已在 URL 内），该类别不存在
 	// 「另有一个 exporter 采集端口」的语义 —— 是全类别里唯一不追加该尾列的。
@@ -361,7 +361,7 @@ func templateColumnRequiredLabel(category models.ResourceCategory, col string) s
 //   - 易被误认为真实字典的编码/名称类字段统一带「示例」或 `example` 字样，IP 用
 //     RFC 5737 文档保留段 192.0.2.0/24（实际网段不会出现），避免与真实资源混淆。
 func templateExampleRow(category models.ResourceCategory) []string {
-	values := map[string]string{"env": "prod"}
+	values := map[string]string{"env": "PRD"}
 	switch category {
 	case models.ResourceCategoryHost:
 		values["instance_name"] = "示例-web-01"

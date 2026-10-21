@@ -181,7 +181,7 @@ func TestPreviewTargetsPortSourceBusinessNotBlocked(t *testing.T) {
 	require.NoError(t, db.Create(&models.Database{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "db-1", ResourceCategory: models.ResourceCategoryDatabase,
-			NetworkDomainID: "default", BizCode: "infra", Env: "prod", Status: "online",
+			NetworkDomainID: "default", BizCode: "infra", Env: "PRD", Status: "online",
 			SourceType: models.SourceTypeManual,
 		},
 		DatabaseType: "mysql", InstanceIP: "10.0.2.1", Port: 3306,

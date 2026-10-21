@@ -19,7 +19,7 @@ type labelDictionary struct {
 }
 
 // newLabelDictionary 加载全部可翻译字典（应用 / 业务 / 平台 / 网域）。
-// 环境（env）为固定枚举，直接走 models.LabelEnvDisplayNames，无需查库。
+// 环境（env）为固定枚举，直接走 models.LabelEnvDisplayNames（当前恒等映射，输出原代码），无需查库。
 func newLabelDictionary(db *gorm.DB) *labelDictionary {
 	d := &labelDictionary{
 		appNames:      map[string]string{},

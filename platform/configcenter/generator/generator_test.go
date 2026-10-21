@@ -247,7 +247,7 @@ func TestResolveTargetsBlackboxResourceMode(t *testing.T) {
 	require.NoError(t, db.Create(&models.InterfaceService{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "bb-is-1", ResourceCategory: models.ResourceCategoryInterfaceService,
-			NetworkDomainID: "bb-nd", BizCode: "pay", Env: "prod", Status: "online",
+			NetworkDomainID: "bb-nd", BizCode: "pay", Env: "PRD", Status: "online",
 			SourceType: models.SourceTypeManual,
 		},
 		APIName: "订单查询", APIURL: "https://api.example.com/health?token=x",
@@ -613,12 +613,12 @@ func TestLoadExporterPortIsDefaultFilter(t *testing.T) {
 func TestMergeLabelsPriority(t *testing.T) {
 	// system 受保护：user/cmdb 均不可覆盖 system 的键；其余键由 user/cmdb 补充填充。
 	got := mergeLabels(
-		map[string]string{"app": "sys", "env": "prod"},
+		map[string]string{"app": "sys", "env": "PRD"},
 		map[string]string{"app": "user", "extra": "x"},
 		map[string]string{"app": "cmdb", "env": "cmdb-env", "biz": "cmdb-biz"},
 	)
 	assert.Equal(t, "sys", got["app"], "system 标签不可被 user/cmdb 覆盖")
-	assert.Equal(t, "prod", got["env"], "system 标签不可被 user/cmdb 覆盖")
+	assert.Equal(t, "PRD", got["env"], "system 标签不可被 user/cmdb 覆盖")
 	assert.Equal(t, "x", got["extra"])
 	assert.Equal(t, "cmdb-biz", got["biz"])
 }
@@ -1123,14 +1123,14 @@ func TestExpandLabelTemplateDictTransform(t *testing.T) {
 		"app_code":          "ceshi",
 		"biz_code":          "authorized-ops",
 		"platform_code":     "k8s-prod",
-		"env":               "prod",
+		"env": "PRD",
 		"network_domain_id": "nd-1",
 	}, "10.0.1.1:9100", dict)
 
 	assert.Equal(t, "测试应用", labels["app"])
 	assert.Equal(t, "授权运营", labels["biz"])
 	assert.Equal(t, "生产 K8s 平台", labels["platform"])
-	assert.Equal(t, "生产", labels["env"])
+	assert.Equal(t, "PRD", labels["env"])
 	assert.Equal(t, "政务网 A 区", labels["domain_name"])
 
 	// 字典未命中：回退原始 code。
@@ -1151,7 +1151,7 @@ func TestResolveTargetsDictTransform(t *testing.T) {
 	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "dict-app", AppName: "字典应用", Status: "enabled"}).Error)
 	require.NoError(t, db.Create(&models.Host{
 		ServerID: "dict-host-1", ResourceID: "dict-host-1", NetworkDomainID: "dict-nd",
-		PrivateIP: "10.9.0.1", Status: "online", AppCode: "dict-app", EnvFlag: "prod",
+		PrivateIP: "10.9.0.1", Status: "online", AppCode: "dict-app", EnvFlag: "PRD",
 	}).Error)
 
 	tmpl := &models.LabelTemplate{Name: "dict-tmpl", ResourceCategory: models.ResourceCategoryHost,
@@ -1167,7 +1167,7 @@ func TestResolveTargetsDictTransform(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "字典应用", groups[0].Labels["app"])
-	assert.Equal(t, "生产", groups[0].Labels["env"])
+	assert.Equal(t, "PRD", groups[0].Labels["env"])
 }
 
 func TestMarshalTargetGroupsJSON(t *testing.T) {
@@ -1493,14 +1493,14 @@ func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T) {
 	// 资源留空 + 应用无任何关联 ⇒ 不注入。
 	require.NoError(t, db.Create(&models.Application{
 		ResourceID: "app-orphan-res", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
-		BizCode: "payment", AppName: "app-orphan", Env: "prod", Status: "online",
+		BizCode: "payment", AppName: "app-orphan", Env: "PRD", Status: "online",
 		ServiceName: "svc", Endpoint: "10.0.0.20", Port: 8080,
 	}).Error)
 	// generic_target 仅填 biz_code、无 app_code ⇒ 无所属应用，既不走资源值也无兜底。
 	require.NoError(t, db.Create(&models.GenericTarget{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "gt-biz-only", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "d",
-			BizCode: "infra", Env: "prod", Status: "online",
+			BizCode: "infra", Env: "PRD", Status: "online",
 		},
 		TargetName: "gt", InstanceIP: "10.0.0.30", Port: 161,
 	}).Error)

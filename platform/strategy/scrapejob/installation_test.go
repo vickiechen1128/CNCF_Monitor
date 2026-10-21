@@ -80,7 +80,7 @@ func TestListInstancesPortSourceBusinessMiddlewareNotBlocked(t *testing.T) {
 		ResourceID: "mw-1", ResourceType: models.ResourceTypeMiddleware,
 		ResourceCategory: models.ResourceCategoryMiddleware, NetworkDomainID: "default",
 		BizCode: "infra", SourceType: models.SourceTypeManual, AppName: "kafka-1",
-		Env: "prod", Cluster: "kafka", Owner: "ops", Status: "online",
+		Env: "PRD", Cluster: "kafka", Owner: "ops", Status: "online",
 		MiddlewareType: "kafka", InstanceIP: "10.0.3.1", Port: 6379,
 	}).Error)
 	// 无映射、无模板 → 四级仅剩业务 port 兜底。
