@@ -34,17 +34,19 @@ if [ ! -f "$MAP" ]; then
   exit 1
 fi
 
-TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
+# 变量名不能叫 TMP：Windows 下 TMP 是已导出的临时目录环境变量，重新赋值会被
+# 子进程（go run）继承，Go 会把这里创建的「文件」当成临时目录 → mkdir 失败。
+REPO_MAP_TMP="$(mktemp)"
+trap 'rm -f "$REPO_MAP_TMP"' EXIT
 
-"$GO" run ./scripts/repo-map -o "$TMP" >/dev/null
+"$GO" run ./scripts/repo-map -o "$REPO_MAP_TMP" >/dev/null
 
 # 剥离含时间戳/commit 的头部行（每次生成都不同，不属于代码漂移）
 strip_header() {
   grep -v '^> 生成时间:' "$1"
 }
 
-if ! diff <(strip_header "$MAP") <(strip_header "$TMP") >/dev/null; then
+if ! diff <(strip_header "$MAP") <(strip_header "$REPO_MAP_TMP") >/dev/null; then
   echo "ERROR: repo-map 已过期 —— $MAP 中的符号清单与当前代码不一致。" >&2
   echo "修复：make repo-map && git add $MAP" >&2
   exit 1
