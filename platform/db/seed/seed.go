@@ -53,6 +53,11 @@ func Run(db *gorm.DB) error {
 	if err := runScrapeJobMetricsPathBackfill(db); err != nil {
 		return fmt.Errorf("backfill scrape job metrics_path: %w", err)
 	}
+	// 一次性修正：标准采集 Job 空 resource_type 按 monitor_type 推导回填
+	// （空类别 → 默认标签模板查不到 → 整份模板标签集静默为空）。
+	if err := runScrapeJobCategoryBackfill(db); err != nil {
+		return fmt.Errorf("backfill scrape job resource_type: %w", err)
+	}
 	return nil
 }
 

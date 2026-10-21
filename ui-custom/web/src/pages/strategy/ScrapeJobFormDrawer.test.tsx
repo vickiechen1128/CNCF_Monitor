@@ -61,9 +61,23 @@ beforeEach(() => {
   exporterCreateMock.mockReset()
   // {T01-P6} 编辑态回显默认空列表（防止未设置时编辑态 fetch 抛错；各用例按需覆盖）
   instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
+  // 每个资源类别都有系统预设的默认标签模板（与 seed 口径一致）。
+  // 提交链路现在要求默认模板必须已加载并选中，默认 mock 不能再是空列表。
   labelListMock.mockResolvedValue({
     status: 'success',
-    data: { list: [], total: 0, page: 1, page_size: 100 },
+    data: {
+      list: [
+        { id: 101, name: '主机默认模板', resource_category: 'host', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 102, name: '数据库默认模板', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 103, name: '中间件默认模板', resource_category: 'middleware', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 104, name: '应用默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 105, name: '其他监控目标默认模板', resource_category: 'generic_target', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 106, name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
+      ],
+      total: 6,
+      page: 1,
+      page_size: 100,
+    },
   })
   domainListMock.mockResolvedValue({
     status: 'success',
@@ -254,6 +268,49 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('12')
   })
 
+  // 回归：标准采集任务选「使用默认标签模板」时，提交的是该资源类别默认模板的
+  // 真实 ID；此前提交 undefined 导致字段从请求体消失，后端保留旧值/无法回落默认。
+  it('standard：选「使用默认标签模板」时提交默认模板 ID 与资源类别', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 13, job_name: 'default-label', job_type: 'standard' } })
+    labelListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        // 监控对象类型的默认采集配置未配标签模板 → 表单停在「使用默认标签模板」
+        list: [
+          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-1', scrape_interval: '30s', scrape_timeout: '20s', metrics_path: '/m', scheme: 'http', label_template_id: undefined },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderDrawer()
+
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'default-label')
+    await selectCategoryAndType('数据库', 'MySQL')
+    expect(await screen.findByText('使用默认标签模板（MySQL 标准标签）')).toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const body = createMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.label_template_id).toBe('7')
+    expect(body.resource_type).toBe('database')
+  })
+
   it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 10, job_name: 'draft-job', job_type: 'standard' } })
     renderDrawer()
@@ -374,12 +431,16 @@ describe('ScrapeJobFormDrawer', () => {
     // F1-8：资源类别=数据库 → 监控对象类型=MySQL（两级级联）
     await selectCategoryAndType('数据库', 'MySQL')
 
-    // 仅展示 database 类别模板卡片，host 类别不展示
-    expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
+    // 仅展示 database 类别模板（默认模板选项文本包含模板名），host 类别不展示
+    expect(await screen.findByText(/MySQL 标准标签/)).toBeInTheDocument()
     expect(screen.queryByText('Linux 标签')).toBeNull()
   })
 
   it('shows label template empty hint with 补配 action when none in category (F1-4)', async () => {
+    labelListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 100 },
+    })
     renderDrawer()
     await selectCategoryAndType('数据库', 'MySQL')
     expect(await screen.findByText('该资源类别下暂无标签模板')).toBeInTheDocument()
@@ -490,10 +551,9 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.getByDisplayValue('/metrics')).toBeInTheDocument()
     expect(screen.getByDisplayValue('https')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('99s')).toBeNull()
-    // 标签模板卡片选中已挂模板「MySQL 标准标签」（value=7），label_template_id 未被默认映射清空
-    expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
-    // 限定以模板名开头，避免命中「使用默认标签模板（MySQL 标准标签）」空选项
-    expect(screen.getByRole('radio', { name: /^MySQL 标准标签/ })).toBeChecked()
+    // 标签模板默认选项携带默认模板 ID（value=7）；默认模板不再重复渲染为普通卡片
+    expect(await screen.findByText(/MySQL 标准标签/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /MySQL 标准标签/ })).toBeChecked()
   })
 
   // 回归：#19 同源问题（采集 Job 抽屉）。用户实测「刷新页面后，勾选多选框再点编辑才有回显；

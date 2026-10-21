@@ -174,7 +174,7 @@ func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T) {
 	}).Error)
 	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
-	body := `{"job_name":"node-prod","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	body := `{"job_name":"node-prod","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
@@ -190,6 +190,26 @@ func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T) {
 	assert.Equal(t, string(models.InstanceSelectionManual), string(out.Data.InstanceSelectionMode), "instance_selection_mode 默认 manual")
 	assert.Equal(t, "ready", out.Data.DraftStatus)
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus), "创建后 change_status=pending")
+	assert.Equal(t, models.ResourceTypeHost, out.Data.ResourceType, "resource_type 应由 monitor_type 推导后落库")
+}
+
+// 标准采集 Job 必须提交 resource_type：空值直接 400，不做 monitor_type 推导兜底。
+// 空类别会让生成侧按 resource_category="" 查不到默认标签模板 → 标签集静默为空。
+func TestCreateScrapeJobStandardRequiresResourceType(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	exporterID := seedExporter(t, db, "node-exporter")
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: exporterID, IsDefault: true, DefaultPort: 9100,
+		MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "30s", ScrapeTimeout: "20s",
+	}).Error)
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	body := `{"job_name":"no-resource-type","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "resource_type")
 }
 
 // F-28：无默认映射时，留空采集参数按全局兜底常量解析（15s/10s//metrics/http）。
@@ -199,7 +219,7 @@ func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T) {
 	seedEnabledDomain(t, db, "default")
 	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
-	body := `{"job_name":"sparse-job","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	body := `{"job_name":"sparse-job","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
@@ -225,7 +245,7 @@ func TestCreateScrapeJobTemplateFallback(t *testing.T) {
 	}).Error)
 	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
-	body := `{"job_name":"tpl-fallback","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	body := `{"job_name":"tpl-fallback","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
@@ -284,14 +304,14 @@ func TestCreateScrapeJobApplicationRequiresMetricsPath(t *testing.T) {
 	}).Error)
 
 	t.Run("留空 metrics_path 被拦", func(t *testing.T) {
-		body := `{"job_name":"app-prod","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"enabled":true}`
+		body := `{"job_name":"app-prod","job_type":"standard","resource_type":"application","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"enabled":true}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		assert.Contains(t, w.Body.String(), "metrics_path")
 	})
 
 	t.Run("显式填写 metrics_path 通过（scheme 仍走全局兜底）", func(t *testing.T) {
-		body := `{"job_name":"app-prod-ok","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
+		body := `{"job_name":"app-prod-ok","job_type":"standard","resource_type":"application","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusOK, w.Code, "应创建成功：%s", w.Body.String())
 		var out struct {
@@ -354,7 +374,7 @@ func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T) {
 	seedFrozenDomain(t, db, "frozen")
 
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"j1","job_type":"standard","monitor_type":"mysql","network_domain_id":"frozen","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
+		`{"job_name":"j1","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"frozen","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	// 未纳管（is_monitored=false）。
@@ -363,7 +383,7 @@ func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T) {
 		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled, IsMonitored: false,
 	}).Error)
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"j2","job_type":"standard","monitor_type":"mysql","network_domain_id":"unmon","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
+		`{"job_name":"j2","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"unmon","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -374,18 +394,18 @@ func TestCreateScrapeJobAuthValidation(t *testing.T) {
 
 	// basic 缺 password → bad_request。
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"basic-bad","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"basic","username":"u"}`)
+		`{"job_name":"basic-bad","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"basic","username":"u"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	// bearer 缺 token → bad_request。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"bearer-bad","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"bearer"}`)
+		`{"job_name":"bearer-bad","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"bearer"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	// basic 合法（password/token 仅存储、不回显明文）。
 	url := "/api/v2/platform/scrape-jobs"
 	w = perform(t, r, http.MethodPost, url,
-		`{"job_name":"basic-ok","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"basic","username":"u","password":"secret"}`)
+		`{"job_name":"basic-ok","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http","auth_type":"basic","username":"u","password":"secret"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
 		Data models.ScrapeJob `json:"data"`
@@ -624,7 +644,7 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 
 	// blackbox → standard（带 monitor_type 与采集参数）成功。
 	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
-		`{"job_type":"standard","monitor_type":"mysql","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
+		`{"job_type":"standard","resource_type":"database","monitor_type":"mysql","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, string(models.JobTypeStandard), string(out.Data.JobType))
@@ -680,7 +700,7 @@ func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T) {
 	seedEnabledDomain(t, db, "default")
 
 	// 先创建一个草稿 Job（change_status=none，可删除）。
-	body := `{"job_name":"recreate-me","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","draft_status":"draft","enabled":true}`
+	body := `{"job_name":"recreate-me","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","draft_status":"draft","enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var created struct {
@@ -1213,7 +1233,7 @@ func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
 		}).Error)
 
 		// 复现线上脏数据：采集路径开头多一个空格。
-		body := `{"job_name":"test-app-01","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":" /actuator/prometheus","enabled":true}`
+		body := `{"job_name":"test-app-01","job_type":"standard","resource_type":"application","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":" /actuator/prometheus","enabled":true}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		var out struct {
@@ -1237,7 +1257,7 @@ func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
 			ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081, Protocol: "http",
 		}).Error)
 
-		body := `{"job_name":"app-blank","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"   ","enabled":true}`
+		body := `{"job_name":"app-blank","job_type":"standard","resource_type":"application","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"   ","enabled":true}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusBadRequest, w.Code, "纯空白应报错而非存空串：%s", w.Body.String())
 		// 报错信息须明确指向 metrics_path，避免"含糊"的内部错误。
@@ -1261,7 +1281,7 @@ func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
 		seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
 		// 完全留空 → 继承映射默认metrics_path。
-		body := `{"job_name":"inherit-ok","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+		body := `{"job_name":"inherit-ok","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		var out struct {
@@ -1271,7 +1291,7 @@ func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
 		assert.Equal(t, "/metrics", out.Data.MetricsPath, "留空仍继承映射默认")
 
 		// 纯空白归一后 ≡ 留空 → 同样应继承映射默认，而非被当作显式值。
-		body2 := `{"job_name":"inherit-blank","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":"  ","enabled":true}`
+		body2 := `{"job_name":"inherit-blank","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":"  ","enabled":true}`
 		w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
 		require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
 		var out2 struct {
@@ -1326,7 +1346,7 @@ func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T) {
 		seedEnabledDomain(t, db, "default")
 		seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
-		body := `{"job_name":"draft-blank","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":" /metrics ","draft_status":"draft"}`
+		body := `{"job_name":"draft-blank","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"metrics_path":" /metrics ","draft_status":"draft"}`
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		var stored models.ScrapeJob
@@ -1350,7 +1370,7 @@ func TestCreateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T) {
 	}).Error)
 
 	// 复现线上脏数据 test-nginx-01：nginx + 空采集器模板 + 错误端口 6379。
-	body := `{"job_name":"test-nginx-01","job_type":"standard","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
+	body := `{"job_name":"test-nginx-01","job_type":"standard","resource_type":"middleware","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusBadRequest, w.Code, "nginx 无可用采集器应在保存时被拦下")
 
@@ -1379,7 +1399,7 @@ func TestCreateScrapeJobApplicationHTTPAllowsEmptyExporter(t *testing.T) {
 	}).Error)
 
 	// exporter_template_id 留空 + metrics_path 显式填写 → 创建成功。
-	body := `{"job_name":"app-prod-ok","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
+	body := `{"job_name":"app-prod-ok","job_type":"standard","resource_type":"application","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code, "application_http 直采不应被采集器校验误伤：%s", w.Body.String())
 	var out struct {
@@ -1401,7 +1421,7 @@ func TestCreateScrapeJobRejectsTemplateMonitorTypeMismatch(t *testing.T) {
 	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
 
 	// monitor_type=redis 却选node-exporter → 不匹配。
-	body := fmt.Sprintf(`{"job_name":"redis-mismatch","job_type":"standard","monitor_type":"redis","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
+	body := fmt.Sprintf(`{"job_name":"redis-mismatch","job_type":"standard","resource_type":"database","monitor_type":"redis","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "supported_monitor_types")
@@ -1424,12 +1444,12 @@ func TestCreateScrapeJobAcceptsMatchingTemplateAndInheritedMapping(t *testing.T)
 	}).Error)
 
 	// 显式选模板 → 类型匹配，放行。
-	body := fmt.Sprintf(`{"job_name":"mysql-explicit","job_type":"standard","monitor_type":"mysql","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
+	body := fmt.Sprintf(`{"job_name":"mysql-explicit","job_type":"standard","resource_type":"database","monitor_type":"mysql","exporter_template_id":"%s","network_domain_id":"default","enabled":true}`, tmplID)
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	// 留空 → 有 is_default 映射兜底 + 内置模板声明支持 mysql，放行。
-	body2 := `{"job_name":"mysql-inherited","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","enabled":true}`
+	body2 := `{"job_name":"mysql-inherited","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","enabled":true}`
 	w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
 	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
 	var out struct {
@@ -1451,13 +1471,13 @@ func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T) {
 		MiddlewareType: "nginx", AppName: "nginx-edge", InstanceIP: "10.0.1.9", Port: 80,
 	}).Error)
 
-	body := fmt.Sprintf(`{"job_name":"nginx-registered","job_type":"standard","monitor_type":"nginx","exporter_template_id":"%s","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`, tmplID)
+	body := fmt.Sprintf(`{"job_name":"nginx-registered","job_type":"standard","resource_type":"middleware","monitor_type":"nginx","exporter_template_id":"%s","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`, tmplID)
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	// 登记后 nginx 也走「留空 = 继承 / 走全局兜底」的统一语义，不因nginx 而特殊化
 	// （与 host_linux/mysql 留空即放行保持一致）。
-	body2 := `{"job_name":"nginx-unselected","job_type":"standard","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
+	body2 := `{"job_name":"nginx-unselected","job_type":"standard","resource_type":"middleware","monitor_type":"nginx","network_domain_id":"default","selected_instance_ids":["nginx-1"],"enabled":true}`
 	w2 := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body2)
 	require.Equal(t, http.StatusOK, w2.Code, w2.Body.String())
 }
@@ -1476,7 +1496,9 @@ func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T) {
 	require.NoError(t, db.Create(job).Error)
 	jobID := strconv.FormatUint(uint64(job.ID), 10)
 
-	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"monitor_type":"nginx"}`)
+	// 改 monitor_type 时必须同步提交匹配的 resource_type（本次改为 middleware），
+	// 否则会先命中「resource_type 与 monitor_type 不匹配」而不是本用例要测的采集器联动。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"monitor_type":"nginx","resource_type":"middleware"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "无可用采集器")
 
@@ -1491,7 +1513,10 @@ func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T) {
 	db := newBatchTestDB(t)
 	seedBatchDomain(t, db)
 	j := seedBatchJob(t, db, "nginx-draft", "draft")
-	require.NoError(t, db.Model(j).Update("monitor_type", "nginx").Error)
+	require.NoError(t, db.Model(j).Updates(map[string]interface{}{
+		"monitor_type":  "nginx",
+		"resource_type": models.ResourceTypeMiddleware,
+	}).Error)
 
 	_, err := BatchSubmitReady(db, []uint{j.ID})
 	require.Error(t, err, "nginx 无可用采集器时不应提交生效")
@@ -1552,7 +1577,7 @@ func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T) {
 	seedEnabledDomain(t, db, "other")
 	seedHost(t, db, "r-42", "other", "10.0.9.42", "online")
 
-	body := `{"job_name":"node-prod","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["r-42"],"enabled":true}`
+	body := `{"job_name":"node-prod","job_type":"standard","resource_type":"host","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["r-42"],"enabled":true}`
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "host-r-42", "报错应带实例名而非裸 UUID")
@@ -1595,20 +1620,20 @@ func TestCreateScrapeJobDurationValidation(t *testing.T) {
 
 	// 裸数字 scrape_interval → bad_request。
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"dur-bad","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180","metrics_path":"/metrics","scheme":"http"}`)
+		`{"job_name":"dur-bad","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180","metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "scrape_interval")
 
 	// 缺单位 scrape_timeout → bad_request。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs",
-		`{"job_name":"dur-bad2","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_timeout":"10","metrics_path":"/metrics","scheme":"http"}`)
+		`{"job_name":"dur-bad2","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_timeout":"10","metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "scrape_timeout")
 
 	// 合法带单位、留空（继承）均放行。
 	for i, body := range []string{
-		`{"job_name":"dur-ok","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`,
-		`{"job_name":"dur-empty","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"","scrape_timeout":"","metrics_path":"/metrics","scheme":"http"}`,
+		`{"job_name":"dur-ok","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"180s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`,
+		`{"job_name":"dur-empty","job_type":"standard","resource_type":"database","monitor_type":"mysql","network_domain_id":"default","scrape_interval":"","scrape_timeout":"","metrics_path":"/metrics","scheme":"http"}`,
 	} {
 		w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 		require.Equal(t, http.StatusOK, w.Code, "case %d: %s", i, w.Body.String())

@@ -43,7 +43,7 @@ func seedBatchJob(t *testing.T, db *gorm.DB, name, draftStatus string) *models.S
 	job := &models.ScrapeJob{
 		JobName:               name,
 		JobType:               models.JobTypeStandard,
-		ResourceType:          models.ResourceTypeHost,
+		ResourceType:          models.ResourceTypeDatabase,
 		MonitorType:           "mysql",
 		NetworkDomainID:       "domain-1",
 		InstanceSelectionMode: models.InstanceSelectionManual,

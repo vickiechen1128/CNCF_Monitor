@@ -97,6 +97,29 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		if !models.ValidMonitorType(job.MonitorType) {
 			return fmt.Errorf("monitor_type %q 非法", job.MonitorType)
 		}
+		// resource_type 由前端「资源类别」下拉显式提交，后端原样落库；此处严格校验，
+		// 不做推导、不覆盖用户选择。
+		//
+		// 为什么必须非空：生成配置时 LoadTemplateForJob 按 resource_type 查该类别默认
+		// 标签模板；空类别会查不到 → target 上整份模板标签集静默为空（app / biz /
+		// env / platform 全缺），正是「选了使用默认标签模板但一个标签都没有」的根因。
+		// 存量空值由 seed 启动回填修复；新请求一律拒绝。
+		if strings.TrimSpace(string(job.ResourceType)) == "" {
+			return fmt.Errorf("resource_type 必填（标准采集任务必须提交资源类别）")
+		}
+		if !validResourceCategory(models.ResourceCategory(job.ResourceType)) {
+			return fmt.Errorf("resource_type %q 非法（可选 %s）", job.ResourceType, models.CategoriesHint())
+		}
+		derivation, ok := models.DeriveResourceFilter(job.MonitorType)
+		if !ok {
+			return fmt.Errorf("monitor_type %q 无法推导资源类别", job.MonitorType)
+		}
+		if models.ResourceCategory(job.ResourceType) != derivation.Category {
+			return fmt.Errorf(
+				"resource_type %q 与 monitor_type %q 不匹配（应为 %q）",
+				job.ResourceType, job.MonitorType, derivation.Category,
+			)
+		}
 		// application_http：采集路径必须显式填写。application 的采集地址（主机 + 采集
 		// 端口）由 M07 资源台账给出（generator 拼接 endpoint:port），而「指标落在哪个
 		// 路径、用什么协议」由本 Job 决定；应用指标端点没有通用默认值，留空继承 /metrics
