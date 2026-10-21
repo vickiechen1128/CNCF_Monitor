@@ -359,7 +359,8 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。
-	// 反馈 10：注入采集健康 up 样本查询器，为「采集健康」面板提供 collection_health 四态聚合。
+	// 反馈 10：注入采集健康 up 样本查询器，为「采集健康」面板提供 collection_health 聚合
+	// （反馈 12 起与监控对象页统一为两态）。
 	platform.GET("/dashboard/summary", dashboard.SummaryHandler(
 		db.DB,
 		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),

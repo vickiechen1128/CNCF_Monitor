@@ -366,9 +366,9 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 		}
 	}
 
-	// 2.1 采集健康四态（反馈 10，路线 B）：对已下发资源（= monitored_count 集合）按 up
-	//     样本分类（口径见 collection_health.go）。查询失败 / 未注入 querier 时降级留空，
-	//     不误报 0（决策 68-2）。
+	// 2.1 采集健康两态（反馈 10 引入，反馈 12 统一为与监控对象页一致）：对已下发资源
+	//     （= monitored_count 集合）按 up 样本分类（口径见 collection_health.go）。查询失败 /
+	//     未注入 querier 时降级留空，不误报 0（决策 68-2）。
 	if cfg.upHealthQuerier != nil {
 		if idx, err := cfg.upHealthQuerier.UpHealth(context.Background()); err == nil {
 			s.CollectionHealth = classifyCollectionHealth(dispatchedIDs, idx)

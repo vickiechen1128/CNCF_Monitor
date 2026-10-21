@@ -12,21 +12,21 @@
  * 采集链路运行态，并排阅读更顺（裁定记录见 design-proposal §7）。
  * 与 04 的口径分工文案（可见副标题）保持原状，未随位置改动。
  *
- * 口径（见 dev-feedback 反馈 10 §10.5 / `api/dashboard.ts` 的 `CollectionHealth`）：
- * - 分母 = **已下发资源数**（= `monitored_count`），**不含未下发**——未下发进度归 04 段；
- * - 四态 = 采集中 / 回传延迟中（stale，独立一态）/ 已下发未采到 / 待采集；**拨测目标不参与**；
+ * 口径（见 dev-feedback 反馈 10 §10.5 / 反馈 12 / `api/dashboard.ts` 的 `CollectionHealth`）：
+ * - 分母 = **已选中资源数**（= `monitored_count`），**不含未下发**——未下发进度归 04 段；
+ * - 两态 = 采集中 / 已下发未采到，与「监控对象管理」页采集状态**完全同一口径**；**拨测目标不参与**；
  * - 判定由后端一次聚合（`collection_health`），前端零聚合逻辑；字段缺失 → 按「不可用」呈现，
  *   绝不误报 0（决策 68-2）。
  *
  * **解释整合（2026-10-17 走查，产品负责人裁定）**：原面板「顶部副标题 + 底部脚注」
  * 两段长解释讲的是同一件事（与上方纳管率的口径分工），上下夹击信息过载。
  * 现只保留**一行可见副标题**讲清分工；「拨测目标不参与统计」等次要口径进**标题
- * Tooltip**；「回传延迟中是什么」进各图例项的 Tooltip（原本就在）。
+ * Tooltip**；各图例项的判定口径进该项 Tooltip（原本就在）。
  *
- * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：分布条整宽；四态四行版式在
+ * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：分布条整宽；两态图例在
  * 窄屏不变（行式本就窄屏友好）；标题行的「查看资源明细 →」保持右对齐（短文本不
  * 溢出）。与拨测的并排行在窄容器（≈936px 以下）经 flex-wrap 自动折为上下堆叠，
- * 堆叠后卡高即内容高、四行回到自然行高（minHeight），无需额外断点。
+ * 堆叠后卡高即内容高、两行回到自然行高（minHeight），无需额外断点。
  */
 import { Link } from 'react-router-dom'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -42,22 +42,19 @@ const RESOURCE_LIST_HREF = '/resources'
 /** 无已下发资源时的引导入口：建采集 Job */
 const SCRAPE_JOB_HREF = '/scrape-jobs'
 
-/** 标题 Tooltip：只讲**边界**（分母、四态窗口、谁不参与），
+/** 标题 Tooltip：只讲**边界**（分母、判定口径、谁不参与），
  *  「与 04 的分工」由可见副标题一句话说完——两处不重复同一段口径（第六轮走查） */
 const HEALTH_SCOPE_TIP =
-  '分母＝已配置采集任务的资源；四态按上报样本时间窗口判定（5 分钟 / 1 小时）；拨测目标不参与统计。'
+  '分母＝已被采集任务选中的资源；判定与「监控对象管理」页同一口径：5 分钟内有成功采集为「采集中」，否则为「已下发未采到」；拨测目标不参与统计。'
 
 interface CollectionHealthPanelProps {
-  /** 后端采集健康四态聚合；缺失（后端未实现 / 查询失败）时为 undefined */
+  /** 后端采集健康两态聚合；缺失（后端未实现 / 查询失败）时为 undefined */
   health?: CollectionHealth
 }
 
-/** 四态展示元数据：key → 展示名 + 语义色 + Tooltip 口径 */
+/** 两态展示元数据：key → 展示名 + 语义色 + Tooltip 口径（与「监控对象管理」页同色） */
 interface StateMeta {
-  key: keyof Pick<
-    CollectionHealth,
-    'collecting_count' | 'stale_count' | 'down_count' | 'pending_count'
-  >
+  key: keyof Pick<CollectionHealth, 'collecting_count' | 'down_count'>
   label: string
   color: (token: ReturnType<typeof theme.useToken>['token']) => string
   hint: string
@@ -72,22 +69,11 @@ const STATE_METAS: StateMeta[] = [
     hint: '5 分钟内有数据上报，采集正常。',
   },
   {
-    key: 'stale_count',
-    label: '回传延迟中',
-    color: (t) => t.colorWarning,
-    hint: '5 分钟内没有新数据，但 1 小时内有：数据还在回传路上（边缘节点积压），不是采集失败。',
-  },
-  {
     key: 'down_count',
     label: '已下发未采到',
-    color: (t) => t.colorError,
-    hint: '5 分钟内有数据上报，但采集失败：已配置采集任务，却没采到数据。',
-  },
-  {
-    key: 'pending_count',
-    label: '待采集',
-    color: (t) => t.colorTextQuaternary,
-    hint: '1 小时内没有任何数据：刚配置还没跑起来，或采集器没有产生数据。',
+    // 与「监控对象管理」页 `MonitorStatusBadge` 的 warning（橙）一致；反馈 12 前此处为红色
+    color: (t) => t.colorWarning,
+    hint: '已被采集任务选中，但 5 分钟内没有成功采集到数据（含尚未首次抓取、回传延迟、采集失败）。',
   },
 ]
 
@@ -102,8 +88,8 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
       data-testid="collection-health-panel"
       // 与拨测态势并排（home-health-probe-row，flex 1 1 360px）：行内 stretch 对齐，
       // 撑满行高；窄容器折行后 height:100% 解析为 auto（同 02/03 面板模式）。
-      // 卡根 display:flex + 卡体 flex:1：四态图例的 flex:1 才生效（卡根非 flex 时
-      // body 的 flex:1 不生效——卡高满而内容悬在卡顶）。第六轮四行化见下方图注。
+      // 卡根 display:flex + 卡体 flex:1：两态图例的 flex:1 才生效（卡根非 flex 时
+      // body 的 flex:1 不生效——卡高满而内容悬在卡顶）。
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
       styles={{ body: { padding: 20, display: 'flex', flexDirection: 'column', flex: 1 } }}
       title={
@@ -124,7 +110,7 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
       }
     >
       {/* 口径副标题（2026-10-17 整合后**唯一**的可见解释）：只讲与上方 04 段的分工，
-          一句话说完；其余口径（拨测不参与 / 回传延迟中是什么）进 Tooltip，不再上下两段夹击。 */}
+          一句话说完；其余口径（拨测不参与 / 两态判定）进 Tooltip，不再上下两段夹击。 */}
       <Text type="secondary" style={{ fontSize: HOME_FONT.body }}>
         这里看的是实际采集情况；上方「监控对象纳管完成率」看的是配置完成度，两者口径不同。
       </Text>
@@ -150,7 +136,7 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
         </div>
       ) : (
         <>
-          {/* 四态分布条：各段宽度按计数占比，段间 2px 间隙保证相邻段可辨 */}
+          {/* 两态分布条：各段宽度按计数占比，段间 2px 间隙保证相邻段可辨 */}
           <div
             data-testid="ch-bar"
             style={{
@@ -182,11 +168,10 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
             })}
           </div>
 
-          {/* 图例计数（第六轮走查：一行四格 → **2×2 两行两列**）：每格色点 + 状态名（左）、
-              计数（右，14px/700）。四行太占高度（产品负责人走查要求更紧凑），2×2 用横向
-              空间换高度；格子 flex 双向拉伸，卡被行拉伸时两行分摊剩余高度、不留底部空白，
+          {/* 图例计数（反馈 12 起两态）：每格色点 + 状态名（左）、计数（右，14px/700）。
+              两项各占约半行；格子 flex 双向拉伸，卡被行拉伸时分摊剩余高度、不留底部空白，
               卡未被拉伸时（窄屏堆叠）回到 minHeight 自然高度。
-              每项 Tooltip 自带口径（「回传延迟中」等解释在这里，不再需要面板底部脚注）。 */}
+              每项 Tooltip 自带判定口径，不再需要面板底部脚注。 */}
           <div
             data-testid="ch-legend"
             style={{

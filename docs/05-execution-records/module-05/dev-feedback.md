@@ -1,6 +1,6 @@
 # Module 05 首页 MVP 子集设计反馈记录
 
-> **记录日期**: 2026-09-14（首轮）/ 2026-09-18（追加反馈 4~6）/ 2026-09-24（反馈 7~9）/ 2026-10-13（反馈 10）/ 2026-10-16（反馈 11）/ **2026-10-17（反馈 11 第五~七轮走查，§11.9）**
+> **记录日期**: 2026-09-14（首轮）/ 2026-09-18（追加反馈 4~6）/ 2026-09-24（反馈 7~9）/ 2026-10-13（反馈 10）/ 2026-10-16（反馈 11）/ **2026-10-17（反馈 11 第五~七轮走查，§11.9）** / **2026-10-21（反馈 12）**
 > **反馈来源**: 产品负责人（用户）在设计审查 / 首页走查后提出的设计层面意见
 > **关联 PRD**: `docs/02-product-requirements/Modules/Module_05_Custom_UI.md`（原始记录基线 v1.3；回填时 PRD 已至 v1.8）
 > **关联决策**: 决策 72（首页 MVP 子集）、决策 72-1（六步指引 + 自定义 QueryPage）、决策 72-2（Dashboard 布局 + 视觉 Token）、决策 72-3（首页内容重构）、决策 51（可视化三层归属）、决策 68-2（Prometheus→AM 投递接线）、决策 88（客户专属皮肤与外观配置）、决策 89（首页版式方案乙与使用指引下移）
@@ -722,3 +722,59 @@
   - 视觉基线：新增**字号阶梯 6 级**（hero 24 / primary 20 / title 16 / label 13 / body 12 / note 11，数字一律 600、700 仅合计）与**圆环几何唯一来源** `homeDonut.ts`。
   - 移动端：修复**窄屏 `alignItems: center` 导致表格容器被压缩、末列被裁**的真实缺陷（`stretch` + 列宽 300 + 卡内边距 12），并写成回归断言。
   - 作废内容：本节 §11.8.4 追加议题 6/7 与 §11.8.5「告警卡 / 04 头部 / 拨测」三行的首版细则**已删除**；§9.2 / §11.3 中引用 L0-L5 旧区块的版式描述**已删除**。现行口径唯一来源：提案 `homepage-first-screen-feedback-11-v2.md` §2.3 / §2.6 / §2.7 / §2.8 / §7 + 本节 §11.9。
+
+---
+
+## 反馈 12（2026-10-21）：首页「采集健康」与「监控对象管理」采集状态统一为两态
+
+### 问题描述
+
+生产部署后发现同一资源在两个页面显示不同状态与颜色：
+
+- 「监控对象管理」资源列表：显示「已下发未采到」（橙色 Badge）；
+- 首页「采集健康」：显示「待采集」（灰色）。
+
+用户无法判断以哪边为准。典型场景：资源已被采集任务选中，但中心尚未收到任何 `up` 样本（变更未确认下发 / agent 尚未拉包 / 首次抓取未发生 / 边缘回传中断超过 1 小时）。
+
+### 原因
+
+两个页面各有一套判定：
+
+- 资源列表（`/api/v1/health/coverage`）：选中且 5min 内 `up==1` → 采集中；其余（`up==0` / 待首次抓取 / 回传延迟）统一归 `pending_down`「已下发未采到」，橙色。
+- 首页（`dashboard/summary.collection_health`）：沿用 M01/F-40 四态——5min 内 `up==1` → 采集中；5min 内 `up==0` → 已下发未采到（红色）；5min 无样本但 1h 内有 → 回传延迟中；1h 内也无样本 → 待采集（灰色）。
+
+同一台“已选中但无任何 up 样本”的资源，资源列表归「已下发未采到」，首页归「待采集」，与生产观察一致。
+
+### 裁定（2026-10-21，产品负责人）
+
+首页向「监控对象管理」看齐，**统一为两态**，不再区分「回传延迟中」「待采集」：
+
+- **采集中**：5min 内有 `up==1` 样本；
+- **已下发未采到**：其余情形（`up==0`、待首次抓取、回传延迟等）。
+
+首页分母不变——仍只统计已被 ready+enabled 采集任务选中的资源；「未监控」不进采集健康面板，仍归「纳管覆盖率」。
+
+### 实现
+
+| 层 | 文件 | 变更 |
+|----|------|------|
+| 后端 | `platform/dashboard/collection_health.go` | 移除 `last_over_time(up[1h])` 查询与 `stale_count` / `pending_count` 字段；分类改为 `upTrue → collecting`，否则 `down`，与 `platform/query/coverage.go` 完全同口径 |
+| 后端 | `platform/dashboard/collection_health_test.go` | 四态测试改两态；查询器测试收敛为单段 `up` 查询 |
+| 前端 | `ui-custom/web/src/api/dashboard.ts` | `CollectionHealth` 删除 `stale_count` / `pending_count`，更新口径注释 |
+| 前端 | `ui-custom/web/src/pages/home/CollectionHealthPanel.tsx` | 图例四项改两项；「已下发未采到」颜色由 `colorError`（红）改为 `colorWarning`（橙），与 `MonitorStatusBadge` 一致；更新 Tooltip |
+| 前端 | `ui-custom/web/src/pages/home/HomePage.tsx` / `HomePage.test.tsx` | 静态预览样例与单测断言改两态 |
+
+### 边界与影响
+
+- 首页不再显示「回传延迟中」「待采集」；边缘回传积压的排查入口保留在 M01 采集 Job 列表（仍保留四态）与「采集节点状态」页。
+- M01 采集 Job 列表/详情仍保留四态（其具备 `change_status` 上下文，不在本次统一范围）。
+- 本次按用户要求**不改 PRD / 契约快照**，仅在本文件留痕。
+- 不变量：`dispatched_count === collecting_count + down_count`。
+
+### 验证
+
+- `CGO_ENABLED=1 go test ./platform/dashboard/...` ✅
+- `go vet ./platform/dashboard/...` ✅
+- `tsc -p tsconfig.test.json --noEmit` ✅
+- `vitest run src/pages/home/HomePage.test.tsx` ✅（58 tests）
+- 变更文件 ESLint ✅（全量 lint 仍有 `useRoutes.ts` / `InstanceSelector.tsx` 两处既有问题，与本次无关）

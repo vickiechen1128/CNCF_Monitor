@@ -2752,7 +2752,7 @@
 
 - `type fakeUpHealthQuerier struct`
 - `method (*fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error)`
-- `func TestClassifyCollectionHealthFourStates(t *testing.T)`
+- `func TestClassifyCollectionHealthTwoStates(t *testing.T)`
 - `func TestClassifyCollectionHealthNilIndex(t *testing.T)`
 - `func TestSummaryCollectionHealth(t *testing.T)`
 - `func TestSummaryCollectionHealthDegradesOnError(t *testing.T)`

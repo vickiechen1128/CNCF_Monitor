@@ -254,13 +254,11 @@ const DASHBOARD_OK = {
       { service_name: '大模型应用', platform_names: '私有云A平台、私有云B平台', resource_category: 'application', url: 'http://10.0.0.5/health', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
       { service_name: '网关应用', platform_names: '公有云C平台', resource_category: 'application', url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
-    // 采集健康四态（反馈 10）：分母 = monitored_count = 96，四态之和 = 96
+    // 采集健康两态（反馈 12）：分母 = monitored_count = 96，两态之和 = 96
     collection_health: {
       dispatched_count: 96,
       collecting_count: 88,
-      stale_count: 4,
-      down_count: 2,
-      pending_count: 2,
+      down_count: 8,
     },
   },
 }
@@ -792,23 +790,20 @@ describe('HomePage', () => {
     const panel = screen.getByTestId('collection-health-panel')
     expect(within(panel).getByText('采集健康')).toBeInTheDocument()
 
-    // 四态计数（分母 = 已下发资源数 96，不含「未下发」）
+    // 两态计数（分母 = 已选中资源数 96，不含「未监控」；反馈 12 与监控对象页同口径）
     expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('采集中')
     expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('88')
-    expect(screen.getByTestId('ch-legend-stale_count')).toHaveTextContent('回传延迟中')
-    expect(screen.getByTestId('ch-legend-stale_count')).toHaveTextContent('4')
-    expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('2')
-    expect(screen.getByTestId('ch-legend-pending_count')).toHaveTextContent('2')
+    expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('已下发未采到')
+    expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('8')
 
     // 分布条 + 深链 M07 资源明细（第六轮走查：入口文案改「查看资源采集健康状态」）
     expect(screen.getByTestId('ch-bar')).toBeInTheDocument()
     expect(within(panel).getByTestId('ch-detail-link')).toHaveTextContent('查看资源采集健康状态')
     expect(within(panel).getByTestId('ch-detail-link')).toHaveAttribute('href', '/resources')
 
-    // 第六轮走查：四态图例 **2×2**（四行改两行两列，用横向空间换高度；
-    // 格子 flex 双向拉伸，卡被行拉伸时两行分摊剩余高度）
+    // 反馈 12：图例仅两态（采集中 / 已下发未采到），格子仍按 flex 双向拉伸布局
     expect(screen.getByTestId('ch-legend').style.flexWrap).toBe('wrap')
-    expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(4)
+    expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(2)
 
     // 位置（第六轮走查定）：与拨测态势同处 home-health-probe-row（采集左、拨测右），
     // 整行之上是「04 + 告警」行，整行之下是 06 使用指引
@@ -845,9 +840,7 @@ describe('HomePage', () => {
           collection_health: {
             dispatched_count: 0,
             collecting_count: 0,
-            stale_count: 0,
             down_count: 0,
-            pending_count: 0,
           },
         },
       },
