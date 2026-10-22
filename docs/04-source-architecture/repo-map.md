@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-22 15:37 · commit: `b2381ee`
+> 生成时间: 2026-10-22 22:05 · commit: `db6103e`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -478,6 +478,7 @@
 - `func stubAmtoolFails(t *testing.T)`
 - `func stubAmtoolUnavailable(t *testing.T)`
 - `func stubChangeTrigger(t *testing.T) *int32`
+- `func TestSubmitEnsuresBuiltinDefaultReceiver(t *testing.T)`
 - `func TestSubmitPersistsOnValid(t *testing.T)`
 - `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
 - `func TestSubmitRejectsEmptyContent(t *testing.T)`
@@ -795,6 +796,7 @@
 
 - `type DeadReceiver struct`
 - `func ListRoutes(db *gorm.DB) (gin.H, error)`
+- `func pendingChangeView(db *gorm.DB) interface{}`
 - `func effectiveAlertmanagerYAML(db *gorm.DB) (string, error)`
 - `func deadReceivers(db *gorm.DB, nodes []RouteNode) ([]DeadReceiver, error)`
 - `func maskReceiverURL(raw string) string`
@@ -804,6 +806,8 @@
 
 ### `platform/alertmanager/route/handler_test.go`
 
+- `func adminUser() *models.User`
+- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
 - `func newRoutesDB(t *testing.T) *gorm.DB`
 - `func seedAppliedConfig(t *testing.T, db *gorm.DB, content string)`
 - `func seedWebhookChannel(t *testing.T, db *gorm.DB, name, webhook string) *models.NotifyChannel`
@@ -812,7 +816,6 @@
 - `func decodeRoutes(t *testing.T, w *httptest.ResponseRecorder) routesData`
 - `func TestListRoutesHandler_OK(t *testing.T)`
 - `func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T)`
-- `func TestListRoutesHandler_ReturnsStoredMode(t *testing.T)`
 - `func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T)`
 - `func TestListRoutesHandler_NoConfig(t *testing.T)`
 - `func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T)`
@@ -821,10 +824,6 @@
 - `func TestListRoutesHandler_ParseErrorDegradesTo200(t *testing.T)`
 - `func TestListRoutesHandler_AuthOnlyNoWrite(t *testing.T)`
 - `func TestListRoutesHandler_NoSensitiveValues(t *testing.T)`
-
-### `platform/alertmanager/route/management_domain_test.go`
-
-- `func TestPutRouteSettingRejectsWhenManagementDomainMissing(t *testing.T)`
 
 ### `platform/alertmanager/route/parse.go`
 
@@ -857,51 +856,31 @@
 - `func TestParseRouteTree_EmptyContent(t *testing.T)`
 - `func TestParseRouteTree_Errors(t *testing.T)`
 
-### `platform/alertmanager/route/setting_handler.go`
+### `platform/alertmanager/route/save_handler.go`
 
-- `type RouteSettingView struct`
-- `func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error)`
-- `func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
-- `func saveRouteSetting(db *gorm.DB, domainID string, channelID *uint, mode models.RouteMode) error`
-- `func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
-- `func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
+- `type ErrRouteTreeInvalid struct`
+- `method (*ErrRouteTreeInvalid) Error() string`
+- `type SaveRoutesRequest struct`
+- `type SaveRoutesResult struct`
+- `func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRoutesResult, error)`
+- `func SaveRoutesHandler(db *gorm.DB) gin.HandlerFunc`
 
-### `platform/alertmanager/route/setting_handler_test.go`
+### `platform/alertmanager/route/save_handler_test.go`
 
-- `func newRouteDB(t *testing.T) *gorm.DB`
-- `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) *models.NotifyChannel`
-- `func seedSetting(t *testing.T, db *gorm.DB, channelID *uint)`
-- `func loadSettingRaw(t *testing.T, db *gorm.DB) *models.AlertmanagerRouteSetting`
-- `type pipelineRecorder struct`
-- `func stubPipeline(t *testing.T) *pipelineRecorder`
-- `func newRouteRouter(db *gorm.DB, user *models.User) *gin.Engine`
-- `func adminUser() *models.User`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func decodeView(t *testing.T, w *httptest.ResponseRecorder) RouteSettingView`
-- `func TestGetRouteSetting_NoneWhenNoChannelsAndNoSetting(t *testing.T)`
-- `func TestGetRouteSetting_AutoFirstEnabledSuggestion(t *testing.T)`
-- `func TestGetRouteSetting_ExplicitWhenChannelAvailable(t *testing.T)`
-- `func TestGetRouteSetting_NoneWhenTargetChannelDisabled(t *testing.T)`
-- `func TestPutRouteSetting_PersistsValidChannel(t *testing.T)`
-- `func TestPutRouteSetting_NullClosesTakeover(t *testing.T)`
-- `func TestPutRouteSetting_PersistsMode(t *testing.T)`
-- `func TestPutRouteSetting_RejectsInvalidMode(t *testing.T)`
-- `func TestPutRouteSetting_RejectsMissingChannel(t *testing.T)`
-- `func TestPutRouteSetting_RejectsDisabledChannel(t *testing.T)`
-- `func TestGetRouteSettingHandler_OK(t *testing.T)`
-- `func TestPutRouteSettingHandler_ValidChannelInvokesPipeline(t *testing.T)`
-- `func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T)`
-- `func TestPutRouteSettingHandler_PersistsMode(t *testing.T)`
-- `func TestPutRouteSettingHandler_RejectsInvalidMode(t *testing.T)`
-- `func TestPutRouteSettingHandler_BadRequestWhenChannelUnavailable(t *testing.T)`
-- `func TestRouteSetting_AdminGate(t *testing.T)`
-- `func TestPutRouteSettingHandler_MalformedBody(t *testing.T)`
+- `func rootEditNode(receiver string) generator.RouteEditNode`
+- `func stubSubmitRoutes(t *testing.T) *string`
+- `func TestSaveRoutes_RejectsStaleBaseChecksum(t *testing.T)`
+- `func TestSaveRoutes_RejectsInvalidTree(t *testing.T)`
+- `func TestSaveRoutes_RejectsDanglingReceiver(t *testing.T)`
+- `func TestSaveRoutes_GeneratesRouteAndPreservesOtherSections(t *testing.T)`
+- `func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T)`
 
 ### `platform/alertmanager/route/validate.go`
 
 - `type RouteIssue struct`
 - `func HasBlockingIssue(issues []RouteIssue) bool`
 - `func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue`
+- `func ValidateRouteReceivers(nodes []generator.RouteEditNode, allowed []string) []RouteIssue`
 - `func validateRouteEditNodeFields(n *generator.RouteEditNode) []RouteIssue`
 - `func durationIssue(n *generator.RouteEditNode, field, value string) RouteIssue`
 - `func parseRouteDurationIfSet(raw string) (int64, bool)`
@@ -2323,10 +2302,6 @@
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
 - `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
-- `func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
-- `func seedManagedRoutePreset(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
-- `func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChang…`
-- `func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChange…`
 - `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
 - `func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
@@ -2365,34 +2340,6 @@
 - `func TestGenerateDraftBackfillsAlertmanagerSourceVersionID(t *testing.T)`
 - `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
 - `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
-
-### `platform/configcenter/draft/service_route_preset_test.go`
-
-- `type presetRouteView struct`
-- `type presetAMView struct`
-- `func parsePresetAM(t *testing.T, yml string) presetAMView`
-- `func stubNotifyBridge(t *testing.T)`
-- `func seedManagedRouteSetting(t *testing.T, db *gorm.DB, mode models.RouteMode, channelID *uint)`
-- `func TestSeedManagedRoutePreset_ManagedModeInjectsPreset(t *testing.T)`
-- `func TestSeedManagedRoutePreset_HandwrittenModeNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_ExistingRoutesNoClobber(t *testing.T)`
-- `func TestSeedManagedRoutePreset_ChangeItemEmitted(t *testing.T)`
-- `func TestGenerateDraft_HandwrittenNoPresetChangeItem(t *testing.T)`
-- `func TestRevalidateDraft_ReproducesPreset(t *testing.T)`
-- `func TestSeedManagedRoutePreset_IdempotentAcrossBuilds(t *testing.T)`
-- `func TestSeedManagedRoutePreset_RepeatedOnSeededRouteIsNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoRouteDegradesWithoutError(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoAlertmanagerYMLNoOp(t *testing.T)`
-
-### `platform/configcenter/draft/service_route_test.go`
-
-- `func seedAlertmanagerContent(t *testing.T, db *gorm.DB, content string)`
-- `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) uint`
-- `func TestLoadRouteSetting_ZeroWhenMissing(t *testing.T)`
-- `func TestMaterializeRootRouteReceiver_DisabledAndUnavailableKeepBytes(t *testing.T)`
-- `func TestMaterializeRootRouteReceiver_NoRouteDegradesWithoutError(t *testing.T)`
-- `func TestGenerateDraft_RootRouteRebuiltEmitsChangeItem(t *testing.T)`
-- `func TestGenerateDraft_NoRootRouteChangeNoChangeItem(t *testing.T)`
 
 ### `platform/configcenter/draft/service_test.go`
 
@@ -2433,9 +2380,28 @@
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
 - `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
-- `func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
+
+### `platform/configcenter/generator/default_receiver.go`
+
+- `func EnsureDefaultReceiver(baseYAML string) (string, error)`
+- `func EnsureReceiverNames(baseYAML string, names []string) (string, error)`
+- `func sortedNames(set map[string]bool) []string`
+- `func receiverNameNode(name string) *yaml.Node`
+- `func defaultReceiverNode() *yaml.Node`
+- `func marshalDocument(doc *yaml.Node, fallback string) (string, error)`
+
+### `platform/configcenter/generator/default_receiver_test.go`
+
+- `func TestEnsureDefaultReceiver_AddsWhenMissing(t *testing.T)`
+- `func TestEnsureDefaultReceiver_AppendsToExistingReceivers(t *testing.T)`
+- `func TestEnsureDefaultReceiver_ExistingDefaultByteIdentical(t *testing.T)`
+- `func TestEnsureDefaultReceiver_Idempotent(t *testing.T)`
+- `func TestEnsureReceiverNames_AppendsMissingStubs(t *testing.T)`
+- `func TestEnsureReceiverNames_NoMissingIsByteIdentical(t *testing.T)`
+- `func TestEnsureReceiverNames_Idempotent(t *testing.T)`
+- `func TestEnsureDefaultReceiver_DegradesWithoutError(t *testing.T)`
 
 ### `platform/configcenter/generator/generator.go`
 
@@ -2496,7 +2462,6 @@
 - `func TestSourceDataVersionPureNullDeletedAt(t *testing.T)`
 - `func TestSourceDataVersionEmptyDB(t *testing.T)`
 - `func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T)`
-- `func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestExpandLabelTemplateDictTransform(t *testing.T)`
 - `func TestResolveTargetsDictTransform(t *testing.T)`
@@ -2596,6 +2561,7 @@
 - `func TestGenerateRouteSection_RejectsMalformedEditTree(t *testing.T)`
 - `func TestMergeRouteSection_OnlyRouteNodeReplaced(t *testing.T)`
 - `func TestMergeRouteSection_AppendsRouteWhenMissing(t *testing.T)`
+- `func TestMergeRouteSection_EmptyBaseReturnsGenerated(t *testing.T)`
 - `func TestMergeRouteSection_RejectsInvalidInput(t *testing.T)`
 - `func TestValidateRouteSectionWithAmtool_SubmitsCheckableDocument(t *testing.T)`
 - `func TestValidateRouteSectionWithAmtool_RealBinaryIfAvailable(t *testing.T)`
@@ -2605,70 +2571,6 @@
 - `type amtoolFailure struct`
 - `method (*amtoolFailure) Error() string`
 - `func collectYAMLKeys(t *testing.T, content string) []string`
-
-### `platform/configcenter/generator/notify_route_preset.go`
-
-- `type RoutePresetInput struct`
-- `type RoutePresetDiagnostic struct`
-- `func SeedManagedRoutePreset(baseYAML string, in RoutePresetInput) (string, []RoutePresetDiagnostic, error)`
-- `func routeHasUserEdits(route *yaml.Node) (string, bool)`
-- `func nonEmptySequenceKey(m *yaml.Node, key string) (int, bool)`
-- `func declaredReceiverNames(root *yaml.Node) []string`
-- `func resolvePresetReceiver(root, route *yaml.Node, declared []string, defaultReceiver string) string`
-- `func secondaryPresetReceiver(primary string, declared []string, platformNames []string) string`
-- `func routePresetTree(receiver, teamReceiver string) []RouteEditNode`
-- `func invalidPresetReference(n *yaml.Node, known map[string]bool) string`
-- `func splitMatcherShorthand(s string) (name, value string, ok bool)`
-- `func appendPresetInhibitRule(root *yaml.Node)`
-- `func presetMatcherSequence(shorthand string) *yaml.Node`
-
-### `platform/configcenter/generator/notify_route_preset_test.go`
-
-- `func managedPresetInput() RoutePresetInput`
-- `func TestSeedManagedRoutePreset_ManagedInjectsCompleteExample(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoDanglingReceiver(t *testing.T)`
-- `func TestSeedManagedRoutePreset_SecondaryReceiverPrefersPlatformSlot(t *testing.T)`
-- `func TestSeedManagedRoutePreset_HandwrittenModeByteIdentical(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoClobberWhenRouteHasChildren(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoClobberOnRootMatchersOrContinue(t *testing.T)`
-- `func TestSeedManagedRoutePreset_EmptySequencesAreNotUserEdits(t *testing.T)`
-- `func TestSeedManagedRoutePreset_Idempotent(t *testing.T)`
-- `func TestSeedManagedRoutePreset_KeepsExistingInhibitRules(t *testing.T)`
-- `func TestSeedManagedRoutePreset_SkipsDegradesWithoutError(t *testing.T)`
-- `func TestSeedManagedRoutePreset_DeclaredReceiverNames(t *testing.T)`
-- `func TestSeedManagedRoutePreset_AmtoolValid(t *testing.T)`
-- `func TestSeedManagedRoutePreset_MatchersAreAMStringShorthand(t *testing.T)`
-- `type presetRouteView struct`
-- `func parsePresetRoot(t *testing.T, yml string) presetRouteView`
-- `func mustParseRoot(t *testing.T, yml string) *yaml.Node`
-- `func referencedReceiverNames(t *testing.T, yml string) []string`
-- `func collectMatcherSequences(t *testing.T, yml string) [][]*yaml.Node`
-- `func TestSeedManagedRoutePreset_EmptyBaseIsNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_DiagnosticMessagesAreActionable(t *testing.T)`
-
-### `platform/configcenter/generator/notify_route_skeleton.go`
-
-- `type RootRouteInput struct`
-- `type RootRouteDiagnostic struct`
-- `func MaterializeRootRouteReceiver(baseYAML string, in RootRouteInput) (string, []RootRouteDiagnostic, error)`
-- `func knownReceiverNames(root *yaml.Node, platformNames []string) map[string]bool`
-
-### `platform/configcenter/generator/notify_route_skeleton_test.go`
-
-- `func TestMaterializeRootRouteReceiverDisabledByteIdentical(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverReplacesOnlyRootReceiver(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverIdempotent(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverSkipsUnknownReceiver(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverAcceptsPlatformMaterializedName(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverNoRouteSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverInvalidYAMLSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverMalformedDocSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverRouteNotMappingSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverNoRootReceiverSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverAlreadyTargetKeepsRoutes(t *testing.T)`
-- `type routeNodeView struct`
-- `func parseRootRoute(t *testing.T, yml string) routeNodeView`
-- `func parseRouteTree(t *testing.T, yml string) []routeNodeView`
 
 ### `platform/configcenter/generator/render.go`
 
@@ -2892,6 +2794,16 @@
 - `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
+
+### `platform/db/seed/alertmanager_default.go`
+
+- `func EnsureDefaultAlertmanagerConfig(db *gorm.DB) error`
+
+### `platform/db/seed/alertmanager_default_test.go`
+
+- `func TestDefaultAlertmanagerConfigMatchesDeployTemplate(t *testing.T)`
+- `func TestEnsureDefaultAlertmanagerConfig_Idempotent(t *testing.T)`
+- `func TestEnsureDefaultAlertmanagerConfig_DoesNotOverwriteExisting(t *testing.T)`
 
 ### `platform/db/seed/app_platform_rel.go`
 
@@ -3837,23 +3749,6 @@
 - `func TestNotifyChannelEnabledFalsePersists(t *testing.T)`
 - `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
 - `func TestValidNotifyChannelTypes(t *testing.T)`
-
-### `platform/models/alertmanager_route_setting.go`
-
-- `type RouteMode = string`
-- `type AlertmanagerRouteSetting struct`
-- `method (AlertmanagerRouteSetting) TableName() string`
-- `method (AlertmanagerRouteSetting) EffectiveDefaultReceiver(channels []NotifyChannel) (string, bool)`
-
-### `platform/models/alertmanager_route_setting_test.go`
-
-- `func newRouteSettingDB(t *testing.T) *gorm.DB`
-- `func TestAlertmanagerRouteSettingMigrateAndPersist(t *testing.T)`
-- `func TestAlertmanagerRouteSettingNilMeansNoTakeover(t *testing.T)`
-- `func TestAlertmanagerRouteSettingEffectiveReceiverEnabled(t *testing.T)`
-- `func TestAlertmanagerRouteSettingEffectiveReceiverUnavailable(t *testing.T)`
-- `func TestAlertmanagerRouteSettingUniquePerDomain(t *testing.T)`
-- `func TestAlertmanagerRouteSettingReceiverNameFallback(t *testing.T)`
 
 ### `platform/models/app_platform_rel.go`
 
@@ -5029,7 +4924,6 @@
 - `interface AlertHistoryQuery`
 - `const alertStatusApi`
 - `const notifyChannelsApi`
-- `const routeSettingApi`
 - `const notifyTemplatesApi`
 - `const alertmanagerRoutesApi`
 
@@ -5351,10 +5245,6 @@
 - `interface UseUsersResult`
 - `function useUsers`
 
-### `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`
-
-- `function AlertConfigDrawer`
-
 ### `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`
 
 - `function AlertConfigPage`
@@ -5418,6 +5308,8 @@
 
 - `const CURRENT_USER`
 - `const CONFIG_PREVIEW_PATH`
+- `const ROUTES_PATH`
+- `const DEFAULT_RECEIVER_LABEL`
 - `const configStatusLabel`
 - `const configStatusColor`
 - `function isConfigApplied`
@@ -5449,36 +5341,13 @@
 - `const alertHistoryStateLabel`
 - `function alertMatchKey`
 - `const alertHistoryStateColor`
-- `const SILENCES_PATH`
 - `const ALERT_CONFIG_PATH`
 - `const NOTIFY_CHANNELS_PATH`
 - `const NOTIFY_TEMPLATES_PATH`
-- `interface AlertConfigScopeBlock`
-- `const ALERT_CONFIG_REQUIRED_BLOCKS`
-- `const ALERT_CONFIG_EXEMPT_BLOCKS`
-- `const ROUTE_SETTING_CARD_TITLE`
-- `const ROUTE_SETTING_MODE_LABEL`
-- `const ROUTE_SETTING_FALLBACK_LABEL`
-- `const ROUTE_MODE_HANDWRITTEN`
-- `const ROUTE_MODE_MANAGED`
-- `const ROUTE_MODE_TIP`
-- `const ROUTE_SETTING_MODE_INDEPENDENCE_TIP`
-- `const ROUTE_ROOT_FALLBACK_TAG`
-- `const ROUTE_ROOT_RECEIVER_READONLY_TIP`
-- `const ALERT_IMPORT_CARD_TITLE`
-- `const ALERT_IMPORT_LABEL`
-- `const ALERT_ADVANCED_GUIDE_TITLE`
-- `const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO`
-- `const ALERT_ADVANCED_GUIDE_MANAGED`
-- `const ALERTMANAGER_MIN_SKELETON`
 - `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
-- `const CHANNEL_FALLBACK_COLUMN_TITLE`
-- `const CHANNEL_FALLBACK_TAG`
-- `const CHANNEL_FALLBACK_SUGGESTED_TAG`
 - `const CHANNEL_DERIVED_RECEIVER_EMPTY`
 - `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
 - `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
-- `const CHANNEL_DERIVED_RECEIVER_RENAME_TIP`
 - `const CHANNEL_TEMPLATE_BIND_NONE_PREFIX`
 - `const notifyChannelTypeLabel`
 - `const notifyChannelTypeColor`
@@ -5499,9 +5368,8 @@
 ### `ui-custom/web/src/pages/alerts/routeTree.ts`
 
 - `const ROUTE_ROOT_ID`
+- `const DEFAULT_RECEIVER_NAME`
 - `const ROUTE_NAME_COMMENT_PREFIX`
-- `interface RouteEditMatcher`
-- `interface RouteEditNode`
 - `type RouteIssueLevel`
 - `const ROUTE_ISSUE_CODES`
 - `interface RouteIssue`
@@ -5564,14 +5432,6 @@
 - `interface UseNotifyTemplatesResult`
 - `function useNotifyTemplates`
 
-### `ui-custom/web/src/pages/alerts/useRouteSetting.ts`
-
-- `const NONE_RECEIVER_VALUE`
-- `interface RouteSettingOption`
-- `interface UseRouteSettingResult`
-- `const ROUTE_SETTING_NONE_LABEL`
-- `function useRouteSetting`
-
 ### `ui-custom/web/src/pages/alerts/useRoutes.ts`
 
 - `interface RouteRow`
@@ -5584,7 +5444,6 @@
 - `interface UseRouteEditorOptions`
 - `interface UseRouteEditorResult`
 - `function useRouteEditor`
-- `function isRouteEditable`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -6178,14 +6037,14 @@
 - `interface NotifyChannelsData`
 - `interface ReceiverSnippetData`
 - `interface NotifyTemplatesData`
-- `type RouteReceiverSource`
-- `interface RouteSetting`
-- `interface UpdateRouteSettingPayload`
-- `type RouteMode`
 - `interface RouteMatcher`
 - `interface RouteNode`
+- `interface RouteEditMatcher`
+- `interface RouteEditNode`
 - `interface DeadReceiver`
 - `interface RouteTreeData`
+- `interface SaveRoutesPayload`
+- `interface SaveRoutesResult`
 
 ### `ui-custom/web/src/types/api.ts`
 

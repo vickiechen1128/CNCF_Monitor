@@ -1,6 +1,7 @@
 package route
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,6 +20,35 @@ import (
 	"gorm.io/gorm"
 )
 
+var routeDBCounter int64
+
+// adminUser 返回请求上下文中的管理员用户（RequireAdmin 门禁用）。
+func adminUser() *models.User {
+	return &models.User{
+		ID: "u1", Username: "admin", DisplayName: "系统管理员",
+		TenantID: models.PlatformAdminTenantID,
+		Role:     models.UserRoleAdmin, Status: models.UserStatusActive,
+	}
+}
+
+// doJSON 以 JSON 请求体发起请求并返回响应录制器。
+func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader *bytes.Reader
+	if body == "" {
+		reader = bytes.NewReader(nil)
+	} else {
+		reader = bytes.NewReader([]byte(body))
+	}
+	req := httptest.NewRequest(method, path, reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 // newRoutesDB 造内存 SQLite，迁移本端点涉及的表（挂载留痕 + 生效产物 + 通知渠道）。
 func newRoutesDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -30,7 +60,6 @@ func newRoutesDB(t *testing.T) *gorm.DB {
 		&models.NotifyChannel{},
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
-		&models.AlertmanagerRouteSetting{},
 	))
 	return db
 }
@@ -69,7 +98,6 @@ func newRoutesRouter(db *gorm.DB) *gin.Engine {
 }
 
 type routesData struct {
-	Mode          string         `json:"mode"`
 	Items         []RouteNode    `json:"items"`
 	DeadReceivers []DeadReceiver `json:"dead_receivers"`
 	ParseError    string         `json:"parse_error"`
@@ -104,7 +132,6 @@ route:
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	data := decodeRoutes(t, w)
 
-	assert.Equal(t, ModeHandwritten, data.Mode, "未持久化模式设定时归一为 handwritten")
 	require.Len(t, data.Items, 2)
 	assert.True(t, data.Items[0].Locked)
 	assert.Equal(t, "根兜底", data.Items[0].Name)
@@ -128,25 +155,6 @@ func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T) {
 
 	require.Len(t, data.DeadReceivers, 1)
 	assert.Equal(t, "alpha", data.DeadReceivers[0].Name, "根兜底引用的 beta 不算死接收人")
-}
-
-// TestListRoutesHandler_ReturnsStoredMode 覆盖 T08-F12：GET /routes 的 mode 取自
-// AlertmanagerRouteSetting 持久化值，而非硬编码。持久化 managed 时须返回 managed。
-func TestListRoutesHandler_ReturnsStoredMode(t *testing.T) {
-	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/hook/A")
-	seedAppliedConfig(t, db, "route:\n  receiver: alpha\n")
-
-	require.NoError(t, db.Create(&models.AlertmanagerRouteSetting{
-		NetworkDomainID:          models.DefaultDomainID,
-		DefaultReceiverChannelID: nil,
-		Mode:                     models.RouteModeManaged,
-	}).Error)
-
-	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
-	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
-	data := decodeRoutes(t, w)
-	assert.Equal(t, string(models.RouteModeManaged), data.Mode, "mode 须反映持久化值")
 }
 
 // TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView 覆盖 C1：GET /config/product 返回

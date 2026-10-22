@@ -227,27 +227,20 @@ describe('RouteEditorDrawer（路由规则三段式表单 v0.3-b）', () => {
     expect(screen.getByText(/顶层路由，不可删除、不可移动/)).toBeInTheDocument()
   })
 
-  // T08-SPLIT-01 决策一（提案 §3.1 方案 A，验收 A6）：平台生成模式下顶层路由 receiver **只读**——
-  // 兜底控件（「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」）是唯一可改入口。
-  // 后端 materializeRootRouteReceiver 每次生成都会覆盖根 receiver，此处改了也会被静默改回去。
-  it('决策一（A6）：顶层路由的接收人只读，下拉禁用并指向唯一可改入口', async () => {
+  // 2026-10-22：平台不再接管根兜底，顶层路由的接收人在路由树里直接编辑。
+  it('顶层路由的接收人可直接编辑（下拉不置灰，无「由上方路由设置决定」说明）', async () => {
     renderDrawer({
       node: editNode({ id: 'root', parent_id: '', name: '顶层路由（兜底）', receiver: 'notify-1' }),
       knownReceivers: ['notify-1', 'notify-2'],
     })
     expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
-    // 接收人下拉禁用（不可就地改兜底）
-    expect(screen.getByLabelText('接收人').closest('.ant-select')).toHaveClass('ant-select-disabled')
-    // 说明指向唯一可改入口，避免用户在此反复试
-    const tip = screen.getByTestId('route-editor-receiver-readonly-tip')
-    expect(tip).toHaveTextContent('由上方「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」决定')
-    expect(tip).toHaveTextContent('此处不可直接修改')
-    // 只读说明优先于悬空红字：即使根 receiver 未在已启用清单里，也只提示去路由设置改
-    expect(screen.queryByTestId('route-editor-receiver-dangling')).toBeNull()
+    expect(screen.getByLabelText('接收人').closest('.ant-select')).not.toHaveClass('ant-select-disabled')
+    expect(screen.queryByTestId('route-editor-receiver-readonly-tip')).toBeNull()
+    expect(screen.queryByText(/由上方「路由设置」/)).toBeNull()
   })
 
-  // 子路由的接收人仍可编辑：只读只针对顶层路由，不得连坐
-  it('决策一（A6）作用域：子路由接收人下拉仍可编辑，说明文案回落到常规提示', async () => {
+  // 子路由接收人的可编辑性不变
+  it('子路由接收人下拉可编辑，说明文案为常规提示', async () => {
     renderDrawer()
     expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
     expect(screen.getByLabelText('接收人').closest('.ant-select')).not.toHaveClass('ant-select-disabled')
@@ -360,6 +353,12 @@ receivers:
     const merged = mergeRouteSection("global:\n  resolve_timeout: 5m\n", 'route:\n  receiver: \'default\'\n')
     expect(merged).toContain('global:')
     expect(merged).toContain("receiver: 'default'")
+  })
+
+  it('emptyRouteTree：根路由预填内置空接收人 default，预检不因缺接收人阻断', () => {
+    const tree = emptyRouteTree()
+    expect(tree[0].receiver).toBe('default')
+    expect(validateRouteTree(tree).some((i) => i.code === 'root_receiver_required')).toBe(false)
   })
 
   it('validateRouteTree：根无兜底接收人 / 根带匹配条件 → 阻断；不整除 → 警告', () => {
@@ -543,8 +542,8 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     renderDrawer({ knownReceivers: ['default'] })
     expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
     openSelect('接收人')
-    // 已启用渠道派生的接收人（= ReceiverName()）在下拉内
-    await waitFor(() => expect(optionTitles()).toContain('default'))
+    // 平台内置空接收人 default 显示为「默认（不通知）」
+    await waitFor(() => expect(optionTitles()).toContain('默认（不通知）'))
     // 悬空引用（导入自存量配置、渠道已停用）保留在下拉但标红「未定义」
     expect(screen.getAllByText('未定义').length).toBeGreaterThan(0)
     expect(screen.getAllByText('sre-critical').length).toBeGreaterThan(0)
@@ -581,9 +580,10 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     openSelect('接收人')
     // 平台物化的 notify-1 → 「运维告警飞书群（notify-1）」
     await waitFor(() => expect(optionTitles()).toContain('运维告警飞书群（notify-1）'))
-    // 已知集合内却查不到渠道映射的 receiver → 标注「手写」来源（feishu / default 均属文件声明）
+    // 已知集合内却查不到渠道映射的 receiver → 标注「手写」来源
     expect(optionTitles()).toContain('feishu（手写）')
-    expect(optionTitles()).toContain('default（手写）')
+    // 内置空接收人优先按「默认（不通知）」展示，不再误标为手写
+    expect(optionTitles()).toContain('默认（不通知）')
   })
 
   // 验收 2：分组键 Tags 联想（复用 label-options，零后端改动）

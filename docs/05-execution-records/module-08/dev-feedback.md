@@ -856,3 +856,32 @@ L3（纯文案文档）──┘        │
   - 后端新增 `platform/configcenter/deployment/callback_alertmanager_test.go`（5 例）：reuse 路径来源 + 骑窗版本均标记（旧口径下来源反而遗留——防回归）/ discarded 兄弟不被 resurrect / 存量回落不覆盖已生效时间戳 / discarded 来源被确认后自愈 applied。
   - 前端：`alertmanagerConstants.test.ts` 扩 discarded 派生 3 例（终态优先于 applied_at / status 缺省回落旧口径）；`AlertConfigPage.test.tsx` 新增「discarded → 已废弃 + 恢复指引，且无待确认提示/确认入口」；`ConfigPreviewPage.test.tsx` 新增含/不含告警配置的废弃影响正反 2 例。
 - **状态**：**landed（2026-10-13，未提交）**——`go build ./platform/...` exit 0；`go test ./platform/configcenter/... ./platform/models/... ./platform/alertmanager/...` **13 包全过**（新增 12 例）；前端 `alertmanagerConstants` 18 + `AlertConfigPage` 39 + `ConfigPreviewPage` 20 全过（另：`tsc -p tsconfig.test.json` 存量 9 错均在未触碰文件，属 HEAD/WIP 遗留，与本次无关）；`make repo-map` 已刷新且 `make check-repo-map` 通过。⚠️ 真机端到端（重启后端 AutoMigrate 加列 → 挂载 → 废弃 → 版本历史显示「已废弃」）待用户重启后复核。
+
+## 45. 路由树保存仍由前端生成 YAML + 默认告警配置未落库：只读/编辑两态割裂、历史 receiver 仍可被选中（② 实现偏差 / ① 数据空白，2026-10-22 修复）
+
+- **类别**：② 实现偏差（前端/后端双份 YAML 生成；接收人合法集合含历史声明）+ ① 数据空白（平台无默认告警配置记录）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.1 / §9.1；源码见回填清单
+- **发现场景**：
+  - 告警配置页删除导入能力后，路由页只读态显示 0 节点，点「编辑路由」却出现 1 个根节点，放弃编辑又回到 0 节点；
+  - 根路由预检报「根路由必须指定兜底接收人」，用户质疑默认配置为何不是配置；
+  - 接收人下拉仍可能出现已停用渠道 / 历史手写 receiver，用户明确要求「默认 + 已启用渠道」之外不允许选择。
+- **根因**：
+  - **默认配置不在数据库**：`alertmanager_config_versions` 无 seed 记录；磁盘 `deploy/alertmanager/alertmanager.yml` 只被 `make run-alertmanager` 使用，平台路由页读不到。根路由由前端 `emptyRouteTree()` 临时合成，导致只读/编辑两态不一致。
+  - **YAML 由前端生成**：`useRoutes.save()` 调用 `routeTree.ts` 的 `generateRouteSection` / `mergeRouteSection`，再以整份 `content` 调 `POST /config`；Go 侧 `GenerateRouteSection` 是另一份镜像，后端无法验证 YAML 是否忠实反映树。
+  - **接收人合法集合过宽**：`knownReceivers` 并入了当前 YAML `receivers:` 段的历史声明（为修复 2026-10-08 手写 receiver 误判），导入能力删除后该口径变成「已停用渠道/历史手写 receiver 仍可选」。
+- **结论 / 修复**：
+  - **默认配置入库**：新增 `seed.EnsureDefaultAlertmanagerConfig`（`db.Init → seed.Run`），无 applied 版本时写入与 `deploy/alertmanager/alertmanager.yml` 一致的默认配置，`status=applied`、`applied_at=seed 时间`、`applied_by=system`；单测守卫模板漂移。路由页删除「未配置」标签与合成占位，只读/编辑均读 DB。
+  - **后端生成 YAML**：新增 `POST /api/v2/platform/alertmanager/routes`（RequireAdmin），请求只携带 `{ base_checksum, route_tree }`。后端依次：乐观锁校验 → 树/接收人校验 → `GenerateRouteSection` → `MergeRouteSection` → `EnsureReceiverNames`（渠道 receiver 先补空占位，真实 webhook 由 M09 物化）→ `config.Submit`（amtool 校验 + 落版本 + 触发 M09）。前端删除保存链路中的 YAML 生成/合并。
+  - **接收人收口**：前端与后端统一为 `default ∪ 已启用渠道 receiver_name`；`declared_receivers` 不再参与可选集合与合法性校验。已停用/删除渠道与历史手写 receiver 判 `receiver_dangling` 并阻断保存。
+  - **交互调整**：路由页默认只读，仅「编辑路由」入口；编辑态只保留「新建 / 保存 / 放弃」；删除「重新载入当前配置」；进入编辑先刷新 `GET /routes` 并用回传的最新数据载入；保存成功回只读态并提示待确认；`GET /routes` 新增 `effective_checksum` 与 `pending`，有 pending 时展示「当前显示的是待确认版本」横幅。
+  - **清理**：删除 `AlertmanagerRouteSetting` 模型、`/route-setting` API、根 receiver 物化与托管模式预置示例注入；告警配置页删除导入卡/抽屉/手写说明。
+- **影响模块**：M08（路由页 / 告警配置页 / 通知渠道页）、M09（变更单 pending 视图消费）、DB seed。
+- **回填清单**：
+  - 后端：`platform/db/seed/alertmanager_default.go`、`platform/db/seed/seed.go`；`platform/alertmanager/route/save_handler.go`、`handler.go`、`validate.go`、`register.go`；`platform/configcenter/generator/default_receiver.go`、`notify_route_generate.go`；`platform/alertmanager/config/service.go`；删除 `setting_handler.go`、`models/alertmanager_route_setting.go`、`notify_route_skeleton.go`、`notify_route_preset.go`。
+  - 前端：`RoutesPage.tsx`、`useRoutes.ts`、`routeTree.ts`、`RouteEditorDrawer.tsx`、`api/alertmanager.ts`、`types/alertmanager.ts`；删除 `useRouteSetting.ts`、`AlertConfigDrawer.tsx`；告警配置页与通知渠道页去除导入/兜底接管能力。
+  - API：新增 `POST /api/v2/platform/alertmanager/routes`；`GET /routes` 增 `effective_checksum` / `pending`；删除 `GET/PUT /route-setting`。
+- **测试护栏**：
+  - 后端：`seed` 默认配置写入/幂等/不覆盖 + 模板漂移；`generator` 默认接收人补齐、receiver 占位、空 base 合并；`route` 乐观锁 409、树校验、悬空接收人、生成并保留非 route 段；`cmd/metric-center` 冒烟改为默认版本非空。
+  - 前端：alerts 目录 14 文件 214 例全过；覆盖只读/编辑两态、进入编辑刷新、保存只提交树 + `base_checksum`、pending 横幅、默认接收人文案。
+- **状态**：**landed（2026-10-22，未提交）**——`go build ./platform/...` exit 0；`make test-platform` 相关包全过（仅剩既有环境基线失败：`admin/storagelog`、`db.TestInitDefaultPath`、`strategy/rule` promtool 桩脚本）；前端 `tsc --noEmit` exit 0，alerts 214 例全过；`make check-repo-map` 通过；本机重启后 `GET /routes` 返回默认根路由、`effective_checksum` 非空、`pending=null`。
+- **后续**：下发后读回校验（写盘/reload 后比对 AM 实际加载配置）未实现；`routeTree.ts` 的 `generateRouteSection` / `mergeRouteSection` 已退出保存链路，保留为与 Go 生成器对齐的纯函数测试镜像。

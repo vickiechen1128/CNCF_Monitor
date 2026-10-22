@@ -18,46 +18,28 @@
  * 权威实现在后端 Go 侧，此处为「保存走既有挂载端点、零新增端点」所需的前端镜像，**语义须与 Go
  * 保持一致**——Go 侧口径变更时本文件必须同步（建议在汇报中标注为后端增量的收敛点）。
  */
-import type { RouteMatcher, RouteNode } from '../../types/alertmanager'
+import type {
+  RouteEditMatcher,
+  RouteEditNode,
+  RouteMatcher,
+  RouteNode,
+} from '../../types/alertmanager'
+
+// 编辑态类型统一收敛到 types/alertmanager.ts（API 层直接复用），此处仅转出，
+// 保持现有 `import { ... } from './routeTree'` 调用方不变。
+export type { RouteEditMatcher, RouteEditNode } from '../../types/alertmanager'
 
 /** 顶层路由（根）节点 ID：对应 AM 的 `route:` 本体，不可删、不可移 */
 export const ROUTE_ROOT_ID = 'root'
 
+/**
+ * 平台内置空接收人：Alertmanager 要求根 route 必须有 receiver，但接收人可以没有任何
+ * 通知配置——命中它的告警会被静默丢弃。新环境尚未配置通知渠道时用它兜底。
+ */
+export const DEFAULT_RECEIVER_NAME = 'default'
+
 /** 路由名称注释前缀（与 Go `routeNameCommentPrefix` 严格对称）：`# 路由名称: xxx` */
 export const ROUTE_NAME_COMMENT_PREFIX = '路由名称'
-
-/** 编辑态单条匹配条件（口径与后端 `RouteEditMatcher` / `route.RouteMatcher` 一致） */
-export interface RouteEditMatcher {
-  name: string
-  value: string
-  /** true=`=` / `=~`（相等）；false=`!=` / `!~`（取反） */
-  is_equal: boolean
-  /** true=正则匹配（`=~` / `!~`） */
-  is_regex: boolean
-}
-
-/**
- * 编辑态路由节点（前序扁平序列，`items[0]` 为根路由）。
- *
- * `id` / `parent_id` / `order` 为平台编辑态内部标识（不落盘）；`raw_yaml` 承载不可表达子树的原文
- * （前端导入路径不产 raw，保留字段以对齐后端模型）。
- */
-export interface RouteEditNode {
-  id: string
-  parent_id: string
-  name: string
-  matchers: RouteEditMatcher[]
-  receiver: string
-  group_by: string[]
-  group_wait: string
-  group_interval: string
-  repeat_interval: string
-  continue: boolean
-  order: number
-  /** ⚠ 导入时必须显式置 true（Go 零值脚枪：false 会连子树一起剔除） */
-  enabled: boolean
-  raw_yaml: string
-}
 
 /** 校验结论等级（与后端同枚举）：error = 阻断保存；warning = 仅提示 */
 export type RouteIssueLevel = 'error' | 'warning'
@@ -302,12 +284,20 @@ export function fromRouteNodes(items: RouteNode[]): RouteEditNode[] {
     order: n.order ?? 0,
     enabled: true,
     raw_yaml: '',
+    raw: n.raw ?? '',
   }))
 }
 
-/** 空白起点：仅一个根路由（用于「不可无损导入」后的手动校正） */
+/**
+ * 空白起点：仅一个根路由。
+ *
+ * 根路由预填平台内置空接收人 default（AM 要求根 route 必须有 receiver）；
+ * 用户可随时在「接收人」下拉里改成已启用渠道。
+ */
 export function emptyRouteTree(): RouteEditNode[] {
-  return [blankRouteNode(ROUTE_ROOT_ID, '')]
+  const root = blankRouteNode(ROUTE_ROOT_ID, '')
+  root.receiver = DEFAULT_RECEIVER_NAME
+  return [root]
 }
 
 /** 空白节点模板（新建子路由沿用提案 §3.4 的常用节奏默认值） */
@@ -326,6 +316,7 @@ export function blankRouteNode(id: string, parentId: string): RouteEditNode {
     order: 0,
     enabled: true,
     raw_yaml: '',
+    raw: '',
   }
 }
 

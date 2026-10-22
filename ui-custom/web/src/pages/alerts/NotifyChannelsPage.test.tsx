@@ -6,7 +6,7 @@
  * antd 稳定模式见 src/test/antdTestUtils.tsx（Step 3.6）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
@@ -23,14 +23,6 @@ vi.mock('./useNotifyChannels', () => ({
 const useDerivedReceiversMock = vi.fn()
 vi.mock('./useDerivedReceivers', () => ({
   useDerivedReceivers: (...a: unknown[]) => useDerivedReceiversMock(...a),
-}))
-
-// 兜底渠道标识列（T08-SPLIT-01，提案 §4.2）消费 route-setting：显式兜底看
-// `default_receiver_channel_id`，建议兜底看 `effective_receiver_name`；隔离真实请求。
-const useRouteSettingMock = vi.fn()
-vi.mock('./useRouteSetting', () => ({
-  useRouteSetting: (...a: unknown[]) => useRouteSettingMock(...a),
-  NONE_RECEIVER_VALUE: -1,
 }))
 
 const getReceiverSnippetMock = vi.fn()
@@ -152,9 +144,6 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
       permissionDenied: false,
       reload: vi.fn(),
     })
-    // route-setting 默认未取到（未接管）：「兜底渠道」列不渲染任何标识
-    useRouteSettingMock.mockReset()
-    useRouteSettingMock.mockReturnValue({ setting: null })
   })
 
   it('页头渲染渠道名称与新增入口', () => {
@@ -166,18 +155,15 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
   })
 
   // B 路线（决策 74）：需说明「本页是接收人来源」，并给出「自动写入、配置即生效」心智，
-  // 同时指向「告警配置」页，避免两页各说一套。
   // 2026-10-02 四页说明区统一：说明收进「这个页面管什么」折叠区（默认收起），需先展开。
-  it('B 路线：说明区讲清接收人来源、自动写入心智并指向 /alert-config', () => {
+  // 2026-10-22：告警配置页不再提供手写入口，说明区不再外链该页。
+  it('B 路线：说明区讲清接收人来源与自动写入心智', () => {
     useNotifyChannelsMock.mockReturnValue(result())
     renderPage()
     fireEvent.click(screen.getByTestId('notify-channels-intro-guide-label'))
     expect(screen.getByText(/本页是告警接收人的来源/)).toBeInTheDocument()
     expect(screen.getByText(/会被平台在下发配置时自动写入/)).toBeInTheDocument()
-    // 说明区与片段抽屉都指向「告警配置」页（forceRender 下抽屉内容常驻，故用 getAll）
-    const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
-    expect(configLinks.length).toBeGreaterThan(0)
-    expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
+    expect(screen.queryByRole('link', { name: '「告警配置」' })).toBeNull()
   })
 
   // 2026-10-02 四页说明区统一（components/PageIntro.tsx）：页头=标题+一行副标+主按钮，
@@ -358,15 +344,14 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     // 安全（H-1）：桥令牌不得出现在 URL query，改走 authorization 请求头
     expect(screen.queryByText(/token=/)).toBeNull()
     expect(screen.getByText(/authorization:/)).toBeInTheDocument()
-    // 说明该片段要用在哪，并给出「告警配置」页入口
-    const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
-    expect(configLinks.length).toBeGreaterThan(0)
-    expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
+    // 2026-10-22：告警配置页不再提供手写入口，抽屉不再引导去该页。
+    expect(screen.queryByRole('link', { name: '「告警配置」' })).toBeNull()
     // 安全文案（#27）：片段含内网凭据降级为片段标题右侧行内 tag（Tooltip 展开说明），不再整块 Alert
     expect(screen.getByText('含内网凭据')).toBeInTheDocument()
-    // L3（#26 / #28.5，T08-F9）：归属边界说明贴在 receiver 片段块上——平台自动写入 receivers 定义；
-    // 具体分流 route.routes[] 由用户写；根兜底 route.receiver 在用户选定默认接收人后由平台接管。
-    expect(screen.getByText(/在你选定默认接收人后由平台接管/)).toBeInTheDocument()
+    // L3（#26 / #28.5，T08-F9）：归属边界说明——平台自动写入 receivers 定义；
+    // 具体分流与顶层兜底都在「路由规则」页直接配置。
+    expect(screen.getByText(/都在「路由规则」页的路由树里直接配置/)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toContain('由平台接管')
     expect(document.body.textContent ?? '').not.toContain('route 段由你手写维护')
 
     await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
@@ -560,102 +545,4 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.queryByText('暂不可见')).toBeNull()
   })
 
-  // =====================================================================
-  // 2026-10-13（T08-SPLIT-01，提案 §4.2）：「哪个渠道是兜底」由路由规则页迁到本页「兜底渠道」列，
-  // 就地显性化。判定严格按 `effective_source` 三态，绝不把「建议值」说成「已接管」（§11.9 契约）。
-  // =====================================================================
-  const routeSettingOf = (over: Record<string, unknown>) => ({
-    enabled: true,
-    mode: 'managed',
-    effective_source: 'explicit',
-    effective_receiver_name: 'sre-feishu-qun',
-    ...over,
-  })
-
-  it('兜底渠道列：列标题就位且位于「平台接收人」列之前', async () => {
-    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
-    renderPage()
-    // antd 表头在 measure row 里会复制一份列宽文本，只认真正的 <th>，否则 getByText 撞多元素
-    await screen.findAllByText('兜底渠道')
-    const headerOf = (label: string) => {
-      const th = screen.getAllByText(label).find((el) => el.tagName === 'TH')
-      if (!th) throw new Error(`未找到表头 <th>：${label}`)
-      return th
-    }
-    const fallbackHeader = headerOf('兜底渠道')
-    const derivedHeader = headerOf('平台接收人')
-    // DOM 顺序即列顺序：兜底标识紧邻平台接收人左侧，便于左右对照
-    expect(
-      fallbackHeader.compareDocumentPosition(derivedHeader) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-  })
-
-  // 显式兜底：ID 比对必须走字符串（NotifyChannel.id 是十进制字符串，route-setting 侧是数值）。
-  it('兜底渠道列：显式兜底（effective_source=explicit）只在选定渠道行打「兜底」Tag', async () => {
-    useNotifyChannelsMock.mockReturnValue(
-      result({ channels: [channelRow(), channelRow({ id: '2', name: '运维钉钉群', type: 'dingtalk' })] }),
-    )
-    useRouteSettingMock.mockReturnValue({
-      setting: routeSettingOf({ default_receiver_channel_id: 2, effective_receiver_name: 'ops-dingtalk-qun' }),
-    })
-    renderPage()
-    const tags = await screen.findAllByTestId('channel-fallback-tag')
-    expect(tags).toHaveLength(1)
-    expect(tags[0].textContent).toBe('兜底')
-    // 未选中的行不误挂标识
-    const opsRow = screen.getByText('运维钉钉群').closest('tr') as HTMLElement
-    expect(within(opsRow).getByTestId('channel-fallback-tag')).toBeInTheDocument()
-    const sreRow = screen.getByText('SRE 飞书群').closest('tr') as HTMLElement
-    expect(within(sreRow).queryByTestId('channel-fallback-tag')).toBeNull()
-  })
-
-  // 建议兜底：effective_source=auto_first_enabled 时平台**仅作建议**，Tag 文案必须与「已接管」区分。
-  it('兜底渠道列：建议兜底（auto_first_enabled）打「建议兜底」Tag，不与「兜底」混用', async () => {
-    useNotifyChannelsMock.mockReturnValue(
-      result({ channels: [channelRow(), channelRow({ id: '2', name: '运维钉钉群', type: 'dingtalk' })] }),
-    )
-    useDerivedReceiversMock.mockReturnValue({
-      rows: [
-        derivedRow(),
-        derivedRow({ channelId: '2', channelName: '运维钉钉群', receiverName: 'ops-dingtalk-qun', channelType: 'dingtalk' }),
-      ],
-      loading: false,
-      error: null,
-      permissionDenied: false,
-      reload: vi.fn(),
-    })
-    useRouteSettingMock.mockReturnValue({
-      // 未显式选定：ID 为 null，平台仅按「首个已启用渠道」给出建议值
-      setting: routeSettingOf({
-        default_receiver_channel_id: null,
-        effective_source: 'auto_first_enabled',
-        effective_receiver_name: 'sre-feishu-qun',
-      }),
-    })
-    renderPage()
-    const tags = await screen.findAllByTestId('channel-fallback-suggested-tag')
-    expect(tags).toHaveLength(1)
-    expect(tags[0].textContent).toBe('建议兜底')
-    // 建议态绝不出现「兜底」实色标识（否则就是把建议说成已接管）
-    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
-  })
-
-  it('兜底渠道列：未接管（effective_source=none）与未取到 route-setting 时均不渲染标识', async () => {
-    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
-    useRouteSettingMock.mockReturnValue({
-      setting: routeSettingOf({ default_receiver_channel_id: null, effective_source: 'none', effective_receiver_name: '' }),
-    })
-    const { unmount } = renderPage()
-    expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
-    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
-    expect(screen.queryByTestId('channel-fallback-suggested-tag')).toBeNull()
-    unmount()
-
-    // route-setting 未取到（未接管 / 无权限）同样不渲染
-    useRouteSettingMock.mockReturnValue({ setting: null })
-    renderPage()
-    expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
-    expect(screen.queryByTestId('channel-fallback-tag')).toBeNull()
-    expect(screen.queryByTestId('channel-fallback-suggested-tag')).toBeNull()
-  })
 })

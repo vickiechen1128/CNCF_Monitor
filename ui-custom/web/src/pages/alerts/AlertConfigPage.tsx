@@ -1,44 +1,21 @@
 /**
- * 告警配置页（决策 59/60 + 设计提案 alert-config-three-layer-model.md §7.3 方案 A）。
+ * 告警配置页（决策 59/60）。
  *
- * 页面职责（2026-10-13 收敛，提案 alert-config-policy-split-migration.md §2.2）：
- * 由「策略 + 动线 + 现状 + 历史 + 高级」五段收敛为三件事——
+ * 页面职责（2026-10-22 收敛）：只读查看——
  *   ① 当前生效（只读 YAML）；
- *   ② 配置版本历史（内容侧留痕，常驻）；
- *   ③ 导入整份配置文件（**常驻独立卡**，三层模型第③ 层永久逃生舱，PRD §11.6 / 决策 113）。
+ *   ② 配置版本历史（内容侧留痕，常驻）。
  *
- * 2026-10-13 迁移（提案 §2.1 / §2.2）：原「路由与收敛策略」卡（未匹配规则的告警发给谁 +
- * 路由规则由谁维护）与「动线卡」已**整块迁出**——
- *   - 两个策略控件 → 「路由规则」页常驻「路由设置」卡（与顶层路由同屏）；
- *   - 「哪个渠道是兜底」→ 「通知渠道」页新增「兜底渠道」列。
- * 迁出理由：策略控件与本页职责（查看当前生效 + 版本历史 + 导入）不符，且兜底控件与顶层路由
- * 分处两页——用户改一处、另一处会被后端 `materializeRootRouteReceiver` 静默覆盖（该函数不判 mode）。
- * 「导入整份配置文件」由高级 Collapse **提为常驻卡**（A11）：决策 113 / §7.6 C3 要求手写逃生门
- * 任何模式下都可达，收进默认收起的折叠区等于在主路径下被降级隐藏。
- * 随之删除：原 PageIntro 第 5 条「两开关独立性」说明（已随决策五原句落位到路由规则页兜底控件旁）。
- *
- * 2026-10-02 用户意见（已落地）：
- *   - 「配置版本历史」是全局留痕能力，从高级区提出为常驻卡（现状卡之后、高级区之前）；
- *   - 删除「重新挂载此版本」：历史配置重新提交走「打开版本内容→改→导入」即可，
- *     专用remount 端点 + 二次确认 + 行级错误区属过度设计，且与「通知模板」页的
- *     「重新挂载（模板回滚）」语义同名易混——后者保留（那是模板版本回滚，有独立价值）；
- *   - 「平台自动生成的接收人」只读面板迁出本页 → 「通知渠道」页表格的「平台接收人」列
- *     （明细/复制仍走该页行内「接收人配置」抽屉）：它是**渠道的产物**，只在渠道上下文里有意义，
- *     放在本页高级区既割裂又与渠道页的片段能力形成「同源能力两份」。
- *     本页仅在手写说明的「接收人」块保留前往渠道页的链接（常量 ALERT_CONFIG_REQUIRED_BLOCKS）。
- *
- * 三层模型与 UI 的对应（提案 §1.3）：三层模型里「导入整份文件」是第 ③ 层（永久逃生舱，PRD §11.6），
- * 因此**页头不再挂type="primary" 主按钮**——降级不删除，入口移入高级区。
+ * 2026-10-22 用户裁决：**删除「导入整份 alertmanager.yml」能力**。告警路由的唯一作者是
+ * 「路由规则」页的路由树；本页不再提供任何写入口，也不再有手写配置说明 / 导入抽屉。
+ * 路由树保存仍走 `POST /api/v2/platform/alertmanager/config` 生成整份配置，因此版本历史
+ * 继续由路由保存、通知渠道变更等链路产生，本页保留为内容侧的只读留痕。
  *
  * 状态口径（dev-feedback §25 方案 A 前端侧）：展示一律按 `applied_at` 派生——有值「已生效」，
  * 为空「已提交，待确认下发」+ 配置变更确认入口；不再直读 `status=applied` 冒充「已生效」
  * （提交只落库收录，真正写盘 + reload 在 M09 确认下发之后）。
- *
- * 术语口径（提案 §7.5）：用户视图一律不出「派生 / 兜底 / 作者模式 / 收敛（复合词）」与
- * `route`/`receivers` 等字段名；字段名只在高级区的手写说明与 YAML 里出现。
  */
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   Alert,
   App,
@@ -55,37 +32,21 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import {
-  EyeOutlined,
-  HistoryOutlined,
-  InfoCircleOutlined,
-  UploadOutlined,
-} from '@ant-design/icons'
+import { EyeOutlined, HistoryOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi } from '../../api/alertmanager'
-import { triggerAlertmanagerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { AlertmanagerConfigVersionListItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { PageIntro } from '../../components/PageIntro'
 import { RuleGuideLink } from '../../components/RuleGuideLink'
 import { useAlertConfig } from './useAlertConfig'
-import { AlertConfigDrawer } from './AlertConfigDrawer'
 import {
-  ALERTMANAGER_MIN_SKELETON,
-  ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO,
-  ALERT_ADVANCED_GUIDE_MANAGED,
-  ALERT_ADVANCED_GUIDE_TITLE,
-  ALERT_IMPORT_CARD_TITLE,
-  ALERT_IMPORT_LABEL,
-  ALERT_CONFIG_EXEMPT_BLOCKS,
-  ALERT_CONFIG_REQUIRED_BLOCKS,
   CONFIG_PREVIEW_PATH,
   CONFIG_STATUS_DISCARDED_TIP,
   CONFIG_STATUS_PENDING_TIP,
-  CURRENT_USER,
+  ROUTES_PATH,
   configStatusView,
 } from './alertmanagerConstants'
-import { useRouteSetting } from './useRouteSetting'
 import { shortChecksum } from '../../utils/shortChecksum'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
@@ -97,17 +58,10 @@ type ConfigStatusSource = Pick<AlertmanagerConfigVersionListItem, 'applied_at' |
 
 export function AlertConfigPage() {
   const { tokens } = useSkin()
-  const navigate = useNavigate()
   const { message } = App.useApp()
-  const { current, versions, total, loading, error, permissionDenied, reload, page, pageSize, onPageSizeChange, submit } =
+  const { current, versions, total, loading, error, permissionDenied, reload, page, pageSize, onPageSizeChange } =
     useAlertConfig()
-  // 迁移后本页**不再有任何策略控件**（兜底渠道 / 路由维护模式已迁至「路由规则」页），
-  // 因此只读 mode 一个字段：用于「手写配置说明」按模式条件化引导（提案 §7.4 口径保留）。
-  const { setting: routeSetting } = useRouteSetting()
 
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerOpenSeq, setDrawerOpenSeq] = useState(0)
-  const [drawerContent, setDrawerContent] = useState('')
   const [detail, setDetail] = useState<AlertmanagerConfigVersionListItem | null>(null)
   const [detailLoaded, setDetailLoaded] = useState<{ id: string; content: string } | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -122,25 +76,6 @@ export function AlertConfigPage() {
     borderRadius: 8,
     fontSize: 13,
   } as const
-
-  const openMount = (content = '') => {
-    setDrawerOpenSeq((s) => s + 1)
-    setDrawerContent(content)
-    setDrawerOpen(true)
-  }
-
-  const handleSubmit = async (content: string) => {
-    await submit(content, CURRENT_USER)
-    // 决策 60：告警配置仅作用于管理域 default；挂载成功后同步触发变更单生成
-    void triggerAlertmanagerConfigDrafts({ prefix: '配置已挂载', onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
-    reload()
-  }
-
-  /**
-   * 是否为「平台管理」模式（提案 §7.4）：决定高级区「手写配置说明」的内容——
-   * managed 只讲「抑制规则是三块必写中唯一未 UI 化项」；handwritten 才展开完整三块必写 + 两块豁免。
-   */
-  const isManagedMode = routeSetting?.mode === 'managed'
 
   const openVersionDetail = async (record: AlertmanagerConfigVersionListItem) => {
     setDetail(record)
@@ -244,9 +179,9 @@ export function AlertConfigPage() {
       render: (v: string) => <Text code style={{ fontSize: 12 }}>{shortChecksum(v)}</Text>,
     },
     {
-      // 2026-10-02 用户意见：删除「重新挂载此版本」——重新提交历史配置改走
-      // 「查看内容 → 在抽屉里改 → 导入整份配置文件」，与首屏导入入口同一条路径。
-      // 操作列随之收窄为只读查看（宽度同步下调）。
+      // 2026-10-02 用户意见：删除「重新挂载此版本」。
+      // 2026-10-22：本页已无导入入口，历史版本仅作内容留痕查看；要改配置请到「路由规则」页。
+      // 操作列只保留只读查看。
       title: '操作',
       key: 'actions',
       width: 90,
@@ -273,22 +208,17 @@ export function AlertConfigPage() {
     <MainLayout>
       <ConfigProvider locale={config}>
         {/* 页头 + 说明区（四页统一，见 components/PageIntro.tsx）。
-            **页头不挂主按钮**——「导入整份配置文件」是三层模型第③ 层（永久逃生舱，PRD §11.6），
-            但已从高级折叠区提为下方**常驻独立卡**（提案 §2.2 卡③），`extra` 留空即为此故。
-
-            2026-10-13 迁移：副标与三条要点重写为「查看当前生效的配置与历史版本」。
-            原副标「设置『告警发给谁、按什么条件分』」与前两条要点描述的正是迁走的两个策略控件，
-            继续保留会让用户在本页找已不存在的控件；原第 5 条「两开关独立性」已随决策五
-            原句落位到「路由规则」页兜底控件旁（见 ROUTE_SETTING_MODE_INDEPENDENCE_TIP）。*/}
+            本页只读：路由在「路由规则」页通过路由树直接配置，渠道在「通知渠道」页维护；
+            本页只展示已收录的配置版本及其内容留痕。 */}
         <PageIntro
           testId="alert-config-intro"
           title="告警配置"
-          subtitle="查看当前生效的告警配置与历史版本；改动经配置中心（M09）变更单，确认后统一下发生效"
+          subtitle="只读查看当前生效的告警配置与历史版本；告警路由在「路由规则」页直接配置"
           points={[
             '本页是只读视图：看当前生效的是哪一版配置，以及历史上过哪些版本（可查看内容留痕）。',
             <>
-              告警规则（什么情况下算告警）在「规则编辑」维护；谁收到告警（通知渠道）、按什么条件分发（路由规则）
-              都在各自页面维护，本页不再承载策略配置。 <RuleGuideLink />
+              要改路由分发，去「路由规则」页直接编辑路由树并保存；要改接收渠道，去「通知渠道」页维护。
+              本页不提供任何配置入口。 <RuleGuideLink />
             </>,
             '所有改动都不会即时生效：提交后进入配置中心（M09）变更单，人工确认后统一下发。',
           ]}
@@ -364,7 +294,14 @@ export function AlertConfigPage() {
               />
             </>
           ) : (
-            <Empty description="当前无生效配置。可在下方「希望直接编辑整份 alertmanager.yml？」卡导入整份配置文件，或先用「通知渠道」「路由规则」在界面上配置。" />
+            <Empty
+              description={
+                <span>
+                  当前无生效配置。请先到<Link to={ROUTES_PATH}>「路由规则」</Link>
+                  页直接配置路由树，保存并确认下发后这里会显示生效版本。
+                </span>
+              }
+            />
           )}
         </Card>
 
@@ -379,7 +316,7 @@ export function AlertConfigPage() {
               <Tag>内容侧留痕</Tag>
             </Space>
           }
-          extra={<Text type="secondary" style={{ fontSize: 12 }}>每次导入都会存一版，可查看内容留痕</Text>}
+          extra={<Text type="secondary" style={{ fontSize: 12 }}>每次配置变更都会存一版，可查看内容留痕</Text>}
           style={{ marginBottom: 16 }}
           data-testid="alert-versions-card"
         >
@@ -404,116 +341,6 @@ export function AlertConfigPage() {
           />
         </Card>
 
-        {/* ④ 导入整份配置文件（2026-10-13 迁移：提为**常驻卡**，提案 §2.2 卡③）。
-            三层模型第③ 层（永久逃生舱，PRD §11.6 / 决策 113）——降级不删除，但**不能降级到默认收起的
-            折叠区**：收进高级区等于在主路径下被隐藏，与「任何模式下逃生门都可达」的承诺相悖（验收 A11）。
-            故从高级 Collapse 提出，与「当前生效」「版本历史」并列常驻。 */}
-        <Card
-          title={ALERT_IMPORT_CARD_TITLE}
-          style={{ marginBottom: 16 }}
-          data-testid="alert-import-card"
-        >
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              上传或粘贴完整 alertmanager.yml，覆盖当前配置；校验通过后进入变更确认
-            </Text>
-            <div>
-              <Button icon={<UploadOutlined />} onClick={() => openMount()} data-testid="import-config-button">
-                {ALERT_IMPORT_LABEL}
-              </Button>
-            </div>
-          </Space>
-        </Card>
-
-        {/* ⑤ 手写配置说明（默认收起）：手写逃生门的使用说明。
-            抑制规则是「三块必写」中唯一未 UI 化项（dev-feedback #37），故不得整体删除本区。
-            2026-10-13 迁移：导入入口提为常驻卡后，本区只剩这一个折叠项，故**展平为单层**
-            （原为「高级区 → 手写说明」两层嵌套；嵌套已无必要，`stopHeaderClick` 随之移除）。 */}
-        <Collapse
-          size="small"
-          style={{ marginBottom: 16 }}
-          data-testid="alert-advanced-collapse"
-          items={[
-            {
-              key: 'guide',
-              label: (
-                <Space size={8} wrap data-testid="advanced-collapse-label">
-                  <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                  <Text>{ALERT_ADVANCED_GUIDE_TITLE}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    导入整份 alertmanager.yml 时，必写 / 不用你写的内容说明
-                  </Text>
-                </Space>
-              ),
-              children: (
-                <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-                  data-testid="handwritten-guide-content"
-                >
-                  {isManagedMode ? (
-                    <Text type="secondary">{ALERT_ADVANCED_GUIDE_MANAGED}</Text>
-                  ) : (
-                    <>
-                      <Text>{ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO}</Text>
-                      <div>
-                        <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                          {ALERT_CONFIG_REQUIRED_BLOCKS.map((block) => (
-                            <li key={block.key} style={{ marginBottom: 4 }}>
-                              <Text strong>{block.title}</Text>
-                              <Text code style={{ margin: '0 6px' }}>{block.fields}</Text>
-                              <Text type="secondary">{block.desc}</Text>
-                              {block.path ? (
-                                <Text type="secondary">
-                                  ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
-                                </Text>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                      <div>
-                        <Text strong>这两块不用你写：</Text>
-                        <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                          {ALERT_CONFIG_EXEMPT_BLOCKS.map((block) => (
-                            <li key={block.key} style={{ marginBottom: 4 }}>
-                              <Text strong>{block.title}</Text>
-                              <Text type="secondary">
-                                ：{block.desc}
-                                {block.path ? (
-                                  <>
-                                    ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
-                                  </>
-                                ) : null}
-                              </Text>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <Space size={8} style={{ marginBottom: 8 }}>
-                          <Text strong>最小可运行 alertmanager.yml 骨架</Text>
-                          <Tag color="processing">已通过配置校验</Tag>
-                        </Space>
-                        <pre style={{ ...yamlBlockStyle, maxHeight: 320 }}>{ALERTMANAGER_MIN_SKELETON}</pre>
-                        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                          点上方「{ALERT_IMPORT_LABEL}」后，可在抽屉里用「插入骨架示例」一键填入这份骨架。
-                        </Text>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-
-        <AlertConfigDrawer
-          key={drawerOpenSeq}
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          initialContent={drawerContent}
-          onSubmit={handleSubmit}
-        />
 
         <Drawer
           title={detail ? `配置版本 ${detail.id} 内容` : '配置版本内容'}

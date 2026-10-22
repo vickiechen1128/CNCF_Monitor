@@ -9,12 +9,11 @@
 // 全部引用 `feishu` → 5 个节点全部命中 `receiver_dangling`，页面进入「不能新建也不能保存」
 // 的死锁（既阻断保存，又因按钮依赖编辑态而无法通过新建绕开）。
 //
-// 口径对齐（关键）：真正的「可达 receiver 集合」在生成侧早已存在且是两部分的并集——
+// 口径对齐（关键）：真正的「可达 receiver 集合」是两部分的并集——
 //   - 文件 `receivers:` 段已声明的名字（用户手写，平台无权判其悬空）；
-//   - 本次平台将物化的名字（PlatformReceiverNames，桥地址已配时才写出）。
-// 见 generator/notify_route_skeleton.go 的 RootRouteInput.PlatformReceiverNames 注释
-// （「与文件中既有 receivers 名并集构成『可达 receiver 集合』」）。本文件补齐前半部分，
-// 使 GET /routes 能把「文件已声明名」一并交给前端，前端 knownReceivers = 本字段 ∪ 平台物化名。
+//   - 本次平台将物化的名字（NotifyChannel.ReceiverName()，桥地址已配时才写出）。
+// 本文件补齐前半部分，使 GET /routes 能把「文件已声明名」一并交给前端，
+// 前端 knownReceivers = 本字段 ∪ 平台物化名。
 //
 // 非敏感：只回显 receiver **名**（AM 里本就公开的标识符），绝不含 webhook URL / 桥令牌
 // （脱敏口径另见 maskReceiverURL）。故本字段与 GET /routes 的「仅全局认证」鉴权级别相符，

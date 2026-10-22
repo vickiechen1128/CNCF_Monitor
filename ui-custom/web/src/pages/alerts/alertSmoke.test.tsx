@@ -55,27 +55,8 @@ vi.mock('./useDerivedReceivers', () => ({
   useDerivedReceivers: () => useDerivedReceiversMock(),
 }))
 
-// 默认接收人（根兜底）Hook（T08-F8）：同上隔离真实 route-setting / notify-channels 请求
-const useRouteSettingMock = vi.fn()
-vi.mock('./useRouteSetting', () => ({
-  useRouteSetting: () => useRouteSettingMock(),
-  NONE_RECEIVER_VALUE: -1,
-}))
-
 function derivedEmpty() {
   return { rows: [], loading: false, error: null, permissionDenied: false, reload: vi.fn() }
-}
-
-function routeSettingEmpty() {
-  return {
-    setting: null,
-    options: [{ value: -1, label: '不接管（保留配置文件里已有的值）' }],
-    loading: false,
-    error: null,
-    saving: false,
-    reload: vi.fn(),
-    save: vi.fn(),
-  }
 }
 
 function renderM08(initialPath: string) {
@@ -112,17 +93,13 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     listDomainsMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     useDerivedReceiversMock.mockReset()
     useDerivedReceiversMock.mockReturnValue(derivedEmpty())
-    useRouteSettingMock.mockReset()
-    useRouteSettingMock.mockReturnValue(routeSettingEmpty())
   })
 
-  // 2026-10-02 #38/#39：页头不再挂「挂载新配置」主按钮，导入入口降级进默认收起的高级区；
-  // 空态也改为「界面配置 + 高级区导入」两条路并给。
+  // 2026-10-22：告警配置页收敛为只读视图，空态引导去「路由规则」页直接配置。
   it('主链路前端可走通：/alert-config 加载告警配置页，顶级 tab + 两二级子项就位', async () => {
     renderM08('/alert-config')
-    // Load 态结束后渲染当前生效空态（引导优先走界面配置，其次才是高级区导入）
     expect(await screen.findByText(/当前无生效配置/)).toBeInTheDocument()
-    expect(screen.getByText(/「通知渠道」「路由规则」/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '「路由规则」' })).toHaveAttribute('href', '/routes')
     expect(screen.getByTestId('alert-config-intro')).toBeInTheDocument()
     // 顶级 tab 用 PRD 模块名（出现于顶部一级 tab 与二级菜单组）
     expect(screen.getAllByText('告警收敛与通知管理').length).toBeGreaterThan(0)
@@ -176,19 +153,17 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     expect(screen.getByRole('button', { name: /重新加载/ })).toBeInTheDocument()
   })
 
-  // T08-SPLIT-01（提案 §2.2 卡③ + §7.6 C3）：导入整份配置文件由高级 Collapse **提为常驻卡**，
-  // 手写逃生门任何模式下都可达（验收 A11），且旧策略卡与其上两个控件已整块迁出本页（A1/A2）。
-  it('T08-SPLIT-01：导入入口提为常驻卡，原策略卡与「没匹配到具体规则的告警，发给哪个渠道」控件已迁出本页', async () => {
+  // 2026-10-22 用户裁决：告警配置页只读，导入能力与策略控件均不得残留。
+  it('告警配置页无导入入口 / 策略控件，路由由「路由规则」页直接配置', async () => {
     renderM08('/alert-config')
-    // 导入卡常驻可达，无需展开任何折叠区
-    expect(await screen.findByTestId('alert-import-card')).toBeInTheDocument()
-    expect(screen.getByTestId('import-config-button')).toBeInTheDocument()
-    // 迁出反向护栏：策略卡与兜底控件在本页均已不存在（覆盖已迁至 RoutesPage.test.tsx）
+    expect(await screen.findByText(/当前无生效配置/)).toBeInTheDocument()
+    expect(screen.queryByTestId('alert-import-card')).toBeNull()
+    expect(screen.queryByTestId('import-config-button')).toBeNull()
     expect(screen.queryByTestId('alert-policy-card')).toBeNull()
     expect(screen.queryByTestId('alert-guide-card')).toBeNull()
     expect(screen.queryByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' })).toBeNull()
     expect(document.body.textContent ?? '').not.toContain('不接管（保留配置文件里已有的值）')
-    // 旧术语不再出现在用户视图
+    expect(document.body.textContent ?? '').not.toContain('路由规则由谁维护')
     expect(document.body.textContent ?? '').not.toContain('默认兜底接收人')
   })
 

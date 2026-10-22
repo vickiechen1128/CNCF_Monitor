@@ -31,20 +31,6 @@ vi.mock('../../api/alertmanager', async (importOriginal) => {
   }
 })
 
-// route-setting 真实请求与本次无关，隔离掉避免副作用
-vi.mock('./useRouteSetting', () => ({
-  useRouteSetting: () => ({
-    setting: null,
-    options: [],
-    loading: false,
-    error: null,
-    saving: false,
-    reload: vi.fn(),
-    save: vi.fn(),
-  }),
-  NONE_RECEIVER_VALUE: -1,
-}))
-
 function renderPage() {
   return render(
     <MemoryRouter>

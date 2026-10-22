@@ -20,7 +20,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -37,44 +39,34 @@ type DeadReceiver struct {
 
 // ListRoutes 组装只读路由视图：
 //
-//   - 成功：{ mode, items, dead_receivers, declared_receivers }；
-//   - 解析失败 / 非常规结构：{ mode, parse_error, raw_yaml }（降级为原文只读展示，非 500）。
+//   - 成功：{ items, dead_receivers, declared_receivers }；
+//   - 解析失败 / 非常规结构：{ parse_error, raw_yaml }（降级为原文只读展示，非 500）。
 //
 // 数据源为「平台最新产物视图」而非挂载留痕原文（见 effectiveAlertmanagerYAML）：只有读产物
-// 才能让页面上的根兜底 receiver 与 dead_receivers 判定同真正生效（磁盘 config-output/
-// alertmanager.yml）一致——留痕原文既不含 receivers 物化、也不含根兜底接管结果，会把已被
-// 根路由引用的平台 receiver 误报成死配置。
-//
-// mode 取自 AlertmanagerRouteSetting 持久化值（T08-F12 模式开关）：handwritten / managed；
-// 存量未设定行归一为 handwritten，零影响。
+// 才能让页面上的顶层路由 receiver 与 dead_receivers 判定同真正生效（磁盘 config-output/
+// alertmanager.yml）一致——留痕原文不含 receivers 物化结果，会把已被根路由引用的平台
+// receiver 误报成死配置。
 func ListRoutes(db *gorm.DB) (gin.H, error) {
 	baseYAML, err := effectiveAlertmanagerYAML(db)
 	if err != nil {
 		return nil, err
 	}
 
-	// 读取 route 段作者模式（T08-F12）：取自 AlertmanagerRouteSetting 持久化值，
-	// 不再硬编码 ModeHandwritten。存量零值行由 LoadRouteSetting 归一为 handwritten。
-	setting, err := generator.LoadRouteSetting(db)
-	if err != nil {
-		return nil, err
-	}
-	mode := string(setting.Mode)
-	if mode == "" {
-		mode = ModeHandwritten
-	}
-
 	// 「文件 receivers: 段已声明的接收人名」与 route 解析相互独立：即便 route 段解析失败进入
 	// 降级分支，本字段仍然有效（前端据此判定引用是否悬空），故先于 ParseRouteTree 计算。
 	declared := ParseDeclaredReceivers(baseYAML)
 
+	checksum := models.AlertmanagerConfigChecksum(baseYAML)
+	pending := pendingChangeView(db)
+
 	nodes, err := ParseRouteTree(baseYAML)
 	if err != nil {
 		return gin.H{
-			"mode":               mode,
 			"parse_error":        err.Error(),
 			"raw_yaml":           baseYAML,
 			"declared_receivers": declared,
+			"effective_checksum": checksum,
+			"pending":            pending,
 		}, nil
 	}
 
@@ -83,11 +75,34 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 		return nil, err
 	}
 	return gin.H{
-		"mode":               mode,
 		"items":              nodes,
 		"dead_receivers":     dead,
 		"declared_receivers": declared,
+		"effective_checksum": checksum,
+		"pending":            pending,
 	}, nil
+}
+
+// pendingChangeView 返回管理域当前活 pending 变更单的轻量视图；无则 nil。
+//
+// 路由页据此提示「当前显示的是待确认版本，Alertmanager 仍在运行上一版」，
+// 并给前端保存时使用的 base_checksum 一个可解释的来源。
+func pendingChangeView(db *gorm.DB) interface{} {
+	if db == nil {
+		return nil
+	}
+	domID, err := domainregistry.ManagementDomainID(db)
+	if err != nil {
+		return nil
+	}
+	d, err := draft.LatestLivePending(db, domID)
+	if err != nil || d == nil {
+		return nil
+	}
+	return gin.H{
+		"change_no":  d.ChangeNo,
+		"created_at": d.CreatedAt,
+	}
 }
 
 // effectiveAlertmanagerYAML 返回「平台最新产物视图」对应的 alertmanager.yml，按新鲜度取：

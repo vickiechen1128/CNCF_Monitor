@@ -91,7 +91,6 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.AlertmanagerConfigVersion{},
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
-		&models.AlertmanagerRouteSetting{},
 	))
 	return db
 }
@@ -368,7 +367,8 @@ func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
-	assert.Equal(t, "route:\n  receiver: default\n", d.AlertmanagerYml, "草稿须持久化 alertmanager_yml 供预览")
+	assert.Equal(t, "route:\n  receiver: default\nreceivers:\n  - name: default\n", d.AlertmanagerYml,
+		"草稿须持久化 alertmanager_yml 供预览（含平台内置空接收人 default）")
 
 	var items []models.ConfigChangeItem
 	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))

@@ -140,6 +140,11 @@ func MergeRouteSection(baseYAML, generated string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// 无既有配置（例如全新环境尚未挂载过 alertmanager.yml）：生成物即完整配置，
+	// receivers 由后续 EnsureDefaultReceiver / 渠道物化补齐。
+	if strings.TrimSpace(baseYAML) == "" {
+		return generated, nil
+	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(baseYAML), &doc); err != nil {
 		return "", fmt.Errorf("解析 base alertmanager.yml 失败: %w", err)

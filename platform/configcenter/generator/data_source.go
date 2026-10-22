@@ -191,27 +191,6 @@ func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
 	return channels, nil
 }
 
-// LoadRouteSetting 读取 M08「最小运行骨架自动布缆」的管理域单例设定（决策 113，默认接收人）。
-// alertmanager.yml 恒属管理域 default（决策 60），故单例按 models.DefaultDomainID 定位。
-// 记录缺失时返回零值设定（DefaultReceiverChannelID=nil = 不接管）且不报错——存量环境未配置
-// 该设定属正常态，生成侧据此回落为「不替换根兜底」，对存量产物零影响。
-func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error) {
-	var s models.AlertmanagerRouteSetting
-	err := db.Where("network_domain_id = ?", models.DefaultDomainID).First(&s).Error
-	if err == gorm.ErrRecordNotFound {
-		return &models.AlertmanagerRouteSetting{NetworkDomainID: models.DefaultDomainID, Mode: models.RouteModeHandwritten}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("load alertmanager route setting: %w", err)
-	}
-	// 存量零值行（Mode=""）归一为 handwritten，保证 GET /routes 返回真实持久化模式，
-	// 而非硬编码（T08-F12 后向兼容，零影响）。
-	if s.Mode == "" {
-		s.Mode = models.RouteModeHandwritten
-	}
-	return &s, nil
-}
-
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

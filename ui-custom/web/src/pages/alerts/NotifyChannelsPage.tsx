@@ -34,7 +34,7 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { triggerAlertmanagerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
@@ -49,20 +49,15 @@ import { useNotifyTemplates } from './useNotifyTemplates'
 import { NotifyChannelDrawer } from './NotifyChannelDrawer'
 import { ReceiverSnippetDrawer } from './ReceiverSnippetDrawer'
 import {
-  ALERT_CONFIG_PATH,
   CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE,
   CHANNEL_DERIVED_RECEIVER_EMPTY,
   CHANNEL_DERIVED_RECEIVER_FORBIDDEN,
   CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING,
-  CHANNEL_FALLBACK_COLUMN_TITLE,
-  CHANNEL_FALLBACK_SUGGESTED_TAG,
-  CHANNEL_FALLBACK_TAG,
   CHANNEL_TEMPLATE_BIND_NONE_PREFIX,
   CONFIG_PREVIEW_PATH,
   notifyChannelTypeColor,
   notifyChannelTypeLabel,
 } from './alertmanagerConstants'
-import { useRouteSetting } from './useRouteSetting'
 
 const { Text } = Typography
 
@@ -89,10 +84,6 @@ export function NotifyChannelsPage() {
     () => new Map(templates.map((t) => [t.id, t.name] as const)),
     [templates],
   )
-  // 2026-10-13（提案 §2.1 / §4.2）：「哪个渠道是兜底渠道」此前只能在路由规则页的下拉框里反推，
-  // 看渠道列表时无从判断。新增「兜底渠道」列就地标识；设定源与路由规则页同一个 hook（同源，单一口径）。
-  const { setting: routeSetting } = useRouteSetting()
-
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerSeq, setDrawerSeq] = useState(0)
   const [editing, setEditing] = useState<NotifyChannel | null>(null)
@@ -209,41 +200,6 @@ export function NotifyChannelsPage() {
     )
   }
 
-  /**
-   * 「兜底渠道」列（2026-10-13，提案 §4.2）：把「哪个渠道是兜底」就地显性化。
-   *
-   * 判定严格按 `effective_source` 三态，避免把「建议值」说成「已接管」（§11.9 契约）：
-   *   - `explicit`           → 你显式选定的渠道 → Tag「兜底」（实色）；
-   *   - `auto_first_enabled` → 平台**仅作建议**的已启用首个渠道 → Tag「建议兜底」（次级色）；
-   *   - `none`               → 不渲染（没有候选渠道）。
-   *
-   * 「显式」分支用 `default_receiver_channel_id` 与行 ID 比对（提案 §4.2 推荐），
-   * **不做名称反查**——渠道名清洗后生成的 receiver 名与渠道名并非一一对应，按名字比对会误判。
-   * 比对前统一转字符串：`NotifyChannel.id` 是十进制字符串（BaseModel.ID），
-   * 而 route-setting 侧是数值 ID，直接 `===` 会恒为 false。
-   * 「建议」分支无显式 ID 可比，改用 `effective_receiver_name` 与本行派生接收人名比对
-   * （两者同源：后端建议值取的就是首个已启用渠道的 receiver 名）。
-   */
-  const renderFallbackChannel = (record: NotifyChannel) => {
-    const setting = routeSetting
-    if (!setting) return null
-    if (setting.effective_source === 'none') return null
-    if (setting.effective_source === 'explicit') {
-      const fallbackId = setting.default_receiver_channel_id
-      if (fallbackId === null || fallbackId === undefined) return null
-      return String(fallbackId) === record.id ? (
-        <Tag color="success" data-testid="channel-fallback-tag">
-          {CHANNEL_FALLBACK_TAG}
-        </Tag>
-      ) : null
-    }
-    const row = derivedByChannelId.get(record.id)
-    if (!row || !setting.effective_receiver_name) return null
-    return row.receiverName === setting.effective_receiver_name ? (
-      <Tag data-testid="channel-fallback-suggested-tag">{CHANNEL_FALLBACK_SUGGESTED_TAG}</Tag>
-    ) : null
-  }
-
   const columns: ColumnsType<NotifyChannel> = [
     {
       title: '渠道名称',
@@ -283,13 +239,6 @@ export function NotifyChannelsPage() {
       width: 100,
       render: (v: boolean) =>
         v ? <Tag color="success">启用</Tag> : <Tag color="default">停用</Tag>,
-    },
-    {
-      // 2026-10-13：列位置紧邻「平台接收人」之前，便于左右对照（提案 §4.2）。
-      title: CHANNEL_FALLBACK_COLUMN_TITLE,
-      key: 'fallback_channel',
-      width: 110,
-      render: (_: unknown, r: NotifyChannel) => renderFallbackChannel(r),
     },
     {
       // 2026-10-02：随「平台自动生成的接收人」区块由告警配置页迁入本页。
@@ -354,9 +303,8 @@ export function NotifyChannelsPage() {
           }
           points={[
             <>
-              本页是告警接收人的来源：已启用的渠道会被平台在下发配置时自动写入
-              <Link to={ALERT_CONFIG_PATH}>「告警配置」</Link>
-              所用 alertmanager.yml 的 receivers（配置即生效），无需手工复制片段。
+              本页是告警接收人的来源：已启用的渠道会被平台在下发配置时自动写入所用
+              alertmanager.yml 的 receivers（配置即生效），无需手工复制片段。
             </>,
             <>
               每个已启用渠道对应一个接收人，接收人名见「{CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE}」列；

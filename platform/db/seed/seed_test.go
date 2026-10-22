@@ -38,6 +38,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ApplicationDict{},
 		&models.CloudDict{},
 		&models.ScrapeJob{},
+		&models.AlertmanagerConfigVersion{},
 	))
 	return db
 }

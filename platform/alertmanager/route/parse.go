@@ -27,16 +27,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// route 段作者模式（提案 §4.3 / §4.5）。本期只读渲染恒返回 ModeHandwritten。
-const (
-	// ModeHandwritten 手写模式（默认）：route 段由用户手写维护，平台只读渲染。
-	ModeHandwritten = "handwritten"
-	// ModePlatform 平台管理模式：route 段由平台生成。
-	// T08-F12「模式开关」尚未实现，本期 GET /routes 恒返回 ModeHandwritten（不预置假开关）；
-	// 该字段将在 T08-F12 接入真实模式来源（平台管理域开关）后按实返回。
-	ModePlatform = "platform"
-)
-
 // RouteMatcher 是归一后的单条匹配条件（PRD §5.5 Matcher；JSON 键与 models.SilenceMatcher 对齐）。
 //
 //	Name    标签名

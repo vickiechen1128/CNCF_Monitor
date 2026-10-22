@@ -42,7 +42,6 @@ import type { NotifyTemplate } from '../../types/alertmanager'
 import { useNotifyTemplates } from './useNotifyTemplates'
 import { NotifyTemplateDrawer, type NotifyTemplateInitial } from './NotifyTemplateDrawer'
 import {
-  ALERT_CONFIG_PATH,
   NOTIFY_CHANNELS_PATH,
   NOTIFY_TEMPLATE_BUILTIN_TIP,
   notifyChannelTypeColor,
@@ -244,10 +243,6 @@ export function NotifyTemplatesPage() {
             '时区、证书、发送失败的可观测由平台统一处理，你不用自己写时间转换或证书兜底。',
             '想改通知样式（标题 / 字段 / 颜色）改模板即可，不用改代码；每次提交都会留痕，历史版本可回滚。',
             '平台已内置默认模板，零模板即可接入；模板要在「通知渠道」里绑定才会生效（绑定动作在该页）。',
-            <>
-              如需投递到自有中继服务，可在<Link to={ALERT_CONFIG_PATH}>告警配置</Link>
-              的接收人地址中直接填写外部地址，平台只做配置与校验、不托管运行。
-            </>,
           ]}
         />
 

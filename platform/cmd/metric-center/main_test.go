@@ -96,7 +96,6 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
 		// 最小运行骨架自动布缆（Module_08 决策 113）：管理域单例根兜底接管设定
-		&models.AlertmanagerRouteSetting{},
 	))
 	require.NoError(t, seed.Run(db))
 	// 方案 A：中心直连域不再由 seed 预置，集成测试显式登记一次（模拟用户首装后
@@ -1285,15 +1284,18 @@ func TestEndToEndAlertmanagerSmoke(t *testing.T) {
 	r, dbm := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
-	// 1. config：当前生效为空（未挂载）→ 200。
+	// 1. config：seed 已写入平台默认配置 → 当前生效非空，且标记为 system 已生效。
 	code, out := c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
 	require.Equal(t, http.StatusOK, code, "current 应可读：%v", out)
-	assert.Equal(t, "", out["data"].(map[string]interface{})["content"])
+	currentData := out["data"].(map[string]interface{})
+	assert.Contains(t, currentData["content"], "receiver: 'default'")
+	assert.Equal(t, "system", currentData["applied_by"])
+	assert.NotEmpty(t, currentData["applied_at"], "默认配置应标记已生效")
 
-	// 2. config：版本列表为空 → 200 total 0。
+	// 2. config：版本列表含 seed 默认版本 → total 1。
 	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/versions", "")
 	require.Equal(t, http.StatusOK, code, "versions 应可读：%v", out)
-	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"])
 
 	// 3. 挂载合法 alertmanager.yml：amtool 不可调用 → 校验失败不落库（决策 60），
 	//    返回 bad_request 且 data.items 带行级错误（印证路由 + 校验短路 + 不落库）；

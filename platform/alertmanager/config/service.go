@@ -125,6 +125,12 @@ func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfig
 	if strings.TrimSpace(content) == "" {
 		return nil, ErrEmptyContent
 	}
+	// 平台内置空接收人 default：保证 route 引用它时配置闭合（Alertmanager 要求根 route
+	// 必须有 receiver，但接收人可以无任何通知配置）。已在文件内声明时原样返回。
+	content, err := generator.EnsureDefaultReceiver(content)
+	if err != nil {
+		return nil, fmt.Errorf("ensure builtin receiver: %w", err)
+	}
 	checksum := models.AlertmanagerConfigChecksum(content)
 
 	// 幂等：已有相同内容已留痕，直接返回该版本，不重复生成（MVP 保留版本历史供回滚）。
@@ -145,6 +151,10 @@ func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfig
 func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, ErrEmptyContent
+	}
+	content, err := generator.EnsureDefaultReceiver(content)
+	if err != nil {
+		return nil, fmt.Errorf("ensure builtin receiver: %w", err)
 	}
 	checksum := models.AlertmanagerConfigChecksum(content)
 	return submitValidated(db, content, checksum, uploadedBy)

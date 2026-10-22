@@ -13,7 +13,6 @@ import type {
   NotifyStatus,
   NotifyTemplateStatus,
   PromAlertState,
-  RouteMode,
   SilenceMatcher,
   SilenceStatus,
   ValidateErrorItem,
@@ -25,6 +24,17 @@ export const CURRENT_USER = '张伟（运维）'
 
 /** 跨模块跳转落点：M09「配置变更确认」页（管理域 default 变更单在此确认下发，决策 60） */
 export const CONFIG_PREVIEW_PATH = '/config-preview'
+
+/** 路由规则页（告警路由的唯一配置入口：用户直接编辑路由树） */
+export const ROUTES_PATH = '/routes'
+
+/**
+ * 平台内置空接收人（`default`）的展示名。
+ *
+ * Alertmanager 要求根 route 必须有 receiver，但接收人可以没有任何通知配置：
+ * 命中它的告警不会发往任何渠道，属**显式的静默丢弃**。文案必须把这个后果说清楚。
+ */
+export const DEFAULT_RECEIVER_LABEL = '默认（不通知）'
 
 /**
  * 配置版本**收录**状态（AlertmanagerConfigVersion.status）。
@@ -317,272 +327,17 @@ export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
 }
 
 // =====================================================================
-// 告警配置口径澄清（PL-2，2026-09-28）：三块必写 + 两块豁免 + 最小骨架
+// 告警模块页面路径
 // =====================================================================
 
-/** 静默管理页路由（豁免项 ④ 的平台内替代入口：静默是运行时状态，不在 alertmanager.yml 里写） */
-export const SILENCES_PATH = '/silences'
-
-/** 告警配置页路由（接收人 / 路由 / 收敛的文件挂载页；逃生门说明指向此处） */
+/** 告警配置页路由（只读查看当前生效配置与版本历史） */
 export const ALERT_CONFIG_PATH = '/alert-config'
 
 /** 通知渠道管理页路由（PL-3「通知渠道」能力页） */
 export const NOTIFY_CHANNELS_PATH = '/notify-channels'
 
-/** 通知模板管理页路由（PL-3「通知模板」能力页；豁免项 ⑤ 的平台内替代入口） */
+/** 通知模板管理页路由（PL-3「通知模板」能力页） */
 export const NOTIFY_TEMPLATES_PATH = '/notify-templates'
-
-/** 说明卡「单块口径」：必写块与豁免块共用形状，避免两处各写一份而漂移 */
-export interface AlertConfigScopeBlock {
-  key: string
-  /** 块名（用户语言） */
-  title: string
-  /** 对应 `alertmanager.yml` 字段（必写块填写；豁免块为空串） */
-  fields: string
-  /** 一句话说明（写什么 / 为什么不用写） */
-  desc: string
-  /** 平台内替代入口路由；必写块或无替代入口的豁免块为 null（null 时只出文案、不产生链接，避免死链） */
-  path: string | null
-  /** 替代入口链接文案（path 非空时使用；避免渲染层写死「静默管理」造成跨块文案错位） */
-  linkText?: string
-}
-
-/**
- * 用户在**手写整份 alertmanager.yml 时**需要写的三块
- * （口径与服务端 amtool 校验一致，不承诺校验器不校验的字段）。
- *
- * 术语口径（设计提案 alert-config-three-layer-model.md §7.5，2026-10-02 IA 重构）：
- *   - 块名用 Alertmanager 官方中文名（「告警抑制」），不造「收敛（告警抑制）」这类复合词；
- *   - `fields` 字段名**只在本高级区出现**，动线卡 / 策略卡等用户视图一律不出现。
- */
-export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
-  {
-    key: 'receivers',
-    title: '接收人',
-    fields: 'receivers',
-    // 「已启用渠道由平台自动写入」的口径只在引导句（ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO）说一次，
-    // 此处只说「你手写时要注意什么」——避免同一事实两处表述。
-    desc: '仅在需要自定义接收人时才手写；不得与渠道自动生成的接收人重名（重名会导致配置校验失败）',
-    path: NOTIFY_CHANNELS_PATH,
-    linkText: '通知渠道',
-  },
-  {
-    key: 'route',
-    title: '路由规则',
-    fields: 'route / routes',
-    desc: '按什么标签分发给谁、怎么分组、多久重复（group_by / group_wait / group_interval / repeat_interval）',
-    path: null,
-  },
-  {
-    key: 'inhibit_rules',
-    title: '告警抑制',
-    fields: 'inhibit_rules',
-    // 「平台已为边缘站点离线等场景自动生成」只在托管模式引导句里说一次，此处不重复。
-    desc: '存在根因告警时，自动抑制它引发的次生告警以降噪；平台已生成的规则按需补充即可',
-    path: null,
-  },
-]
-
-/**
- * 明确**豁免的两块**：静默由「静默管理」页承载、模板内容由PL-3「通知模板」页承载，
- * 二者均给出平台内替代入口（迭代二 PL-3 落地后回补模板入口，关闭 dev-feedback #14）。
- */
-export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
-  {
-    key: 'silences',
-    title: '静默',
-    fields: '',
-    desc: '静默是 Alertmanager 的运行时状态，由「静默管理」页即时控制生效，不需要写进配置文件',
-    path: SILENCES_PATH,
-    linkText: '静默管理',
-  },
-  {
-    key: 'templates',
-    title: '通知模板内容',
-    fields: '',
-    desc: '通知模板由「通知模板」页独立管理，平台自动引用，你不用手写模板文件',
-    path: NOTIFY_TEMPLATES_PATH,
-    linkText: '通知模板',
-  },
-]
-
-// =====================================================================
-// 路由设置（设计提案 alert-config-policy-split-migration.md §2.1 / §2.2，2026-10-13）
-//
-// 原「路由与收敛策略」卡位于**告警配置页**，与其页面职责（查看当前生效配置 + 版本历史 +
-// 导入整份配置文件）不符，且兜底控件与顶层路由接收人分处两页，用户改一处、另一处静默
-// 覆盖。现整体迁至**路由规则页常驻卡**：谁产出路由规则 + 没匹配到规则的告警发给谁，
-// 两个控件同屏同区，避免「两入口必须同步」的隐性约束。
-//
-// ⚠ 文案方向防呆（提案 §4.3，最高优先级踩坑点）：
-// 下面每条模式文案的**可编辑性结论必须与 `useRoutes.ts` 的门禁 `isRouteEditable` 一致**——
-//   `isRouteEditable(mode) { return mode === 'managed' }`
-// 即：**managed = 路由规则页可写；handwritten = 路由规则页只读**。
-// commit 86331a0 曾把两个分支的文案方向整体写反（门禁未动），后按门禁 + PRD §11.7 修正。
-// 改写本节文案时请逐条对齐门禁核对，禁止凭语感书写。
-// =====================================================================
-
-/** 路由设置常驻卡标题 */
-export const ROUTE_SETTING_CARD_TITLE = '路由设置'
-
-/** 控件 A：路由规则由谁维护（原「路由规则作者模式」，「作者模式」为实现视角术语） */
-export const ROUTE_SETTING_MODE_LABEL = '路由规则由谁维护'
-
-/**
- * 控件 B：没匹配到具体规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语）。
- *
- * 2026-10-08 微调：补上「渠道」二字。原措辞里没有「渠道」，而下拉框里显示的恰恰是
- * **渠道名**（如「运维告警飞书群」）—— 用户实测反馈看不出「下拉框选中的」与「兜底策略」
- * 是同一个东西。控件词与选项内容用同一名词（渠道），对应关系不必靠猜。
- */
-export const ROUTE_SETTING_FALLBACK_LABEL = '没匹配到具体规则的告警，发给哪个渠道'
-
-/**
- * 模式二选一选项（用户语言；刻意不用「接管」——接管暗示冲突，实为二选一）。
- *
- * ⚠ 命名口径（2026-10-08 用户实测反馈后修订）：原「我手写 / 平台管理」被实测判为歧义——
- * 「我手写」天然承诺"我来写"，用户理所当然认为**路由规则页可以直接编辑**，而实际含义是
- * "平台别生成 route 段，我自己去告警配置页手写 YAML"，该层含义只写在二次确认弹窗里。
- * 结果：用户选「我手写」后发现路由页变只读，判为功能故障。
- *
- * 修订：把两个选项都锚定到**「谁来产出」**这一可见结果上，并在常驻提示与二次确认里
- * 明说页面可编辑性——方向以门禁 `isRouteEditable`（mode==='managed' 可写）为准，勿按字面反推：
- *   - 「平台生成」→ 路由规则页可编辑（你在页面逐条增删改，平台据此生成整份配置）；
- *   - 「我来编辑」→ 路由规则页只读（整份配置去「告警配置」页的「导入整份配置文件」手写）。
- * 底层枚举值仍为 handwritten / managed（契约不变，仅用户可见措辞变）。
- */
-export const ROUTE_MODE_HANDWRITTEN = '我来编辑'
-export const ROUTE_MODE_MANAGED = '平台生成'
-
-/**
- * 模式控件下方的常驻提示（一行，**控件含义与页面可编辑性只在此处说一次**）。
- *
- * 必要性：Segmented 只有两个短词，无法承载"选了之后页面会怎样"；而这恰恰是实测中
- * 被误解的点。二选一控件 + 一行后果说明，是让控件自解释的最小组合。
- * 按 PageIntro 契约第三条硬约束：这是**随状态变化**的信息（换 mode 就变），故常驻而非收进说明区。
- *
- * 2026-10-14 布局优化：原先「模式」这个事实出现在三处（Segmented / 本说明 / 路由树卡上方
- * 常驻 Alert 的徽标与描述），其中 Alert 整块已删除，其承载的**可编辑性指引**并入此处——
- * 否则「只读 / 可编辑」这一事实会随 Alert 一起消失。措辞方向以门禁 `isRouteEditable`
- * （managed 可写、handwritten 只读）为准，勿按字面反推。
- */
-export const ROUTE_MODE_TIP: Record<RouteMode, string> = {
-  managed:
-    '平台来产出：你在本页直接增删改路由，平台据此生成整份配置；改动经「保存并提交变更」进入「配置变更确认」，不即时生效。',
-  handwritten:
-    '我来编辑：本页为只读视图，不提供新建 / 编辑 / 拖拽入口，整份配置去「告警配置」页的「导入整份配置文件」手写；要在本页直接编辑，把「路由规则由谁维护」切换为「平台生成」即可。',
-}
-
-/**
- * 「手写整份文件 ≠ 交出兜底」的常驻说明（提案 §3.5 决策五，**原文落位，不得改写或删减**）。
- *
- * 根因：后端 `materializeRootRouteReceiver` 不判 mode（决策 113 口径 C），手写模式下平台
- * 仍会用兜底控件选定的渠道替换顶层路由的接收人。不明写就会被理解成「切到手写 = 交出全部
- * 控制权」，而实际上只有这一项仍由平台决定。
- */
-export const ROUTE_SETTING_MODE_INDEPENDENCE_TIP =
-  '即使你选择自己手写整份配置，只要这里选定了渠道，平台仍会用它替换顶层路由的接收人。想完全自己控制，请选『不接管』。'
-
-/** 顶层路由行内的兜底结论 Tag（声明该行接收人由上方「路由设置」决定，本页不可直接改） */
-export const ROUTE_ROOT_FALLBACK_TAG = '兜底接收人由上方「路由设置」决定'
-
-/** 顶层路由「接收人」只读时的说明文案（抽屉内；对应决策一 / 验收 A6） */
-export const ROUTE_ROOT_RECEIVER_READONLY_TIP =
-  '顶层路由的接收人由上方「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」决定，此处不可直接修改。'
-
-// =====================================================================
-// 告警配置页信息架构（设计提案 alert-config-policy-split-migration.md §2.2 收敛后结构）
-//
-// 页面职责收敛为三件事：① 当前生效（只读 YAML）；② 版本历史（内容侧留痕）；
-// ③ 导入整份配置文件（三层模型第③ 层，永久逃生舱，PRD §11.6）。
-// 原「策略卡」与「动线卡」已按 §2.2 迁出/删除：前者整块迁至路由规则页（见上节），
-// 后者回答的「我该去哪配」在页面收敛后已无对象（三卡里不再有跨页动线）。
-//
-// ⚠ 决策 113 / §7.6 C3：手写逃生门**任何模式下都必须可达**——若收进默认收起的折叠区，
-// 在「平台生成」这一主路径下就等于被降级隐藏。故「导入整份配置文件」提为**常驻独立卡**，
-// 页头仍不挂 type="primary" 主按钮（它不是页面的主操作）。
-// =====================================================================
-
-/** 常驻卡③标题（引导问句：把「要不要手写整份文件」的判断显性化） */
-export const ALERT_IMPORT_CARD_TITLE = '希望直接编辑整份 alertmanager.yml？'
-
-/** 导入入口按钮（原页头主按钮「挂载新配置」；「挂载」是 K8s 术语，产品侧无对应心智） */
-export const ALERT_IMPORT_LABEL = '导入整份配置文件'
-
-/** 折叠面板：手写配置说明（原「写配置前必读：三块必写 + 两块豁免」，按 mode 条件化） */
-export const ALERT_ADVANCED_GUIDE_TITLE = '手写配置说明'
-
-/**
- * 手写配置说明的引导句（**按 mode 条件化**）。
- *
- * 2026-10-02 用户意见「文字重复性很高」后的去重原则：**每个事实只在一处说**——
- *   - 「路由规则由谁维护」已在路由规则页的路由设置卡说过 → 本区不再复述；
- *   - 「已启用渠道的接收人由平台自动写入」是三块必写里唯一需要额外解释的一条 → 只在此处说一次；
- *   - 抑制规则的「平台已自动生成边缘站点离线等场景」只在托管模式引导句里说一次。
- * 本区只回答一个问题：**我手写时要写哪几块、每块管什么、哪些不用写。**
- */
-export const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO =
-  '已启用渠道的接收人由平台自动写入，通常不用手写。整份配置里，你只需关注这三块（字段名仅在此处出现）：'
-
-/**
- * 托管模式下的引导句：此时三块必写里的route + inhibit_rules 由平台生成，
- * 唯一还需手写的是**自定义告警抑制规则**（dev-feedback #37：抑制规则尚未 UI 化）。
- * 不复述「路由规则由平台管理」（路由设置卡已说），不自指「才使用下方的手写说明」（本区就是它）。
- */
-export const ALERT_ADVANCED_GUIDE_MANAGED =
-  '路由分流与告警抑制规则已由平台自动生成，通常无需手写配置。抑制规则暂未提供界面入口，仅当需要自定义时可参考下面三块。'
-
-/**
- * 最小可运行 `alertmanager.yml` 骨架（说明卡展示 + 挂载抽屉「插入骨架示例」共用）。
- *
- * 三块必写齐全（receivers / route+routes / inhibit_rules），已用上游 `amtool check-config`
- * 校验 SUCCESS（语法 + route/receiver 引用闭合 + receiver 字段类型）；`global` 仅最简
- * `resolve_timeout`（邮件渠道才需 smtp_*，属「按需最简」不列为必写块）。
- *
- * receivers 段为**手写自定义 receiver 示例**（B 路线：平台会为已启用渠道自动写入接收人，
- * 手写仅用于自定义场景）：`channel` 是**醒目占位符**（真实渠道 ID 是数字串，勿写成 ch-*）；
- * 桥令牌**绝不写进 URL query**，改走 `http_config.authorization`（type: Bearer）请求头。
- */
-export const ALERTMANAGER_MIN_SKELETON = `# 本骨架已通过 amtool 校验。已启用渠道的接收人由平台在生成配置时自动写入，一般无需手写。
-# 下方 receivers 为「自定义接收人」手写示例：channel 为数字串占位符；桥令牌走 http_config.authorization 头，勿写进 URL。
-global:
-  resolve_timeout: 5m
-
-route:
-  receiver: default
-  group_by: ['alertname', 'network_domain']
-  group_wait: 30s
-  group_interval: 5m
-  repeat_interval: 4h
-  routes:
-    - matchers: ['severity="critical"']
-      receiver: sre-critical
-
-receivers:
-  # 已启用渠道的接收人由平台自动写入；此处仅在需要自定义 receiver 时手写，
-  # 且不得与渠道自动生成的 receiver 名重名（重名会导致配置校验失败）。
-  - name: default
-    webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID'
-        send_resolved: true
-        http_config:
-          authorization:
-            type: Bearer
-            credentials: REPLACE_WITH_BRIDGE_TOKEN
-  - name: sre-critical
-    webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID'
-        send_resolved: true
-        http_config:
-          authorization:
-            type: Bearer
-            credentials: REPLACE_WITH_BRIDGE_TOKEN
-
-inhibit_rules:
-  - source_matchers: ['severity="critical"']
-    target_matchers: ['severity="warning"']
-    equal: ['network_domain']
-`
 
 // =====================================================================
 // 平台为渠道生成的接收人（通知渠道页「平台接收人」列，B 路线 / 决策 74）
@@ -596,29 +351,6 @@ inhibit_rules:
 
 /** 通知渠道表格「平台接收人」列标题（用户视图：不出现「派生」） */
 export const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE = '平台接收人'
-
-// ---------------------------------------------------------------------
-// 通知渠道表格「兜底渠道」列（提案 alert-config-policy-split-migration.md §2.1 / §4.2）
-//
-// 「哪个渠道是兜底渠道」此前只能在路由规则页的下拉框里反推，看渠道列表时无从判断。
-// 新增一列就地标识；列位置紧邻「平台接收人」之前（便于左右对照）。
-// 判定用 `setting.default_receiver_channel_id === channel.id`，**不用名称反查**
-// （渠道名清洗后生成的 receiver 名与渠道名并非一一对应，按名字比对会误判）。
-// ---------------------------------------------------------------------
-
-/** 「兜底渠道」列标题 */
-export const CHANNEL_FALLBACK_COLUMN_TITLE = '兜底渠道'
-
-/** 已显式选定该渠道为兜底（`effective_source === 'explicit'`）时的 Tag 文案 */
-export const CHANNEL_FALLBACK_TAG = '兜底'
-
-/**
- * 尚未选定、但存在可作建议值的渠道（`effective_source === 'auto_first_enabled'`）时的 Tag 文案。
- *
- * 刻意与 `CHANNEL_FALLBACK_TAG` 区分：按 §11.9 契约，建议值**仅作 UI 预填、平台并未接管、
- * 产物字节不变**，说成「兜底」等于让用户以为已经在接管。
- */
-export const CHANNEL_FALLBACK_SUGGESTED_TAG = '建议兜底'
 
 /** 列内取不到派生行时的兜底（渠道已启用但片段接口未返回，异常态） */
 export const CHANNEL_DERIVED_RECEIVER_EMPTY = '暂不可见'
@@ -638,10 +370,6 @@ export const CHANNEL_DERIVED_RECEIVER_FORBIDDEN =
  */
 export const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING =
   '通知转发所需的内部令牌尚未配置，该接收人当前收不到告警。这是通知通道的配置问题，与路由规则怎么写无关；请由管理员配置令牌后生效。'
-
-/** 重名提醒（自动接收人名与手写同名会校验失败）；贴在该列下方 */
-export const CHANNEL_DERIVED_RECEIVER_RENAME_TIP =
-  '请勿在「告警配置」里手写与上表同名（含渠道名归一化后同名）的接收人，重名会导致配置校验失败。'
 
 /** 模板未绑定时的前缀（后接渠道类型中文名，如「回落飞书内置默认模板」） */
 export const CHANNEL_TEMPLATE_BIND_NONE_PREFIX = '回落'

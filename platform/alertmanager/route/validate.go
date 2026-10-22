@@ -52,6 +52,9 @@ const (
 	// RouteIssueCodeRepeatNotMultiple repeat_interval 不是 group_interval 的整数倍
 	// （AM 会向上取整，故仅警告级，不阻断）。
 	RouteIssueCodeRepeatNotMultiple = "repeat_interval_not_multiple_of_group_interval"
+	// RouteIssueCodeReceiverDangling 路由引用的接收人不在「可达集合」内
+	// （平台内置 default ∪ 已启用通知渠道物化名）。
+	RouteIssueCodeReceiverDangling = "receiver_dangling"
 )
 
 // RouteIssue 是单条校验结论（不阻断：由调用方按 Level 决定处置）。
@@ -153,6 +156,70 @@ func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue {
 			continue
 		}
 		issues = append(issues, validateRouteEditNodeFields(&nodes[i])...)
+	}
+	return issues
+}
+
+// ValidateRouteReceivers 校验编辑态路由树引用的接收人是否可达。
+//
+// allowed 的权威口径 = 平台内置 default ∪ 已启用通知渠道的 ReceiverName()。
+// 历史 YAML 里手写/已停用渠道残留的 receiver 不再算合法：路由仍引用它们时会被判
+// receiver_dangling 并阻断保存，迫使改用可用接收人。
+//
+// 与 ValidateRouteTree 一样，只校验会被生成器实际产出的节点（禁用节点及其子树跳过）。
+func ValidateRouteReceivers(nodes []generator.RouteEditNode, allowed []string) []RouteIssue {
+	issues := []RouteIssue{}
+	if len(nodes) == 0 || len(allowed) == 0 {
+		return issues
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		if name != "" {
+			allowedSet[name] = true
+		}
+	}
+	children := map[string][]int{}
+	rootIdx := -1
+	for i := range nodes {
+		if nodes[i].ParentID == "" {
+			if rootIdx < 0 {
+				rootIdx = i
+			}
+			continue
+		}
+		children[nodes[i].ParentID] = append(children[nodes[i].ParentID], i)
+	}
+	if rootIdx < 0 {
+		return issues
+	}
+	emitted := make([]bool, len(nodes))
+	var mark func(i int)
+	mark = func(i int) {
+		if !generator.NodeEnabled(nodes[i]) || emitted[i] {
+			return
+		}
+		emitted[i] = true
+		for _, c := range children[nodes[i].ID] {
+			mark(c)
+		}
+	}
+	mark(rootIdx)
+
+	for i := range nodes {
+		if !emitted[i] {
+			continue
+		}
+		receiver := strings.TrimSpace(nodes[i].Receiver)
+		if receiver == "" || allowedSet[receiver] {
+			continue
+		}
+		issues = append(issues, RouteIssue{
+			Level:   RouteIssueLevelError,
+			Code:    RouteIssueCodeReceiverDangling,
+			NodeID:  nodes[i].ID,
+			Field:   "receiver",
+			Message: "接收人「" + receiver + "」未定义（对应通知渠道未启用或已删除），告警将无处可发",
+		})
 	}
 	return issues
 }

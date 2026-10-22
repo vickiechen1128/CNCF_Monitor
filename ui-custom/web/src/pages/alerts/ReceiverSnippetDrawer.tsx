@@ -22,12 +22,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, App, Button, Descriptions, Drawer, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { CopyOutlined, ReloadOutlined } from '@ant-design/icons'
-import { Link } from 'react-router-dom'
 import { isApiError } from '../../api/client'
 import { notifyChannelsApi } from '../../api/alertmanager'
 import type { NotifyChannel, ReceiverSnippetData } from '../../types/alertmanager'
 import { useSkin } from '../../skinContext'
-import { ALERT_CONFIG_PATH } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -82,12 +80,11 @@ export function ReceiverSnippetDrawer({ open, channel, onClose }: ReceiverSnippe
     )
   }
 
-  // 抽屉副标题（#27：原 info Alert 降级为顶部副标题文本，不占 Alert 视觉位）。说明片段用在哪、并给出「告警配置」入口。
+  // 抽屉副标题（#27：原 info Alert 降级为顶部副标题文本，不占 Alert 视觉位）。
   const drawerDescription = (
     <span>
-      已启用渠道的接收人由平台在下发配置时自动生成，通常无需手工粘贴。仅当你需要
-      <Link to={ALERT_CONFIG_PATH}>「告警配置」</Link>
-      中的自定义接收人时，可参考下方片段；请勿手写与渠道自动生成的接收人同名的 receiver。
+      已启用渠道的接收人由平台在下发配置时自动生成，通常无需手工粘贴。
+      下方片段仅供核对平台生成的接收人配置。
     </span>
   )
 
@@ -190,8 +187,8 @@ export function ReceiverSnippetDrawer({ open, channel, onClose }: ReceiverSnippe
             </Descriptions.Item>
           </Descriptions>
 
-          {/* L3（#26 / #28.5，T08-F9）：口径升级——平台自动写入 receivers 定义；具体分流 route.routes[]
-              由用户写；默认兜底接收人（route.receiver）在用户选定默认接收人后由平台接管（决策 113 口径 C）。
+          {/* L3（#26 / #28.5，T08-F9）：平台自动写入 receivers 定义；具体分流 route.routes[]
+              与顶层兜底 route.receiver 均在「路由规则」页由用户直接配置（2026-10-22 起平台不再接管）。
               非整页级警告，用左色条小注承接「保护对象」的语义；不新增 Alert 块（延续 dev-feedback #27）。 */}
           <Text
             type="secondary"
@@ -204,7 +201,7 @@ export function ReceiverSnippetDrawer({ open, channel, onClose }: ReceiverSnippe
             }}
           >
             平台自动写入的是 <Text code>receivers</Text> 定义（名为 <Text code>notify-&lt;id&gt;</Text> 或你的渠道名）；
-            具体分流 <Text code>route.routes[]</Text> 由你写；默认兜底接收人（<Text code>route.receiver</Text>）在你选定默认接收人后由平台接管。
+            具体分流 <Text code>route.routes[]</Text> 与顶层兜底 <Text code>route.receiver</Text> 都在「路由规则」页的路由树里直接配置。
           </Text>
 
           <Space size={8} style={{ marginBottom: 8 }} align="center">
