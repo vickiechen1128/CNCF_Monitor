@@ -345,49 +345,23 @@ export const NOTIFY_TEMPLATES_PATH = '/notify-templates'
 // 与告警策略/路由无关），且与通知渠道页行内「接收人配置」抽屉形成「同源能力两份」。
 // 现改为通知渠道页表格的一列：列内只给结论（接收人名 / 模板绑定 / 可用性），
 // 片段 YAML 与复制仍由行内抽屉承载（单一来源）。
-// 术语口径（提案 §7.5）：「派生」是技术词，用户视图一律说「平台接收人」。
-// =====================================================================
-
-/** 通知渠道表格「平台接收人」列标题（用户视图：不出现「派生」） */
-export const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE = '平台接收人'
-
-/** 列内取不到派生行时的兜底（渠道已启用但片段接口未返回，异常态） */
-export const CHANNEL_DERIVED_RECEIVER_EMPTY = '暂不可见'
-
-/** 列内权限不足（片段含平台内部凭据，仅管理员可获取；渠道接收人仍由平台自动写入） */
-export const CHANNEL_DERIVED_RECEIVER_FORBIDDEN =
-  '接收人片段含平台内部凭据，仅管理员可查看；渠道接收人仍由平台自动写入，不影响生效。'
-
-/**
- * 桥令牌未配置 → 该接收人当前不可用（Tooltip 展开说明）。
- *
- * ⚠ 与「孤立接收人」是**两件正交的事**，文案必须能各自说清（2026-10-08 用户实测困惑）：
- *   - 本项 = **可用性轴**：通知转发出去会不会被桥拒绝（令牌配没配）。属运维配置，路由怎么写都无关；
- *   - 路由页的「有接收人没有路由指向它」= **路由指向轴**：有没有规则指向这个接收人。
- * 两者同屏出现时，用户容易误以为「平台内置了路由规则但没接上」或「路由没配所以渠道不可用」，
- * 实际各自独立。故此处**不提路由**，路由侧不提令牌。
- */
-export const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING =
-  '通知转发所需的内部令牌尚未配置，该接收人当前收不到告警。这是通知通道的配置问题，与路由规则怎么写无关；请由管理员配置令牌后生效。'
-
-/** 模板未绑定时的前缀（后接渠道类型中文名，如「回落飞书内置默认模板」） */
-export const CHANNEL_TEMPLATE_BIND_NONE_PREFIX = '回落'
-
 // =====================================================================
 // 通知渲染桥（PL-3，2026-09-28）：通知渠道类型 / 通知模板展示名
 // =====================================================================
 
-/** 通知渠道类型展示名（用户语言：飞书 / 钉钉 / 企业微信） */
+/** 通知渠道类型展示名（用户语言：飞书 / 钉钉 / 企业微信 / 自定义 Webhook） */
 export const notifyChannelTypeLabel: Record<NotifyChannelType, string> = {
   feishu: '飞书',
   dingtalk: '钉钉',
   wecom: '企业微信',
+  webhook: '自定义 Webhook',
 }
 
 export const notifyChannelTypeColor: Record<NotifyChannelType, string> = {
   feishu: 'blue',
   dingtalk: 'cyan',
   wecom: 'green',
+  webhook: 'geekblue',
 }
 
 /** 通知渠道类型下拉选项（Form Select 用，顺序与展示名一致） */
@@ -395,7 +369,12 @@ export const NOTIFY_CHANNEL_TYPE_OPTIONS: { value: NotifyChannelType; label: str
   { value: 'feishu', label: '飞书' },
   { value: 'dingtalk', label: '钉钉' },
   { value: 'wecom', label: '企业微信' },
+  { value: 'webhook', label: '自定义 Webhook' },
 ]
+
+/** 通知模板适用的渠道类型（自定义 Webhook 不使用模板，排除）。 */
+export const TEMPLATE_CHANNEL_TYPE_OPTIONS: { value: NotifyChannelType; label: string }[] =
+  NOTIFY_CHANNEL_TYPE_OPTIONS.filter((o) => o.value !== 'webhook')
 
 /** 内置模板提示（内置模板随版本升级、系统统一维护，不可编辑/删除） */
 export const NOTIFY_TEMPLATE_BUILTIN_TIP = '平台内置模板随版本升级，系统统一维护，不可删除'

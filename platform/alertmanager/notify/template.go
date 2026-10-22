@@ -176,7 +176,7 @@ func CreateTemplate(db *gorm.DB, in CreateTemplateInput) (*models.NotifyTemplate
 	if name == "" {
 		return nil, ErrTemplateNameRequired
 	}
-	if !models.IsValidNotifyChannelType(in.ChannelType) {
+	if !models.IsTemplateChannelType(in.ChannelType) {
 		return nil, ErrTemplateChannelTypeInvalid
 	}
 	if err := validateTemplateFn(in.Content); err != nil {

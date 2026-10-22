@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-22 23:51 · commit: `6dc35ea`
+> 生成时间: 2026-10-23 00:56 · commit: `1dc56b3`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -580,8 +580,6 @@
 - `type BridgeConfig struct`
 - `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
 - `func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig)`
-- `func bridgeTokenValid(expected, got string) bool`
-- `func bearerToken(r *http.Request) string`
 - `func parseUintQuery(s string) (uint, error)`
 - `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel) (*models.NotifyTemplate, error)`
 - `func respondBridgeTemplateError(c *gin.Context, err error)`
@@ -589,15 +587,16 @@
 ### `platform/alertmanager/notify/bridge_test.go`
 
 - `type fakeReceiver struct`
-- `method (*fakeReceiver) record(path string, body []byte)`
+- `method (*fakeReceiver) record(path, query string, body []byte)`
 - `method (*fakeReceiver) calls() int`
 - `method (*fakeReceiver) lastBody() []byte`
+- `method (*fakeReceiver) lastQuery() string`
 - `func startFakeReceiver(t *testing.T, f *fakeReceiver) string`
 - `func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine`
-- `func doBridgeJSON(t *testing.T, r *gin.Engine, path, token string, body interface{}) (int, channelResp)`
+- `func doBridgeJSON(t *testing.T, r *gin.Engine, path string, body interface{}) (int, channelResp)`
 - `func amBridgePayload(status string) map[string]interface{}`
 - `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string) *models.NotifyChannel`
-- `func TestBridgeRejectsMissingOrWrongToken(t *testing.T)`
+- `func mustCreateChannelWithSecret(t *testing.T, db *gorm.DB, name, chType, url, secret string) *models.NotifyChannel`
 - `func TestBridgeRejectsArbitraryTargetURL(t *testing.T)`
 - `func TestBridgeChannelNotFound(t *testing.T)`
 - `func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T)`
@@ -617,6 +616,15 @@
 - `func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T)`
 - `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
 - `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
+- `func TestDingTalkSign(t *testing.T)`
+- `func TestBridgeSignsDingTalkURL(t *testing.T)`
+- `func TestBridgeDingTalkWithoutSecretDoesNotSign(t *testing.T)`
+- `func TestBridgeWebhookForwardsRawPayload(t *testing.T)`
+- `func TestBridgeWebhookRejectsMalformedPayload(t *testing.T)`
+
+### `platform/alertmanager/notify/bridge_url.go`
+
+- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
 
 ### `platform/alertmanager/notify/channel.go`
 
@@ -652,58 +660,39 @@
 - `func newNotifyDB(t *testing.T) *gorm.DB`
 - `func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T)`
 - `func TestCreateChannelPersistsAndValidates(t *testing.T)`
+- `func TestCreateWebhookChannel(t *testing.T)`
 - `func TestDeleteChannelBlockedWhenReferencedByRoute(t *testing.T)`
 - `func TestChannelViewMasksCredentials(t *testing.T)`
 - `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
 - `func TestDeleteChannelAndList(t *testing.T)`
+- `func newTemplateForType(t *testing.T, db *gorm.DB, name string, chType models.NotifyChannelType) *models.NotifyTemplate`
 - `func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate`
 - `func TestCreateChannelBindsDefaultTemplate(t *testing.T)`
 - `func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T)`
-- `func TestUpdateChannelRebindAndClear(t *testing.T)`
+- `func TestUpdateChannelRebindAndTypeSwitch(t *testing.T)`
 - `func newNotifyRouter(db *gorm.DB) *gin.Engine`
 - `type channelResp struct`
 - `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
 - `func TestChannelCRUDHandlers(t *testing.T)`
 - `func TestChannelHandlerTemplateBinding(t *testing.T)`
+- `func TestChannelHandlerWebhookType(t *testing.T)`
 
 ### `platform/alertmanager/notify/client.go`
 
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
+- `func sendOutboundRaw(ctx context.Context, target string, body []byte) (int, error)`
+- `func sendOutboundWithCheck(ctx context.Context, target string, body []byte, checkBusinessError bool) (int, error)`
 - `func sanitizeOutboundError(err error) error`
 - `func feishuSign(secret, timestamp string) string`
 - `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
+- `func dingTalkSign(secret, timestamp string) string`
+- `func applyDingTalkSignature(ch *models.NotifyChannel, rawURL string, now time.Time) (string, error)`
 - `func checkOutboundBusinessError(respBody []byte) error`
-
-### `platform/alertmanager/notify/receiver_snippet.go`
-
-- `type ReceiverSnippetConfig struct`
-- `type ReceiverSnippet struct`
-- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
-- `func BuildReceiverSnippet(ch *models.NotifyChannel, cfg ReceiverSnippetConfig) (ReceiverSnippet, error)`
-- `func buildBridgeURL(baseURL string, ch *models.NotifyChannel) string`
-- `func buildReceiverSnippetYAML(name, rawURL, credentials string) string`
-- `func escapeSingleQuotes(s string) string`
-- `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
-
-### `platform/alertmanager/notify/receiver_snippet_test.go`
-
-- `func TestDeriveBridgeBaseURL(t *testing.T)`
-- `func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T)`
-- `func TestBuildReceiverSnippetNameIsIdBased(t *testing.T)`
-- `func TestBuildReceiverSnippetTokenNotConfigured(t *testing.T)`
-- `func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T)`
-- `func snippetPath(id uint) string`
-- `func newSnippetRouter(t *testing.T, db *gorm.DB, cfg ReceiverSnippetConfig, u *models.User) *gin.Engine`
-- `func TestReceiverSnippetHandlerAuth(t *testing.T)`
-- `func TestReceiverSnippetHandlerErrors(t *testing.T)`
-- `func TestReceiverSnippetOmitsTemplateBinding(t *testing.T)`
-- `func TestReceiverSnippetAcceptedByAmtool(t *testing.T)`
-- `func locateAmtool(t *testing.T) string`
 
 ### `platform/alertmanager/notify/register.go`
 
-- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB, snippetCfg ReceiverSnippetConfig)`
+- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
 
 ### `platform/alertmanager/notify/render.go`
 
@@ -780,7 +769,7 @@
 
 ### `platform/alertmanager/register.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error`
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
 
 ### `platform/alertmanager/route/convert.go`
 
@@ -1047,10 +1036,10 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig)…`
+- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetCfg notify.ReceiverSnippetConfig) error`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
 - `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
@@ -1081,7 +1070,6 @@
 - `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
 - `type apiClient struct`
 - `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
-- `method (*apiClient) jsonAuth(method, path, token, body string) (int, map[string]interface{})`
 - `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
 - `func mustJSON(t *testing.T, v interface{}) string`
 - `func buildXLSX(t *testing.T, category models.ResourceCategory, rows [][]string) []byte`
@@ -2507,13 +2495,11 @@
 
 - `type NotifyReceiverInput struct`
 - `type NotifyReceiverConflict struct`
-- `type genHTTPConfig struct`
-- `type genAuthorization struct`
 - `type genWebhookConfig struct`
 - `type genReceiver struct`
 - `func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string, []NotifyReceiverConflict, error)`
 - `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
-- `func platformReceiverNode(name, url, token string) (*yaml.Node, error)`
+- `func platformReceiverNode(name, url string) (*yaml.Node, error)`
 - `func mappingValueIndex(m *yaml.Node, key string) int`
 - `type existingReceiver struct`
 - `func firstWebhookURL(recv *yaml.Node) string`
@@ -2527,7 +2513,6 @@
 - `func TestCollectRouteReceiverNames(t *testing.T)`
 - `func TestMaterializeNotifyReceiversOnlyReferenced(t *testing.T)`
 - `func TestMaterializeNotifyReceiversRemovesUnreferencedPlatformReceiver(t *testing.T)`
-- `func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T)`
 - `func TestMaterializeReceiverOmitsTemplateParam(t *testing.T)`
 - `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversHandwrittenSquatConflicts(t *testing.T)`
@@ -3753,6 +3738,7 @@
 - `type NotifyChannelType = string`
 - `func ValidNotifyChannelTypes() []string`
 - `func IsValidNotifyChannelType(t string) bool`
+- `func IsTemplateChannelType(t string) bool`
 - `type NotifyChannel struct`
 - `method (NotifyChannel) TableName() string`
 - `type NotifyTemplateStatus = string`
@@ -5302,11 +5288,6 @@
 
 - `function NotifyTemplatesPage`
 
-### `ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`
-
-- `interface ReceiverSnippetDrawerProps`
-- `function ReceiverSnippetDrawer`
-
 ### `ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx`
 
 - `interface RouteEditorParentOption`
@@ -5361,14 +5342,10 @@
 - `const ALERT_CONFIG_PATH`
 - `const NOTIFY_CHANNELS_PATH`
 - `const NOTIFY_TEMPLATES_PATH`
-- `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
-- `const CHANNEL_DERIVED_RECEIVER_EMPTY`
-- `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
-- `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
-- `const CHANNEL_TEMPLATE_BIND_NONE_PREFIX`
 - `const notifyChannelTypeLabel`
 - `const notifyChannelTypeColor`
 - `const NOTIFY_CHANNEL_TYPE_OPTIONS`
+- `const TEMPLATE_CHANNEL_TYPE_OPTIONS`
 - `const NOTIFY_TEMPLATE_BUILTIN_TIP`
 
 ### `ui-custom/web/src/pages/alerts/routeLabels.ts`
@@ -6045,7 +6022,6 @@
 - `interface UpdateNotifyChannelPayload`
 - `interface SubmitNotifyTemplatePayload`
 - `interface NotifyChannelsData`
-- `interface ReceiverSnippetData`
 - `interface NotifyTemplatesData`
 - `interface RouteMatcher`
 - `interface RouteNode`

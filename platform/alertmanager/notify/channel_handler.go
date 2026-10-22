@@ -30,7 +30,8 @@ func respondChannelError(c *gin.Context, err error) {
 	case errors.As(err, &inUse), errors.Is(err, ErrChannelReferenceCheckFailed):
 		response.Conflict(c, err)
 	case errors.Is(err, ErrChannelNameRequired), errors.Is(err, ErrChannelTypeInvalid), errors.Is(err, ErrChannelWebhookInvalid),
-		errors.Is(err, ErrChannelTemplateNotFound), errors.Is(err, ErrChannelTemplateMismatch):
+		errors.Is(err, ErrChannelTemplateNotFound), errors.Is(err, ErrChannelTemplateMismatch),
+		errors.Is(err, ErrChannelTemplateRequired), errors.Is(err, ErrChannelTemplateNotApplicable):
 		response.BadRequest(c, err)
 	default:
 		response.InternalServerError(c, err)

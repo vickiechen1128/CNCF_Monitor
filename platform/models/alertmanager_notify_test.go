@@ -93,5 +93,9 @@ func TestValidNotifyChannelTypes(t *testing.T) {
 	assert.False(t, IsValidNotifyChannelType(""))
 
 	types := ValidNotifyChannelTypes()
-	assert.ElementsMatch(t, []string{"feishu", "dingtalk", "wecom"}, types)
+	assert.ElementsMatch(t, []string{"feishu", "dingtalk", "wecom", "webhook"}, types)
+	assert.True(t, IsTemplateChannelType("feishu"))
+	assert.True(t, IsTemplateChannelType("dingtalk"))
+	assert.True(t, IsTemplateChannelType("wecom"))
+	assert.False(t, IsTemplateChannelType("webhook"))
 }

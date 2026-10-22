@@ -54,7 +54,6 @@ func TestMaterializeNotifyReceiversOnlyReferenced(t *testing.T) {
 	base := baseWithReferenced("notify-7")
 	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "inner-token",
 		Channels:    []models.NotifyChannel{chWithID(7, "SRE-Critical"), chWithID(8, "未使用渠道")},
 	})
 	require.NoError(t, err)
@@ -65,14 +64,10 @@ func TestMaterializeNotifyReceiversOnlyReferenced(t *testing.T) {
 	assert.NotContains(t, out, "name: notify-8", "未被路由引用的渠道不得物化")
 	assert.Contains(t, out, "http://127.0.0.1:8080/api/v1/webhooks/notify?id=7")
 	assert.NotContains(t, out, "token=", "令牌绝不落 URL query（H-1）")
-	assert.Contains(t, out, "authorization:")
-	assert.Contains(t, out, "type: Bearer")
-	assert.Contains(t, out, "credentials: inner-token")
 
 	// 幂等：再物化一次不重复追加。
 	out2, conflicts2, err := MaterializeNotifyReceivers(out, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "inner-token",
 		Channels:    []models.NotifyChannel{chWithID(7, "SRE-Critical"), chWithID(8, "未使用渠道")},
 	})
 	require.NoError(t, err)
@@ -98,7 +93,6 @@ receivers:
 `
 	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "tok",
 		Channels:    []models.NotifyChannel{chWithID(7, "SRE"), chWithID(8, "Ops")},
 	})
 	require.NoError(t, err)
@@ -106,19 +100,6 @@ receivers:
 	assert.Contains(t, out, "name: notify-7")
 	assert.NotContains(t, out, "name: notify-8", "不再被引用的平台 receiver 应移除")
 	assert.Contains(t, out, "name: handwritten", "用户手写 receiver 必须保留")
-}
-
-// TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken 令牌为空时不写 http_config.authorization。
-func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T) {
-	out, conflicts, err := MaterializeNotifyReceivers(baseWithReferenced("notify-3"), NotifyReceiverInput{
-		BridgeURL: "http://127.0.0.1:8080",
-		Channels:  []models.NotifyChannel{chWithID(3, "ops")},
-	})
-	require.NoError(t, err)
-	assert.Empty(t, conflicts)
-	assert.Contains(t, out, "name: notify-3")
-	assert.Contains(t, out, "?id=3")
-	assert.NotContains(t, out, "authorization:")
 }
 
 // TestMaterializeReceiverOmitsTemplateParam 模板绑定不写进 receiver URL：
@@ -129,7 +110,6 @@ func TestMaterializeReceiverOmitsTemplateParam(t *testing.T) {
 	ch.DefaultTemplateID = &bound
 	out, _, err := MaterializeNotifyReceivers(baseWithReferenced("notify-7"), NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "inner-token",
 		Channels:    []models.NotifyChannel{ch},
 	})
 	require.NoError(t, err)
@@ -145,7 +125,6 @@ func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T) {
 
 	outA, conflictsA, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://bridge-a.example:8080",
-		BridgeToken: "tok-a",
 		Channels:    []models.NotifyChannel{ch},
 	})
 	require.NoError(t, err)
@@ -155,7 +134,6 @@ func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T) {
 
 	outB, conflictsB, err := MaterializeNotifyReceivers(outA, NotifyReceiverInput{
 		BridgeURL:   "http://bridge-b.example:8080",
-		BridgeToken: "tok-b",
 		Channels:    []models.NotifyChannel{ch},
 	})
 	require.NoError(t, err)
@@ -164,7 +142,6 @@ func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T) {
 	assert.Contains(t, outB, urlB)
 	assert.NotContains(t, outB, urlA)
 	assert.Equal(t, 1, strings.Count(outB, "name: notify-1"))
-	assert.Contains(t, outB, "credentials: tok-b")
 }
 
 // TestMaterializeNotifyReceiversHandwrittenSquatConflicts 用户手写同名 receiver
@@ -179,7 +156,6 @@ receivers:
 `
 	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "tok",
 		Channels:    []models.NotifyChannel{chWithID(1, "飞书渠道")},
 	})
 	require.NoError(t, err)
@@ -204,14 +180,12 @@ receivers:
 `
 	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "tok",
 		Channels:    []models.NotifyChannel{chWithID(1, "飞书渠道")},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, conflicts)
 	assert.Equal(t, 1, strings.Count(out, "name: notify-1"))
 	assert.Contains(t, out, "http://127.0.0.1:8080/api/v1/webhooks/notify?id=1")
-	assert.Contains(t, out, "credentials: tok")
 	assert.Contains(t, out, "name: feishu", "非平台命名空间的 name-only receiver 原样保留")
 	assert.Contains(t, out, "severity=\"critical\"")
 }
@@ -228,7 +202,6 @@ receivers:
 `
 	out, conflicts, err := MaterializeNotifyReceivers(base, NotifyReceiverInput{
 		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: "tok",
 		Channels:    []models.NotifyChannel{chWithID(1, "飞书渠道")},
 	})
 	require.NoError(t, err)

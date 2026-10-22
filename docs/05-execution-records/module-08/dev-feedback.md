@@ -910,3 +910,35 @@ L3（纯文案文档）──┘        │
   - 后端 `notify` / `route` / `configcenter/generator` / `configcenter/draft` / `models` / `cmd/metric-center` 目标包通过（CGO 环境）。
   - 前端 `tsc -p tsconfig.test.json --noEmit` 通过；`NotifyTemplatesPage` / `NotifyChannelsPage` 用例重写并全过；全量 vitest 待收口。
 - **状态**：**landed（2026-10-22，未提交）**——后端 `alertmanager` / `configcenter` / `models` / `cmd/metric-center` 相关包全过；前端 `tsc -p tsconfig.test.json --noEmit` 与改动文件 eslint 通过，`NotifyTemplatesPage` / `NotifyChannelsPage` / `useRoutes` / `RoutesPage` / `ReceiverSnippetDrawer` 用例全过（全量 vitest 1104 passed / 4 failed，失败均在未触碰文件：`InstanceSelector`、`ResourcesPage` 超时、`ScrapeJobFormDrawer.blackboxEdit`，属既有环境基线）；`make repo-map` 已刷新且 `check-repo-map.sh` 通过。**真机迁移已验证**：用当前 `metric_center.db` 副本启动新二进制后，`notify_channels.enabled` 列被自动删除、渠道/模板数据保持、新模板路由（GET 详情 / PUT / 无 remount）注册成功；`notify-<id>` 与 `?id=` 口径已生效。
+
+## 47. 通知渠道列表通用化 + 删除接收人配置 + 去掉内部桥令牌 + 钉钉加签（2026-10-23 用户拍板）
+
+- **类别**：① 信息架构（列表展示类型独有字段）+ ① 交互缺口（签名无法关闭）+ ② 实现偏差（钉钉 secret 存而未用）
+- **发现场景**：用户走查通知渠道页指出：列表是「钉钉式配置表」，应只保留渠道名称 / 渠道类型 / 被引用次数 / 创建时间；Webhook、签名、模板等类型独有字段应进编辑抽屉；「接收人配置」不需要；内部 token 也不需要；钉钉要能用。
+- **结论 / 用户拍板**：
+  - **列表只保留通用列**：渠道名称 / 渠道类型 / 被引用次数（0 显示 0）/ 创建时间 / 操作（编辑、删除）。去掉 Webhook、签名密钥、接收人、模板绑定列。
+  - **删除「接收人配置」**：前端抽屉、API 方法、类型全部删除；后端 `GET /notify-channels/{id}/receiver-snippet` 端点及相关代码全部删除（保留 `DeriveBridgeBaseURL` 供 M09 物化使用）。
+  - **删除控制面 ↔ Alertmanager 内部桥令牌**：去掉 `NOTIFY_BRIDGE_TOKEN` / `--notify.bridge-token`、桥端点 Bearer 校验、M09 receiver 的 `http_config.authorization` 写入、Makefile / 交付包 env 中的令牌配置。桥端点改为依赖部署层（同机 / 内网防火墙）限制访问；**安全提示**：任何能访问 `/api/v1/webhooks/notify` 的人都能伪造通知，生产必须做网络层限制。
+  - **钉钉加签**：补实现（timestamp + sign 追加到 webhook URL query；key=secret，msg=timestamp+"\n"+secret）；仅在填写 secret 时启用。飞书保持 body 注入签名。
+  - **签名开关**：飞书 / 钉钉编辑抽屉增加「签名设置」开关；关闭时隐藏密钥输入并显式提交 `secret: ""` 清空已存密钥，解决「填过之后无法关闭」的问题。企业微信没有加签，隐藏开关；切换渠道类型时关闭签名并清空旧密钥。
+  - **内置模板**：不新增钉钉内置模板；保留飞书现有内置模板；企业微信暂无内置模板（用户尚未拍板）。
+- **回填清单**：
+  - 后端：`platform/alertmanager/notify/{bridge.go,client.go,register.go,channel.go}`、删除 `receiver_snippet.go`、新增 `bridge_url.go`；`platform/alertmanager/register.go`；`platform/cmd/metric-center/main.go`；`platform/configcenter/draft/service.go`；`platform/configcenter/generator/notify_receivers.go`；`Makefile`；`scripts/package-center.sh`（env.sh / start.sh / README 模板）。
+  - 前端：`NotifyChannelsPage.tsx`（五列表格）、`NotifyChannelDrawer.tsx`（Webhook 地址、签名开关、按类型显示密钥）、删除 `ReceiverSnippetDrawer.tsx`；`api/alertmanager.ts` / `types/alertmanager.ts` / `alertmanagerConstants.ts` 清理。
+  - 测试：后端 notify / generator / draft / cmd 相关包；前端渠道页、路由页、useRoutes、模板页。
+- **状态**：**landed（2026-10-23，未提交）**——后端受影响包全过；前端 `tsc -p tsconfig.test.json` 通过，渠道页 / 模板页 / 路由页 / useRoutes 用例全过（68 例）；钉钉加签固定向量与「有/无 secret」两条桥用例通过。
+
+## 48. 自定义 Webhook 类型 + 模板/签名字段必填与掩码交互（2026-10-23 用户拍板）
+
+- **类别**：① 能力缺口（缺自定义 Webhook 渠道）+ ① 校验/交互缺口（模板、地址、签名未统一必填，已存值不可见）
+- **发现场景**：用户走查渠道编辑抽屉指出：类型只有飞书/钉钉/企微，没有自定义 Webhook；模板、Webhook 地址、签名密钥的必填与 `*` 标记不一致；已配置的 Webhook/密钥看不到，无法判断是否已填。
+- **结论 / 用户拍板**：
+  - **新增 `webhook` 渠道类型（自定义 Webhook）**：只填名称、类型、Webhook 地址；不显示模板、签名开关/密钥；桥把 Alertmanager 原始 JSON 原样 POST 到该地址，不渲染、不签名、不判 `code`/`errcode` 业务错误；只看 HTTP 状态码；不做自定义 header/鉴权（本期）。
+  - **内置类型模板必填**：飞书/钉钉/企业微信创建/更新必须绑定模板。飞书自动选中内置「飞书卡片-默认」；钉钉/企业微信无内置模板，必须选自定义模板，否则前端/后端均拒绝。
+  - **自定义 Webhook 禁止模板**：后端拒绝给 webhook 绑定模板；从 IM 类型切到 webhook 自动清空模板。
+  - **地址与密钥可见**：编辑 IM 渠道时回填脱敏 Webhook 地址（`scheme://host/***`）与密钥占位 `***`，用户能看到「已配置」；保持原值=不修改，清空则触发必填校验；自定义 Webhook 地址返回/回填完整地址，编辑同样必填。
+  - **必填标记**：Webhook 地址、通知模板、签名密钥（开关打开时）均显示 `*`；签名开关关闭时密钥字段隐藏、不校验，保存时清空。
+- **回填清单**：
+  - 后端：`models/alertmanager_notify.go`（webhook 类型 / IsTemplateChannelType）；`notify/channel.go`（模板必填 / webhook 不允许模板 / IM 脱敏、webhook 明文）；`notify/bridge.go`（webhook 原样转发分支）；`notify/client.go`（`sendOutboundRaw`，跳过 IM 业务错误码）；`notify/template.go`（模板类型排除 webhook）；测试。
+  - 前端：`types/alertmanager.ts` / `alertmanagerConstants.ts`（webhook 类型与展示名）；`NotifyChannelDrawer.tsx`（条件字段、模板必填、飞书自动选内置模板、URL/密钥掩码回填与清空校验）；`NotifyChannelsPage.test.tsx`（webhook、模板必填、清空校验）。
+- **状态**：**landed（2026-10-23，未提交）**——后端受影响包全过；前端 `tsc -p tsconfig.test.json` 通过，渠道页/模板页/路由页/useRoutes 共 72 例通过；接口实测：创建 `type=webhook` 返回 200 且 `webhook_url` 明文，删除成功。

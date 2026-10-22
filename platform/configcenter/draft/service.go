@@ -42,15 +42,10 @@ var (
 // 不生成 alerting 段。可注入便于测试。
 var AlertmanagerTarget string
 
-// NotifyBridgeURL / NotifyBridgeToken 是 M08 通知渲染桥的运行配置，由 cmd/metric-center
-// 从监听地址与 --notify.bridge-token 注入（决策 74 定稿：M09 物化平台通知 receivers）。
-// NotifyBridgeURL 为空时不物化（不写悬空 URL）；NotifyBridgeToken 为空时不写
-// http_config.authorization（缺失鉴权由桥端 401 + 启动 WARN 暴露，不伪造占位令牌）。
-// 可注入便于测试。
-var (
-	NotifyBridgeURL   string
-	NotifyBridgeToken string
-)
+// NotifyBridgeURL 是 M08 通知渲染桥的基础地址，由 cmd/metric-center 从监听地址 /
+// NOTIFY_BRIDGE_URL 注入（决策 74 定稿：M09 物化平台通知 receivers）。为空时不物化
+// （不写悬空 URL）。可注入便于测试。
+var NotifyBridgeURL string
 
 // draftLocks 是按 domainID 的进程内互斥锁表：GenerateDraft 的「查活 pending → 生成新单
 // → 废弃旧单」序列非原子，前端保存后同步 POST 与 30s 轮询 watcher 同秒触发时，两路都
@@ -304,9 +299,8 @@ func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifact
 		return err
 	}
 	materialized, conflicts, err := generator.MaterializeNotifyReceivers(artifacts.AlertmanagerYML, generator.NotifyReceiverInput{
-		BridgeURL:   NotifyBridgeURL,
-		BridgeToken: NotifyBridgeToken,
-		Channels:    channels,
+		BridgeURL: NotifyBridgeURL,
+		Channels:  channels,
 	})
 	if err != nil {
 		return err

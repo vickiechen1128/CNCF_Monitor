@@ -50,10 +50,19 @@ func newOutboundHTTPClient() *http.Client {
 	}
 }
 
-// sendOutbound 向目标机器人地址 POST JSON body，返回 HTTP 状态码。非 2xx 亦返回
-// 状态码 + 错误，由调用方判定失败并记录结构化日志；响应体仅少量读取后丢弃
-// （不落库、不回显给客户端）。
+// sendOutbound 向 IM 机器人地址 POST JSON body：非 2xx 或 HTTP 200 + 业务错误码
+// （飞书 code / 钉钉·企微 errcode）均判失败，令桥返回 502 交由 AM 重试。
 func sendOutbound(ctx context.Context, target string, body []byte) (int, error) {
+	return sendOutboundWithCheck(ctx, target, body, true)
+}
+
+// sendOutboundRaw 向自定义 Webhook 原样 POST body：只看 HTTP 状态码，不解析
+// IM 业务错误码（对方可能返回任意 JSON，不能被误判为失败）。
+func sendOutboundRaw(ctx context.Context, target string, body []byte) (int, error) {
+	return sendOutboundWithCheck(ctx, target, body, false)
+}
+
+func sendOutboundWithCheck(ctx context.Context, target string, body []byte, checkBusinessError bool) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
@@ -73,11 +82,13 @@ func sendOutbound(ctx context.Context, target string, body []byte) (int, error) 
 		return resp.StatusCode, fmt.Errorf("notify target returned status %d, body=%s",
 			resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
-	// 防静默丢失兜底：IM 机器人常用「HTTP 200 + 业务错误码」表达失败（如飞书签名校验
-	// 失败返回 code=19021），仅看状态码会误判成功、通知无声消失。此处判为错误，
-	// 令桥返回 502 交由 AM 重试并记失败日志。
-	if bizErr := checkOutboundBusinessError(respBody); bizErr != nil {
-		return resp.StatusCode, bizErr
+	if checkBusinessError {
+		// 防静默丢失兜底：IM 机器人常用「HTTP 200 + 业务错误码」表达失败（如飞书签名校验
+		// 失败返回 code=19021），仅看状态码会误判成功、通知无声消失。此处判为错误，
+		// 令桥返回 502 交由 AM 重试并记失败日志。
+		if bizErr := checkOutboundBusinessError(respBody); bizErr != nil {
+			return resp.StatusCode, bizErr
+		}
 	}
 	return resp.StatusCode, nil
 }
@@ -128,6 +139,34 @@ func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Ti
 		return nil, fmt.Errorf("飞书签名注入失败（签名体序列化）: %w", err)
 	}
 	return signed, nil
+}
+
+// dingTalkSign 计算钉钉自定义机器人「加签」值：
+// key = secret，msg = timestamp + "\n" + secret，HMAC-SHA256 后 Base64、再做 URL 编码。
+// 与飞书签名的 key/msg 位置不同，不可复用。
+func dingTalkSign(secret, timestamp string) string {
+	stringToSign := timestamp + "\n" + secret
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(stringToSign))
+	return url.QueryEscape(base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+}
+
+// applyDingTalkSignature 为钉钉渠道的 webhook URL 追加 timestamp + sign query。
+// 仅「钉钉渠道且已登记 secret」时生效；未开启加签的渠道原样返回。
+func applyDingTalkSignature(ch *models.NotifyChannel, rawURL string, now time.Time) (string, error) {
+	if ch.Type != models.NotifyChannelTypeDingtalk || strings.TrimSpace(ch.Secret) == "" {
+		return rawURL, nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("钉钉加签失败（webhook 地址非法）: %w", err)
+	}
+	ts := strconv.FormatInt(now.UnixMilli(), 10)
+	q := u.Query()
+	q.Set("timestamp", ts)
+	q.Set("sign", dingTalkSign(ch.Secret, ts))
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 // checkOutboundBusinessError 判定 IM 机器人 webhook 的业务错误码（防静默丢失兜底）：

@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Drawer, Form, Input, Select, Typography } from 'antd'
 import { readValidateErrors } from '../../api/alertmanager'
 import type { NotifyChannelType, SubmitNotifyTemplatePayload, ValidateErrorItem } from '../../types/alertmanager'
-import { NOTIFY_CHANNEL_TYPE_OPTIONS } from './alertmanagerConstants'
+import { TEMPLATE_CHANNEL_TYPE_OPTIONS } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -128,7 +128,7 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
           extra={isEdit ? '渠道类型创建后不可修改；如需其他类型请复制模板' : undefined}
         >
           <Select
-            options={NOTIFY_CHANNEL_TYPE_OPTIONS}
+            options={TEMPLATE_CHANNEL_TYPE_OPTIONS}
             placeholder="请选择该模板适用的机器人类型"
             disabled={isEdit}
           />

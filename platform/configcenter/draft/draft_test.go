@@ -1153,16 +1153,14 @@ func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T) {
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 
-	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
-	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
-	t.Cleanup(func() { NotifyBridgeURL, NotifyBridgeToken = oldURL, oldToken })
+	oldURL := NotifyBridgeURL
+	NotifyBridgeURL = "http://127.0.0.1:8080"
+	t.Cleanup(func() { NotifyBridgeURL = oldURL })
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
 	assert.Contains(t, d.AlertmanagerYml, "name: "+receiver, "被路由引用的渠道须物化为 receiver")
 	assert.Contains(t, d.AlertmanagerYml, "?id="+fmt.Sprint(ch.ID), "url 须带真实 channel ID")
-	assert.NotContains(t, d.AlertmanagerYml, "token=", "令牌绝不落 URL query（H-1）")
-	assert.Contains(t, d.AlertmanagerYml, "authorization:", "令牌须走 http_config.authorization")
 	assert.Contains(t, d.AlertmanagerYml, "name: default", "用户手写 receiver 原样保留")
 }
 
@@ -1187,9 +1185,9 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 
-	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
-	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
-	t.Cleanup(func() { NotifyBridgeURL, NotifyBridgeToken = oldURL, oldToken })
+	oldURL := NotifyBridgeURL
+	NotifyBridgeURL = "http://127.0.0.1:8080"
+	t.Cleanup(func() { NotifyBridgeURL = oldURL })
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)

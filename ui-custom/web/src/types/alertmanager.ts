@@ -246,11 +246,11 @@ export interface AlertHistoryData {
 // 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
 // =====================================================================
 
-/** 通知渠道类型（机器人）：飞书 / 钉钉 / 企业微信 */
-export type NotifyChannelType = 'feishu' | 'dingtalk' | 'wecom'
+/** 通知渠道类型：飞书 / 钉钉 / 企业微信 / 自定义 Webhook */
+export type NotifyChannelType = 'feishu' | 'dingtalk' | 'wecom' | 'webhook'
 
 /**
- * 通知渠道（机器人 Webhook 目标，提案 §3.3.2）。
+ * 通知渠道（告警送达目标，提案 §3.3.2）。
  * AM 侧桥 URL 只引用渠道 ID，目标地址仅平台侧存储、响应严格脱敏。
  */
 export interface NotifyChannel {
@@ -264,8 +264,7 @@ export interface NotifyChannel {
   /** secret 永不回显，仅告知是否已设置 */
   secret_set: boolean
   /** 渠道在 alertmanager.yml 中的稳定 receiver 名（恒为 notify-<id>，与 M09 生成器同源）；
-   * 非敏感字段，列表即回显。供前端批量派生「已知接收人」清单，避免逐渠道调用
-   * admin-only 的 receiver-snippet 接口（H1）。 */
+   * 非敏感字段，列表即回显。供路由页把 notify-<id> 映射为渠道中文名。 */
   receiver_name?: string
   /** 当前生效 / 待确认路由树中引用该渠道 receiver 的节点数；0 = 未被路由使用 */
   route_reference_count?: number
@@ -329,24 +328,6 @@ export interface SubmitNotifyTemplatePayload {
 /** GET /notify-channels 响应 data 信封 */
 export interface NotifyChannelsData {
   items: NotifyChannel[]
-}
-
-/**
- * 接收人配置片段（PL-3 T08-12，B 路线；Module_08 §3.3.5）。
- * 服务端按渠道 ID 拼好可参考的 `alertmanager.yml` `receivers:` YAML 片段（内嵌真实数字渠道 ID；
- * 桥令牌走 `http_config.authorization` 请求头，不写进 URL query）。B 路线：已启用渠道的接收人由平台
- * 生成配置时自动写入，本片段仅在用户**手写自定义 receiver** 时作参考。
- * 令牌未配置（`token_configured=false`）时 url / snippet 用占位符，片段不可直接使用。
- */
-export interface ReceiverSnippetData {
-  /** 接收人名（恒为 notify-<渠道ID>，与 M09 物化同源） */
-  receiver_name: string
-  /** 桥接地址（`?id=<渠道ID>`；桥令牌不入 URL，令牌未配置时为占位符） */
-  url: string
-  /** 可参考的 `receivers:` YAML 片段 */
-  snippet: string
-  /** 桥令牌是否已配置；false 时 UI 必须显式告警（片段无法发出通知） */
-  token_configured: boolean
 }
 
 /** GET /notify-templates 响应 data 信封（含 total） */

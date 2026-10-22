@@ -269,7 +269,7 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
 
   // 批量、非 admin 的 `notifyChannelsApi.list()`：响应已含各渠道物化的 AM receiver 名
   // （`receiver_name`，与 M09 生成器同源、非敏感），一次请求即可拿到全部平台物化名，
-  // 不逐渠道调用 admin-only 的 `getReceiverSnippet`（N+1、非管理员取不到 → 校验失效）。
+  // 一次请求即可拿到全部渠道的稳定 receiver 名，避免 N+1。
   useEffect(() => {
     let cancelled = false
     const run = async () => {

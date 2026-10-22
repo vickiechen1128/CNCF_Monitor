@@ -26,19 +26,21 @@ import (
 // fakeReceiver 是可脚本化的机器人 webhook 桩服务：记录收到的出站请求体 /
 // 目标路径，用于断言平台桥「渲染后转投到已登记渠道」与「绝不转投到请求方地址」。
 type fakeReceiver struct {
-	mu     sync.Mutex
-	bodies [][]byte
-	paths  []string
-	status int
+	mu      sync.Mutex
+	bodies  [][]byte
+	paths   []string
+	queries []string
+	status  int
 	// respBody 是 2xx 时写出的响应体（模拟 IM 机器人的「HTTP 200 + 业务错误码」
 	// 响应，如飞书 code=19021 拒收）；为空时仅返回 200 空体（原有行为）。
 	respBody []byte
 }
 
-func (f *fakeReceiver) record(path string, body []byte) {
+func (f *fakeReceiver) record(path, query string, body []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.paths = append(f.paths, path)
+	f.queries = append(f.queries, query)
 	f.bodies = append(f.bodies, body)
 }
 
@@ -57,6 +59,15 @@ func (f *fakeReceiver) lastBody() []byte {
 	return f.bodies[len(f.bodies)-1]
 }
 
+func (f *fakeReceiver) lastQuery() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queries) == 0 {
+		return ""
+	}
+	return f.queries[len(f.queries)-1]
+}
+
 func startFakeReceiver(t *testing.T, f *fakeReceiver) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +80,7 @@ func startFakeReceiver(t *testing.T, f *fakeReceiver) string {
 				break
 			}
 		}
-		f.record(r.URL.Path, body)
+		f.record(r.URL.Path, r.URL.RawQuery, body)
 		if f.status != 0 && f.status != http.StatusOK {
 			w.WriteHeader(f.status)
 			return
@@ -95,17 +106,13 @@ func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine {
 	return r
 }
 
-// doBridgeJSON 发送带 Bearer 令牌的桥端点 POST（H-1：令牌走 Authorization 头，不落 query）。
-// token 为空时不带 Authorization 头（用于「缺失令牌」断言）。
-func doBridgeJSON(t *testing.T, r *gin.Engine, path, token string, body interface{}) (int, channelResp) {
+// doBridgeJSON 发送桥端点 POST（端点已取消内部令牌鉴权）。
+func doBridgeJSON(t *testing.T, r *gin.Engine, path string, body interface{}) (int, channelResp) {
 	t.Helper()
 	var buf bytes.Buffer
 	require.NoError(t, json.NewEncoder(&buf).Encode(body))
 	req := httptest.NewRequest(http.MethodPost, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	var out channelResp
@@ -134,37 +141,23 @@ func amBridgePayload(status string) map[string]interface{} {
 	}
 }
 
+// mustCreateChannel 直接落库构造渠道，绕过服务层「模板必填」校验：
+// 桥测试关注渲染/转发行为，渠道 CRUD 校验由 channel_test 覆盖。
 func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string) *models.NotifyChannel {
 	t.Helper()
-	ch, err := CreateChannel(db, ChannelInput{Name: name, Type: chType, WebhookURL: url})
-	require.NoError(t, err)
-	return ch
+	return mustCreateChannelWithSecret(t, db, name, chType, url, "")
 }
 
-const bridgeToken = "inner-secret-token"
-
-// --- 鉴权 ---
-
-// TestBridgeRejectsMissingOrWrongToken 未带 / 带错内网令牌一律 401，且不发生任何出站。
-func TestBridgeRejectsMissingOrWrongToken(t *testing.T) {
-	db := newNotifyDB(t)
-	rec := &fakeReceiver{}
-	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
-	chID := strconv.FormatUint(uint64(ch.ID), 10)
-
-	// 缺 Authorization 头。
-	code, out := doBridgeJSON(t, r, "/api/v1/webhooks/notify?id="+chID, "", amBridgePayload("firing"))
-	assert.Equal(t, http.StatusUnauthorized, code)
-	assert.Equal(t, "unauthorized", out.ErrorType)
-
-	// 错令牌。
-	code, out = doBridgeJSON(t, r, "/api/v1/webhooks/notify?id="+chID, "wrong", amBridgePayload("firing"))
-	assert.Equal(t, http.StatusUnauthorized, code)
-	assert.Equal(t, "unauthorized", out.ErrorType)
-
-	assert.Zero(t, rec.calls(), "鉴权失败不得出站")
+func mustCreateChannelWithSecret(t *testing.T, db *gorm.DB, name, chType, url, secret string) *models.NotifyChannel {
+	t.Helper()
+	ch := &models.NotifyChannel{
+		Name:       name,
+		Type:       models.NotifyChannelType(chType),
+		WebhookURL: url,
+		Secret:     secret,
+	}
+	require.NoError(t, db.Create(ch).Error)
+	return ch
 }
 
 // --- SSRF 硬约束（核心验收项） ---
@@ -177,14 +170,14 @@ func TestBridgeRejectsArbitraryTargetURL(t *testing.T) {
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
 	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 	chID := strconv.FormatUint(uint64(ch.ID), 10)
 
 	// 1) 额外携带目标地址参数（含用户脚本形态 ?fsurl=）→ 显式拒绝。
 	for _, param := range []string{"url", "target", "webhook_url", "fsurl", "to"} {
 		code, out := doBridgeJSON(t, r,
 			"/api/v1/webhooks/notify?id="+chID+"&"+param+"=https://evil.example/hook",
-			bridgeToken, amBridgePayload("firing"))
+			amBridgePayload("firing"))
 		assert.Equalf(t, http.StatusBadRequest, code, "param=%s 应被拒", param)
 		assert.Equal(t, "bad_request", out.ErrorType)
 		assert.Contains(t, out.Error, "不接受请求方传入的目标地址")
@@ -192,7 +185,7 @@ func TestBridgeRejectsArbitraryTargetURL(t *testing.T) {
 
 	// 2) 把目标地址伪装成 channel 参数 → 非登记 ID，拒绝。
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?id=https://evil.example/hook", bridgeToken, amBridgePayload("firing"))
+		"/api/v1/webhooks/notify?id=https://evil.example/hook", amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)
 
@@ -204,10 +197,10 @@ func TestBridgeChannelNotFound(t *testing.T) {
 	db := newNotifyDB(t)
 	rec := &fakeReceiver{}
 	startFakeReceiver(t, rec)
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?id=9999", bridgeToken, amBridgePayload("firing"))
+		"/api/v1/webhooks/notify?id=9999", amBridgePayload("firing"))
 	assert.Equal(t, http.StatusNotFound, code)
 	assert.Equal(t, "not_found", out.ErrorType)
 	assert.Zero(t, rec.calls())
@@ -223,11 +216,11 @@ func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T) {
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
 	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 
 	code, out := doBridgeJSON(t, r,
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "success", out.Status)
 	assert.EqualValues(t, 1, out.Data["success"])
@@ -269,10 +262,10 @@ func mustCreateFeishuTemplate(t *testing.T, db *gorm.DB, name, marker string) *m
 // bridgeCallOnce 发一次桥调用并返回状态码、响应与出站体。
 func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.NotifyChannel) (int, channelResp, string) {
 	t.Helper()
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 	code, out := doBridgeJSON(t, r,
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	return code, out, string(rec.lastBody())
 }
 
@@ -360,10 +353,10 @@ func TestBridgeSendFailureReturnsBadGateway(t *testing.T) {
 	bridgeLogf = func(format string, args ...interface{}) { logs = append(logs, format) }
 	t.Cleanup(func() { bridgeLogf = orig })
 
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 	code, out := doBridgeJSON(t, r,
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadGateway, code)
 	assert.Equal(t, "bad_gateway", out.ErrorType)
 	require.Equal(t, 1, rec.calls())
@@ -383,10 +376,10 @@ func TestBridgeSuccessStructuredLog(t *testing.T) {
 	bridgeLogf = func(format string, args ...interface{}) { logs = append(logs, format) }
 	t.Cleanup(func() { bridgeLogf = orig })
 
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 	code, _ := doBridgeJSON(t, r,
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	assert.Contains(t, logs, "[notify-bridge] send ok channel=%d type=%s template=%d status=%s alerts=%d")
 }
@@ -450,13 +443,12 @@ func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch, err := CreateChannel(db, ChannelInput{Name: "SRE", Type: "feishu", WebhookURL: url, Secret: "s3cret"})
-	require.NoError(t, err)
+	ch := mustCreateChannelWithSecret(t, db, "SRE", "feishu", url, "s3cret")
 
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	r := newBridgeRouter(db, BridgeConfig{})
 	code, out := doBridgeJSON(t, r,
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, "success", out.Status)
 	require.Equal(t, 1, rec.calls())
@@ -481,9 +473,9 @@ func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T) {
 	url := startFakeReceiver(t, rec)
 	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 
-	code, _ := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
+	code, _ := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{}),
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	var body map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.lastBody(), &body))
@@ -536,9 +528,9 @@ func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T) {
 	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	logs := captureBridgeLogs(t)
 
-	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
+	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{}),
 		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
+		amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadGateway, code, "业务错误须令 AM 视为投递失败并重试")
 	assert.Equal(t, "bad_gateway", out.ErrorType)
 	require.Equal(t, 1, rec.calls())
@@ -546,4 +538,107 @@ func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T) {
 	assert.Contains(t, logged, "[notify-bridge] send failed channel=")
 	assert.Contains(t, logged, "http_status=200")
 	assert.Contains(t, logged, "code=19021", "失败日志须带上业务错误码便于定位")
+}
+// TestDingTalkSign 固定向量：key=secret，msg=timestamp+"\n"+secret，Base64 后 URL 编码。
+func TestDingTalkSign(t *testing.T) {
+	got := dingTalkSign("SECabc123", "1600000000000")
+	assert.Equal(t, "8hWVMV5uFnXwDwtKp99hlcOM9LVYYoGG9lnBsfNSVs4%3D", got)
+}
+
+// TestBridgeSignsDingTalkURL 钉钉渠道填了 secret 时，timestamp/sign 追加到 webhook URL
+// query（而不是 JSON body），原有 access_token 保留。
+func TestBridgeSignsDingTalkURL(t *testing.T) {
+	db := newNotifyDB(t)
+	rec := &fakeReceiver{}
+	base := startFakeReceiver(t, rec)
+	ch := mustCreateChannelWithSecret(t, db, "钉钉群", "dingtalk", base+"?access_token=abc", "SECabc123")
+	tpl := &models.NotifyTemplate{
+		Name:        "钉钉测试模板",
+		ChannelType: models.NotifyChannelTypeDingtalk,
+		Content:     `{"msgtype":"text","text":{"content":{{ jsonStr .Status }}}}`,
+		Checksum:    models.AlertmanagerConfigChecksum("dingtalk-test"),
+		Status:      models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(tpl).Error)
+	mustBindChannel(t, db, ch, tpl.ID)
+
+	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{}),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
+		amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "success", out.Status)
+	assert.JSONEq(t, `{"msgtype":"text","text":{"content":"firing"}}`, string(rec.lastBody()))
+
+	q, err := url.ParseQuery(rec.lastQuery())
+	require.NoError(t, err)
+	assert.Equal(t, "abc", q.Get("access_token"), "原有 query 必须保留")
+	ts := q.Get("timestamp")
+	require.NotEmpty(t, ts, "钉钉加签必须带 timestamp")
+	assert.Equal(t, dingTalkSign("SECabc123", ts), q.Get("sign"), "sign 必须与钉钉算法一致")
+}
+
+// TestBridgeDingTalkWithoutSecretDoesNotSign 未填 secret 的钉钉渠道不追加签名 query。
+func TestBridgeDingTalkWithoutSecretDoesNotSign(t *testing.T) {
+	db := newNotifyDB(t)
+	rec := &fakeReceiver{}
+	base := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "钉钉群", "dingtalk", base+"?access_token=abc")
+	tpl := &models.NotifyTemplate{
+		Name:        "钉钉测试模板",
+		ChannelType: models.NotifyChannelTypeDingtalk,
+		Content:     `{"msgtype":"text","text":{"content":{{ jsonStr .Status }}}}`,
+		Checksum:    models.AlertmanagerConfigChecksum("dingtalk-test-2"),
+		Status:      models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(tpl).Error)
+	mustBindChannel(t, db, ch, tpl.ID)
+
+	code, _ := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{}),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
+		amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code)
+	q, err := url.ParseQuery(rec.lastQuery())
+	require.NoError(t, err)
+	assert.Empty(t, q.Get("timestamp"), "未开启加签不得追加 timestamp")
+	assert.Empty(t, q.Get("sign"), "未开启加签不得追加 sign")
+}
+
+// TestBridgeWebhookForwardsRawPayload 自定义 Webhook 原样转发 AM JSON：
+// 不渲染模板、不签名、不判 IM 业务错误码（目标返回 errcode 也视为成功）。
+func TestBridgeWebhookForwardsRawPayload(t *testing.T) {
+	db := newNotifyDB(t)
+	rec := &fakeReceiver{respBody: []byte(`{"errcode":310000,"errmsg":"not an IM robot"}`)}
+	url := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "自建告警网关", "webhook", url)
+
+	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{}),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
+		amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code, "自定义 Webhook 只看 HTTP 状态码，不判 IM 业务码")
+	assert.Equal(t, "success", out.Status)
+	assert.NotContains(t, out.Data, "template", "webhook 不使用模板")
+	assert.EqualValues(t, 1, out.Data["alert_count"])
+
+	body := string(rec.lastBody())
+	assert.Contains(t, body, `"alertname":"HighCPU"`, "须原样转发 AM JSON")
+	assert.Contains(t, body, `"startsAt":"2026-01-02T03:04:05Z"`)
+	assert.Empty(t, rec.lastQuery(), "自定义 Webhook 不追加签名 query")
+}
+
+// TestBridgeWebhookRejectsMalformedPayload 原样转发前仍校验 AM JSON 格式。
+func TestBridgeWebhookRejectsMalformedPayload(t *testing.T) {
+	db := newNotifyDB(t)
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "自建告警网关", "webhook", url)
+
+	r := newBridgeRouter(db, BridgeConfig{})
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
+		strings.NewReader("{"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Zero(t, rec.calls(), "格式非法不得出站")
 }

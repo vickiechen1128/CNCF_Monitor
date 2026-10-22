@@ -3,7 +3,7 @@
  * - C1：保存合并基 = admin「生效产品视图」端点 GET /config/product（含平台物化 receivers），
  *       仅覆盖 route 段、原样保留 receivers；该端点 RequireAdmin，与保存提交 POST /config 同级，
  *       故保存链路整体 admin 一致（非 admin 仅能查看/编辑，不能提交）。
- * - H1：knownReceivers 由非 admin 的 notifyChannelsApi.list() 批量派生，不调用 admin getReceiverSnippet。
+ * - H1：knownReceivers 由非 admin 的 notifyChannelsApi.list() 批量派生。
  * - H4：部分导入保存前弹二次确认，取消则中止保存、确认才提交。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -133,7 +133,7 @@ describe('useRouteEditor — 保存只提交结构化路由树', () => {
 })
 
 describe('useRouteEditor — H1 非 admin knownReceivers', () => {
-  it('knownReceivers 由 notifyChannelsApi.list() 批量派生（全部渠道的 receiver_name），不调用 admin getReceiverSnippet', async () => {
+  it('knownReceivers 由 notifyChannelsApi.list() 批量派生（全部渠道的 receiver_name）', async () => {
     listMock.mockResolvedValue(
       channels([
         channel({ id: '1', name: 'A', receiver_name: 'recv-a' }),

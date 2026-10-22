@@ -39,7 +39,10 @@ func (c NotifyChannel) ReceiverName() string {
 	return "notify-" + strconv.FormatUint(uint64(c.ID), 10)
 }
 
-// NotifyChannelType 表示通知渠道类型（设计提案 §3.3.2：feishu / dingtalk / wecom）。
+// NotifyChannelType 表示通知渠道类型。
+//
+//   - feishu / dingtalk / wecom：平台按模板渲染消息，可选签名；
+//   - webhook：自定义 Webhook，平台原样转发 Alertmanager JSON，不渲染模板、不签名。
 type NotifyChannelType string
 
 // 通知渠道类型常量。
@@ -47,6 +50,7 @@ const (
 	NotifyChannelTypeFeishu   NotifyChannelType = "feishu"
 	NotifyChannelTypeDingtalk NotifyChannelType = "dingtalk"
 	NotifyChannelTypeWecom    NotifyChannelType = "wecom"
+	NotifyChannelTypeWebhook  NotifyChannelType = "webhook"
 )
 
 // ValidNotifyChannelTypes 返回合法的通知渠道类型取值集合。
@@ -55,11 +59,23 @@ func ValidNotifyChannelTypes() []string {
 		string(NotifyChannelTypeFeishu),
 		string(NotifyChannelTypeDingtalk),
 		string(NotifyChannelTypeWecom),
+		string(NotifyChannelTypeWebhook),
 	}
 }
 
 // IsValidNotifyChannelType 判定给定字符串是否为合法渠道类型。
 func IsValidNotifyChannelType(t string) bool {
+	switch NotifyChannelType(t) {
+	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom, NotifyChannelTypeWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsTemplateChannelType 判定该渠道类型是否使用通知模板。
+// 自定义 Webhook 原样转发 AM JSON，不使用模板。
+func IsTemplateChannelType(t string) bool {
 	switch NotifyChannelType(t) {
 	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom:
 		return true
@@ -73,7 +89,7 @@ func IsValidNotifyChannelType(t string) bool {
 //
 //	Name             渠道名称（如「SRE 飞书群」），仅用于界面展示；改名不影响 AM receiver 名
 //	Type             渠道类型（feishu / dingtalk / wecom）
-//	WebhookURL       机器人 Webhook 地址（含 token），仅平台侧存储
+//	WebhookURL       告警送达的 Webhook 地址（含 token），仅平台侧存储
 //	Secret           加签密钥（选填，启用加签时必填）
 //	DefaultTemplateID 该渠道渲染时使用的通知模板（null = 用内置默认模板，零配置 Happy Path 不变）；
 //	                  非空时须满足 template.channel_type == 本渠道 Type（渠道 CRUD 前置校验，桥亦有兜底）。

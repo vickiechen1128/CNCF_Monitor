@@ -1,7 +1,7 @@
 /**
  * 通知渠道管理页测试（2026-10-22 渠道/模板/路由解耦后）。
- * 覆盖：列表渲染与脱敏 / 路由引用提示 / 被引用渠道删除拦截 / 新增与编辑 payload /
- * 模板绑定 / 接收人配置片段 / 权限不足 / 接口错误。
+ * 覆盖：通用列表渲染 / 被引用次数 / 被引用渠道删除拦截 / 新增与编辑 payload /
+ * 模板绑定 / 签名开关 / 权限不足 / 接口错误。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -9,7 +9,6 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
-import { ApiError } from '../../api/client'
 import { NotifyChannelsPage } from './NotifyChannelsPage'
 import type { NotifyChannel, NotifyTemplate } from '../../types/alertmanager'
 
@@ -18,17 +17,12 @@ vi.mock('./useNotifyChannels', () => ({
   useNotifyChannels: (...a: unknown[]) => useNotifyChannelsMock(...a),
 }))
 
-const getReceiverSnippetMock = vi.fn()
 const listTemplatesMock = vi.fn()
 
 vi.mock('../../api/alertmanager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/alertmanager')>()
   return {
     ...actual,
-    notifyChannelsApi: {
-      ...actual.notifyChannelsApi,
-      getReceiverSnippet: (...a: unknown[]) => getReceiverSnippetMock(...a),
-    },
     notifyTemplatesApi: {
       ...actual.notifyTemplatesApi,
       list: (...a: unknown[]) => listTemplatesMock(...a),
@@ -54,6 +48,17 @@ const channelRow = (over: Partial<NotifyChannel> = {}): NotifyChannel => ({
   ...over,
 })
 
+const builtinTemplate = (over: Partial<NotifyTemplate> = {}): NotifyTemplate => ({
+  id: '1',
+  name: '飞书卡片-默认',
+  channel_type: 'feishu',
+  is_builtin: true,
+  bound_channel_count: 0,
+  created_at: '2026-09-30T00:00:00Z',
+  updated_at: '2026-09-30T00:00:00Z',
+  ...over,
+})
+
 const templateRow = (over: Partial<NotifyTemplate> = {}): NotifyTemplate => ({
   id: '9',
   name: '自定义卡片',
@@ -64,18 +69,6 @@ const templateRow = (over: Partial<NotifyTemplate> = {}): NotifyTemplate => ({
   updated_at: '2026-09-30T00:00:00Z',
   ...over,
 })
-
-function snippetResponse(over: Record<string, unknown> = {}) {
-  const data = {
-    receiver_name: 'notify-1',
-    url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?id=1',
-    snippet:
-      "  - name: notify-1\n    webhook_configs:\n      - url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?id=1'\n        send_resolved: true\n        http_config:\n          authorization:\n            type: Bearer\n            credentials: tok-abc\n",
-    token_configured: true,
-    ...over,
-  }
-  return { status: 'success', data }
-}
 
 function result(over: Record<string, unknown> = {}) {
   return {
@@ -113,12 +106,10 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     updateMock.mockResolvedValue(channelRow())
     removeMock.mockReset()
     removeMock.mockResolvedValue(undefined)
-    getReceiverSnippetMock.mockReset()
-    getReceiverSnippetMock.mockResolvedValue(snippetResponse())
     listTemplatesMock.mockReset()
     listTemplatesMock.mockResolvedValue({
       status: 'success',
-      data: { items: [templateRow()], total: 1 },
+      data: { items: [builtinTemplate(), templateRow()], total: 2 },
     })
   })
 
@@ -136,24 +127,27 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.getByText(/只有被路由规则引用的渠道才会写入 alertmanager.yml/)).toBeInTheDocument()
   })
 
-  it('列表渲染：脱敏 webhook、receiver 名、路由引用数、模板绑定', async () => {
+  it('列表只展示通用字段：名称 / 类型 / 被引用次数 / 创建时间', async () => {
     useNotifyChannelsMock.mockReturnValue(
       result({ channels: [channelRow({ route_reference_count: 2, default_template_id: 9 })] }),
     )
     renderPage()
     expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
     expect(screen.getAllByText('飞书').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('https://open.feishu.cn/***').length).toBeGreaterThan(0)
-    expect(screen.getByText('已设置')).toBeInTheDocument()
-    expect(screen.getByText('notify-1')).toBeInTheDocument()
-    expect(screen.getByText('被 2 条路由引用')).toBeInTheDocument()
-    expect(await screen.findByText('模板：自定义卡片')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getAllByText('被引用次数').length).toBeGreaterThan(0)
+    // 类型独有配置不再出现在列表
+    expect(screen.queryByText('https://open.feishu.cn/***')).toBeNull()
+    expect(screen.queryByText('已设置')).toBeNull()
+    expect(screen.queryByText('notify-1')).toBeNull()
+    expect(screen.queryByText('模板：自定义卡片')).toBeNull()
   })
 
-  it('未被路由引用是正常状态：不显示提示标记', async () => {
+  it('未被路由引用是正常状态：被引用次数显示 0，不做提示', async () => {
     useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
     renderPage()
-    expect(await screen.findByText('notify-1')).toBeInTheDocument()
+    expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
+    expect(screen.getByText('0')).toBeInTheDocument()
     expect(screen.queryByText('未被路由引用')).toBeNull()
   })
 
@@ -190,7 +184,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
 
     await user.type(screen.getByLabelText('渠道名称'), '数据库团队群')
     await user.type(
-      screen.getByLabelText('机器人 Webhook'),
+      screen.getByLabelText('Webhook 地址'),
       'https://open.feishu.cn/open-apis/bot/v2/hook/abc',
     )
     await user.click(screen.getByRole('button', { name: /创建渠道/ }))
@@ -199,27 +193,104 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         name: '数据库团队群',
         type: 'feishu',
         webhook_url: 'https://open.feishu.cn/open-apis/bot/v2/hook/abc',
+        default_template_id: 1,
       }),
     )
   })
 
-  it('编辑：不回填脱敏 webhook_url，提交不含 enabled / webhook_url / secret', async () => {
+  it('自定义 Webhook：隐藏模板与签名，地址必填，payload 不带模板', async () => {
+    const user = userEvent.setup()
+    useNotifyChannelsMock.mockReturnValue(result())
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /新增渠道/ }))
+    fireEvent.mouseDown(screen.getByLabelText('渠道类型'))
+    await user.click(await screen.findByTitle('自定义 Webhook'))
+    expect(screen.queryByLabelText('通知模板')).toBeNull()
+    expect(screen.queryByRole('switch')).toBeNull()
+
+    await user.type(screen.getByLabelText('渠道名称'), '自建告警网关')
+    await user.type(screen.getByLabelText('Webhook 地址'), 'https://alert-gateway.example/hook')
+    await user.click(screen.getByRole('button', { name: /创建渠道/ }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        name: '自建告警网关',
+        type: 'webhook',
+        webhook_url: 'https://alert-gateway.example/hook',
+      }),
+    )
+  })
+
+  it('钉钉未选模板：提交被必填校验拦截', async () => {
+    const user = userEvent.setup()
+    useNotifyChannelsMock.mockReturnValue(result())
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /新增渠道/ }))
+    fireEvent.mouseDown(screen.getByLabelText('渠道类型'))
+    await user.click(await screen.findByTitle('钉钉'))
+    await user.type(screen.getByLabelText('渠道名称'), '钉钉群')
+    await user.type(screen.getByLabelText('Webhook 地址'), 'https://oapi.dingtalk.com/robot/send?access_token=x')
+    await user.click(screen.getByRole('button', { name: /创建渠道/ }))
+    expect(await screen.findByText('请选择通知模板')).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('编辑：回填脱敏地址与 *** 密钥，模板必填并自动选内置模板', async () => {
     const user = userEvent.setup()
     useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
     renderPage()
     await user.click(await screen.findByRole('button', { name: /编辑/ }))
     expect((screen.getByLabelText('渠道名称') as HTMLInputElement).value).toBe('SRE 飞书群')
-    expect((screen.getByLabelText('机器人 Webhook') as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('签名密钥（选填）') as HTMLInputElement).value).toBe('')
+    // 编辑时回填脱敏值：用户能看到已配置，不修改则原样保留。
+    expect((screen.getByLabelText('Webhook 地址') as HTMLInputElement).value).toBe(
+      'https://open.feishu.cn/***',
+    )
+    expect((screen.getByLabelText('签名密钥') as HTMLInputElement).value).toBe('***')
 
     await user.click(screen.getByRole('button', { name: /保存修改/ }))
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     const [id, payload] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('1')
-    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', default_template_id: 0 })
+    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', default_template_id: 1 })
     expect(payload).not.toHaveProperty('enabled')
     expect(payload).not.toHaveProperty('webhook_url')
     expect(payload).not.toHaveProperty('secret')
+  })
+
+  it('清空 Webhook 地址：必填校验拦截', async () => {
+    const user = userEvent.setup()
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /编辑/ }))
+    await user.clear(screen.getByLabelText('Webhook 地址'))
+    await user.click(screen.getByRole('button', { name: /保存修改/ }))
+    expect(await screen.findByText('请填写 Webhook 地址')).toBeInTheDocument()
+    expect(updateMock).not.toHaveBeenCalled()
+  })
+
+  it('清空签名密钥：必填校验拦截', async () => {
+    const user = userEvent.setup()
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow({ secret_set: true })] }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /编辑/ }))
+    await user.clear(screen.getByLabelText('签名密钥'))
+    await user.click(screen.getByRole('button', { name: /保存修改/ }))
+    expect(await screen.findByText(/请填写飞书签名密钥/)).toBeInTheDocument()
+    expect(updateMock).not.toHaveBeenCalled()
+  })
+
+  it('关闭签名开关：提交 secret 空串以清空已存密钥', async () => {
+    const user = userEvent.setup()
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow({ secret_set: true })] }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /编辑/ }))
+    const switchEl = screen.getByRole('switch')
+    expect(switchEl).toHaveAttribute('aria-checked', 'true')
+    await user.click(switchEl)
+    expect(screen.queryByLabelText('签名密钥')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /保存修改/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    const [, payload] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload.secret).toBe('')
   })
 
   it('新增渠道：可选绑定通知模板，payload 带 default_template_id', async () => {
@@ -228,7 +299,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     renderPage()
     await user.click(screen.getByRole('button', { name: /新增渠道/ }))
     await user.type(screen.getByLabelText('渠道名称'), '数据库团队群')
-    await user.type(screen.getByLabelText('机器人 Webhook'), 'https://open.feishu.cn/hook/x')
+    await user.type(screen.getByLabelText('Webhook 地址'), 'https://open.feishu.cn/hook/x')
 
     fireEvent.mouseDown(screen.getByLabelText('通知模板'))
     await user.click(await screen.findByTitle('自定义卡片'))
@@ -242,39 +313,6 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         default_template_id: 9,
       }),
     )
-  })
-
-  it('接收人配置：展示 notify-<id> 与 ?id= 桥地址，复制片段', async () => {
-    const user = userEvent.setup()
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
-    expect((await screen.findAllByText('notify-1')).length).toBeGreaterThan(0)
-    expect(screen.getByText('接收人名')).toBeInTheDocument()
-    expect(screen.getByText('桥接地址')).toBeInTheDocument()
-    expect(screen.getAllByText(/webhooks\/notify\?id=1/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/send_resolved: true/)).toBeInTheDocument()
-    expect(screen.queryByText(/token=/)).toBeNull()
-    expect(screen.getByText(/authorization:/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(snippetResponse().data.snippet))
-  })
-
-  it('接收人配置：非管理员（403）给出友好中文提示', async () => {
-    const user = userEvent.setup()
-    getReceiverSnippetMock.mockRejectedValue(
-      new ApiError('forbidden', 403, 'forbidden', { status: 'error', error: 'forbidden', errorType: 'forbidden' }),
-    )
-    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
-    renderPage()
-
-    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
-    expect(await screen.findByText('权限不足')).toBeInTheDocument()
-    expect(screen.getByText(/仅管理员可获取/)).toBeInTheDocument()
   })
 
   it('权限不足：显示权限不足空态', () => {
