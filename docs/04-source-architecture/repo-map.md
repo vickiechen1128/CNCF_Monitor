@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-21 19:51 · commit: `a2ba75c`
+> 生成时间: 2026-10-22 15:37 · commit: `b2381ee`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1527,6 +1527,7 @@
 - `func deleteCreate(t *testing.T, r *gin.Engine, body map[string]interface{}) string`
 - `func assertSoftDeleted(t *testing.T, db *gorm.DB, category, resourceID string)`
 - `func TestDeleteResource_Success(t *testing.T)`
+- `func TestDeleteResource_CleansTargetSnapshots(t *testing.T)`
 - `func TestDeleteResource_NotFound(t *testing.T)`
 - `func TestDeleteResource_DoubleDelete(t *testing.T)`
 - `func TestDeleteResource_CleansResourceLabels(t *testing.T)`
@@ -3146,7 +3147,7 @@
 - `type vmTargetRespData struct`
 - `type vmTarget struct`
 - `func parseEdgeTargets(b []byte) ([]contract.EdgeTargetSnapshot, error)`
-- `func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) []co…`
+- `func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) ([]c…`
 - `func newVMTargetsClient() *http.Client`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets_test.go`
@@ -3470,7 +3471,9 @@
 - `func TestHeartbeatPersistsTargetSnapshots(t *testing.T)`
 - `func TestHeartbeatTargetUpsertOverwritesSameKey(t *testing.T)`
 - `func TestHeartbeatTargetClearOldSnapshots(t *testing.T)`
+- `func TestHeartbeatTargetClearCoversPreviousAgentRows(t *testing.T)`
 - `func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T)`
+- `func TestHeartbeatEmptyTargetsCollectedClearsSnapshots(t *testing.T)`
 - `func TestHeartbeatTargetPersistenceIndependent(t *testing.T)`
 - `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
 - `func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T)`
@@ -4924,6 +4927,7 @@
 - `func TestListScrapeJobsFiltersAndLabelTemplateReverseLookup(t *testing.T)`
 - `func TestUpdateScrapeJobJobTypeSwitch(t *testing.T)`
 - `func TestUpdateAndDeleteScrapeJob(t *testing.T)`
+- `func TestDeleteScrapeJobClearsTargetSnapshots(t *testing.T)`
 - `func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T)`
 - `func TestScrapeJobMappingOverridesRoundTrip(t *testing.T)`
 - `func TestUpdateDeletePendingJobRejected(t *testing.T)`

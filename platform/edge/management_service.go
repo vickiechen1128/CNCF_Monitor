@@ -56,6 +56,14 @@ func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error) {
 		return nil, fmt.Errorf("retire edge agents for %s: %w", id, err)
 	}
 
+	// 退纳管后节点不再心跳，其 target 快照不会再有新一轮上报来覆盖；主动清空，
+	// 避免「监控目标状态」页继续展示已退纳管网域的旧目标。
+	if err := db.Unscoped().
+		Where("network_domain_id = ?", id).
+		Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+		return nil, fmt.Errorf("clear edge target snapshots for %s: %w", id, err)
+	}
+
 	// 废止 token、停止纳管口径、registration_status → retired。
 	updates := map[string]interface{}{
 		"token":               "",

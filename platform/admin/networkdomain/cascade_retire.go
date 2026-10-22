@@ -76,6 +76,14 @@ func CascadeRetire(db *gorm.DB, domainID string) (*CascadeRetireResult, error) {
 			return fmt.Errorf("retire edge agents: %w", agentResult.Error)
 		}
 
+		// 步骤③-2：清理该网域的边缘 target 快照（M09 监控目标状态数据源）。节点退役后
+		// 不再心跳，快照不会再有新一轮上报覆盖；不清理会继续展示已删除网域的旧目标。
+		if err := tx.Unscoped().
+			Where("network_domain_id = ?", domainID).
+			Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+			return fmt.Errorf("clear edge target snapshots: %w", err)
+		}
+
 		// 步骤④：软删NetworkDomain
 		if err := tx.Where("id = ?", domainID).Delete(&models.NetworkDomain{}).Error; err != nil {
 			return fmt.Errorf("soft delete network domain: %w", err)

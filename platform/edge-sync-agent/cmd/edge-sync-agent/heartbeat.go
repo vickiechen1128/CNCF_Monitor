@@ -82,10 +82,12 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 		comps = r.sv.Snapshot()
 	}
 	// 方案 B：读取本机 vmagent /api/v1/targets 快照随心跳上报；采集失败由
-	// fetchVMAgentTargets 降级为空并 WARN，不阻断心跳。
+	// fetchVMAgentTargets 降级为空并 WARN，不阻断心跳。targetsCollected 显式区分
+	// 「采集成功且确实为空」与「采集失败」：前者中心可清空旧快照，后者必须保留。
 	targets := []contract.EdgeTargetSnapshot{}
+	targetsCollected := false
 	if r.targetBaseURL != "" {
-		targets = fetchVMAgentTargets(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
+		targets, targetsCollected = fetchVMAgentTargets(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
 	}
 	// F-17 补齐：读取本机vmagent /metrics，一次请求同时取remote_write 失败原因与
 	// **待发送积压字节数**（用户诉求 2026-10-09：界面「已下发未采到」时需让用户
@@ -116,6 +118,7 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 		Ip:                         r.ip,
 		Components:                 comps,
 		Targets:                    targets,
+		TargetsCollected:           targetsCollected,
 		ConfigApplyError:           applyState.Error,
 		ConfigApplyFailedVersion:   applyState.Version,
 		RemoteWriteLastError:       rwStats.LastError,

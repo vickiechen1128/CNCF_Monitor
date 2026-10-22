@@ -39,6 +39,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		&models.GenericTarget{},
 		&models.InterfaceService{},
 		&models.ExporterInstallationConfirmation{},
+		&models.EdgeTargetSnapshot{},
 	))
 	return db
 }
@@ -146,7 +147,7 @@ func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceNam
 	require.NoError(t, db.Create(&models.Application{
 		ResourceID: resourceID, ResourceCategory: models.ResourceCategoryApplication,
 		NetworkDomainID: domainID, BizCode: "infra", Env: "PRD", Status: status,
-		SourceType: models.SourceTypeManual,
+		SourceType:  models.SourceTypeManual,
 		ServiceName: serviceName, HealthCheckURL: healthCheckURL, Protocol: "http", Port: 8080,
 	}).Error)
 }
@@ -626,10 +627,10 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
 		Data struct {
-			JobType        models.JobType     `json:"job_type"`
+			JobType        models.JobType      `json:"job_type"`
 			ResourceType   models.ResourceType `json:"resource_type"`
-			MonitorType    string             `json:"monitor_type"`
-			BlackboxModule string             `json:"blackbox_module"`
+			MonitorType    string              `json:"monitor_type"`
+			BlackboxModule string              `json:"blackbox_module"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
@@ -690,6 +691,43 @@ func TestUpdateAndDeleteScrapeJob(t *testing.T) {
 	// 未命中 not_found。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/999999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestDeleteScrapeJobClearsTargetSnapshots 验证删除 Job 时同步清理该网域同名的边缘
+// target 快照（M09 监控目标状态数据源），且不影响其他网域 / 其他 Job 的快照。
+func TestDeleteScrapeJobClearsTargetSnapshots(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	rows := []models.EdgeTargetSnapshot{
+		{NetworkDomainID: "default", Job: "node-prod", Instance: "10.0.0.1:9100", Health: "up"},
+		{NetworkDomainID: "default", Job: "other-job", Instance: "10.0.0.2:9100", Health: "up"},
+		{NetworkDomainID: "other-domain", Job: "node-prod", Instance: "10.0.0.3:9100", Health: "up"},
+	}
+	require.NoError(t, db.Create(&rows).Error)
+
+	w := perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10), "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var n int64
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ? AND job = ?", "default", "node-prod").Count(&n).Error)
+	assert.Zero(t, n, "删除 Job 后应清理该网域同名快照")
+
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ? AND job = ?", "default", "other-job").Count(&n).Error)
+	assert.Equal(t, int64(1), n, "其他 Job 的快照不应被清理")
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ? AND job = ?", "other-domain", "node-prod").Count(&n).Error)
+	assert.Equal(t, int64(1), n, "其他网域的同名 Job 快照不应被清理")
 }
 
 // 回归：软删后重建同名 Job 应成功，而不是命中 DB 唯一索引抛 internal error
@@ -1203,7 +1241,7 @@ func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	seedInterfaceService(t, db, "is-1", "default", "订单查询", "https://api.example.com/health?token=x", "online")
 	bb := &models.ScrapeJob{
 		JobName: "bb-prod", JobType: models.JobTypeBlackbox, ResourceType: models.ResourceTypeInterfaceService,
-		TargetField: "api_url",
+		TargetField:     "api_url",
 		NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual, AuthType: models.AuthTypeNone,
 		BlackboxModule: "http_2xx", SelectedInstanceIDs: []string{"is-1"},
 		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,

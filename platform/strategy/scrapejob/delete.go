@@ -34,8 +34,22 @@ func DeleteScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := db.Delete(&job).Error; err != nil {
-			response.InternalServerError(c, fmt.Errorf("delete scrape job %d: %w", id, err))
+		// 软删 Job + 清理该 Job 的边缘 target 快照（M09 监控目标状态数据源）：Job 删除
+		// 后配置需重新生成/下发才生效，期间 agent 仍可能按旧配置上报；先清一次保证
+		// 页面立即消失，agent 后续若仍上报会重新写入，待新配置生效后自然收敛。
+		// 同一事务保证「Job 已删但快照清理失败」不会出现。
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Delete(&job).Error; err != nil {
+				return fmt.Errorf("delete scrape job %d: %w", id, err)
+			}
+			if err := tx.Unscoped().
+				Where("network_domain_id = ? AND job = ?", job.NetworkDomainID, job.JobName).
+				Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+				return fmt.Errorf("clear target snapshots for job %q: %w", job.JobName, err)
+			}
+			return nil
+		}); err != nil {
+			response.InternalServerError(c, err)
 			return
 		}
 		response.OK(c, gin.H{"id": id})

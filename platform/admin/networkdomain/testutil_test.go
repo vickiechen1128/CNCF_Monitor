@@ -41,6 +41,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		&models.EdgeAgent{},
 		&models.ScrapeJob{},
 		&models.ConfigDraft{},
+		&models.EdgeTargetSnapshot{},
 	))
 	return db
 }

@@ -86,10 +86,11 @@ func TestBuildHeartbeatCarriesTargets(t *testing.T) {
 		{Job: "node", Instance: "10.0.0.2:9100", Health: "down", LastError: "refused"},
 	}
 	rt := fakeRuntime{snap: RuntimeSnapshot{
-		AgentVersion:  "v0.2.0",
-		ConfigVersion: "v9",
-		Components:    []contract.Component{{Type: contract.ComponentTypeCollector, Status: contract.ComponentStatusRunning}},
-		Targets:       targets,
+		AgentVersion:     "v0.2.0",
+		ConfigVersion:    "v9",
+		Components:       []contract.Component{{Type: contract.ComponentTypeCollector, Status: contract.ComponentStatusRunning}},
+		Targets:          targets,
+		TargetsCollected: true,
 	}}
 	p := newPuller(cfg, nil, nil, rt)
 	hb := p.buildHeartbeat()
@@ -105,6 +106,10 @@ func TestBuildHeartbeatCarriesTargets(t *testing.T) {
 	// 组件字段仍应正常透传。
 	if len(hb.Components) != 1 || hb.Components[0].Type != contract.ComponentTypeCollector {
 		t.Fatalf("components not carried: %+v", hb.Components)
+	}
+	// 采集成功标记应随心跳透传（空列表清理语义依赖该字段）。
+	if !hb.TargetsCollected {
+		t.Fatal("targets_collected not carried")
 	}
 }
 

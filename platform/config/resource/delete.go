@@ -68,6 +68,15 @@ func DeleteResource(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 清理该资源的边缘 target 快照（M09 监控目标状态数据源）：资源删除后快照仍会
+		// 引用该 resource_id，若不清理，页面会把已删除实例继续展示为「未知」。agent
+		// 下一轮心跳若仍按旧配置抓取可能重新写入，待新配置生效后自然消失；此处清理
+		// 保证删除动作立即在页面生效。
+		if err := db.Unscoped().Where("resource_id = ?", resourceID).Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+			response.InternalServerError(c, fmt.Errorf("清理资源 %s 的目标状态快照失败：%w", resourceID, err))
+			return
+		}
+
 		if err := db.Delete(model).Error; err != nil {
 			response.InternalServerError(c, fmt.Errorf("删除 %s 资源 %s 失败：%w", category, resourceID, err))
 			return

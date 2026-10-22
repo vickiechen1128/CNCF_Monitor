@@ -26,6 +26,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		&models.Application{},
 		&models.GenericTarget{},
 		&models.InterfaceService{},
+		&models.EdgeTargetSnapshot{},
 	))
 
 	return db
@@ -36,13 +37,13 @@ func TestCascadeRetire_Success(t *testing.T) {
 
 	// 准备测试数据：创建一个已纳管网域和对应的 EdgeAgent
 	domain := &models.NetworkDomain{
-		ID:                 "test-domain-001",
-		Name:               "测试网域",
-		DomainType:         models.DomainTypeEdge,
-		TenantID:           "platform_admin",
+		ID:                  "test-domain-001",
+		Name:                "测试网域",
+		DomainType:          models.DomainTypeEdge,
+		TenantID:            "platform_admin",
 		AuthorizedTenantIDs: []string{"platform_admin"},
-		Status:             models.DomainStatusEnabled,
-		Token:              "test-token-123",
+		Status:              models.DomainStatusEnabled,
+		Token:               "test-token-123",
 	}
 	require.NoError(t, db.Create(domain).Error)
 
@@ -52,6 +53,9 @@ func TestCascadeRetire_Success(t *testing.T) {
 		Hostname:        "test-host",
 	}
 	require.NoError(t, db.Create(agent).Error)
+	require.NoError(t, db.Create(&models.EdgeTargetSnapshot{
+		NetworkDomainID: domain.ID, Job: "node", Instance: "10.0.0.1:9100", Health: "up",
+	}).Error)
 
 	// 执行级联清退
 	result, err := CascadeRetire(db, domain.ID)
@@ -80,6 +84,12 @@ func TestCascadeRetire_Success(t *testing.T) {
 	var domainWithToken models.NetworkDomain
 	require.NoError(t, db.Unscoped().Where("id = ?", domain.ID).First(&domainWithToken).Error)
 	assert.Equal(t, "", domainWithToken.Token)
+
+	// 验证：该网域的目标状态快照已清理，避免退纳管后继续展示旧目标。
+	var snapshots int64
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ?", domain.ID).Count(&snapshots).Error)
+	assert.Zero(t, snapshots, "级联清退应清理该网域的目标状态快照")
 }
 
 func TestCascadeRetire_NoAgents(t *testing.T) {
@@ -87,13 +97,13 @@ func TestCascadeRetire_NoAgents(t *testing.T) {
 
 	// 准备测试数据：创建一个未纳管的空网域
 	domain := &models.NetworkDomain{
-		ID:                 "test-domain-002",
-		Name:               "空网域",
-		DomainType:         models.DomainTypeEdge,
-		TenantID:           "platform_admin",
+		ID:                  "test-domain-002",
+		Name:                "空网域",
+		DomainType:          models.DomainTypeEdge,
+		TenantID:            "platform_admin",
 		AuthorizedTenantIDs: []string{"platform_admin"},
-		Status:             models.DomainStatusEnabled,
-		Token:              "",
+		Status:              models.DomainStatusEnabled,
+		Token:               "",
 	}
 	require.NoError(t, db.Create(domain).Error)
 
@@ -117,13 +127,13 @@ func TestCascadeRetire_MultipleAgents(t *testing.T) {
 
 	// 准备测试数据：创建一个网域和多个 EdgeAgent
 	domain := &models.NetworkDomain{
-		ID:                 "test-domain-003",
-		Name:               "多节点网域",
-		DomainType:         models.DomainTypeEdge,
-		TenantID:           "platform_admin",
+		ID:                  "test-domain-003",
+		Name:                "多节点网域",
+		DomainType:          models.DomainTypeEdge,
+		TenantID:            "platform_admin",
 		AuthorizedTenantIDs: []string{"platform_admin"},
-		Status:             models.DomainStatusEnabled,
-		Token:              "test-token-456",
+		Status:              models.DomainStatusEnabled,
+		Token:               "test-token-456",
 	}
 	require.NoError(t, db.Create(domain).Error)
 
@@ -171,12 +181,12 @@ func TestCascadeRetire_RetiredStatusIsTerminal(t *testing.T) {
 
 	// 准备测试数据：创建一个已 retired 的 EdgeAgent
 	domain := &models.NetworkDomain{
-		ID:                 "test-domain-004",
-		Name:               "已退场网域",
-		DomainType:         models.DomainTypeEdge,
-		TenantID:           "platform_admin",
+		ID:                  "test-domain-004",
+		Name:                "已退场网域",
+		DomainType:          models.DomainTypeEdge,
+		TenantID:            "platform_admin",
 		AuthorizedTenantIDs: []string{"platform_admin"},
-		Status:             models.DomainStatusEnabled,
+		Status:              models.DomainStatusEnabled,
 	}
 	require.NoError(t, db.Create(domain).Error)
 
@@ -214,13 +224,13 @@ func TestCascadeRetire_RollbackOnAgentUpdateFailure(t *testing.T) {
 	}))
 
 	domain := &models.NetworkDomain{
-		ID:                 "test-domain-005",
-		Name:               "回滚网域",
-		DomainType:         models.DomainTypeEdge,
-		TenantID:           "platform_admin",
+		ID:                  "test-domain-005",
+		Name:                "回滚网域",
+		DomainType:          models.DomainTypeEdge,
+		TenantID:            "platform_admin",
 		AuthorizedTenantIDs: []string{"platform_admin"},
-		Status:             models.DomainStatusEnabled,
-		Token:              "rollback-token-xyz",
+		Status:              models.DomainStatusEnabled,
+		Token:               "rollback-token-xyz",
 	}
 	require.NoError(t, db.Create(domain).Error)
 

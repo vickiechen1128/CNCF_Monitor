@@ -76,10 +76,14 @@ func parseEdgeTargets(b []byte) ([]contract.EdgeTargetSnapshot, error) {
 	return targets, nil
 }
 
-// fetchVMAgentTargets 抓取并解析本机 vmagent 本地 target 快照。采集失败（网络、非 200、
-// 解析错误）一律降级为 nil 返回并显式 WARN，绝不阻断心跳（backend-developer：错误处理
-// 显式，但采集失败不阻断心跳）。warnf 可为 nil。
-func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) []contract.EdgeTargetSnapshot {
+// fetchVMAgentTargets 抓取并解析本机 vmagent 本地 target 快照。第二个返回值表示
+// 「采集本身是否成功」：
+//   - true：vmagent 正常响应且解析成功，targets 可能为空列表——代表真实没有 target，
+//     中心可据此安全清空上一轮快照（含删除/停用全部 Job 的场景）；
+//   - false：网络、非 200、读 body 或解析失败，targets 为 nil，中心保留旧快照。
+//
+// 采集失败一律显式 WARN，但绝不阻断心跳（错误处理显式，失败降级）。warnf 可为 nil。
+func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) ([]contract.EdgeTargetSnapshot, bool) {
 	warn := warnf
 	if warn == nil {
 		warn = func(string, ...any) {}
@@ -88,29 +92,29 @@ func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		warn("vmagent targets: build req: %v", err)
-		return nil
+		return nil, false
 	}
 	resp, err := cli.Do(req)
 	if err != nil {
 		warn("vmagent targets: fetch %s: %v", url, err)
-		return nil
+		return nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		warn("vmagent targets: http %d from %s", resp.StatusCode, url)
-		return nil
+		return nil, false
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		warn("vmagent targets: read body: %v", err)
-		return nil
+		return nil, false
 	}
 	targets, err := parseEdgeTargets(body)
 	if err != nil {
 		warn("vmagent targets: parse: %v", err)
-		return nil
+		return nil, false
 	}
-	return targets
+	return targets, true
 }
 
 // newVMTargetsClient 返回抓取 vmagent 本机接口的短超时 HTTP 客户端。

@@ -58,6 +58,11 @@ type HeartbeatRequest struct {
 	Ip                   string               `json:"ip,omitempty"`
 	Components           []Component          `json:"components,omitempty"`
 	Targets              []EdgeTargetSnapshot `json:"targets,omitempty"` // 边缘 vmagent 本地 target 快照（方案 B）
+	// TargetsCollected 表示本轮 targets 采集是否成功（vmagent /api/v1/targets 正常
+	// 返回且解析成功，包括返回空列表）。中心仅在该字段为 true 时才允许用空列表清空
+	// 上一轮快照；缺省（false）表示采集失败或老版本 Agent，中心保留旧快照，避免把
+	// 「拉取失败」误判为「真实为空」。
+	TargetsCollected bool `json:"targets_collected,omitempty"`
 	// 配置应用结果（M11 dev-feedback F-17 / 设计提案 D）：Deployer.Apply 失败时上报失败原因
 	// 与失败版本，中心据此写 out_of_sync 成因 apply_failed（「同步失败」）；应用成功时两者清空
 	// （omitempty 不产出键），保证向后兼容。

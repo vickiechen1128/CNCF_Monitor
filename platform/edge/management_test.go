@@ -246,6 +246,9 @@ func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T) {
 	db := newEdgeTestDB(t)
 	_ = seedMonitoredEdgeDomain(t, db, "edge-retire", "secret-token", "vmagent", "http://c:8080")
 	seedAgent(t, db, "edge-retire", "online", tPtr(time.Now()), nil)
+	require.NoError(t, db.Create(&models.EdgeTargetSnapshot{
+		NetworkDomainID: "edge-retire", Job: "node", Instance: "10.0.0.1:9100", Health: "up",
+	}).Error)
 
 	out, err := RetireDomain(db, "edge-retire")
 	require.NoError(t, err)
@@ -259,6 +262,12 @@ func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T) {
 	require.NoError(t, db.Where("network_domain_id = ?", "edge-retire").Find(&agents).Error)
 	require.Len(t, agents, 1)
 	assert.Equal(t, AgentStatusRetired, agents[0].Status, "节点级联置 retired 终态")
+
+	// 退纳管后节点不再心跳，旧 target 快照必须主动清空，避免目标状态页残留。
+	var snapshots int64
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ?", "edge-retire").Count(&snapshots).Error)
+	assert.Zero(t, snapshots, "退纳管应清理该网域的目标状态快照")
 }
 
 func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T) {

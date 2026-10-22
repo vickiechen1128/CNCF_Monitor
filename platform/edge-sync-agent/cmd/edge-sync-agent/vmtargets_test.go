@@ -113,35 +113,46 @@ func TestFetchVMAgentTargets(t *testing.T) {
 		w.Write([]byte(sampleTargetsResp))
 	}))
 	defer srv.Close()
-	targets := fetchVMAgentTargets(ctx, cli, srv.URL, nil)
-	if len(targets) != 2 || targets[0].Health != "up" {
-		t.Fatalf("normal fetch targets = %+v", targets)
+	targets, ok := fetchVMAgentTargets(ctx, cli, srv.URL, nil)
+	if !ok || len(targets) != 2 || targets[0].Health != "up" {
+		t.Fatalf("normal fetch targets = %+v, collected = %v", targets, ok)
 	}
 
-	// HTTP 非 200 → 降级 nil。
+	// 采集成功但 activeTargets 为空 → collected=true，targets 为空切片（真实为空）。
+	srvEmpty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"activeTargets":[]}}`))
+	}))
+	defer srvEmpty.Close()
+	emptyTargets, emptyOK := fetchVMAgentTargets(ctx, cli, srvEmpty.URL, nil)
+	if !emptyOK || len(emptyTargets) != 0 {
+		t.Fatalf("empty active should be collected=true with 0 targets, got %+v, collected = %v", emptyTargets, emptyOK)
+	}
+
+	// HTTP 非 200 → 采集失败（collected=false，targets=nil）。
 	srv500 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv500.Close()
-	if got := fetchVMAgentTargets(ctx, cli, srv500.URL, nil); got != nil {
-		t.Fatalf("500 should degrade to nil, got %+v", got)
+	if got, ok := fetchVMAgentTargets(ctx, cli, srv500.URL, nil); ok || got != nil {
+		t.Fatalf("500 should degrade to nil/false, got %+v, collected = %v", got, ok)
 	}
 
-	// 解析失败（200 但坏 JSON）→ 降级 nil。
+	// 解析失败（200 但坏 JSON）→ 采集失败。
 	srvBad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{bad`))
 	}))
 	defer srvBad.Close()
-	if got := fetchVMAgentTargets(ctx, cli, srvBad.URL, nil); got != nil {
-		t.Fatalf("bad json should degrade to nil, got %+v", got)
+	if got, ok := fetchVMAgentTargets(ctx, cli, srvBad.URL, nil); ok || got != nil {
+		t.Fatalf("bad json should degrade to nil/false, got %+v, collected = %v", got, ok)
 	}
 
-	// 连接失败 → 降级 nil。
+	// 连接失败 → 采集失败。
 	srvClosed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	closedURL := srvClosed.URL
 	srvClosed.Close()
-	if got := fetchVMAgentTargets(ctx, cli, closedURL, nil); got != nil {
-		t.Fatalf("connection error should degrade to nil, got %+v", got)
+	if got, ok := fetchVMAgentTargets(ctx, cli, closedURL, nil); ok || got != nil {
+		t.Fatalf("connection error should degrade to nil/false, got %+v, collected = %v", got, ok)
 	}
 }
 
@@ -151,7 +162,10 @@ func TestFetchVMAgentTargetsContractType(t *testing.T) {
 		w.Write([]byte(sampleTargetsResp))
 	}))
 	defer srv.Close()
-	targets := fetchVMAgentTargets(context.Background(), &http.Client{Timeout: 3e9}, srv.URL, nil)
+	targets, collected := fetchVMAgentTargets(context.Background(), &http.Client{Timeout: 3e9}, srv.URL, nil)
+	if !collected || len(targets) == 0 {
+		t.Fatalf("want collected targets, got %+v, collected = %v", targets, collected)
+	}
 	if _, ok := interface{}(targets[0]).(contract.EdgeTargetSnapshot); !ok {
 		t.Fatalf("want []contract.EdgeTargetSnapshot, got %T", targets[0])
 	}

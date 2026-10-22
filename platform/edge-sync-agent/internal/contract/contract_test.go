@@ -193,6 +193,7 @@ func TestHeartbeatRequestJSONCarriesTargets(t *testing.T) {
 		Targets: []EdgeTargetSnapshot{
 			{Job: "node", Instance: "10.0.0.1:9100", Health: "up", ScrapeDurationSeconds: 0.01},
 		},
+		TargetsCollected: true,
 	}
 	b, err := json.Marshal(req)
 	if err != nil {
@@ -209,6 +210,10 @@ func TestHeartbeatRequestJSONCarriesTargets(t *testing.T) {
 	first, ok := targets[0].(map[string]any)
 	if !ok || first["job"] != "node" || first["health"] != "up" {
 		t.Fatalf("targets[0] = %+v", targets[0])
+	}
+	// 采集成功标记必须随心跳发出（中心依赖 true + 空 targets 清理旧快照）。
+	if m["targets_collected"] != true {
+		t.Fatalf("targets_collected missing/wrong: %+v", m["targets_collected"])
 	}
 	// 缺省为空时 targets 应整个省略（omitempty）。
 	empty := HeartbeatRequest{NetworkDomainID: "gov-cloud-a", AgentType: "vmagent"}

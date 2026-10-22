@@ -8,8 +8,12 @@ import "time"
 // json tag 用 snake_case 与上报契约一致。
 //
 // 落库口径（F-11 定版）：
-//   - 每轮心跳 clear-then-insert：硬删该 edge_agent_id 上轮全部快照，再批量插入本轮，
-//     (network_domain_id, job, instance) 经 uniqueIndex 兜底保证覆盖更新，不无限追加。
+//   - Agent 明确采集成功（targets_collected=true，targets 可为空列表）时
+//     clear-then-insert：硬删该 edge_agent_id 上轮全部快照，再批量插入本轮，
+//     (network_domain_id, job, instance) 经 uniqueIndex 兜底保证覆盖更新，不无限追加；
+//     空列表同样清库，避免已删除/停用的 Job 残留成「未知」快照。
+//   - 采集失败 / 老版本 Agent 未上报 targets_collected 时保留上轮快照，
+//     避免把「vmagent 拉取失败」误判为「真实为空」。
 //   - 快照属高频瞬时状态、无审计价值，采用硬删（Unscoped）而非软删——软删会占用唯一
 //     索引导致同键重插冲突。
 //   - LastReportAt 记录中心接收时间，供融合阶段判断「agent 离线后快照过期降级」。

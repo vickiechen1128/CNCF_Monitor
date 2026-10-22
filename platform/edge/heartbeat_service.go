@@ -42,8 +42,12 @@ type HeartbeatRequest struct {
 	MetadataRemoteWriteURL     string `json:"metadata_remote_write_url,omitempty"`
 	MetadataMaxDiskUsagePerURL string `json:"metadata_max_disk_usage_per_url,omitempty"`
 	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B，随心跳上报），字段与
-	// agent 侧 contract.EdgeTargetSnapshot 对齐。本轮仅透传占位，不做持久化。
+	// agent 侧 contract.EdgeTargetSnapshot 对齐。
 	Targets []EdgeTargetSnapshot `json:"targets,omitempty"`
+	// TargetsCollected 表示 Agent 本轮 targets 采集是否成功（vmagent 正常响应且
+	// 解析成功，包括返回空列表）。仅在为 true 时才允许用空列表清空上一轮快照；
+	// 缺省 = 采集失败或老版本 Agent，保留旧快照，避免误清。
+	TargetsCollected bool `json:"targets_collected,omitempty"`
 }
 
 // EdgeTargetSnapshot 是边缘 vmagent 本地 target 抓取快照（方案 B），供中心后续
@@ -298,12 +302,18 @@ const maxSnapshotsPerHeartbeat = 1000
 
 // persistEdgeTargetSnapshots 将本轮心跳 targets 快照按 clear-then-insert 落库
 // （F-11）：同一事务内硬删该 agent 上轮全部快照 → 批量插入本轮（同键覆盖更新，不无限
-// 追加）。targets 为空时不清库也不插库——保留上轮快照：vmagent 拉取失败/未启动也会随
-// 心跳上报空列表，误清会丢失「真实为空」与「获取失败」的分野。快照属高频瞬时状态、
-// 无审计价值，故硬删（Unscoped）而非软删（软删会占用唯一索引，导致同键重插冲突）。
-// 每行记录 LastReportAt（中心接收时间），供融合阶段判断「agent 离线后快照过期降级」。
+// 追加）。是否允许清库由「本轮是否真的采集成功」决定：
+//   - targets 非空：必然采集成功，正常 clear-then-insert；
+//   - targets 为空 + TargetsCollected=true：采集成功且确实没有 target（如删光/停用
+//     全部 Job），同样清空旧快照——否则已删除的 Job 会以「未知」状态永久残留；
+//   - targets 为空 + TargetsCollected=false：采集失败/未启动或老版本 Agent（无该
+//     字段），保留上轮快照，避免把「获取失败」误判为「真实为空」。
+//
+// 快照属高频瞬时状态、无审计价值，故硬删（Unscoped）而非软删（软删会占用唯一索引，
+// 导致同键重插冲突）。每行记录 LastReportAt（中心接收时间），供融合阶段判断「agent
+// 离线后快照过期降级」。
 func (s *HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, req *HeartbeatRequest, now time.Time) error {
-	if len(req.Targets) == 0 {
+	if len(req.Targets) == 0 && !req.TargetsCollected {
 		return nil
 	}
 	// 去重键 (job, instance)（F-11 子项②，resource_id 为注入标签可能缺，不作去重键）
@@ -332,14 +342,18 @@ func (s *HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, r
 			LastReportAt:          now,
 		})
 	}
-	if len(rows) == 0 {
-		return nil
-	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// 清理上一份快照（按 edge_agent_id 维度，而非仅网域）。
-		if err := tx.Unscoped().Where("edge_agent_id = ? AND network_domain_id = ?",
-			agent.ID, req.NetworkDomainID).Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+		// 清理上一份快照（按网域维度）：一个网域约定只有一个 agent，且唯一索引本身是
+		// (network_domain_id, job, instance)。若按 edge_agent_id 清理，agent 重注册/
+		// 换机后旧 ID 的行会残留，既继续展示旧目标，也会让新 agent 插入同键快照时
+		// 撞唯一索引。采集成功且本轮为空时仍执行清理、不插入任何行，使已删除/停用的
+		// Job 不再残留。
+		if err := tx.Unscoped().Where("network_domain_id = ?", req.NetworkDomainID).
+			Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
 			return fmt.Errorf("clear previous edge target snapshots: %w", err)
+		}
+		if len(rows) == 0 {
+			return nil
 		}
 		if err := tx.Create(&rows).Error; err != nil {
 			return fmt.Errorf("persist edge target snapshots: %w", err)
