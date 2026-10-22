@@ -48,7 +48,7 @@ func countRows(t *testing.T, db *gorm.DB, model interface{}, out *int64) {
 	require.NoError(t, db.Model(model).Count(out).Error)
 }
 
-func TestRunSeedsTenantAndDefaultDomain(t *testing.T) {
+func TestRunSeedsTenantWithoutDefaultDomain(t *testing.T) {
 	db := newTestDB(t)
 
 	require.NoError(t, Run(db))
@@ -58,14 +58,11 @@ func TestRunSeedsTenantAndDefaultDomain(t *testing.T) {
 	assert.Equal(t, "平台默认租户", tenant.Name)
 	assert.True(t, tenant.IsPlatformAdmin)
 	assert.False(t, tenant.MultiSiteEnabled)
-	assert.Contains(t, tenant.NetworkDomainIDs, models.DefaultDomainID)
+	assert.Empty(t, tenant.NetworkDomainIDs, "全新库不再预置中心直连域")
 
-	var dom models.NetworkDomain
-	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
-	assert.Equal(t, models.DomainTypeManagement, dom.DomainType)
-	assert.Equal(t, models.ChannelTypeLocal, dom.Channel)
-	assert.Equal(t, models.PlatformAdminTenantID, dom.TenantID)
-	assert.Equal(t, models.DomainStatusEnabled, dom.Status)
+	var domains int64
+	require.NoError(t, db.Model(&models.NetworkDomain{}).Count(&domains).Error)
+	assert.Equal(t, int64(0), domains, "seed 不再创建 default 网域")
 }
 
 func TestRunSeedsZoneTypes(t *testing.T) {
@@ -217,7 +214,7 @@ func TestRunIsIdempotent(t *testing.T) {
 	countRows(t, db, &models.ExporterMetricLibrary{}, &metrics)
 
 	assert.Equal(t, int64(1), tenants, "tenant is unique")
-	assert.Equal(t, int64(1), domains, "default domain is unique")
+	assert.Equal(t, int64(0), domains, "seed no longer creates a default domain")
 	assert.Equal(t, int64(4), zones, "zone_type dictionary is unique")
 	assert.Equal(t, int64(6), templates, "label templates are unique")
 	assert.Equal(t, int64(6), exporters, "exporters are unique")
@@ -263,46 +260,21 @@ func TestRunSeedsMetricLibrary(t *testing.T) {
 	assert.Equal(t, int64(len(BuiltinMetricLibrary())), gt)
 }
 
-func TestRunSeedsDomainIsMonitored(t *testing.T) {
-	db := newTestDB(t)
-	require.NoError(t, Run(db))
-
-	var dom models.NetworkDomain
-	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
-	assert.True(t, dom.IsMonitored, "default domain must be seeded with is_monitored=true")
-	assert.True(t, dom.IsManagement())
-}
-
-// TestRunSeedsDefaultDomainAuthorized verifies the default management domain is
-// seeded with registration ownership = platform_admin and the authorized tenant
-// = platform_admin (T06-10).
-func TestRunSeedsDefaultDomainAuthorized(t *testing.T) {
-	db := newTestDB(t)
-	require.NoError(t, Run(db))
-
-	var dom models.NetworkDomain
-	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
-	assert.Equal(t, models.DomainTypeManagement, dom.DomainType)
-	assert.Equal(t, models.ChannelTypeLocal, dom.Channel)
-	assert.Equal(t, models.PlatformAdminTenantID, dom.TenantID)
-	assert.Equal(t, models.DomainStatusEnabled, dom.Status)
-	assert.Equal(t, []string{models.PlatformAdminTenantID}, dom.AuthorizedTenantIDs)
-}
-
-// TestRunBackfillsAuthorizedOnExistingDefault simulates a Phase 0 pre-created
-// default domain that lacks AuthorizedTenantIDs and verifies Run idempotently
-// back-fills it without duplicating records (T06-10).
-func TestRunBackfillsAuthorizedOnExistingDefault(t *testing.T) {
+// TestRunLeavesExistingDefaultDomainUntouched guards the upgrade path: an
+// existing deployment keeps its pre-provisioned default domain (seed must never
+// delete or rewrite user data).
+func TestRunLeavesExistingDefaultDomainUntouched(t *testing.T) {
 	db := newTestDB(t)
 
-	// Phase 0 row without authorized_tenant_ids
 	legacy := &models.NetworkDomain{
-		ID:         models.DefaultDomainID,
-		Name:       "默认网域",
-		DomainType: models.DomainTypeManagement,
-		Channel:    models.ChannelTypeLocal,
-		TenantID:   models.PlatformAdminTenantID,
-		Status:     models.DomainStatusEnabled,
+		ID:                  models.DefaultDomainID,
+		Name:                "存量中心域",
+		DomainType:          models.DomainTypeManagement,
+		Channel:             models.ChannelTypeLocal,
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
+		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true,
 	}
 	require.NoError(t, db.Create(legacy).Error)
 
@@ -310,9 +282,10 @@ func TestRunBackfillsAuthorizedOnExistingDefault(t *testing.T) {
 
 	var dom models.NetworkDomain
 	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
-	assert.Equal(t, []string{models.PlatformAdminTenantID}, dom.AuthorizedTenantIDs)
+	assert.Equal(t, "存量中心域", dom.Name, "seed 不再覆盖存量网域字段")
+	assert.True(t, dom.IsManagement())
 
 	var n int64
 	require.NoError(t, db.Model(&models.NetworkDomain{}).Where("id = ?", models.DefaultDomainID).Count(&n).Error)
-	assert.Equal(t, int64(1), n, "no duplicate rows after back-fill")
+	assert.Equal(t, int64(1), n, "no duplicate rows")
 }

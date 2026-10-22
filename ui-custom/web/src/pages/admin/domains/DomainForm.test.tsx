@@ -11,11 +11,13 @@ const updateMock = vi.fn()
 const zoneTypeListMock = vi.fn()
 const tenantListMock = vi.fn()
 const cloudDictListMock = vi.fn()
+const managementDomainMock = vi.fn()
 
 vi.mock('../../../api/domain', () => ({
   networkDomainApi: { create: (...a: unknown[]) => createMock(...a), update: (...a: unknown[]) => updateMock(...a) },
   zoneTypeApi: { list: (...a: unknown[]) => zoneTypeListMock(...a) },
   tenantApi: { list: (...a: unknown[]) => tenantListMock(...a) },
+  fetchManagementDomain: (...a: unknown[]) => managementDomainMock(...a),
 }))
 
 // 云归属下拉数据源（云字典只读接口，M06 §5.2 / M07 §5.20）
@@ -124,8 +126,10 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     zoneTypeListMock.mockReset()
     tenantListMock.mockReset()
     cloudDictListMock.mockReset()
+    managementDomainMock.mockReset()
     cancelMock.mockReset()
     successMock.mockReset()
+    managementDomainMock.mockResolvedValue(null)
     zoneTypeListMock.mockResolvedValue({ status: 'success', data: [zoneType] })
     tenantListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
     cloudDictListMock.mockResolvedValue({
@@ -141,10 +145,19 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     expect(screen.getByRole('button', { name: /确认登记/ })).toBeDisabled()
   })
 
-  it('登记态选「能」→ 硬劝阻 Callout，表单不展开、按钮仍禁用', async () => {
+  it('登记态选「能」且未登记中心直连域 → 展开表单、按钮可用、提示全平台唯一', async () => {
     renderDrawer()
     pickDirect('中心能直接访问')
-    expect(await screen.findByText('无需登记网域，请关闭本窗口')).toBeInTheDocument()
+    expect(await screen.findByText('将登记中心直连域（全平台唯一）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('例如：政务网 A 区')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /确认登记/ })).toBeEnabled()
+  })
+
+  it('登记态选「能」且中心直连域已存在 → 硬劝阻、表单不展开、按钮禁用', async () => {
+    managementDomainMock.mockResolvedValue({ ...editDomain, id: 'default', name: '中心域', domain_type: 'management' })
+    renderDrawer()
+    pickDirect('中心能直接访问')
+    expect(await screen.findByText('中心直连域已登记，全平台只能有一个')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText('例如：政务网 A 区')).toBeNull()
     expect(screen.getByRole('button', { name: /确认登记/ })).toBeDisabled()
   })
@@ -182,6 +195,23 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     expect(input).not.toHaveProperty('tenant_id')
     expect(successMock).toHaveBeenCalled()
     expect(cancelMock).toHaveBeenCalled()
+  })
+
+  it('提交登记中心直连域：domain_type=management，其余字段与采集节点域一致', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { ...editDomain, domain_type: 'management' } })
+    renderDrawer()
+    pickDirect('中心能直接访问')
+    fireEvent.change(await screen.findByPlaceholderText('例如：政务网 A 区'), { target: { value: '中心直连域' } })
+    await pickOption('云归属', '腾讯云')
+    await pickOption('网络分区', '互联网区')
+    fireEvent.click(screen.getByRole('button', { name: /确认登记/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      name: '中心直连域',
+      domain_type: 'management',
+      cloud_code: 'PUB-TX',
+      zone_type: 'internet',
+    })
   })
 
   it('云归属下拉数据来自 cloudDictApi 且仅展示启用条目', async () => {

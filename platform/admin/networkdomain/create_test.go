@@ -102,15 +102,53 @@ func TestCreateNetworkDomainInvalidDomainType(t *testing.T) {
 	assert.Equal(t, 400, code)
 }
 
-// TestCreateNetworkDomainRejectsManagementDomain verifies that a management
-// domain cannot be created through the business registration API: management
-// domains are system-provisioned (only the platform admin), not business assets.
-func TestCreateNetworkDomainRejectsManagementDomain(t *testing.T) {
+// TestCreateManagementDomain verifies the center-direct domain can be
+// registered on demand with the fixed internal id and is immediately monitored
+// (channel=local, no agent/token).
+func TestCreateManagementDomain(t *testing.T) {
 	db := openTestDB(t)
 	seedDomainRegistrationDicts(t, db)
-	code, _, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"越权管理域","domain_type":"management","domain_code":"ops-dc"}`)
-	assert.Equal(t, 400, code)
-	assert.Contains(t, errStr, "system-provisioned")
+	code, d, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"中心直连域","domain_type":"management"}`)
+	require.Equal(t, 200, code, errStr)
+	assert.Equal(t, models.DefaultDomainID, d.ID)
+	assert.Equal(t, models.DomainTypeManagement, d.DomainType)
+	assert.Equal(t, models.ChannelTypeLocal, d.Channel)
+	assert.True(t, d.IsMonitored)
+	assert.Equal(t, models.RegistrationStatusMonitored, d.RegistrationStatus)
+}
+
+// TestCreateSecondManagementDomainRejected verifies at most one center-direct
+// domain may exist.
+func TestCreateSecondManagementDomainRejected(t *testing.T) {
+	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
+	code1, _, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"中心直连域","domain_type":"management"}`)
+	require.Equal(t, 200, code1, errStr)
+
+	code2, _, errStr2 := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"第二个中心域","domain_type":"management"}`)
+	assert.Equal(t, 409, code2)
+	assert.Contains(t, errStr2, "只能登记一个")
+}
+
+// TestCreateManagementDomainRevivesSoftDeleted verifies deleting and
+// re-registering the center-direct domain reuses the fixed row instead of
+// colliding with the soft-deleted primary key.
+func TestCreateManagementDomainRevivesSoftDeleted(t *testing.T) {
+	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
+	code1, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"旧中心域","domain_type":"management"}`)
+	require.Equal(t, 200, code1)
+
+	r := newGin()
+	r.DELETE("/network-domains/:id", DeleteNetworkDomain(db))
+	w := perform(t, r, "DELETE", "/network-domains/"+models.DefaultDomainID, "")
+	require.Equal(t, 200, w.Code)
+
+	code2, d, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"新中心域","domain_type":"management"}`)
+	require.Equal(t, 200, code2, errStr)
+	assert.Equal(t, models.DefaultDomainID, d.ID)
+	assert.Equal(t, "新中心域", d.Name)
+	assert.True(t, d.IsMonitored)
 }
 
 func TestCreateNetworkDomainReservedDefault(t *testing.T) {

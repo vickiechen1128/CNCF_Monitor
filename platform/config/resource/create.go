@@ -20,13 +20,10 @@ import (
 
 // networkDomainExistsFunc 构造 networkDomainExists 注入函数：以 M06 行政记录
 // （NetworkDomain 表，软删不计）为准校验 network_domain_id 存在性（§5.4）。
-// default 为历史预置管理网域例外：单网域场景下未登记也放行（§5.4 默认网域预置）。
+// 中心直连域不再预置，因此 default 也必须是真实存在的登记行，不能无条件放行。
 func networkDomainExistsFunc(db *gorm.DB) func(string) bool {
 	return func(id string) bool {
 		id = strings.TrimSpace(id)
-		if id == models.DefaultDomainID {
-			return true // default 历史预置例外
-		}
 		var count int64
 		if err := db.Model(&models.NetworkDomain{}).Where("id = ?", id).Count(&count).Error; err != nil {
 			return false

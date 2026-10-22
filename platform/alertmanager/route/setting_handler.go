@@ -22,6 +22,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -117,6 +118,12 @@ func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error) {
 //   - mode 为 route 段作者模式：空串归一为 handwritten；非 handwritten/managed 视为非法。
 // 任一校验失败返回对应错误，不写入。
 func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error {
+	// 告警配置归属管理域（决策 60）：中心直连域未登记时不写入设定行，
+	// 否则会留下无法生成变更单的孤儿配置。
+	dom, err := domainregistry.ManagementDomain(db)
+	if err != nil {
+		return err
+	}
 	if mode == "" {
 		mode = models.RouteModeHandwritten
 	}
@@ -139,16 +146,16 @@ func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error 
 			return ErrRouteSettingChannelUnavailable
 		}
 	}
-	return saveRouteSetting(db, channelID, mode)
+	return saveRouteSetting(db, dom.ID, channelID, mode)
 }
 
-// saveRouteSetting 按管理域单例（default）写入或更新设定行（含模式）。
-func saveRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error {
+// saveRouteSetting 按管理域单例写入或更新设定行（含模式）。
+func saveRouteSetting(db *gorm.DB, domainID string, channelID *uint, mode models.RouteMode) error {
 	var s models.AlertmanagerRouteSetting
-	err := db.Where("network_domain_id = ?", models.DefaultDomainID).First(&s).Error
+	err := db.Where("network_domain_id = ?", domainID).First(&s).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		if err := db.Create(&models.AlertmanagerRouteSetting{
-			NetworkDomainID:          models.DefaultDomainID,
+			NetworkDomainID:          domainID,
 			DefaultReceiverChannelID: channelID,
 			Mode:                     mode,
 		}).Error; err != nil {
@@ -198,11 +205,14 @@ func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if err := PutRouteSetting(db, req.DefaultReceiverChannelID, req.Mode); err != nil {
-			if errors.Is(err, ErrRouteSettingChannelUnavailable) || errors.Is(err, ErrRouteSettingModeInvalid) {
+			switch {
+			case errors.Is(err, domainregistry.ErrManagementDomainNotRegistered):
+				response.Conflict(c, err)
+			case errors.Is(err, ErrRouteSettingChannelUnavailable) || errors.Is(err, ErrRouteSettingModeInvalid):
 				response.BadRequest(c, err)
-				return
+			default:
+				response.InternalServerError(c, err)
 			}
-			response.InternalServerError(c, err)
 			return
 		}
 

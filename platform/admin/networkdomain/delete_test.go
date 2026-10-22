@@ -113,7 +113,7 @@ func TestDeleteManagedAgentCascadeImpact(t *testing.T) {
 	assert.Equal(t, cascade["edge_agent_count"], float64(len(retire)))
 }
 
-func TestDeleteManagementRejected(t *testing.T) {
+func TestDeleteManagementDomainAllowed(t *testing.T) {
 	db := openTestDB(t)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: models.DefaultDomainID, Name: "默认网域", DomainType: models.DomainTypeManagement,
@@ -121,10 +121,63 @@ func TestDeleteManagementRejected(t *testing.T) {
 		Status: models.DomainStatusEnabled,
 	})
 
-	// 决策 82-1：管理域禁止删除，返回 400 bad_request（不是 409 conflict）
-	code, out := delDomain(t, db, models.DefaultDomainID)
-	assert.Equal(t, 400, code)
-	assert.Equal(t, "bad_request", out["errorType"])
+	// 中心直连域与采集节点域同一生命周期：无引用时允许删除（软删）。
+	code, _ := delDomain(t, db, models.DefaultDomainID)
+	assert.Equal(t, 200, code)
+}
+
+func TestDeleteRejectedByScrapeJob(t *testing.T) {
+	db := openTestDB(t)
+	insertDomain(t, db, &models.NetworkDomain{
+		ID: "mc-has-jobs", Name: "有Job", DomainType: models.DomainTypeEdge,
+		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
+		Status: models.DomainStatusEnabled,
+	})
+	require.NoError(t, db.Create(&models.ScrapeJob{
+		JobName: "job-a", JobType: models.JobTypeStandard, NetworkDomainID: "mc-has-jobs",
+		InstanceSelectionMode: "manual", DraftStatus: "ready", ChangeStatus: "pending",
+		Enabled: false, // 停用 Job 同样计入引用
+	}).Error)
+
+	code, out := delDomain(t, db, "mc-has-jobs")
+	assert.Equal(t, 403, code)
+	assert.Equal(t, "forbidden", out["errorType"])
+	assert.Contains(t, out["error"].(string), "scrape job")
+}
+
+func TestDeleteRejectedByPendingDraft(t *testing.T) {
+	db := openTestDB(t)
+	insertDomain(t, db, &models.NetworkDomain{
+		ID: "mc-has-draft", Name: "有草稿", DomainType: models.DomainTypeEdge,
+		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
+		Status: models.DomainStatusEnabled,
+	})
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID: "mc-has-draft", ChangeNo: "CHG-TEST-001",
+		Status: models.DraftStatusPending, ValidationStatus: "passed",
+	}).Error)
+
+	code, out := delDomain(t, db, "mc-has-draft")
+	assert.Equal(t, 403, code)
+	assert.Equal(t, "forbidden", out["errorType"])
+	assert.Contains(t, out["error"].(string), "pending config draft")
+}
+
+// 已确认 / 已废弃草稿是历史留痕，不阻塞删除。
+func TestDeleteIgnoresNonPendingDrafts(t *testing.T) {
+	db := openTestDB(t)
+	insertDomain(t, db, &models.NetworkDomain{
+		ID: "mc-old-drafts", Name: "历史草稿", DomainType: models.DomainTypeEdge,
+		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
+		Status: models.DomainStatusEnabled,
+	})
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID: "mc-old-drafts", ChangeNo: "CHG-TEST-002",
+		Status: models.DraftStatusDiscarded, ValidationStatus: "passed",
+	}).Error)
+
+	code, _ := delDomain(t, db, "mc-old-drafts")
+	assert.Equal(t, 200, code)
 }
 
 func TestDeleteOfflineAgentDoesNotBlock(t *testing.T) {

@@ -47,6 +47,9 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.ImportRecord{},
 	))
+	// 方案 A：中心直连域不再由 seed 预置；导入模板历史语义「留空 = default」仍保留，
+	// 因此测试库显式登记该行。
+	seedDefaultDomain(t, db)
 	// 决策 97：导入校验在事务内经同库字典 store 完成（字典∪声明可达性），须预置
 	// 字典夹具 infra（业务）/ app（应用），与既有测试引用值一致。
 	require.NoError(t, db.Create(&models.BusinessDomain{Code: "infra", Name: "公共基础设施", Enabled: true}).Error)

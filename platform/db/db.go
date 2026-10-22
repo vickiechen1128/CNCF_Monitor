@@ -52,7 +52,7 @@ func AutoMigrate() error {
 		return fmt.Errorf("database connection is not initialized")
 	}
 
-	return DB.AutoMigrate(
+	if err := DB.AutoMigrate(
 		// 共享基础模型
 		&models.Tenant{},
 		&models.NetworkDomain{},
@@ -108,7 +108,15 @@ func AutoMigrate() error {
 		&models.AlertmanagerRouteSetting{},
 		// 预留
 		&models.BusinessMetric{},
-	)
+	); err != nil {
+		return err
+	}
+
+	// 中心直连域（管理域）全平台唯一：只允许一条未软删的 management 行。
+	// 登记接口在事务内已做应用层校验，这里用 SQLite 部分唯一索引兜底并发写入。
+	return DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_network_domains_single_management
+		ON network_domains(domain_type)
+		WHERE domain_type = 'management' AND deleted_at IS NULL`).Error
 }
 
 // Health checks whether the database connection is alive.

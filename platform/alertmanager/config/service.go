@@ -13,6 +13,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/change"
 	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -38,16 +39,19 @@ func (e *ErrValidation) Error() string {
 	return e.Items[0].Message
 }
 
-// managementDomainID 是 alertmanager.yml 归属的管理域（default）scope 网域（决策 60）：
-// 变更单恒为该管理域，不参与按网域扇出、不进 agent_pull 配置包。可注入便于测试。
-var managementDomainID = models.DefaultDomainID
-
 // triggerChangeDetection 触发 M09 变更检测：挂载留痕把 alertmanager.yml 写回源数据
 // 后，主动跑一轮管理域变更检测，使 M09 下一轮 configgen 纳入 alertmanager.yml 产物
 // （决策 60 / T09-60-1）。稳态路径是 pull 30s watcher；此处为「挂载即感知」的即时触发，
 // 失败不阻断挂载（watcher 下一轮会兜底重试）。默认实现在测试中可注入替换。
+//
+// 管理域（中心直连域）不再预置，必须按 domain_type 动态解析：未登记时返回
+// domainregistry.ErrManagementDomainNotRegistered，由 handler 映射为可操作提示。
 var triggerChangeDetection = func(db *gorm.DB) error {
-	return change.ProcessDomain(db, managementDomainID)
+	domainID, err := domainregistry.ManagementDomainID(db)
+	if err != nil {
+		return err
+	}
+	return change.ProcessDomain(db, domainID)
 }
 
 // TriggerChangeDetection 是对私有 triggerChangeDetection 的导出包装（T08-11 路由设定写
@@ -82,12 +86,16 @@ func EnsurePendingDraft(db *gorm.DB) error {
 var ensurePendingDraft = generateOrReusePendingDraft
 
 func generateOrReusePendingDraft(db *gorm.DB) error {
-	live, err := draft.LatestLivePending(db, managementDomainID)
+	domainID, err := domainregistry.ManagementDomainID(db)
+	if err != nil {
+		return err
+	}
+	live, err := draft.LatestLivePending(db, domainID)
 	if err != nil {
 		return err
 	}
 	if live != nil {
-		dom, dErr := generator.LoadDomain(db, managementDomainID)
+		dom, dErr := generator.LoadDomain(db, domainID)
 		if dErr != nil {
 			return dErr
 		}
@@ -96,12 +104,12 @@ func generateOrReusePendingDraft(db *gorm.DB) error {
 			return sErr
 		}
 		if supersede {
-			_, gErr := draft.GenerateDraft(db, managementDomainID)
+			_, gErr := draft.GenerateDraft(db, domainID)
 			return gErr
 		}
 		return nil // 产物无变化，复用既有 live pending
 	}
-	_, gErr := draft.GenerateDraft(db, managementDomainID)
+	_, gErr := draft.GenerateDraft(db, domainID)
 	return gErr
 }
 
@@ -144,6 +152,12 @@ func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfi
 
 // submitValidated 执行校验→落库→触发变更检测的共同工序。调用方已保证 content 非空。
 func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error) {
+	// alertmanager.yml 恒属管理域（决策 60）：中心直连域未登记时没有归属域，
+	// 直接拒绝而不是写一条永远无法生成变更单的版本。
+	if _, err := domainregistry.ManagementDomain(db); err != nil {
+		return nil, err
+	}
+
 	// 校验失败不落库（决策 60）。
 	if err := validateAlertmanagerConfig(content); err != nil {
 		return nil, err

@@ -12,6 +12,7 @@
  */
 import { message } from 'antd'
 import { configDraftApi } from '../../../api/configCenter'
+import { fetchManagementDomain } from '../../../api/domain'
 import { fetchMonitoredDomains } from './useConfigDrafts'
 
 /** 配置变更确认页路由 */
@@ -59,6 +60,27 @@ export async function triggerConfigDrafts(
     return
   }
   message.info(`${prefix}已保存，本次无实质配置变更，无需生成变更单`)
+}
+
+/**
+ * 告警配置（alertmanager.yml）恒属中心直连域（决策 60）。该域已改为按需登记，
+ * 不能硬编码 'default'：先解析真实的管理域，未登记时给出明确引导，避免落入
+ * “自动检测兜底”的误导提示（自动检测同样不会为不存在的域生成草稿）。
+ */
+export async function triggerAlertmanagerConfigDrafts(opts?: TriggerDraftOptions): Promise<void> {
+  let dom = null
+  try {
+    dom = await fetchManagementDomain()
+  } catch {
+    // 查询失败按“未登记”处理并给出引导；后端写入路径仍会兜底校验。
+  }
+  if (!dom) {
+    message.warning(
+      `${opts?.prefix ? `${opts.prefix}，` : ''}中心直连域尚未登记，暂不生成告警配置变更单；请先在「系统与平台管理 → 网域管理」登记中心直连域`,
+    )
+    return
+  }
+  await triggerConfigDrafts([dom.id], opts)
 }
 
 /**

@@ -89,14 +89,23 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
       onCancel()
     } catch (err) {
       const raw = err instanceof Error ? err.message : ''
-      // M1：后端拒绝（M07 资源引用）时不直接渲染英文原文，映射为中文；技术细节保留到日志
+      // M1：后端拒绝时不直接渲染英文原文，按拒绝原因映射为中文；技术细节保留到日志
       if (raw) console.warn('[DeleteDomain] 网域删除被拒，技术细节：', raw)
       const matched = raw.match(/(\d+)/)
-      setRejectMessage(
-        raw && /M07|resource reference|资源引用/i.test(raw)
-          ? `该网域存在资源引用（${matched?.[1] ?? ''} 个），请先移除资源或改用「禁用」冻结。`
-          : '该网域存在资源引用，请先移除资源或改用「禁用」冻结。',
-      )
+      const count = matched?.[1] ?? ''
+      if (/scrape job|采集 ?job/i.test(raw)) {
+        setRejectMessage(
+          `该网域下仍有${count ? ` ${count} 个` : ''}采集 Job，请先删除这些 Job 后再删除网域。`,
+        )
+      } else if (/pending config draft|待确认.*变更单|变更单/i.test(raw)) {
+        setRejectMessage(
+          `该网域仍有${count ? ` ${count} 张` : ''}待确认的配置变更单，请先在「配置变更确认」页废弃后再删除网域。`,
+        )
+      } else if (/M07|resource reference|资源引用/i.test(raw)) {
+        setRejectMessage(`该网域存在资源引用（${count} 个），请先移除资源或改用「禁用」冻结。`)
+      } else {
+        setRejectMessage(raw || '删除失败，请稍后重试')
+      }
       setRejected(true)
       setConfirming(false)
     }
@@ -167,7 +176,11 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
           <Alert
             type="warning"
             showIcon
-            message="该网域已纳管，删除后将执行级联清退：① 废止所有 Token；② 停止配置下发；③ 将采集节点标记为「已退场」（retired）。"
+            message={
+              domain.domain_type === 'management'
+                ? '该网域为中心直连域，删除后将停止中心直连采集配置的下发；已写盘的 Prometheus / Alertmanager 配置不会自动回滚，重建中心直连域后可继续生成。'
+                : '该网域已纳管，删除后将执行级联清退：① 废止所有 Token；② 停止配置下发；③ 将采集节点标记为「已退场」（retired）。'
+            }
           />
           <Paragraph style={{ marginTop: 16 }}>
             请输入网域名称 <strong>{domain.name}</strong> 以确认删除：
@@ -184,7 +197,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
             disabled={confirming}
             style={{ marginTop: 12 }}
           >
-            我已了解级联清退影响，确认删除
+            {domain.domain_type === 'management' ? '我已了解删除影响，确认删除' : '我已了解级联清退影响，确认删除'}
           </Checkbox>
         </>
       ) : (

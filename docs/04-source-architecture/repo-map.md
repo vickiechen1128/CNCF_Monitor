@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-21 18:55 · commit: `318afa5`
+> 生成时间: 2026-10-21 19:51 · commit: `a2ba75c`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -51,6 +51,7 @@
 
 - `type CreateNetworkDomainRequest struct`
 - `func validDomainType(dt models.DomainType) bool`
+- `func activeManagementDomainExists(db *gorm.DB) (bool, error)`
 - `func randomDomainCode() (string, error)`
 - `func isUniqueConstraintError(err error) bool`
 - `func validateCloudCodeEnabled(db *gorm.DB, code string) error`
@@ -70,7 +71,9 @@
 - `func TestCreateNetworkDomainMissingName(t *testing.T)`
 - `func TestCreateNetworkDomainMissingDomainType(t *testing.T)`
 - `func TestCreateNetworkDomainInvalidDomainType(t *testing.T)`
-- `func TestCreateNetworkDomainRejectsManagementDomain(t *testing.T)`
+- `func TestCreateManagementDomain(t *testing.T)`
+- `func TestCreateSecondManagementDomainRejected(t *testing.T)`
+- `func TestCreateManagementDomainRevivesSoftDeleted(t *testing.T)`
 - `func TestCreateNetworkDomainReservedDefault(t *testing.T)`
 - `func TestCreateNetworkDomainDuplicateConflict(t *testing.T)`
 - `func TestCreateNetworkDomainInvalidDomainCode(t *testing.T)`
@@ -86,7 +89,10 @@
 - `func TestDeleteEmptyDomainSoftDeletes(t *testing.T)`
 - `func TestDeleteNonEmptyRejected(t *testing.T)`
 - `func TestDeleteManagedAgentCascadeImpact(t *testing.T)`
-- `func TestDeleteManagementRejected(t *testing.T)`
+- `func TestDeleteManagementDomainAllowed(t *testing.T)`
+- `func TestDeleteRejectedByScrapeJob(t *testing.T)`
+- `func TestDeleteRejectedByPendingDraft(t *testing.T)`
+- `func TestDeleteIgnoresNonPendingDrafts(t *testing.T)`
 - `func TestDeleteOfflineAgentDoesNotBlock(t *testing.T)`
 
 ### `platform/admin/networkdomain/detail.go`
@@ -493,6 +499,10 @@
 - `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondSubmitError(c *gin.Context, err error)`
 
+### `platform/alertmanager/config/management_domain_test.go`
+
+- `func TestSubmitRejectsWhenManagementDomainMissing(t *testing.T)`
+
 ### `platform/alertmanager/config/pendingdraft_test.go`
 
 - `func stubEnsurePendingDraft(t *testing.T) *int32`
@@ -812,6 +822,10 @@
 - `func TestListRoutesHandler_AuthOnlyNoWrite(t *testing.T)`
 - `func TestListRoutesHandler_NoSensitiveValues(t *testing.T)`
 
+### `platform/alertmanager/route/management_domain_test.go`
+
+- `func TestPutRouteSettingRejectsWhenManagementDomainMissing(t *testing.T)`
+
 ### `platform/alertmanager/route/parse.go`
 
 - `type RouteMatcher struct`
@@ -848,7 +862,7 @@
 - `type RouteSettingView struct`
 - `func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error)`
 - `func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
-- `func saveRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
+- `func saveRouteSetting(db *gorm.DB, domainID string, channelID *uint, mode models.RouteMode) error`
 - `func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 - `func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 
@@ -1472,6 +1486,7 @@
 ### `platform/config/resource/create_update_test.go`
 
 - `func openCreateUpdateTestDB(t *testing.T) *gorm.DB`
+- `func seedDefaultDomain(t *testing.T, db *gorm.DB)`
 - `func mountCreateUpdate(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func seedDomain(t *testing.T, db *gorm.DB, id, name string) *models.NetworkDomain`
 - `type cuResponse struct`
@@ -2979,7 +2994,7 @@
 
 - `func newTestDB(t *testing.T) *gorm.DB`
 - `func countRows(t *testing.T, db *gorm.DB, model interface{}, out *int64)`
-- `func TestRunSeedsTenantAndDefaultDomain(t *testing.T)`
+- `func TestRunSeedsTenantWithoutDefaultDomain(t *testing.T)`
 - `func TestRunSeedsZoneTypes(t *testing.T)`
 - `func TestRunSeedsLabelTemplates(t *testing.T)`
 - `func TestRunLabelTemplatesBackfillsResourceID(t *testing.T)`
@@ -2988,9 +3003,7 @@
 - `func TestRunIsIdempotent(t *testing.T)`
 - `func TestRunNilDBReturnsError(t *testing.T)`
 - `func TestRunSeedsMetricLibrary(t *testing.T)`
-- `func TestRunSeedsDomainIsMonitored(t *testing.T)`
-- `func TestRunSeedsDefaultDomainAuthorized(t *testing.T)`
-- `func TestRunBackfillsAuthorizedOnExistingDefault(t *testing.T)`
+- `func TestRunLeavesExistingDefaultDomainUntouched(t *testing.T)`
 
 ### `platform/db/seed/ten_domain.go`
 
@@ -2999,6 +3012,19 @@
 ### `platform/db/seed/zone_type.go`
 
 - `func runZoneTypes(db *gorm.DB) error`
+
+### `platform/domainregistry/registry.go`
+
+- `func ManagementDomain(db *gorm.DB) (*models.NetworkDomain, error)`
+- `func ManagementDomainID(db *gorm.DB) (string, error)`
+
+### `platform/domainregistry/registry_test.go`
+
+- `func newTestDB(t *testing.T) *gorm.DB`
+- `func TestManagementDomainNotRegistered(t *testing.T)`
+- `func TestManagementDomainResolvesSingleton(t *testing.T)`
+- `func TestManagementDomainDeletedIsTreatedAsAbsent(t *testing.T)`
+- `func TestManagementDomainInvariantViolation(t *testing.T)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go`
 
@@ -5057,6 +5083,7 @@
 - `interface NetworkDomainUpdateInput`
 - `const zoneTypeApi`
 - `const networkDomainApi`
+- `function fetchManagementDomain`
 - `function resolveNetworkDomainImpact`
 - `const tenantApi`
 
@@ -5707,6 +5734,7 @@
 - `const CONFIG_PREVIEW_PATH`
 - `interface TriggerDraftOptions`
 - `function triggerConfigDrafts`
+- `function triggerAlertmanagerConfigDrafts`
 - `function triggerConfigDraftsForAllDomains`
 
 ### `ui-custom/web/src/pages/config-center/preview/useConfigDrafts.ts`

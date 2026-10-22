@@ -615,8 +615,8 @@ describe('ScrapeJobFormDrawer', () => {
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
-    // 空态文案体现「默认域自动同步已纳管，未纳管请前往网域管理纳管」，不再写 M07
-    expect(await screen.findByText(/默认域自动同步已纳管/)).toBeInTheDocument()
+    // 空态文案引导先去网域管理登记/纳管网域（中心直连域不再自动预置）
+    expect(await screen.findByText(/请选择已纳管网域；未纳管请前往/)).toBeInTheDocument()
     const guideLink = screen.getByText(/网域管理/)
     expect(guideLink).toBeInTheDocument()
     // 可点击引导跳转 /admin/domains（系统与平台管理 → 网域管理）

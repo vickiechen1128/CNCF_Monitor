@@ -63,7 +63,7 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi } from '../../api/alertmanager'
-import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
+import { triggerAlertmanagerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { AlertmanagerConfigVersionListItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { PageIntro } from '../../components/PageIntro'
@@ -132,7 +132,7 @@ export function AlertConfigPage() {
   const handleSubmit = async (content: string) => {
     await submit(content, CURRENT_USER)
     // 决策 60：告警配置仅作用于管理域 default；挂载成功后同步触发变更单生成
-    void triggerConfigDrafts(['default'], { prefix: '配置已挂载', onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
+    void triggerAlertmanagerConfigDrafts({ prefix: '配置已挂载', onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
     reload()
   }
 

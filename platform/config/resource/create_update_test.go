@@ -42,7 +42,24 @@ func openCreateUpdateTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.CloudDict{},
 	))
+	seedDefaultDomain(t, db)
 	return db
+}
+
+// seedDefaultDomain 落一条中心直连域（default）fixture：方案 A 起 seed 不再预置，
+// 但资源创建/导入仍以「留空 = default」为历史语义，测试须显式登记该行。
+func seedDefaultDomain(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID:                  models.DefaultDomainID,
+		Name:                "默认网域",
+		DomainType:          models.DomainTypeManagement,
+		Channel:             models.ChannelTypeLocal,
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
+		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true,
+	}).Error)
 }
 
 // mountCreateUpdate 挂载创建/更新 handler 供测试（路由收口见 T07-18，此处仅测试挂载）。

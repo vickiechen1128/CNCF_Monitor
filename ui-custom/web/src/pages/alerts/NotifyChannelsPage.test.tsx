@@ -38,9 +38,9 @@ const listTemplatesMock = vi.fn()
 
 // 渠道写路径（新增/编辑/删除）需同步触发配置变更单生成（2026-10-14 用户反馈：
 // 删除后 M09 立刻可见待确认变更单，而非等 watcher 最长 30s 兜底），隔离真实请求。
-const triggerConfigDraftsMock = vi.fn()
+const triggerAlertmanagerConfigDraftsMock = vi.fn()
 vi.mock('../config-center/preview/triggerConfigDraft', () => ({
-  triggerConfigDrafts: (...a: unknown[]) => triggerConfigDraftsMock(...a),
+  triggerAlertmanagerConfigDrafts: (...a: unknown[]) => triggerAlertmanagerConfigDraftsMock(...a),
   CONFIG_PREVIEW_PATH: '/config-preview',
 }))
 
@@ -141,8 +141,8 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     getReceiverSnippetMock.mockResolvedValue(snippetResponse())
     listTemplatesMock.mockReset()
     listTemplatesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
-    triggerConfigDraftsMock.mockReset()
-    triggerConfigDraftsMock.mockResolvedValue(undefined)
+    triggerAlertmanagerConfigDraftsMock.mockReset()
+    triggerAlertmanagerConfigDraftsMock.mockResolvedValue(undefined)
     // 派生接收人默认空态（无已启用渠道 / 未取到片段）；具体断言在各自用例内覆盖返回值
     useDerivedReceiversMock.mockReset()
     useDerivedReceiversMock.mockReturnValue({
@@ -253,8 +253,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     )
     // 新增成功后同步触发配置变更单（M09 门禁）
     await waitFor(() =>
-      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
-        ['default'],
+      expect(triggerAlertmanagerConfigDraftsMock).toHaveBeenCalledWith(
         expect.objectContaining({ prefix: '通知渠道已创建' }),
       ),
     )
@@ -281,8 +280,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(payload).not.toHaveProperty('secret')
     // 编辑成功后同步触发配置变更单（M09 门禁）
     await waitFor(() =>
-      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
-        ['default'],
+      expect(triggerAlertmanagerConfigDraftsMock).toHaveBeenCalledWith(
         expect.objectContaining({ prefix: '通知渠道已更新' }),
       ),
     )
@@ -335,8 +333,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('1'))
     // 删除成功后同步触发配置变更单（M09 门禁），而非只等 watcher 最长 30s 兜底
     await waitFor(() =>
-      expect(triggerConfigDraftsMock).toHaveBeenCalledWith(
-        ['default'],
+      expect(triggerAlertmanagerConfigDraftsMock).toHaveBeenCalledWith(
         expect.objectContaining({ prefix: '通知渠道已删除' }),
       ),
     )

@@ -36,6 +36,9 @@ func ListNetworkDomains(db *gorm.DB) gin.HandlerFunc {
 		if zt := c.Query("zone_type"); zt != "" {
 			q = q.Where("zone_type = ?", zt)
 		}
+		if dt := c.Query("domain_type"); dt != "" {
+			q = q.Where("domain_type = ?", dt)
+		}
 		if st := c.Query("status"); st != "" {
 			q = q.Where("status = ?", st)
 		}

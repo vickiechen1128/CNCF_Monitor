@@ -37,6 +37,7 @@ func openDeleteTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.ResourceLabel{},
 	))
+	seedDefaultDomain(t, db)
 	return db
 }
 

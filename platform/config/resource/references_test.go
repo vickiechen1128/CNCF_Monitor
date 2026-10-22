@@ -37,6 +37,7 @@ func openReferencesTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.ScrapeJob{},
 	))
+	seedDefaultDomain(t, db)
 	return db
 }
 

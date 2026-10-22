@@ -163,6 +163,30 @@ describe('DeleteDomainModal', () => {
     expect(cancelMock).not.toHaveBeenCalled()
   })
 
+  it('maps scrape-job rejection to a delete-jobs-first prompt', async () => {
+    removeMock.mockRejectedValue(new Error('network domain "mc-a" still has 2 scrape job reference(s)'))
+    renderModal(vacantDomain)
+    fireEvent.click(screen.getByRole('button', { name: /确认删除/ }))
+
+    await waitFor(() => expect(screen.getByText('该网域不可删除')).toBeInTheDocument())
+    expect(
+      screen.getByText('该网域下仍有 2 个采集 Job，请先删除这些 Job 后再删除网域。'),
+    ).toBeInTheDocument()
+    expect(successMock).not.toHaveBeenCalled()
+  })
+
+  it('maps pending-draft rejection to a discard-drafts-first prompt', async () => {
+    removeMock.mockRejectedValue(new Error('network domain "mc-a" still has 1 pending config draft(s)'))
+    renderModal(vacantDomain)
+    fireEvent.click(screen.getByRole('button', { name: /确认删除/ }))
+
+    await waitFor(() => expect(screen.getByText('该网域不可删除')).toBeInTheDocument())
+    expect(
+      screen.getByText('该网域仍有 1 张待确认的配置变更单，请先在「配置变更确认」页废弃后再删除网域。'),
+    ).toBeInTheDocument()
+    expect(successMock).not.toHaveBeenCalled()
+  })
+
   it('resets rejected state when reopened on another domain', async () => {
     removeMock.mockRejectedValue(new Error('network domain "mc-a" still has 5 M07 resource reference(s)'))
     const { rerender } = render(

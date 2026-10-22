@@ -37,7 +37,7 @@ import config from 'antd/locale/zh_CN'
 import { Link, useNavigate } from 'react-router-dom'
 import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
+import { triggerAlertmanagerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -127,13 +127,13 @@ export function NotifyChannelsPage() {
 
   /**
    * 渠道写路径（新增 / 编辑 / 删除）保存成功后同步触发配置变更单生成。
-   * 渠道变更归属 network_domain_id=default（草稿 146/147 实测口径），与告警配置页一致。
+   * 渠道变更归属中心直连域（管理域，草稿 146/147 实测口径），与告警配置页一致。
+   * 中心直连域未登记时不发请求，给出“先去网域管理登记”的明确提示。
    * 缺此调用时只能等 watcher 最长 30s 兜底（实测删除 → 草稿延迟 15s），
    * 体感「M09 立刻就能删、没有需要确认的配置变更单」（2026-10-14 用户反馈）。
-   * 失败不阻塞保存流程，仅 warning 提示由自动检测兜底（triggerConfigDrafts 内部约定）。
    */
   const triggerDraft = (prefix: string) => {
-    void triggerConfigDrafts(['default'], { prefix, onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
+    void triggerAlertmanagerConfigDrafts({ prefix, onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
   }
 
   const handleDelete = (record: NotifyChannel) => {

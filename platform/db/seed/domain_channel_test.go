@@ -35,6 +35,12 @@ func TestRunBackfillsDomainChannelFromDomainType(t *testing.T) {
 		Channel: models.ChannelTypeAgentPull, TenantID: models.PlatformAdminTenantID,
 		Status: models.DomainStatusEnabled,
 	}).Error)
+	// 存量中心直连域（seed 不再创建，测试显式插入以验证管理域通道保持 local）。
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: models.DefaultDomainID, Name: "默认网域", DomainType: models.DomainTypeManagement,
+		Channel: models.ChannelTypeLocal, TenantID: models.PlatformAdminTenantID,
+		Status: models.DomainStatusEnabled,
+	}).Error)
 
 	require.NoError(t, Run(db))
 	assert.Equal(t, models.ChannelTypeAgentPull, channelOf(t, db, "mc-a6854eab"), "边缘域应回填为 agent_pull")

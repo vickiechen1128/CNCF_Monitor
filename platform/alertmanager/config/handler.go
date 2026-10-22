@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -184,6 +185,9 @@ func RemountHandler(db *gorm.DB) gin.HandlerFunc {
 func respondSubmitError(c *gin.Context, err error) {
 	var valErr *ErrValidation
 	switch {
+	case errors.Is(err, domainregistry.ErrManagementDomainNotRegistered):
+		// 中心直连域未登记：409 + 可操作提示（先去网域管理登记）。
+		response.Conflict(c, err)
 	case errors.Is(err, ErrEmptyContent):
 		response.BadRequest(c, err)
 	case errors.As(err, &valErr):

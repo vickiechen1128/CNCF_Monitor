@@ -111,7 +111,7 @@ describe('DomainsPage', () => {
     expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
-  it('renders no delete entry for management domain', async () => {
+  it('management domain offers delete (not disable)', async () => {
     useDomainsMock.mockReturnValue(
       result({
         data: {
@@ -124,9 +124,12 @@ describe('DomainsPage', () => {
     )
     renderPage()
     expect(await screen.findByText('系统管理域')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /删除/ })).toBeNull()
+    // 方案 A：中心直连域允许删除 / 重建，但仍禁止禁用（行政冻结）。
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '更多操作' }))
+    expect(await screen.findByText('删除网域')).toBeInTheDocument()
+    expect(screen.queryByText('禁用网域')).toBeNull()
     // 中心直连域走直连采集简化路径，不出现「安装采集节点」等采集节点流程
-    expect(screen.getByText('已预置（中心直连）')).toBeInTheDocument()
+    expect(screen.getByText('已登记（中心直连）')).toBeInTheDocument()
     expect(screen.queryByText('安装采集节点')).toBeNull()
   })
 
