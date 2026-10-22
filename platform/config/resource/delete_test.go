@@ -36,6 +36,7 @@ func openDeleteTestDB(t *testing.T) *gorm.DB {
 		&models.InterfaceService{},
 		&models.NetworkDomain{},
 		&models.ResourceLabel{},
+		&models.EdgeTargetSnapshot{},
 	))
 	seedDefaultDomain(t, db)
 	return db
@@ -140,6 +141,31 @@ func TestDeleteResource_Success(t *testing.T) {
 			assertSoftDeleted(t, db, tc.body["resource_category"].(string), resourceID)
 		})
 	}
+}
+
+// TestDeleteResource_CleansTargetSnapshots 验证删除资源时同步清理引用该资源的边缘
+// target 快照（M09 监控目标状态数据源），避免页面继续展示已删除实例。
+func TestDeleteResource_CleansTargetSnapshots(t *testing.T) {
+	db := openDeleteTestDB(t)
+	r := mountDelete(t, db)
+	id := deleteCreate(t, r, hostBody())
+
+	require.NoError(t, db.Create(&models.EdgeTargetSnapshot{
+		NetworkDomainID: "default",
+		Job:             "host-job",
+		Instance:        "10.0.0.1:9100",
+		ResourceID:      id,
+		Health:          "up",
+	}).Error)
+
+	w, out := doDelete(t, r, id)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "success", out.Status, out.Error)
+
+	var n int64
+	require.NoError(t, db.Unscoped().Model(&models.EdgeTargetSnapshot{}).
+		Where("resource_id = ?", id).Count(&n).Error)
+	assert.Zero(t, n, "资源删除后应清理其目标状态快照")
 }
 
 // TestDeleteResource_NotFound 验证不存在的 resource_id 删除 → not_found。

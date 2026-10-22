@@ -26,6 +26,9 @@ type RuntimeSnapshot struct {
 	Components           []contract.Component
 	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B），随心跳上报中心。
 	Targets []contract.EdgeTargetSnapshot
+	// TargetsCollected 表示本轮 targets 采集是否成功（含成功返回空列表）。中心据此
+	// 区分「真实为空」与「采集失败」，前者允许用空列表清空旧快照。
+	TargetsCollected bool
 	// 最近一次配置应用失败原因与失败版本（D-1）；应用成功时为空（心跳 omitempty 不产出键）。
 	ConfigApplyError         string
 	ConfigApplyFailedVersion string
@@ -283,6 +286,7 @@ func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 		Ip:                         rs.Ip,
 		Components:                 rs.Components,
 		Targets:                    rs.Targets,
+		TargetsCollected:           rs.TargetsCollected,
 		ConfigApplyError:           rs.ConfigApplyError,
 		ConfigApplyFailedVersion:   rs.ConfigApplyFailedVersion,
 		RemoteWriteLastError:       rs.RemoteWriteLastError,

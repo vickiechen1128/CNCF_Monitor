@@ -800,10 +800,12 @@ func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T) {
 		"targets":[
 			{"job":"node","instance":"10.0.0.1:9100","resource_id":"res-1","health":"up",
 			 "last_scrape":"2026-09-18T12:00:00Z","last_error":"","scrape_duration_seconds":1.23}
-		]
+		],
+		"targets_collected":true
 	}`
 	require.NoError(t, json.Unmarshal([]byte(raw), &req))
 	require.Len(t, req.Targets, 1)
+	assert.True(t, req.TargetsCollected, "targets_collected 应透传采集成功标记")
 	assert.Equal(t, "node", req.Targets[0].Job)
 	assert.Equal(t, "10.0.0.1:9100", req.Targets[0].Instance)
 	assert.Equal(t, "res-1", req.Targets[0].ResourceID)
@@ -909,8 +911,32 @@ func TestHeartbeatTargetClearOldSnapshots(t *testing.T) {
 	assert.Equal(t, "10.0.0.9:9114", row.Instance)
 }
 
-// TestHeartbeatEmptyTargetsNoDirtyData 覆盖「targets 为空时不落脏数据」：空 targets 心跳
-// 不新增行，且不清空上轮快照（保住「真实为空」与「获取失败」的分野）。
+// TestHeartbeatTargetClearCoversPreviousAgentRows 覆盖「同网域换 agent / 重注册」：
+// 快照清理按网域维度执行，新 agent 的首轮心跳应清掉旧 edge_agent_id 的残留行，避免
+// 旧目标继续展示，也避免旧行占用 (network_domain_id, job, instance) 唯一索引导致
+// 新 agent 插入同键快照失败。
+func TestHeartbeatTargetClearCoversPreviousAgentRows(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-agent-switch", "agent_pull", "tok-ts-switch", "vmagent", "http://center:8080")
+	require.NoError(t, db.Create(&models.EdgeTargetSnapshot{
+		NetworkDomainID: dom.ID, EdgeAgentID: 999999, Job: "old-job", Instance: "10.0.0.9:9100", Health: "up",
+	}).Error)
+
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "new-job", Instance: "10.0.0.1:9100", Health: "up"}}}
+	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "旧 agent 的快照应被清理，仅存本轮")
+	var row models.EdgeTargetSnapshot
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&row).Error)
+	assert.Equal(t, "new-job", row.Job)
+}
+
+// TestHeartbeatEmptyTargetsNoDirtyData 覆盖「采集失败/老 Agent 的 targets 为空时不落脏
+// 数据」：未上报 targets_collected（采集失败或旧版本）时空 targets 心跳不新增行，且
+// 不清空上轮快照（保住「真实为空」与「获取失败」的分野）。
 func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T) {
 	db := newEdgeTestDB(t)
 	dom := seedEdgeDomain(db, "gov-ts-4", "agent_pull", "tok-ts-4", "vmagent", "http://center:8080")
@@ -924,7 +950,28 @@ func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T) {
 	empty := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent, Targets: nil}
 	_, err = svc.Handle(dom, empty, time.Now(), "http://center:8080")
 	require.NoError(t, err)
-	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "空 targets 不应新增也不应清空既有快照")
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "未上报采集成功时空 targets 不应新增也不应清空既有快照")
+}
+
+// TestHeartbeatEmptyTargetsCollectedClearsSnapshots 覆盖「采集成功且 targets 为空」：
+// Agent 显式上报 targets_collected=true 时，空列表代表真实没有 target（如删光/停用
+// 全部 Job），中心必须清空上一轮快照，否则已删除的 Job 会以「未知」状态永久残留。
+func TestHeartbeatEmptyTargetsCollectedClearsSnapshots(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-4b", "agent_pull", "tok-ts-4b", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "node", Instance: "10.0.0.1:9100", Health: "up"}}}
+	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID))
+
+	empty := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: nil, TargetsCollected: true}
+	_, err = svc.Handle(dom, empty, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(0), countEdgeTargetSnapshots(t, db, dom.ID),
+		"采集成功且 targets 为空时应清空既有快照")
 }
 
 // TestHeartbeatTargetPersistenceIndependent 覆盖「心跳失败不影响落库独立性」：极简心跳
