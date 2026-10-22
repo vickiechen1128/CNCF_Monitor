@@ -53,7 +53,7 @@ const (
 	// （AM 会向上取整，故仅警告级，不阻断）。
 	RouteIssueCodeRepeatNotMultiple = "repeat_interval_not_multiple_of_group_interval"
 	// RouteIssueCodeReceiverDangling 路由引用的接收人不在「可达集合」内
-	// （平台内置 default ∪ 已启用通知渠道物化名）。
+	// （平台内置 default ∪ 全部通知渠道的稳定 receiver 名）。
 	RouteIssueCodeReceiverDangling = "receiver_dangling"
 )
 
@@ -162,7 +162,7 @@ func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue {
 
 // ValidateRouteReceivers 校验编辑态路由树引用的接收人是否可达。
 //
-// allowed 的权威口径 = 平台内置 default ∪ 已启用通知渠道的 ReceiverName()。
+// allowed 的权威口径 = 平台内置 default ∪ 全部通知渠道的 ReceiverName()（恒 notify-<id>）。
 // 历史 YAML 里手写/已停用渠道残留的 receiver 不再算合法：路由仍引用它们时会被判
 // receiver_dangling 并阻断保存，迫使改用可用接收人。
 //

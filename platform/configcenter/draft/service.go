@@ -284,7 +284,7 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	return artifacts, jobs, rules, nil
 }
 
-// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把平台已启用通知渠道物化为
+// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把被路由引用的平台渠道物化为
 // receivers 并合并进产物（决策 74 定稿）。AlertmanagerYML 为空（非管理域 / 无告警配置）
 // 时直接返回。物化幂等：已物化的平台 receiver（名称与桥 URL 均匹配）识别为自身产物、
 // 不重复追加也不误判重名，保证「重新校验」可从草稿产物复现同一结果。
@@ -299,7 +299,7 @@ func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifact
 		return err
 	}
 	artifacts.AlertmanagerYML = ensured
-	channels, err := generator.LoadEnabledNotifyChannels(db)
+	channels, err := generator.LoadNotifyChannels(db)
 	if err != nil {
 		return err
 	}

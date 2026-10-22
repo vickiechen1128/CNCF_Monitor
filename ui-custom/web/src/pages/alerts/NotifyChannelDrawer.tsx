@@ -11,7 +11,7 @@
  * Step 3.7：含 Form 且 use(open) 回显 → 强制 forceRender，禁用 destroyOnHidden/Close。
  */
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Drawer, Form, Input, Select, Switch, Typography } from 'antd'
+import { Alert, App, Button, Drawer, Form, Input, Select, Typography } from 'antd'
 import { Link } from 'react-router-dom'
 import { isApiError } from '../../api/client'
 import { notifyTemplatesApi } from '../../api/alertmanager'
@@ -40,7 +40,6 @@ interface FormValues {
   type: NotifyChannelType
   webhook_url?: string
   secret?: string
-  enabled: boolean
   /** 绑定的通知模板 ID；undefined = 使用平台内置默认模板 */
   default_template_id?: number
 }
@@ -78,8 +77,9 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
   const channelType = Form.useWatch('type', form)
 
   // 模板下拉选项：仅当前渠道类型下的模板，内置默认置顶并标注（渠道 ↔ 模板一等绑定，dev-feedback #30）。
-  const templateOptions = templates
-    .filter((t) => t.channel_type === channelType)
+  const typeTemplates = templates.filter((t) => t.channel_type === channelType)
+  const hasBuiltin = typeTemplates.some((t) => t.is_builtin)
+  const templateOptions = [...typeTemplates]
     .sort((a, b) => Number(b.is_builtin) - Number(a.is_builtin))
     .map((t) => ({
       value: Number(t.id),
@@ -113,7 +113,6 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
       form.setFieldsValue({
         name: record.name,
         type: record.type,
-        enabled: record.enabled,
         webhook_url: '',
         secret: '',
         default_template_id: record.default_template_id,
@@ -129,7 +128,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
     const secret = values.secret?.trim() ?? ''
     try {
       if (record) {
-        const payload: UpdateNotifyChannelPayload = { name, type: values.type, enabled: values.enabled }
+        const payload: UpdateNotifyChannelPayload = { name, type: values.type }
         if (webhookUrl) payload.webhook_url = webhookUrl
         if (secret) payload.secret = secret
         // 编辑态总是显式提交绑定：选了模板 → 该 ID；未选 → 0（解绑回落内置默认）。
@@ -141,7 +140,6 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           name,
           type: values.type,
           webhook_url: webhookUrl,
-          enabled: values.enabled,
         }
         if (secret) payload.secret = secret
         if (values.default_template_id) payload.default_template_id = values.default_template_id
@@ -182,7 +180,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ type: 'feishu', enabled: true }}
+        initialValues={{ type: 'feishu' }}
         onFinish={handleFinish}
       >
         <Form.Item
@@ -209,18 +207,26 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           name="default_template_id"
           label="通知模板"
           extra={
-            <>
-              未选则使用平台内置默认模板；如需个性化卡片，可先到
-              <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
-              复制内置模板自定义后再回来选择。
-            </>
+            hasBuiltin ? (
+              <>
+                未选则使用平台内置默认模板；如需个性化卡片，可先到
+                <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
+                复制内置模板自定义后再回来选择。
+              </>
+            ) : (
+              <>
+                该渠道类型暂无平台内置模板；不选择自定义模板时，告警将无法渲染。请先到
+                <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
+                新建自定义模板。
+              </>
+            )
           }
         >
           <Select
             allowClear
             options={templateOptions}
-            placeholder="使用平台内置默认模板"
-            notFoundContent="该渠道类型下暂无模板，可到通知模板页复制内置模板自定义"
+            placeholder={hasBuiltin ? '使用平台内置默认模板' : '该类型暂无内置模板，请选择自定义模板'}
+            notFoundContent="该渠道类型下暂无模板，请先到通知模板页新建自定义模板"
           />
         </Form.Item>
 
@@ -263,9 +269,6 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           <Input placeholder={isEdit && record?.secret_set ? '已设置，留空不修改' : '选填，加签密钥'} allowClear />
         </Form.Item>
 
-        <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-          <Switch checkedChildren="启用" unCheckedChildren="停用" />
-        </Form.Item>
       </Form>
 
       {error && (

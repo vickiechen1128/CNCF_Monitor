@@ -1674,18 +1674,18 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	})
 
 	// 2. 桥端点无令牌 → 401（证明已挂载且令牌门生效）。
-	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID, payload)
+	code, out = c.json("POST", "/api/v1/webhooks/notify?id="+chID, payload)
 	require.Equal(t, http.StatusUnauthorized, code, "缺令牌应 401：%v", out)
 	assert.Equal(t, "unauthorized", out["errorType"])
 
 	// 3. SSRF：请求方自带目标地址参数 → 拒绝，且不向任何地址出站。
-	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID+"&url=https://evil.example/hook",
+	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?id="+chID+"&url=https://evil.example/hook",
 		integrationBridgeToken, payload)
 	require.Equal(t, http.StatusBadRequest, code, "携带目标地址参数应 400：%v", out)
 	assert.Equal(t, "bad_request", out["errorType"])
 
 	// 4. 正常：Bearer 令牌 + 已登记 channel → 渲染并转投假机器人。
-	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID, integrationBridgeToken, payload)
+	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?id="+chID, integrationBridgeToken, payload)
 	require.Equal(t, http.StatusOK, code, "桥端点应成功：%v", out)
 	assert.EqualValues(t, 1, out["data"].(map[string]interface{})["success"])
 	require.Len(t, rec.snapshot(), 1, "应向已登记渠道出站一次")
@@ -1703,7 +1703,7 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "接收人片段应可生成：%v", out)
 	snip := out["data"].(map[string]interface{})
 	assert.Equal(t, true, snip["token_configured"])
-	assert.Contains(t, snip["url"].(string), "channel="+chID)
+	assert.Contains(t, snip["url"].(string), "id="+chID)
 	assert.NotContains(t, snip["url"].(string), "token=", "令牌绝不落 URL query（H-1）")
 	assert.Contains(t, snip["snippet"].(string), "send_resolved: true")
 	assert.Contains(t, snip["snippet"].(string), "authorization:")

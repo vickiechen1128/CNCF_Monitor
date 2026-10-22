@@ -13,8 +13,9 @@ import type {
   CreateNotifyChannelPayload,
   CreateSilencePayload,
   NotifyChannel,
+  NotifyChannelType,
   NotifyChannelsData,
-  NotifyTemplate,
+  NotifyTemplateDetail,
   NotifyTemplatesData,
   PaginatedItems,
   PromAlertsData,
@@ -236,22 +237,32 @@ export const notifyChannelsApi = {
  * 模板内容为 Alertmanager 标准 Go template（不是脚本）；校验在服务端做，校验失败不落库。
  */
 export const notifyTemplatesApi = {
-  /** 模板列表（含 total；内置模板 is_builtin=true，随版本升级） */
-  list(): Promise<ApiResponse<NotifyTemplatesData>> {
-    return apiClient.get<NotifyTemplatesData>('/api/v2/platform/alertmanager/notify-templates')
+  /** 模板列表（不含 content；内置模板 is_builtin=true，随版本升级） */
+  list(params?: { channel_type?: NotifyChannelType }): Promise<ApiResponse<NotifyTemplatesData>> {
+    return apiClient.get<NotifyTemplatesData>('/api/v2/platform/alertmanager/notify-templates', {
+      params,
+    })
   },
-  /** 提交模板（admin）：服务端校验 Go template，失败返回 400 bad_request（data.items 行级错误），校验通过才落库留痕 */
-  submit(input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplate>> {
-    return apiClient.post<NotifyTemplate>('/api/v2/platform/alertmanager/notify-templates', { body: input })
-  },
-  /** 回滚：把该历史版本内容重新提交为新的留痕（name 指定新留痕名称） */
-  remount(id: string, name: string): Promise<ApiResponse<NotifyTemplate>> {
-    return apiClient.post<NotifyTemplate>(
-      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}/remount`,
-      { body: { name } },
+  /** 模板详情（含 content），供查看 / 编辑 / 复制 */
+  get(id: string): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.get<NotifyTemplateDetail>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
     )
   },
-  /** 删除自定义模板（admin）：内置模板不可删除；不存在 not_found */
+  /** 新建自定义模板（admin）：服务端校验 Go template，失败返回 400（data.items 行级错误） */
+  create(input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.post<NotifyTemplateDetail>('/api/v2/platform/alertmanager/notify-templates', {
+      body: input,
+    })
+  },
+  /** 编辑自定义模板（admin）：内容校验同新建；渠道类型不可变；内置模板拒绝 */
+  update(id: string, input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.put<NotifyTemplateDetail>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
+      { body: input },
+    )
+  },
+  /** 删除自定义模板（admin）：内置 / 被渠道绑定的模板拒绝；不存在 not_found */
   remove(id: string): Promise<ApiResponse<{ id: string }>> {
     return apiClient.delete<{ id: string }>(
       `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,

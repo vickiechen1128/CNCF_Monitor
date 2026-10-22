@@ -48,26 +48,9 @@ func TestDeriveBridgeBaseURL(t *testing.T) {
 	}
 }
 
-// TestSanitizeReceiverName 覆盖 receiver 名 sanitize：转小写、非 [a-z0-9] 归一为 -、
-// 压缩连续 -、去首尾 -（含中文渠道名用例）。
-func TestSanitizeReceiverName(t *testing.T) {
-	cases := map[string]string{
-		"SRE 飞书群":           "sre",
-		"飞书群":               "",
-		"Prod--Alerts!!Bot": "prod-alerts-bot",
-		"  Feishu  Bot  ":   "feishu-bot",
-		"a_b.c@d":           "a-b-c-d",
-		"-lead-trail-":      "lead-trail",
-		"":                  "",
-	}
-	for in, want := range cases {
-		assert.Equal(t, want, sanitizeReceiverName(in), "input=%q", in)
-	}
-}
-
-// TestBuildReceiverSnippetUsesRealChannelID 覆盖正常路径：片段含真实数字 channel ID、
-// send_resolved: true 与 http_config.authorization（令牌走请求头，H-1），receiver_name
-// 由渠道名 sanitize（含中文名）。
+// TestBuildReceiverSnippetUsesRealChannelID 覆盖正常路径：片段含真实渠道 ID、
+// send_resolved: true 与 http_config.authorization（令牌走请求头，H-1），receiver 名
+// 恒为 notify-<id>（渠道名仅展示，不参与 receiver 命名；也不接受覆盖）。
 func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T) {
 	ch := &models.NotifyChannel{
 		BaseModel: models.BaseModel{ID: 7},
@@ -76,67 +59,53 @@ func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T) {
 	}
 	cfg := ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok-123"}
 
-	got, err := BuildReceiverSnippet(ch, "", cfg)
+	got, err := BuildReceiverSnippet(ch, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "sre", got.ReceiverName)
+	assert.Equal(t, "notify-7", got.ReceiverName)
 	assert.True(t, got.TokenConfigured)
-	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7", got.URL)
+	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?id=7", got.URL)
 	assert.NotContains(t, got.URL, "token", "令牌不得出现在 URL query（H-1）")
-	assert.Contains(t, got.Snippet, "  - name: sre\n")
+	assert.Contains(t, got.Snippet, "  - name: notify-7\n")
 	assert.Contains(t, got.Snippet, "    webhook_configs:\n")
-	assert.Contains(t, got.Snippet, "      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7'\n")
+	assert.Contains(t, got.Snippet, "      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?id=7'\n")
 	assert.Contains(t, got.Snippet, "        send_resolved: true\n")
 	assert.Contains(t, got.Snippet, "        http_config:\n          authorization:\n            type: Bearer\n            credentials: 'tok-123'\n")
 }
 
-// TestBuildReceiverSnippetEmptyNameFallsBack 覆盖渠道名 sanitize 为空时回落 notify-<id>。
-func TestBuildReceiverSnippetEmptyNameFallsBack(t *testing.T) {
+// TestBuildReceiverSnippetNameIsIdBased 渠道名不参与 receiver 命名，恒为 notify-<id>。
+func TestBuildReceiverSnippetNameIsIdBased(t *testing.T) {
 	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 9}, Name: "飞书群"}
-	got, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t"})
+	got, err := BuildReceiverSnippet(ch, ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t"})
 	require.NoError(t, err)
 	assert.Equal(t, "notify-9", got.ReceiverName)
-}
-
-// TestBuildReceiverSnippetNameOverride 覆盖 query receiver_name 覆盖：同样 sanitize，
-// sanitize 后为空则报 ErrReceiverNameInvalid。
-func TestBuildReceiverSnippetNameOverride(t *testing.T) {
-	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 3}, Name: "渠道"}
-	cfg := ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t"}
-
-	got, err := BuildReceiverSnippet(ch, "  My Alerts!! ", cfg)
-	require.NoError(t, err)
-	assert.Equal(t, "my-alerts", got.ReceiverName)
-
-	_, err = BuildReceiverSnippet(ch, "飞书群", cfg)
-	assert.ErrorIs(t, err, ErrReceiverNameInvalid)
 }
 
 // TestBuildReceiverSnippetTokenNotConfigured 覆盖令牌未配置：返回 token_configured=false，
 // 片段 credentials 使用醒目占位符，绝不伪造令牌；URL 不含任何令牌（H-1）。
 func TestBuildReceiverSnippetTokenNotConfigured(t *testing.T) {
 	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 4}, Name: "sre"}
-	got, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080"})
+	got, err := BuildReceiverSnippet(ch, ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080"})
 	require.NoError(t, err)
 	assert.False(t, got.TokenConfigured)
-	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=4", got.URL)
+	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?id=4", got.URL)
 	assert.NotContains(t, got.URL, "token")
 	assert.Contains(t, got.Snippet, "credentials: '"+receiverSnippetTokenPlaceholder+"'")
 }
 
-// TestReceiverSnippetURLMatchesBridgeParams 闭环断言：生成 URL 只带 channel 参数、可被
-// bridge.go 的 parseUintQuery 解析为真实 ID；令牌由 Authorization 头承载（bearerToken
-// 解析口径闭环）。
+// TestReceiverSnippetURLMatchesBridgeParams 闭环断言：生成 URL 只带 id 参数、可被
+// bridge.go 的 parseUintQuery 解析为真实渠道 ID；令牌由 Authorization 头承载
+// （bearerToken 解析口径闭环）。
 func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T) {
 	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 42}, Name: "sre"}
-	got, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
+	got, err := BuildReceiverSnippet(ch, ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
 	require.NoError(t, err)
 
 	u, err := url.Parse(got.URL)
 	require.NoError(t, err)
 	assert.Equal(t, "/api/v1/webhooks/notify", u.Path)
 	q := u.Query()
-	id, err := parseUintQuery(q.Get("channel"))
-	require.NoError(t, err, "生成的 URL channel 必须能被桥 handler 解析")
+	id, err := parseUintQuery(q.Get("id"))
+	require.NoError(t, err, "生成的 URL id 必须能被桥 handler 解析")
 	assert.Equal(t, uint(42), id)
 	assert.Empty(t, q.Get("token"), "令牌不得入 URL query")
 
@@ -188,9 +157,9 @@ func TestReceiverSnippetHandlerAuth(t *testing.T) {
 	code, out = doJSON(t, newSnippetRouter(t, db, cfg, admin), http.MethodGet, snippetPath(ch.ID), nil)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "success", out.Status)
-	assert.Equal(t, "sre", out.Data["receiver_name"])
+	assert.Equal(t, ch.ReceiverName(), out.Data["receiver_name"])
 	assert.Equal(t, true, out.Data["token_configured"])
-	require.Contains(t, out.Data["url"], "channel="+strconv.FormatUint(uint64(ch.ID), 10))
+	require.Contains(t, out.Data["url"], "id="+strconv.FormatUint(uint64(ch.ID), 10))
 }
 
 // TestReceiverSnippetHandlerErrors 覆盖 404 / 400 分支。
@@ -213,17 +182,17 @@ func TestReceiverSnippetHandlerErrors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)
 
-	// receiver_name 覆盖 sanitize 后为空 → 400。
+	// receiver 名固定 notify-<id>，不接受 query 覆盖（多余的 receiver_name 参数被忽略）。
 	ch, err := CreateChannel(db, ChannelInput{Name: "x", Type: "feishu", WebhookURL: "https://open.feishu.cn/h"})
 	require.NoError(t, err)
 	code, out = doJSON(t, r, http.MethodGet, snippetPath(ch.ID)+"?receiver_name=%E9%A3%9E%E4%B9%A6%E7%BE%A4", nil)
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "bad_request", out.ErrorType)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, ch.ReceiverName(), out.Data["receiver_name"])
 }
 
-// TestReceiverSnippetIncludesBoundTemplate 渠道绑定了模板 → 片段 url 带 `&template=<ID>`，
-// 与 M09 物化（notify_receivers.go bridgeReceiverURL）同源（dev-feedback #30）。
-func TestReceiverSnippetIncludesBoundTemplate(t *testing.T) {
+// TestReceiverSnippetOmitsTemplateBinding 渠道绑定的模板不写进片段 URL：
+// 桥在投递时按 channel ID 实时解析绑定，换绑模板无需改 alertmanager.yml（2026-10-22 收口）。
+func TestReceiverSnippetOmitsTemplateBinding(t *testing.T) {
 	db := newNotifyDB(t)
 	tpl := newFeishuTemplate(t, db, "片段绑定模板")
 	ch, err := CreateChannel(db, ChannelInput{
@@ -232,12 +201,13 @@ func TestReceiverSnippetIncludesBoundTemplate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snip, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
+	snip, err := BuildReceiverSnippet(ch, ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
 	require.NoError(t, err)
-	want := "?channel=" + strconv.FormatUint(uint64(ch.ID), 10) +
-		"&template=" + strconv.FormatUint(uint64(tpl.ID), 10)
+	want := "?id=" + strconv.FormatUint(uint64(ch.ID), 10)
 	assert.Contains(t, snip.URL, want)
-	assert.Contains(t, snip.Snippet, want, "片段 url 须与 M09 物化口径一致")
+	assert.NotContains(t, snip.URL, "template=")
+	assert.Contains(t, snip.Snippet, want)
+	assert.NotContains(t, snip.Snippet, "template=")
 }
 
 // TestReceiverSnippetAcceptedByAmtool 用上游 amtool check-config 实测片段可被接受
@@ -254,7 +224,7 @@ func TestReceiverSnippetAcceptedByAmtool(t *testing.T) {
 		{name: "token placeholder", cfg: ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := BuildReceiverSnippet(ch, "", tc.cfg)
+			got, err := BuildReceiverSnippet(ch, tc.cfg)
 			require.NoError(t, err)
 			cfgYAML := "route:\n  receiver: " + got.ReceiverName + "\nreceivers:\n" + got.Snippet
 			path := filepath.Join(t.TempDir(), "alertmanager.yml")

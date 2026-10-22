@@ -75,9 +75,9 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 		return nil, ErrRoutesConflict
 	}
 
-	// 接收人可达集合 = 平台内置 default ∪ 已启用通知渠道物化名。
-	// 历史手写 / 已停用渠道残留的 receiver 不再合法。
-	channels, err := generator.LoadEnabledNotifyChannels(db)
+	// 接收人可达集合 = 平台内置 default ∪ 全部通知渠道的稳定 receiver 名（notify-<id>）。
+	// 历史手写 / 不属于平台渠道的残留 receiver 不再合法。
+	channels, err := generator.LoadNotifyChannels(db)
 	if err != nil {
 		return nil, err
 	}

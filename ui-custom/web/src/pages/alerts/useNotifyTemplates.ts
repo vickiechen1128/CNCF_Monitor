@@ -1,32 +1,36 @@
 /**
- * Module_08 通知模板管理页数据 Hook（PL-3 通知渲染桥，2026-09-28）。
- * 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
- * 消费 GET / POST /api/v2/platform/alertmanager/notify-templates 与 POST .../{id}/remount；
+ * Module_08 通知模板管理页数据 Hook（2026-10-22 模板改为可编辑实体）。
+ * 消费 GET / GET :id / POST / PUT / DELETE /api/v2/platform/alertmanager/notify-templates。
+ * 模板不再有版本历史 / remount；列表不含 content，详情按需拉取。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足。
  */
 import { useCallback, useEffect, useState } from 'react'
 import { isApiError } from '../../api/client'
 import { notifyTemplatesApi } from '../../api/alertmanager'
-import type { NotifyTemplate, SubmitNotifyTemplatePayload } from '../../types/alertmanager'
+import type {
+  NotifyTemplate,
+  NotifyTemplateDetail,
+  SubmitNotifyTemplatePayload,
+} from '../../types/alertmanager'
 
 export interface UseNotifyTemplatesResult {
   templates: NotifyTemplate[]
-  total: number
   loading: boolean
   error: string | null
   permissionDenied: boolean
   reload: () => void
-  /** 提交自定义模板：服务端校验失败（400）抛出，由抽屉按行级错误展示 */
-  submit: (payload: SubmitNotifyTemplatePayload) => Promise<NotifyTemplate>
-  /** 回滚：把该历史版本内容重新提交为新的留痕 */
-  remount: (id: string, name: string) => Promise<NotifyTemplate>
-  /** 删除自定义模板（内置模板后端拒绝）；删除后刷新列表 */
+  /** 新建自定义模板：服务端校验失败（400）抛出，由抽屉按行级错误展示 */
+  create: (payload: SubmitNotifyTemplatePayload) => Promise<NotifyTemplateDetail>
+  /** 编辑自定义模板（原地更新，不新增版本） */
+  update: (id: string, payload: SubmitNotifyTemplatePayload) => Promise<NotifyTemplateDetail>
+  /** 删除自定义模板（内置 / 被绑定模板后端拒绝） */
   remove: (id: string) => Promise<void>
+  /** 拉取模板详情（含 content），供查看 / 编辑 / 复制 */
+  getDetail: (id: string) => Promise<NotifyTemplateDetail>
 }
 
 export function useNotifyTemplates(): UseNotifyTemplatesResult {
   const [templates, setTemplates] = useState<NotifyTemplate[]>([])
-  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
@@ -43,7 +47,6 @@ export function useNotifyTemplates(): UseNotifyTemplatesResult {
     try {
       const res = await notifyTemplatesApi.list()
       setTemplates(res.data?.items ?? [])
-      setTotal(res.data?.total ?? 0)
       setError(null)
       setPermissionDenied(false)
     } catch (e) {
@@ -63,22 +66,30 @@ export function useNotifyTemplates(): UseNotifyTemplatesResult {
     void load()
   }, [load, refresh])
 
-  const submit = useCallback(async (payload: SubmitNotifyTemplatePayload): Promise<NotifyTemplate> => {
-    const res = await notifyTemplatesApi.submit(payload)
+  const getDetail = useCallback(async (id: string): Promise<NotifyTemplateDetail> => {
+    const res = await notifyTemplatesApi.get(id)
+    return res.data
+  }, [])
+
+  const create = useCallback(async (payload: SubmitNotifyTemplatePayload): Promise<NotifyTemplateDetail> => {
+    const res = await notifyTemplatesApi.create(payload)
     setRefresh((r) => r + 1)
     return res.data
   }, [])
 
-  const remount = useCallback(async (id: string, name: string): Promise<NotifyTemplate> => {
-    const res = await notifyTemplatesApi.remount(id, name)
-    setRefresh((r) => r + 1)
-    return res.data
-  }, [])
+  const update = useCallback(
+    async (id: string, payload: SubmitNotifyTemplatePayload): Promise<NotifyTemplateDetail> => {
+      const res = await notifyTemplatesApi.update(id, payload)
+      setRefresh((r) => r + 1)
+      return res.data
+    },
+    [],
+  )
 
   const remove = useCallback(async (id: string): Promise<void> => {
     await notifyTemplatesApi.remove(id)
     setRefresh((r) => r + 1)
   }, [])
 
-  return { templates, total, loading, error, permissionDenied, reload, submit, remount, remove }
+  return { templates, loading, error, permissionDenied, reload, create, update, remove, getDetail }
 }

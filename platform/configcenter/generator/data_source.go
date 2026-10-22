@@ -179,14 +179,15 @@ func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfi
 	return &cfg, nil
 }
 
-// LoadEnabledNotifyChannels 读取平台已启用的通知渠道（M08 NotifyChannel，enabled=true），
-// 供 M09 物化管理域 alertmanager.yml 的 receivers（决策 74 定稿：配置即生效，与 M07
-// LabelTemplate 物化范式一致）。按 id 升序保证物化顺序稳定（checksum 可复现）。
-func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
+// LoadNotifyChannels 读取平台全部通知渠道（M08 NotifyChannel），供 M09 物化管理域
+// alertmanager.yml 的 receivers。按 ID 升序保证物化顺序稳定（checksum 可复现）。
+//
+// 2026-10-22 起渠道取消启停状态；是否进入 receivers 只取决于「是否被路由规则引用」，
+// 由 MaterializeNotifyReceivers 结合 route 段判定。
+func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
 	var channels []models.NotifyChannel
-	err := db.Where("enabled = ?", true).Order("id ASC").Find(&channels).Error
-	if err != nil {
-		return nil, fmt.Errorf("load enabled notify channels: %w", err)
+	if err := db.Order("id ASC").Find(&channels).Error; err != nil {
+		return nil, fmt.Errorf("load notify channels: %w", err)
 	}
 	return channels, nil
 }

@@ -34,7 +34,6 @@ function channel(over: Partial<NotifyChannel> = {}): NotifyChannel {
     type: 'feishu',
     webhook_url: 'https://open.feishu.cn/***',
     secret_set: true,
-    enabled: true,
     created_at: '2026-09-30T10:00:00Z',
     ...over,
   }
@@ -134,20 +133,22 @@ describe('useRouteEditor — 保存只提交结构化路由树', () => {
 })
 
 describe('useRouteEditor — H1 非 admin knownReceivers', () => {
-  it('knownReceivers 由 notifyChannelsApi.list() 批量派生（仅已启用渠道的 receiver_name），不调用 admin getReceiverSnippet', async () => {
+  it('knownReceivers 由 notifyChannelsApi.list() 批量派生（全部渠道的 receiver_name），不调用 admin getReceiverSnippet', async () => {
     listMock.mockResolvedValue(
       channels([
-        channel({ id: '1', name: 'A', enabled: true, receiver_name: 'recv-a' }),
-        channel({ id: '2', name: 'B', enabled: false, receiver_name: 'recv-b' }),
-        channel({ id: '3', name: 'C', enabled: true, receiver_name: 'recv-c' }),
+        channel({ id: '1', name: 'A', receiver_name: 'recv-a' }),
+        channel({ id: '2', name: 'B', receiver_name: 'recv-b' }),
+        channel({ id: '3', name: 'C', receiver_name: 'recv-c' }),
       ]),
     )
     const { result } = renderHook(() => useRouteEditor({}))
 
-    await waitFor(() => expect(result.current.knownReceivers).toEqual(['default', 'recv-a', 'recv-c']))
+    await waitFor(() =>
+      expect(result.current.knownReceivers).toEqual(['default', 'recv-a', 'recv-b', 'recv-c']),
+    )
     // 同一次请求顺带建「receiver → 渠道名」映射（供 UI 把 notify-N 显示成渠道名）
     await waitFor(() =>
-      expect(result.current.receiverChannelNames).toEqual({ 'recv-a': 'A', 'recv-c': 'C' }),
+      expect(result.current.receiverChannelNames).toEqual({ 'recv-a': 'A', 'recv-b': 'B', 'recv-c': 'C' }),
     )
     // 批量、单次请求，而非逐渠道 N+1
     expect(listMock).toHaveBeenCalledTimes(1)

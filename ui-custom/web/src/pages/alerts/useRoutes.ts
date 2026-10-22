@@ -275,7 +275,7 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     const run = async () => {
       try {
         const res = await notifyChannelsApi.list()
-        const items = (res.data?.items ?? []).filter((c) => c.enabled && c.receiver_name)
+        const items = (res.data?.items ?? []).filter((c) => c.receiver_name)
         if (!cancelled) {
           setPlatformReceivers(items.map((c) => c.receiver_name as string))
           const map: Record<string, string> = {}

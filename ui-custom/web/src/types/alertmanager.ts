@@ -263,42 +263,45 @@ export interface NotifyChannel {
   webhook_url: string
   /** secret 永不回显，仅告知是否已设置 */
   secret_set: boolean
-  enabled: boolean
-  /** 渠道物化的 AM receiver 名（由渠道名归一 / 回落 notify-<id>，与 M09 生成器同源，决策 74）；非敏感字段，列表即回显。
-   * 供前端批量派生「已知接收人」清单，避免逐渠道调用 admin-only 的 receiver-snippet 接口（H1）。 */
+  /** 渠道在 alertmanager.yml 中的稳定 receiver 名（恒为 notify-<id>，与 M09 生成器同源）；
+   * 非敏感字段，列表即回显。供前端批量派生「已知接收人」清单，避免逐渠道调用
+   * admin-only 的 receiver-snippet 接口（H1）。 */
   receiver_name?: string
+  /** 当前生效 / 待确认路由树中引用该渠道 receiver 的节点数；0 = 未被路由使用 */
+  route_reference_count?: number
   /** 绑定的通知模板 ID（缺省 = 使用平台内置默认模板）；渠道 ↔ 模板一等绑定（dev-feedback #30） */
   default_template_id?: number
   /** RFC3339 */
   created_at: string
 }
 
-/** 通知模板状态：先校验、通过才落库留痕，本表恒为 applied（复用决策 59/60 纪律） */
-export type NotifyTemplateStatus = 'applied'
-
-/** 通知模板（Alertmanager 标准 Go template 文本，版本化留痕；提案 §3.3.2） */
+/** 通知模板列表项（不含 content；2026-10-22 起模板为可编辑实体，不再有版本历史） */
 export interface NotifyTemplate {
   id: string
   name: string
-  /** 适用渠道类型（与渠道类型匹配后才可组合） */
+  /** 适用渠道类型（创建后不可修改；与渠道类型匹配后才可组合） */
   channel_type: NotifyChannelType
-  /** Alertmanager 标准 Go template 文本（不是脚本） */
-  content: string
-  /** 平台内置默认模板（随版本升级） */
+  /** 平台内置默认模板（随版本升级，只读；可复制为自定义模板） */
   is_builtin: boolean
-  checksum: string
-  status: NotifyTemplateStatus
+  /** 被多少个通知渠道显式绑定（删除前提示用） */
+  bound_channel_count: number
   /** RFC3339 */
   created_at: string
+  /** RFC3339 */
+  updated_at: string
 }
 
-/** 创建通知渠道请求体（name/type/webhook_url 必填；enabled 省略默认 true） */
+/** 通知模板详情（含 Alertmanager 标准 Go template 文本，不是脚本） */
+export interface NotifyTemplateDetail extends NotifyTemplate {
+  content: string
+}
+
+/** 创建通知渠道请求体（name/type/webhook_url 必填） */
 export interface CreateNotifyChannelPayload {
   name: string
   type: NotifyChannelType
   webhook_url: string
   secret?: string
-  enabled?: boolean
   /** 绑定的通知模板 ID（可选；不传 = 使用平台内置默认模板） */
   default_template_id?: number
 }
@@ -313,11 +316,10 @@ export interface UpdateNotifyChannelPayload {
   type?: NotifyChannelType
   webhook_url?: string
   secret?: string
-  enabled?: boolean
   default_template_id?: number
 }
 
-/** 提交通知模板请求体（均必填；content 为 Alertmanager 标准 Go template） */
+/** 新建 / 编辑通知模板请求体（content 为 Alertmanager 标准 Go template） */
 export interface SubmitNotifyTemplatePayload {
   name: string
   channel_type: NotifyChannelType
@@ -337,9 +339,9 @@ export interface NotifyChannelsData {
  * 令牌未配置（`token_configured=false`）时 url / snippet 用占位符，片段不可直接使用。
  */
 export interface ReceiverSnippetData {
-  /** 建议的接收人名（由渠道名归一为安全字符集，可直接使用） */
+  /** 接收人名（恒为 notify-<渠道ID>，与 M09 物化同源） */
   receiver_name: string
-  /** 桥接地址（含真实数字渠道 ID；桥令牌不入 URL，令牌未配置时为占位符） */
+  /** 桥接地址（`?id=<渠道ID>`；桥令牌不入 URL，令牌未配置时为占位符） */
   url: string
   /** 可参考的 `receivers:` YAML 片段 */
   snippet: string
@@ -431,25 +433,13 @@ export interface RouteEditNode {
 }
 
 /**
- * 孤立接收人：平台命名空间内「已生成但没有任何路由引用」的接收人（提案 §4.9 / dev-feedback #26）。
- * `url` 已脱敏（保留 `scheme://host`，路径与查询以 `/***` 替代）。
- */
-export interface DeadReceiver {
-  name: string
-  url: string
-}
-
-/**
  * GET `/api/v2/platform/alertmanager/routes` 响应 data（只读、无写能力）。
- * 成功：`{ mode, items, dead_receivers, declared_receivers }`；
- * 解析失败 / 非常规结构降级：`{ mode, parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
+ * 成功：`{ items, declared_receivers }`；
+ * 解析失败 / 非常规结构降级：`{ parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
  *
- * ⚠ `declared_receivers` 与 `dead_receivers` 口径**故意不同**（后端 route/handler.go 有同款注释）：
- *   - `declared_receivers` = 生效 YAML `receivers:` 段已声明的**全集**（含用户手写），
- *     供前端判「路由引用的接收人是否悬空」。手写 receiver 必须在其中，否则合法配置被误判
- *     为「未定义」而阻断保存（2026-10-08 实测：手写 `feishu` + 平台 `notify-1` 共存时，
- *     引用 `feishu` 的 5 个节点全被误报，页面进入不能新建也不能保存的死锁）。
- *   - `dead_receivers` = 平台物化了但无任何路由指向（**平台命名空间子集**），不含手写。
+ * `declared_receivers` = 生效 YAML `receivers:` 段已声明的**全集**（含用户手写），
+ * 供前端判「路由引用的接收人是否悬空」。手写 receiver 必须在其中，否则合法配置被误判
+ * 为「未定义」而阻断保存。
  */
 export interface RouteTreeData {
   /** 前序扁平节点序列（`items[0]` = 顶层路由）；解析失败时缺省 */
@@ -461,8 +451,6 @@ export interface RouteTreeData {
     change_no: string
     created_at: string
   } | null
-  /** 平台已生成但无任何路由引用的接收人；解析失败时缺省 */
-  dead_receivers?: DeadReceiver[]
   /** 生效配置 `receivers:` 段已声明的接收人名（全集，含手写）；解析失败时仍可能存在 */
   declared_receivers?: string[]
   /** 解析失败原因（成功时缺省） */

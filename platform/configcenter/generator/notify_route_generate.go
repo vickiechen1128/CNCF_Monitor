@@ -20,7 +20,7 @@
 // YAML 处理沿用本包既有范式（notify_receivers.go / notify_route_skeleton.go）：yaml.Node
 // 原地改写，保注释、保手写节点样式、保幂等。
 //
-// 注：platform/alertmanager/route 依赖本包（route/handler.go 引用 LoadEnabledNotifyChannels），
+// 注：platform/alertmanager/route 依赖本包（route/handler.go 引用 LoadNotifyChannels），
 // 故本包不得反向 import route（成环），RouteEditMatcher 在此镜像定义，字段口径与
 // route.RouteMatcher 一致。
 package generator

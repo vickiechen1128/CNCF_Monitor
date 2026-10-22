@@ -3,7 +3,7 @@
 // 为什么需要（2026-10-08 用户实测阻断缺陷）：
 //
 // 前端保存前的「接收人悬空」预检此前把 knownReceivers 只取「平台物化的渠道接收人名」
-// （已启用 NotifyChannel.ReceiverName() 集合），于是**用户手写在 receivers: 段里的
+// （全部 NotifyChannel.ReceiverName() 集合），于是**用户手写在 receivers: 段里的
 // receiver 会被误判为「未定义」**。实测：生效配置中 receivers 段同时声明了手写的
 // `feishu`（指向用户自建通知脚本地址）与平台物化的 `notify-1`，而根路由 + 4 条子路由
 // 全部引用 `feishu` → 5 个节点全部命中 `receiver_dangling`，页面进入「不能新建也不能保存」

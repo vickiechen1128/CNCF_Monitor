@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { MainLayout } from '../../layouts/MainLayout'
-import { ApiError } from '../../api/client'
 import { RoutesPage } from './RoutesPage'
 import { buildEditRows, buildRouteRows, type UseRouteEditorResult } from './useRoutes'
 import { blankRouteNode, emptyRouteTree, type RouteEditNode } from './routeTree'
@@ -95,7 +94,7 @@ function result(over: Partial<{
   ready: boolean
   reload: () => void
 }> = {}) {
-  const data = over.data ?? { items: [rootNode], dead_receivers: [] }
+  const data = over.data ?? { items: [rootNode] }
   return {
     data,
     // 真实 Hook 由 data.items 派生 rows；mock 同构派生，避免测试只喂 data 时空表
@@ -193,7 +192,7 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
   it('树形层级渲染：按 parent_id/order 建树前序展开，根路由置顶并锁定', () => {
     // items 故意乱序传入，验证前端按结构重建（不依赖后端返回顺序）
     const items = [childA, grandchild, rootNode, childB]
-    useRoutesMock.mockReturnValue(result({ data: { items, dead_receivers: [] } }))
+    useRoutesMock.mockReturnValue(result({ data: { items } }))
 
     // 单测：建树结果的 id 序与缩进深度
     const built = buildRouteRows(items)
@@ -228,7 +227,7 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
       name: '严重告警',
       receiver: 'ghost-receiver',
     })
-    useRoutesMock.mockReturnValue(result({ data: { items: [rootNode, childGhost], dead_receivers: [] } }))
+    useRoutesMock.mockReturnValue(result({ data: { items: [rootNode, childGhost] } }))
     // knownReceivers 含 default（根路由接收人），但不含 ghost-receiver
     useRouteEditorMock.mockReturnValue(editorResult({ knownReceivers: ['default'] }))
     renderPage()
@@ -258,7 +257,7 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     })
     useRoutesMock.mockReturnValue(
       result({
-        data: { items: [rootNode, childChannel, childFeishu], dead_receivers: [] },
+        data: { items: [rootNode, childChannel, childFeishu] },
       }),
     )
     useRouteEditorMock.mockReturnValue(
@@ -275,39 +274,6 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     expect(screen.getByText('feishu')).toBeInTheDocument()
     expect(screen.getAllByText('手写').length).toBeGreaterThan(0)
     expect(screen.queryByTestId('route-receiver-undefined')).not.toBeInTheDocument()
-  })
-
-  // 契约③：dead_receivers 显性标出「平台已生成但没有任何路由指向」，点击跳「通知渠道」页
-  // 2026-10-08 文案修订 + 消解路径补全：旧标题「孤立接收人（平台已生成但没有任何路由指向）」
-  // 主语是「平台」，易被读成「平台内置了路由规则却没指向它」；而真实情况是**用户的路由全指向了
-  // 别的接收人**（本例中多为手写 `feishu`），平台那条通道空着。同时旧文案只说"去通知渠道页处理"，
-  // 而"去渠道页停用渠道"只是两种消解方式之一 —— 用户若想用这个接收人，得新建/编辑一条路由。
-  it('有接收人没有路由指向它：说明真实原因并给出两种消解方式', () => {
-    useRoutesMock.mockReturnValue(
-      result({
-        data: {
-          items: [rootNode],
-          dead_receivers: [{ name: 'alpha', url: 'https://open.feishu.cn/***' }],
-        },
-      }),
-    )
-    renderPage()
-    // 标题与正文讲清「该渠道收不到告警」，而非「平台没指向它」
-    expect(screen.getByText(/有接收人没有路由指向它/)).toBeInTheDocument()
-    expect(screen.getByText(/所属的渠道收不到告警/)).toBeInTheDocument()
-    // 消解方式①：想用它 → 新建/编辑路由时把接收人选成它
-    expect(screen.getByText(/新建或编辑一条规则/)).toBeInTheDocument()
-    // 消解方式②：暂不用 → 去渠道页停用/删除
-    const link = screen.getByTestId('dead-receiver-channels-link')
-    expect(link).toHaveAttribute('href', '/notify-channels')
-    expect(screen.getByText(/停用或删除对应渠道/)).toBeInTheDocument()
-    expect(screen.getByText(/https:\/\/open\.feishu\.cn/)).toBeInTheDocument()
-  })
-
-  it('无孤立接收人时不渲染孤立接收人卡片（避免空卡片占位）', () => {
-    useRoutesMock.mockReturnValue(result())
-    renderPage()
-    expect(screen.queryByText(/孤立接收人（平台已生成但没有任何路由指向）/)).toBeNull()
   })
 
   // 契约④：解析失败降级为原始 YAML 只读展示 + 提示（不白屏、不报错页）
@@ -367,7 +333,7 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
   })
 
   it('空态：无生效配置时展示空表引导，不再合成「未配置」占位', () => {
-    useRoutesMock.mockReturnValue(result({ data: { items: [], dead_receivers: [] } }))
+    useRoutesMock.mockReturnValue(result({ data: { items: [] } }))
     renderPage()
     expect(screen.getByText('当前暂无路由配置，点右上角「编辑路由」开始配置')).toBeInTheDocument()
     expect(screen.queryByText('未配置')).toBeNull()
@@ -434,7 +400,7 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     window.localStorage.clear()
     useRoutesMock.mockReset()
     useRoutesMock.mockReturnValue(
-      result({ data: { items: [rootNode], dead_receivers: [] } }),
+      result({ data: { items: [rootNode] } }),
     )
     useRouteEditorMock.mockReset()
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
@@ -767,7 +733,6 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
       result({
         data: {
           items: [rootNode, childA],
-          dead_receivers: [],
           effective_checksum: 'base-sha256',
         },
       }),
@@ -785,7 +750,6 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
       result({
         data: {
           items: [rootNode],
-          dead_receivers: [],
           pending: { change_no: 'CHG-20261022-009', created_at: '2026-10-22T10:00:00Z' },
         },
       }),

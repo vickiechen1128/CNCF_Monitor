@@ -48,17 +48,6 @@ vi.mock('../../api/domain', () => ({
   },
 }))
 
-// 派生预览数据 Hook：冒烟中默认空态，避免穿透真实 notify-channels API（本文件未 mock 该 API）；
-// 具体用例可覆盖返回值（如校验 L3 文案）。
-const useDerivedReceiversMock = vi.fn()
-vi.mock('./useDerivedReceivers', () => ({
-  useDerivedReceivers: () => useDerivedReceiversMock(),
-}))
-
-function derivedEmpty() {
-  return { rows: [], loading: false, error: null, permissionDenied: false, reload: vi.fn() }
-}
-
 function renderM08(initialPath: string) {
   return render(
     <App>
@@ -91,8 +80,6 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     getPromAlertsMock.mockResolvedValue({ status: 'success', data: { alerts: [] } })
     getAmAlertsMock.mockResolvedValue({ status: 'success', data: { items: [] } })
     listDomainsMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
-    useDerivedReceiversMock.mockReset()
-    useDerivedReceiversMock.mockReturnValue(derivedEmpty())
   })
 
   // 2026-10-22：告警配置页收敛为只读视图，空态引导去「路由规则」页直接配置。

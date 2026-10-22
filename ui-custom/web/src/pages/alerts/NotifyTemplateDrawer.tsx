@@ -1,12 +1,11 @@
 /**
- * 通知模板提交 / 复制自定义抽屉（PL-3 通知渲染桥，2026-09-28）。
- * 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
+ * 通知模板新建 / 编辑 / 复制抽屉（2026-10-22 模板改为可编辑实体）。
  *
  * 模板形态：Alertmanager 标准 Go template 文本（**不是脚本**，平台不执行任意代码）。
  * 校验在服务端执行（Go template 解析 + amtool 等价工序），前端不做模板解析；
  * 校验失败返回 400 bad_request，`data.items` 为行级错误，逐条渲染在编辑框下方。
  *
- * Step 3.7：含 Form 且 use(open) 回显 → 强制 forceRender，禁用 destroyOnHidden/Close。
+ * 渠道类型创建后不可修改：编辑态置灰，如需其他类型请走「复制」。
  */
 import { useEffect, useState } from 'react'
 import { Alert, Button, Drawer, Form, Input, Select, Typography } from 'antd'
@@ -24,9 +23,9 @@ export interface NotifyTemplateInitial {
 
 export interface NotifyTemplateDrawerProps {
   open: boolean
-  /** create=提交自定义模板；clone=复制已有模板后自定义 */
-  mode: 'create' | 'clone'
-  /** 预填内容（复制模板时带上原名称与内容） */
+  /** create=新建；edit=编辑；copy=复制 */
+  mode: 'create' | 'edit' | 'copy'
+  /** 预填内容 */
   initial: NotifyTemplateInitial
   onClose: () => void
   onSubmit: (payload: SubmitNotifyTemplatePayload) => Promise<void>
@@ -38,11 +37,24 @@ interface FormValues {
   content: string
 }
 
+const TITLES: Record<NotifyTemplateDrawerProps['mode'], string> = {
+  create: '新建自定义模板',
+  edit: '编辑模板',
+  copy: '复制模板',
+}
+
+const SUBMIT_LABELS: Record<NotifyTemplateDrawerProps['mode'], string> = {
+  create: '创建模板',
+  edit: '保存修改',
+  copy: '保存为新模板',
+}
+
 export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }: NotifyTemplateDrawerProps) {
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errors, setErrors] = useState<ValidateErrorItem[]>([])
+  const isEdit = mode === 'edit'
 
   useEffect(() => {
     if (!open) return
@@ -76,7 +88,7 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
         setErrors(detail.items)
         setError(detail.note ? `模板校验失败：${detail.note}` : '模板校验失败，请按下方提示修改后重新提交')
       } else {
-        setError(e instanceof Error ? e.message : '提交失败，请稍后重试')
+        setError(e instanceof Error ? e.message : '保存失败，请稍后重试')
       }
       setSubmitting(false)
     }
@@ -84,14 +96,14 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
 
   return (
     <Drawer
-      title={mode === 'clone' ? '复制并自定义模板' : '提交自定义模板'}
+      title={TITLES[mode]}
       open={open}
       onClose={onClose}
       width={720}
       forceRender
       extra={
         <Button type="primary" loading={submitting} onClick={form.submit}>
-          {mode === 'clone' ? '保存为新模板' : '提交模板'}
+          {SUBMIT_LABELS[mode]}
         </Button>
       }
     >
@@ -113,8 +125,13 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
           name="channel_type"
           label="适用渠道类型"
           rules={[{ required: true, message: '请选择适用渠道类型' }]}
+          extra={isEdit ? '渠道类型创建后不可修改；如需其他类型请复制模板' : undefined}
         >
-          <Select options={NOTIFY_CHANNEL_TYPE_OPTIONS} placeholder="请选择该模板适用的机器人类型" />
+          <Select
+            options={NOTIFY_CHANNEL_TYPE_OPTIONS}
+            placeholder="请选择该模板适用的机器人类型"
+            disabled={isEdit}
+          />
         </Form.Item>
 
         <Form.Item
@@ -164,11 +181,11 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
       )}
 
       {error && errors.length === 0 && (
-        <Alert type="error" showIcon style={{ marginTop: 8 }} message="提交失败" description={error} />
+        <Alert type="error" showIcon style={{ marginTop: 8 }} message="保存失败" description={error} />
       )}
 
       <Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
-        提交后会先做模板校验，校验通过才留痕；失败不改动现有模板。
+        保存后会先做模板校验，校验通过才生效；失败不改动现有模板。模板保存后立即生效，不需要下发配置。
       </Text>
     </Drawer>
   )

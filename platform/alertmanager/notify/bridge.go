@@ -23,14 +23,8 @@ var (
 	ErrBridgeUnauthorized = errors.New("内网调用令牌缺失或非法")
 	// ErrBridgeTargetURLRejected 请求方传入了目标地址参数（SSRF 硬约束：一律拒绝）。
 	ErrBridgeTargetURLRejected = errors.New("本端点不接受请求方传入的目标地址，请使用平台内已登记的 channel ID")
-	// ErrBridgeChannelInvalid channel 参数非法（非平台内已登记的渠道 ID）。
-	ErrBridgeChannelInvalid = errors.New("channel 参数非法（须为平台内已登记的渠道 ID，不接受目标地址）")
-	// ErrBridgeTemplateInvalid template 参数非法（非平台内已登记的模板 ID）。
-	ErrBridgeTemplateInvalid = errors.New("template 参数非法（须为平台内已登记的模板 ID）")
-	// ErrBridgeChannelDisabled 通知渠道已禁用。
-	ErrBridgeChannelDisabled = errors.New("通知渠道已禁用")
-	// ErrBridgeTemplateMismatch 模板适用渠道类型与渠道类型不一致。
-	ErrBridgeTemplateMismatch = errors.New("模板适用渠道类型与渠道类型不一致")
+	// ErrBridgeChannelInvalid id 参数非法（非平台内已登记的渠道 ID）。
+	ErrBridgeChannelInvalid = errors.New("id 参数非法（须为平台内已登记的渠道 ID，不接受目标地址）")
 )
 
 // BridgeConfig 是通知渲染桥运行配置。
@@ -75,7 +69,7 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			}
 		}
 		// SSRF 硬约束 2：channel 必须是平台内已登记的 ID（不接受地址）。
-		channelID, err := parseUintQuery(c.Query("channel"))
+		channelID, err := parseUintQuery(c.Query("id"))
 		if err != nil {
 			response.BadRequest(c, ErrBridgeChannelInvalid)
 			return
@@ -89,12 +83,10 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			}
 			return
 		}
-		if !ch.Enabled {
-			response.BadRequest(c, ErrBridgeChannelDisabled)
-			return
-		}
-		// 模板：显式 template ID（须同渠道类型），省略则用该渠道类型的内置默认模板。
-		tpl, err := resolveBridgeTemplate(db, ch, c.Query("template"))
+		// 模板：按渠道 ID 实时读取平台侧绑定（渠道 default_template_id → 内置默认）。
+		// 2026-10-22 收口：不再接受 `?template=` —— 模板不写进 alertmanager.yml，
+		// 换绑模板是纯 DB 操作，旧 URL 里残留的 template 参数直接忽略。
+		tpl, err := resolveBridgeTemplate(db, ch)
 		if err != nil {
 			respondBridgeTemplateError(c, err)
 			return
@@ -192,28 +184,15 @@ func parseUintQuery(s string) (uint, error) {
 	return uint(n), nil
 }
 
-// resolveBridgeTemplate 解析渲染模板，优先级（设计提案 notify-template-channel-binding.md §5.2）：
-//  1. 显式 `?template=`（须与渠道类型一致，非法/不符仍报错——这是调用方显式指定，不静默降级）；
-//  2. 渠道绑定 `default_template_id`（渠道 ↔ 模板一等绑定，dev-feedback #30）；
-//  3. 该渠道类型的内置默认模板（零配置 Happy Path）。
+// resolveBridgeTemplate 解析渲染模板（2026-10-22 收口）：
+//  1. 渠道绑定 `default_template_id`（渠道 ↔ 模板一等绑定，dev-feedback #30）；
+//  2. 该渠道类型的内置默认模板（零配置 Happy Path）。
 //
-// 第 2 级**优雅回落**：绑定模板被删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回错误**
+// 绑定模板被删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回错误**
 // ——绑定是「便利覆盖」，其失效不应让该渠道的告警整体投递失败（AM 会无限重试 400）。
-func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error) {
-	if rawID != "" {
-		tplID, err := parseUintQuery(rawID)
-		if err != nil {
-			return nil, ErrBridgeTemplateInvalid
-		}
-		tpl, err := GetTemplate(db, tplID)
-		if err != nil {
-			return nil, err
-		}
-		if tpl.ChannelType != ch.Type {
-			return nil, ErrBridgeTemplateMismatch
-		}
-		return tpl, nil
-	}
+// 不再读取 `?template=`：平台物化的 receiver URL 只带 channel ID，模板内容与绑定都不进入
+// alertmanager.yml，换绑即时生效。
+func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel) (*models.NotifyTemplate, error) {
 	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
 		tpl, err := GetTemplate(db, *ch.DefaultTemplateID)
 		if err == nil && tpl.ChannelType == ch.Type {
@@ -230,8 +209,7 @@ func respondBridgeTemplateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrTemplateNotFound):
 		response.NotFound(c, err.Error())
-	case errors.Is(err, ErrBridgeTemplateInvalid), errors.Is(err, ErrBridgeTemplateMismatch),
-		errors.Is(err, ErrTemplateBuiltinMissing):
+	case errors.Is(err, ErrTemplateBuiltinMissing):
 		response.BadRequest(c, err)
 	default:
 		response.InternalServerError(c, err)

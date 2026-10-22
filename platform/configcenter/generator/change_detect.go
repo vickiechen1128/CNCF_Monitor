@@ -25,10 +25,12 @@ var sourceTableScopes = []struct {
 	{&models.MonitoringRule{}, false},
 	{&models.LabelTemplate{}, false},
 	{&models.CITypeExporterMapping{}, false},
-	// 决策 74 定稿：M08 通知渠道 / 模板经 M09 物化进管理域 alertmanager.yml
-	// receivers 与桥渲染，纳入源数据版本聚合（渠道/模板变更须触发重算与变更检测）。
-	{&models.NotifyChannel{}, false},
-	{&models.NotifyTemplate{}, false},
+	// 2026-10-22 渠道/模板解耦：
+	//   - NotifyTemplate 完全不进 alertmanager.yml（模板由桥在投递时按 channel ID 实时读取），
+	//     模板 CRUD 不参与源数据版本聚合；
+	//   - NotifyChannel 的增删改也不再影响产物：receiver 名恒为 notify-<id>，是否物化只取决于
+	//     route 段是否引用它（route 保存链路会显式触发 M09 生成）。因此两者均移出聚合，
+	//     避免模板/渠道日常编辑空跑变更检测。
 	// review-fix F3：ExporterInstallationConfirmation 移出源数据版本聚合。决策 47-1 已使其
 	// 降级为「可选登记、非生成闸门」——ResolveJobTargets 不读取它，target 内容不受确认
 	// 记录影响；登记/删除确认记录不再推高 SourceDataVersion、也不触发无谓变更检测预筛，

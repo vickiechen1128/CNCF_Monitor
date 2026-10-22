@@ -1141,13 +1141,17 @@ func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T) {
 		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
 		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
 	}).Error)
+	ch := &models.NotifyChannel{Name: "SRE Critical", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/x"}
+	require.NoError(t, db.Create(ch).Error)
+	receiver := ch.ReceiverName()
+
+	// 路由必须引用渠道的稳定 receiver 名（notify-<id>）才会物化。
+	amContent := fmt.Sprintf("route:\n  receiver: %s\nreceivers:\n  - name: default\n    webhook_configs:\n      - url: 'https://example.com/default'\n", receiver)
 	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
-		Content:  "route:\n  receiver: default\nreceivers:\n  - name: default\n    webhook_configs:\n      - url: 'https://example.com/default'\n",
-		Checksum: models.AlertmanagerConfigChecksum("am"),
+		Content:  amContent,
+		Checksum: models.AlertmanagerConfigChecksum(amContent),
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
-	ch := &models.NotifyChannel{Name: "SRE Critical", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/x", Enabled: true}
-	require.NoError(t, db.Create(ch).Error)
 
 	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
 	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
@@ -1155,8 +1159,8 @@ func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T) {
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
-	assert.Contains(t, d.AlertmanagerYml, "name: sre-critical", "平台渠道须物化为 receiver")
-	assert.Contains(t, d.AlertmanagerYml, "?channel="+fmt.Sprint(ch.ID), "url 须带真实 channel ID")
+	assert.Contains(t, d.AlertmanagerYml, "name: "+receiver, "被路由引用的渠道须物化为 receiver")
+	assert.Contains(t, d.AlertmanagerYml, "?id="+fmt.Sprint(ch.ID), "url 须带真实 channel ID")
 	assert.NotContains(t, d.AlertmanagerYml, "token=", "令牌绝不落 URL query（H-1）")
 	assert.Contains(t, d.AlertmanagerYml, "authorization:", "令牌须走 http_config.authorization")
 	assert.Contains(t, d.AlertmanagerYml, "name: default", "用户手写 receiver 原样保留")
@@ -1171,12 +1175,17 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
 		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
 	}).Error)
+	ch := &models.NotifyChannel{Name: "SRE", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/y"}
+	require.NoError(t, db.Create(ch).Error)
+	receiver := ch.ReceiverName()
+
+	// 手写 receiver 与平台稳定名 notify-<id> 重名（且 URL 非平台桥地址形态）→ 冲突。
+	amContent := fmt.Sprintf("route:\n  receiver: %s\nreceivers:\n  - name: %s\n    webhook_configs:\n      - url: 'https://handwritten.example/hook'\n", receiver, receiver)
 	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
-		Content:  "route:\n  receiver: sre\nreceivers:\n  - name: sre\n    webhook_configs:\n      - url: 'https://handwritten.example/hook'\n",
-		Checksum: models.AlertmanagerConfigChecksum("am-conflict"),
+		Content:  amContent,
+		Checksum: models.AlertmanagerConfigChecksum(amContent),
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
-	require.NoError(t, db.Create(&models.NotifyChannel{Name: "SRE", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/y", Enabled: true}).Error)
 
 	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
 	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
@@ -1190,7 +1199,7 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(d.ValidationDetails), &details))
 	require.Len(t, details, 1)
 	assert.Equal(t, "alertmanager.yml", details[0].File)
-	assert.Contains(t, details[0].Message, "sre")
+	assert.Contains(t, details[0].Message, receiver)
 
 	// 重校须复现同一 failed 结论（不得因重校静默放行未消除的冲突）。
 	rd, rerr := RevalidateDraft(db, d.ChangeNo)

@@ -46,12 +46,7 @@ import {
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { MainLayout } from '../../layouts/MainLayout'
-import {
-  CONFIG_PREVIEW_PATH,
-  DEFAULT_RECEIVER_LABEL,
-  NOTIFY_CHANNELS_PATH,
-  formatMatchers,
-} from './alertmanagerConstants'
+import { CONFIG_PREVIEW_PATH, DEFAULT_RECEIVER_LABEL, formatMatchers } from './alertmanagerConstants'
 import { useRouteEditor, useRoutes } from './useRoutes'
 import {
   blankRouteNode,
@@ -63,7 +58,7 @@ import {
   type RouteEditNode,
 } from './routeTree'
 import { RouteEditorDrawer } from './RouteEditorDrawer'
-import type { DeadReceiver, RouteMatcher } from '../../types/alertmanager'
+import type { RouteMatcher } from '../../types/alertmanager'
 
 const { Text } = Typography
 
@@ -147,7 +142,6 @@ export function RoutesPage() {
   const { modal } = App.useApp()
   const parseError = (data?.parse_error ?? '').trim()
   const degraded = parseError.length > 0
-  const deadReceivers: DeadReceiver[] = data?.dead_receivers ?? []
   /**
    * 配置不完整（importState === 'partial'）时的保存护栏（H4）：覆盖式合入会改写原 route 段，
    * 保存前弹出二次确认，确认后才真正提交；默认非破坏性（取消即中止）。
@@ -621,7 +615,6 @@ export function RoutesPage() {
    *  不收进本卡的两类（它们是「替代视图」而非「一行提示」，塞进来反而更吵）：
    *  - 整页 error：独占三元分支，与其他内容互斥；
    *  - degraded 降级卡：承载可滚动 YAML 原文 + 「重新加载」+ 唯一的补齐入口。
-   *  deadReceivers 同理保留独立卡——它带接收人清单与「两种处理方式」，本身是内容主体。
    */
   const notices: RouteNotice[] = []
   if (editor.blocking.length > 0) {
@@ -766,49 +759,6 @@ export function RoutesPage() {
             </Space>
             {routeActionNotes}
           </Card>
-          )}
-
-          {/* 孤立接收人（dev-feedback #26；2026-10-08 文案修订）：平台物化了接收人却无路由指向。
-              原文案「平台已生成但没有任何路由指向」主语是「平台」，易被读成「平台内置了路由规则
-              却没指向它」——实际是**用户的路由全指向了别的接收人**（多为手写），平台那条通道空着。
-              新文案讲清这个区别，并明示「怎么消解」，避免用户无处下手。 */}
-          {!degraded && deadReceivers.length > 0 && (
-            <Card
-              title={
-                <Space size={8}>
-                  <WarningOutlined />
-                  有接收人没有路由指向它
-                  <Tag color="warning">{deadReceivers.length}</Tag>
-                </Space>
-              }
-              style={{ marginBottom: 16 }}
-            >
-              <Text type="secondary">
-                平台已为下列接收人生成了配置，但当前路由里没有任何一条规则指向它们——
-                也就是说，<Text strong>这些接收人所属的渠道收不到告警</Text>。
-                （若你看到路由都指向另一个手写的接收人，那说明告警正走你自己的通道，平台这条是备用的。）
-              </Text>
-              <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                {deadReceivers.map((d) => (
-                  <li key={d.name} style={{ marginBottom: 4 }}>
-                    <Text code>{d.name}</Text>
-                    <Text type="secondary"> — {d.url}</Text>
-                  </li>
-                ))}
-              </ul>
-              <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-                <Text strong>两种处理方式</Text>：
-                <br />
-                ① 想用它发告警 → 在上方新建或编辑一条规则，把「接收人」选成它，然后保存提交变更。
-                <br />
-                ② 暂不用它 →
-                <Link to={NOTIFY_CHANNELS_PATH} data-testid="dead-receiver-channels-link">
-                  {' '}
-                  前往「通知渠道」页
-                </Link>
-                停用或删除对应渠道，平台就不会再生成这个接收人。
-              </Text>
-            </Card>
           )}
 
           {/* 2026-10-14 布局优化：原此处「新建 / 导入 / 保存 / 放弃」独占一张无标题 Card，

@@ -13,7 +13,6 @@ package route
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -21,31 +20,18 @@ import (
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
 
-// DeadReceiver 是「平台命名空间内但无任何 route 引用」的接收人（提案 §4.9 / dev-feedback #26：
-// 平台已物化却无人指向的死配置）。
-//
-//	Name 平台物化的 AM receiver 名（NotifyChannel.ReceiverName()）；
-//	URL  该渠道出站地址（**已脱敏**：保留 scheme://host，路径与查询以 /*** 替代）。
-type DeadReceiver struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
-}
-
 // ListRoutes 组装只读路由视图：
 //
-//   - 成功：{ items, dead_receivers, declared_receivers }；
+//   - 成功：{ items, declared_receivers }；
 //   - 解析失败 / 非常规结构：{ parse_error, raw_yaml }（降级为原文只读展示，非 500）。
 //
-// 数据源为「平台最新产物视图」而非挂载留痕原文（见 effectiveAlertmanagerYAML）：只有读产物
-// 才能让页面上的顶层路由 receiver 与 dead_receivers 判定同真正生效（磁盘 config-output/
-// alertmanager.yml）一致——留痕原文不含 receivers 物化结果，会把已被根路由引用的平台
-// receiver 误报成死配置。
+// 数据源为「平台最新产物视图」而非挂载留痕原文（见 effectiveAlertmanagerYAML）。
+// 2026-10-22：未被路由引用的渠道是正常状态（不会物化），不再在路由页提示「死接收人」。
 func ListRoutes(db *gorm.DB) (gin.H, error) {
 	baseYAML, err := effectiveAlertmanagerYAML(db)
 	if err != nil {
@@ -70,13 +56,8 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 		}, nil
 	}
 
-	dead, err := deadReceivers(db, nodes)
-	if err != nil {
-		return nil, err
-	}
 	return gin.H{
 		"items":              nodes,
-		"dead_receivers":     dead,
 		"declared_receivers": declared,
 		"effective_checksum": checksum,
 		"pending":            pending,
@@ -149,48 +130,6 @@ func effectiveAlertmanagerYAML(db *gorm.DB) (string, error) {
 		return "", nil
 	}
 	return cur.Content, nil
-}
-
-// deadReceivers 计算死接收人：平台命名空间（已启用渠道 ReceiverName() 集合，判据与
-// generator/notify_receivers.go 的 platformNames 同源）中不被任何 route 节点 receiver 引用者
-// （引用判定含根兜底 route.receiver）。按 id 升序稳定输出。
-//
-// ⚠ 与 declared_receivers 的分工（勿混淆，两者口径**故意不同**）：
-//   - declared_receivers = 文件里声明了哪些名字（**全集**，含用户手写）→ 用于「引用是否悬空」
-//     判定，手写 receiver 必须在其中，否则合法配置被误判为未定义（2026-10-08 实测阻断）。
-//   - dead_receivers = 平台物化了但无人指向（**平台命名空间子集**）→ 用于提示「渠道开了却
-//     没有任何规则会用它」。用户手写 receiver 的存废归用户，平台无权判其为死配置
-//     （dev-feedback #26 的边界），故此处**不**纳入 declared 集合。
-func deadReceivers(db *gorm.DB, nodes []RouteNode) ([]DeadReceiver, error) {
-	channels, err := generator.LoadEnabledNotifyChannels(db)
-	if err != nil {
-		return nil, fmt.Errorf("load enabled notify channels: %w", err)
-	}
-	referenced := make(map[string]bool, len(nodes))
-	for i := range nodes {
-		if nodes[i].Receiver != "" {
-			referenced[nodes[i].Receiver] = true
-		}
-	}
-	out := []DeadReceiver{}
-	for i := range channels {
-		name := channels[i].ReceiverName()
-		if referenced[name] {
-			continue
-		}
-		out = append(out, DeadReceiver{Name: name, URL: maskReceiverURL(channels[i].WebhookURL)})
-	}
-	return out, nil
-}
-
-// maskReceiverURL 脱敏出站地址（口径与 notify.maskWebhookURL 一致，避免回显令牌 / 路径凭据）：
-// 保留 scheme://host，路径与查询以 /*** 替代；非法 URL 一律回 "***"。
-func maskReceiverURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "***"
-	}
-	return u.Scheme + "://" + u.Host + "/***"
 }
 
 // ListRoutesHandler 处理 GET /api/v2/platform/alertmanager/routes（仅全局认证、只读、无写能力）。

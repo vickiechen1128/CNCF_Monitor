@@ -11,7 +11,6 @@ import type {
   AlertmanagerConfigStatus,
   NotifyChannelType,
   NotifyStatus,
-  NotifyTemplateStatus,
   PromAlertState,
   SilenceMatcher,
   SilenceStatus,
@@ -398,10 +397,5 @@ export const NOTIFY_CHANNEL_TYPE_OPTIONS: { value: NotifyChannelType; label: str
   { value: 'wecom', label: '企业微信' },
 ]
 
-/** 通知模板状态展示名（先校验、通过才落库留痕，本表恒 applied） */
-export const notifyTemplateStatusLabel: Record<NotifyTemplateStatus, string> = {
-  applied: '已生效',
-}
-
-/** 内置模板提示（内置模板随版本升级、系统统一维护，不可删除） */
+/** 内置模板提示（内置模板随版本升级、系统统一维护，不可编辑/删除） */
 export const NOTIFY_TEMPLATE_BUILTIN_TIP = '平台内置模板随版本升级，系统统一维护，不可删除'

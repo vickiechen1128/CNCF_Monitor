@@ -885,3 +885,28 @@ L3（纯文案文档）──┘        │
   - 前端：alerts 目录 14 文件 214 例全过；覆盖只读/编辑两态、进入编辑刷新、保存只提交树 + `base_checksum`、pending 横幅、默认接收人文案。
 - **状态**：**landed（2026-10-22，未提交）**——`go build ./platform/...` exit 0；`make test-platform` 相关包全过（仅剩既有环境基线失败：`admin/storagelog`、`db.TestInitDefaultPath`、`strategy/rule` promtool 桩脚本）；前端 `tsc --noEmit` exit 0，alerts 214 例全过；`make check-repo-map` 通过；本机重启后 `GET /routes` 返回默认根路由、`effective_checksum` 非空、`pending=null`。
 - **后续**：下发后读回校验（写盘/reload 后比对 AM 实际加载配置）未实现；`routeTree.ts` 的 `generateRouteSection` / `mergeRouteSection` 已退出保存链路，保留为与 Go 生成器对齐的纯函数测试镜像。
+
+## 46. 通知模板页信息架构重做 + 渠道/模板/路由解耦：去版本历史、去模板 ID 入 yml、渠道 CRUD 不再触发配置变更（2026-10-22 用户拍板）
+
+- **类别**：① 数据形态/交互设计（模板被做成 append-only 留痕表，前端直接暴露原始版本行）+ ② 实现偏差（模板 ID 写入 receiver URL，导致换绑模板也要改 yml）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §3.1 / §9.1；源码见回填清单
+- **发现场景**：用户走查 `/notify-templates` 指出：内置模板上下重复展示；「提交自定义模板」实为新增但无编辑入口；没有编辑却有「历史版本 / 重新挂载」，语义无法理解；进一步追问「receiver 为什么既有 `notify-<id>` 又有 `channel=<id>`」，并明确「模板改了就是改了，不需要下发/审批」。
+- **结论 / 用户拍板**：
+  - **模板是可变实体，不是版本留痕**：去掉版本历史 / remount / status / checksum 展示；模板新建、编辑、复制、删除均原地生效。
+  - **模板页 = 一个清单 + 按渠道类型分 Tab**：内置与自定义同表展示；内置置顶只读、只能查看/复制；自定义可新建/编辑/复制/删除；删除被渠道绑定的模板时阻止，提示先去通知渠道改绑；编辑时渠道类型锁死（创建后不可变）。
+  - **模板彻底退出 alertmanager.yml**：receiver URL 只带 `?id=<渠道ID>`；模板内容与绑定由桥在投递时按渠道 ID 实时读 DB（渠道 `default_template_id` → 内置默认）。换绑模板 / 改模板内容立即生效，不产生 M09 变更单、不 reload。
+  - **receiver 名恒为 `notify-<渠道ID>`**：不再由渠道名派生、不接受覆盖；渠道改名 / 改 webhook / 改类型 / 换绑模板均不影响 yml。
+  - **只物化被路由引用的渠道**：新增渠道本身不写 yml；未被路由引用的渠道不物化、不产生 receiver；路由引用集合变化才触发 yml/M09。
+  - **渠道删除保护**：被当前生效/待确认路由树引用时拒绝删除（409），要求先去路由规则页改绑；渠道列表返回 `route_reference_count` 供前端前置提示。
+  - **删除渠道启停状态**：移除 UI Switch、列表列与 API `enabled` 字段；启动迁移显式删除 `notify_channels.enabled` 列（GORM AutoMigrate 只增不删）。
+  - **源数据聚合收口**：`NotifyChannel` / `NotifyTemplate` 移出 M09 `sourceTableScopes`；渠道/模板 CRUD 不再空跑变更检测。
+  - **路由页删除「有渠道未被任何路由引用」提示**（用户 2026-10-22 追加反馈：未被引用是正常状态，不应提示）：`GET /routes` 不再返回 `dead_receivers`，前端删除该卡片；通知渠道页也只在被引用时显示「被 N 条路由引用」，未引用不再打标记。
+- **回填清单**：
+  - 模型/DB：`platform/models/alertmanager_notify.go`（去 `Enabled`；`ReceiverName()` 恒 `notify-<id>`）；`platform/db/db.go`（启动迁移 DROP `notify_channels.enabled`）。
+  - 后端：`platform/alertmanager/notify/channel.go`（去 enabled；删除前路由引用检查）、`channel_handler.go`、`bridge.go`（只按 `id` 解析渠道；去 `?template=`）、`receiver_snippet.go`（`?id=`、固定 `notify-<id>`、去 name 覆盖）、`template.go`（Create/Update/Delete/List/Detail + 名称唯一 + 内置/绑定保护 + `CompactTemplateVersions`）、`template_handler.go`、`register.go`；`platform/configcenter/generator/notify_receivers.go`（只物化被引用渠道、清理未引用平台 receiver、`?id=`）、`route_receivers.go`（收集 route receiver）、`data_source.go`（`LoadNotifyChannels`）、`change_detect.go`；`platform/alertmanager/route/refs.go`（路由引用收集）与 `handler.go` / `save_handler.go` 适配。
+  - 前端：`types/alertmanager.ts`、`api/alertmanager.ts`、`useNotifyTemplates.ts`、`NotifyTemplatesPage.tsx`（Tab + 单表 + 内置只读 + CRUD）、`NotifyTemplateDrawer.tsx`（新建/编辑/复制）、`NotifyChannelsPage.tsx`（去启停、路由引用列、删除拦截）、`NotifyChannelDrawer.tsx`（去启停）、`useRoutes.ts`（去 enabled 过滤）；删除 `useDerivedReceivers.ts`。
+  - 契约：`api-contract-snapshot.md` §11 同步（模板端点、渠道字段、桥参数 `id`、去 template、只物化被引用渠道、删除保护）。
+- **测试**：
+  - 后端 `notify` / `route` / `configcenter/generator` / `configcenter/draft` / `models` / `cmd/metric-center` 目标包通过（CGO 环境）。
+  - 前端 `tsc -p tsconfig.test.json --noEmit` 通过；`NotifyTemplatesPage` / `NotifyChannelsPage` 用例重写并全过；全量 vitest 待收口。
+- **状态**：**landed（2026-10-22，未提交）**——后端 `alertmanager` / `configcenter` / `models` / `cmd/metric-center` 相关包全过；前端 `tsc -p tsconfig.test.json --noEmit` 与改动文件 eslint 通过，`NotifyTemplatesPage` / `NotifyChannelsPage` / `useRoutes` / `RoutesPage` / `ReceiverSnippetDrawer` 用例全过（全量 vitest 1104 passed / 4 failed，失败均在未触碰文件：`InstanceSelector`、`ResourcesPage` 超时、`ScrapeJobFormDrawer.blackboxEdit`，属既有环境基线）；`make repo-map` 已刷新且 `check-repo-map.sh` 通过。**真机迁移已验证**：用当前 `metric_center.db` 副本启动新二进制后，`notify_channels.enabled` 列被自动删除、渠道/模板数据保持、新模板路由（GET 详情 / PUT / 无 remount）注册成功；`notify-<id>` 与 `?id=` 口径已生效。

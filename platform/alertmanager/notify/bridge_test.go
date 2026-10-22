@@ -134,9 +134,9 @@ func amBridgePayload(status string) map[string]interface{} {
 	}
 }
 
-func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string, enabled bool) *models.NotifyChannel {
+func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string) *models.NotifyChannel {
 	t.Helper()
-	ch, err := CreateChannel(db, ChannelInput{Name: name, Type: chType, WebhookURL: url, Enabled: &enabled})
+	ch, err := CreateChannel(db, ChannelInput{Name: name, Type: chType, WebhookURL: url})
 	require.NoError(t, err)
 	return ch
 }
@@ -150,17 +150,17 @@ func TestBridgeRejectsMissingOrWrongToken(t *testing.T) {
 	db := newNotifyDB(t)
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	chID := strconv.FormatUint(uint64(ch.ID), 10)
 
 	// 缺 Authorization 头。
-	code, out := doBridgeJSON(t, r, "/api/v1/webhooks/notify?channel="+chID, "", amBridgePayload("firing"))
+	code, out := doBridgeJSON(t, r, "/api/v1/webhooks/notify?id="+chID, "", amBridgePayload("firing"))
 	assert.Equal(t, http.StatusUnauthorized, code)
 	assert.Equal(t, "unauthorized", out.ErrorType)
 
 	// 错令牌。
-	code, out = doBridgeJSON(t, r, "/api/v1/webhooks/notify?channel="+chID, "wrong", amBridgePayload("firing"))
+	code, out = doBridgeJSON(t, r, "/api/v1/webhooks/notify?id="+chID, "wrong", amBridgePayload("firing"))
 	assert.Equal(t, http.StatusUnauthorized, code)
 	assert.Equal(t, "unauthorized", out.ErrorType)
 
@@ -176,14 +176,14 @@ func TestBridgeRejectsArbitraryTargetURL(t *testing.T) {
 	db := newNotifyDB(t)
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	chID := strconv.FormatUint(uint64(ch.ID), 10)
 
 	// 1) 额外携带目标地址参数（含用户脚本形态 ?fsurl=）→ 显式拒绝。
 	for _, param := range []string{"url", "target", "webhook_url", "fsurl", "to"} {
 		code, out := doBridgeJSON(t, r,
-			"/api/v1/webhooks/notify?channel="+chID+"&"+param+"=https://evil.example/hook",
+			"/api/v1/webhooks/notify?id="+chID+"&"+param+"=https://evil.example/hook",
 			bridgeToken, amBridgePayload("firing"))
 		assert.Equalf(t, http.StatusBadRequest, code, "param=%s 应被拒", param)
 		assert.Equal(t, "bad_request", out.ErrorType)
@@ -192,7 +192,7 @@ func TestBridgeRejectsArbitraryTargetURL(t *testing.T) {
 
 	// 2) 把目标地址伪装成 channel 参数 → 非登记 ID，拒绝。
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel=https://evil.example/hook", bridgeToken, amBridgePayload("firing"))
+		"/api/v1/webhooks/notify?id=https://evil.example/hook", bridgeToken, amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)
 
@@ -207,25 +207,9 @@ func TestBridgeChannelNotFound(t *testing.T) {
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel=9999", bridgeToken, amBridgePayload("firing"))
+		"/api/v1/webhooks/notify?id=9999", bridgeToken, amBridgePayload("firing"))
 	assert.Equal(t, http.StatusNotFound, code)
 	assert.Equal(t, "not_found", out.ErrorType)
-	assert.Zero(t, rec.calls())
-}
-
-// TestBridgeChannelDisabled 禁用的渠道 → 400，且不出站。
-func TestBridgeChannelDisabled(t *testing.T) {
-	db := newNotifyDB(t)
-	rec := &fakeReceiver{}
-	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, false)
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
-
-	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "bad_request", out.ErrorType)
 	assert.Zero(t, rec.calls())
 }
 
@@ -238,11 +222,11 @@ func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "success", out.Status)
@@ -255,57 +239,6 @@ func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T) {
 	s := string(body)
 	assert.Contains(t, s, "HighCPU")
 	assert.Contains(t, s, "2026-01-02 11:04:05 +08:00", "时间须按东八区本地化")
-}
-
-// TestBridgeUsesExplicitTemplate 显式指定同渠道类型的模板时，按其内容渲染。
-func TestBridgeUsesExplicitTemplate(t *testing.T) {
-	db := newNotifyDB(t)
-	rec := &fakeReceiver{}
-	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
-
-	tpl := &models.NotifyTemplate{
-		Name:        "custom",
-		ChannelType: models.NotifyChannelTypeFeishu,
-		Content:     `{"msg_type":"text","text":{{ jsonStr (printf "status=%s" .Status) }}}`,
-		Checksum:    models.AlertmanagerConfigChecksum("custom"),
-		Status:      models.NotifyTemplateStatusApplied,
-	}
-	require.NoError(t, db.Create(tpl).Error)
-
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
-	code, _ := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10)+
-			"&template="+strconv.FormatUint(uint64(tpl.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
-	require.Equal(t, http.StatusOK, code)
-	assert.JSONEq(t, `{"msg_type":"text","text":"status=firing"}`, string(rec.lastBody()))
-}
-
-// TestBridgeTemplateChannelTypeMismatch 模板适用渠道类型与渠道不一致 → 400，且不出站。
-func TestBridgeTemplateChannelTypeMismatch(t *testing.T) {
-	db := newNotifyDB(t)
-	rec := &fakeReceiver{}
-	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
-
-	tpl := &models.NotifyTemplate{
-		Name:        "wecom-tpl",
-		ChannelType: models.NotifyChannelTypeWecom,
-		Content:     `{"x":1}`,
-		Checksum:    models.AlertmanagerConfigChecksum("wecom"),
-		Status:      models.NotifyTemplateStatusApplied,
-	}
-	require.NoError(t, db.Create(tpl).Error)
-
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
-	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10)+
-			"&template="+strconv.FormatUint(uint64(tpl.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "bad_request", out.ErrorType)
-	assert.Zero(t, rec.calls())
 }
 
 // --- 渠道 ↔ 模板一等绑定（dev-feedback #30 / 设计提案 notify-template-channel-binding.md §5.2） ---
@@ -338,7 +271,7 @@ func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.Not
 	t.Helper()
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	return code, out, string(rec.lastBody())
 }
@@ -361,34 +294,13 @@ func TestBridgeUsesChannelBoundTemplate(t *testing.T) {
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
 	tpl := mustCreateFeishuTemplate(t, db, "sre-bound", "bound")
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	mustBindChannel(t, db, ch, tpl.ID)
 
 	code, out, body := bridgeCallOnce(t, db, rec, ch)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, strconv.FormatUint(uint64(tpl.ID), 10), out.Data["template"], "须用渠道绑定的模板渲染")
 	assert.JSONEq(t, `{"msg_type":"text","text":"bound"}`, body)
-}
-
-// TestBridgeExplicitTemplateOverridesChannelBinding 显式 `?template=` 优先于渠道绑定。
-func TestBridgeExplicitTemplateOverridesChannelBinding(t *testing.T) {
-	db := newNotifyDB(t)
-	require.NoError(t, EnsureBuiltinTemplates(db))
-	rec := &fakeReceiver{}
-	url := startFakeReceiver(t, rec)
-	bound := mustCreateFeishuTemplate(t, db, "bound-tpl", "bound")
-	explicit := mustCreateFeishuTemplate(t, db, "explicit-tpl", "explicit")
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
-	mustBindChannel(t, db, ch, bound.ID)
-
-	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
-	code, _ := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10)+
-			"&template="+strconv.FormatUint(uint64(explicit.ID), 10),
-		bridgeToken, amBridgePayload("firing"))
-	require.Equal(t, http.StatusOK, code)
-	assert.JSONEq(t, `{"msg_type":"text","text":"explicit"}`, string(rec.lastBody()),
-		"显式 template 参数优先级高于渠道绑定")
 }
 
 // TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing 绑定指向不存在的模板（脏数据）→
@@ -398,7 +310,7 @@ func TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	mustBindChannel(t, db, ch, 999999) // 不存在的模板 ID
 	logs := captureBridgeLogs(t)
 
@@ -424,7 +336,7 @@ func TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch(t *testing.T) {
 		Status:      models.NotifyTemplateStatusApplied,
 	}
 	require.NoError(t, db.Create(wecom).Error)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	mustBindChannel(t, db, ch, wecom.ID)
 
 	code, _, body := bridgeCallOnce(t, db, rec, ch)
@@ -441,7 +353,7 @@ func TestBridgeSendFailureReturnsBadGateway(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{status: http.StatusInternalServerError}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 
 	var logs []string
 	orig := bridgeLogf
@@ -450,7 +362,7 @@ func TestBridgeSendFailureReturnsBadGateway(t *testing.T) {
 
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadGateway, code)
 	assert.Equal(t, "bad_gateway", out.ErrorType)
@@ -464,7 +376,7 @@ func TestBridgeSuccessStructuredLog(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 
 	var logs []string
 	orig := bridgeLogf
@@ -473,7 +385,7 @@ func TestBridgeSuccessStructuredLog(t *testing.T) {
 
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	code, _ := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	assert.Contains(t, logs, "[notify-bridge] send ok channel=%d type=%s template=%d status=%s alerts=%d")
@@ -538,13 +450,12 @@ func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	enabled := true
-	ch, err := CreateChannel(db, ChannelInput{Name: "SRE", Type: "feishu", WebhookURL: url, Secret: "s3cret", Enabled: &enabled})
+	ch, err := CreateChannel(db, ChannelInput{Name: "SRE", Type: "feishu", WebhookURL: url, Secret: "s3cret"})
 	require.NoError(t, err)
 
 	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
 	code, out := doBridgeJSON(t, r,
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, "success", out.Status)
@@ -568,10 +479,10 @@ func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 
 	code, _ := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	require.Equal(t, http.StatusOK, code)
 	var body map[string]interface{}
@@ -622,11 +533,11 @@ func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T) {
 	require.NoError(t, EnsureBuiltinTemplates(db))
 	rec := &fakeReceiver{respBody: []byte(`{"code":19021,"msg":"sign match fail or timestamp is not within one hour from current time"}`)}
 	url := startFakeReceiver(t, rec)
-	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url)
 	logs := captureBridgeLogs(t)
 
 	code, out := doBridgeJSON(t, newBridgeRouter(db, BridgeConfig{Token: bridgeToken}),
-		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		"/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10),
 		bridgeToken, amBridgePayload("firing"))
 	assert.Equal(t, http.StatusBadGateway, code, "业务错误须令 AM 视为投递失败并重试")
 	assert.Equal(t, "bad_gateway", out.ErrorType)

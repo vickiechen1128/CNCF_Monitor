@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"gorm.io/gorm"
 )
@@ -22,11 +23,13 @@ func parseID(c *gin.Context) (uint, error) {
 
 // respondChannelError 将渠道服务层错误映射为统一错误响应。
 func respondChannelError(c *gin.Context, err error) {
+	var inUse *ErrChannelInUse
 	switch {
 	case errors.Is(err, ErrChannelNotFound):
 		response.NotFound(c, err.Error())
+	case errors.As(err, &inUse), errors.Is(err, ErrChannelReferenceCheckFailed):
+		response.Conflict(c, err)
 	case errors.Is(err, ErrChannelNameRequired), errors.Is(err, ErrChannelTypeInvalid), errors.Is(err, ErrChannelWebhookInvalid),
-		errors.Is(err, ErrReceiverNameInvalid),
 		errors.Is(err, ErrChannelTemplateNotFound), errors.Is(err, ErrChannelTemplateMismatch):
 		response.BadRequest(c, err)
 	default:
@@ -43,9 +46,11 @@ func ListChannelsHandler(db *gorm.DB) gin.HandlerFunc {
 			response.InternalServerError(c, err)
 			return
 		}
+		// 路由引用数用于前端提示「渠道建了但没被任何路由使用」；读取失败仅降级为 0，不阻断列表。
+		refs, _ := route.ReferencedReceiverNames(db)
 		items := make([]ChannelView, 0, len(rows))
 		for i := range rows {
-			items = append(items, ToChannelView(&rows[i]))
+			items = append(items, toChannelViewWithRouteRefs(&rows[i], refs))
 		}
 		response.OK(c, gin.H{"items": items})
 	}
@@ -59,7 +64,6 @@ func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			Type              string `json:"type" binding:"required"`
 			WebhookURL        string `json:"webhook_url" binding:"required"`
 			Secret            string `json:"secret"`
-			Enabled           *bool  `json:"enabled"`
 			DefaultTemplateID *uint  `json:"default_template_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -71,14 +75,14 @@ func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			Type:              req.Type,
 			WebhookURL:        req.WebhookURL,
 			Secret:            req.Secret,
-			Enabled:           req.Enabled,
 			DefaultTemplateID: req.DefaultTemplateID,
 		})
 		if err != nil {
 			respondChannelError(c, err)
 			return
 		}
-		response.OK(c, ToChannelView(ch))
+		refs, _ := route.ReferencedReceiverNames(db)
+		response.OK(c, toChannelViewWithRouteRefs(ch, refs))
 	}
 }
 
@@ -95,7 +99,6 @@ func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			Type              *string `json:"type"`
 			WebhookURL        *string `json:"webhook_url"`
 			Secret            *string `json:"secret"`
-			Enabled           *bool   `json:"enabled"`
 			DefaultTemplateID *uint   `json:"default_template_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -107,14 +110,14 @@ func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			Type:              req.Type,
 			WebhookURL:        req.WebhookURL,
 			Secret:            req.Secret,
-			Enabled:           req.Enabled,
 			DefaultTemplateID: req.DefaultTemplateID,
 		})
 		if err != nil {
 			respondChannelError(c, err)
 			return
 		}
-		response.OK(c, ToChannelView(ch))
+		refs, _ := route.ReferencedReceiverNames(db)
+		response.OK(c, toChannelViewWithRouteRefs(ch, refs))
 	}
 }
 

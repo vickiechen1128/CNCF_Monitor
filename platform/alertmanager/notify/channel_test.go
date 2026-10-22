@@ -30,7 +30,14 @@ func newNotifyDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:notify_%d?mode=memory&cache=shared", atomic.AddInt64(&notifyDBCounter, 1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotifyChannel{}, &models.NotifyTemplate{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
+		// 渠道删除前的路由引用检查会读取当前生效 / 待确认配置。
+		&models.ConfigDraft{},
+		&models.ConfigVersion{},
+		&models.AlertmanagerConfigVersion{},
+	))
 	return db
 }
 
@@ -80,7 +87,7 @@ func TestCreateChannelPersistsAndValidates(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotZero(t, ch.ID)
-	assert.True(t, ch.Enabled, "enabled 缺省为 true")
+	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName(), "receiver 名恒为 notify-<id>")
 
 	// 非法输入。
 	_, err = CreateChannel(db, ChannelInput{Name: "", Type: "feishu", WebhookURL: "https://x/y"})
@@ -93,6 +100,29 @@ func TestCreateChannelPersistsAndValidates(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChannelWebhookInvalid)
 }
 
+// TestDeleteChannelBlockedWhenReferencedByRoute 渠道被路由引用时禁止删除（要求先改绑）。
+func TestDeleteChannelBlockedWhenReferencedByRoute(t *testing.T) {
+	db := newNotifyDB(t)
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "SRE 飞书群", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x",
+	})
+	require.NoError(t, err)
+	content := "route:\n  receiver: " + ch.ReceiverName() + "\nreceivers:\n  - name: " + ch.ReceiverName() + "\n"
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content: content, Checksum: models.AlertmanagerConfigChecksum(content),
+		Status: models.AlertmanagerConfigStatusApplied,
+	}).Error)
+
+	err = DeleteChannel(db, ch.ID)
+	var inUse *ErrChannelInUse
+	require.ErrorAs(t, err, &inUse)
+	assert.Contains(t, inUse.Error(), "路由")
+	assert.Contains(t, inUse.Error(), "notify-"+fmt.Sprint(ch.ID))
+	// 渠道仍存在。
+	_, err = GetChannel(db, ch.ID)
+	require.NoError(t, err)
+}
+
 // TestChannelViewMasksCredentials 覆盖响应脱敏：不回显完整 webhook_url / secret。
 func TestChannelViewMasksCredentials(t *testing.T) {
 	ch := &models.NotifyChannel{
@@ -101,7 +131,6 @@ func TestChannelViewMasksCredentials(t *testing.T) {
 		Type:       models.NotifyChannelTypeFeishu,
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/abc-secret-token",
 		Secret:     "topsecret",
-		Enabled:    true,
 	}
 	v := ToChannelView(ch)
 	assert.Equal(t, "7", v.ID)
