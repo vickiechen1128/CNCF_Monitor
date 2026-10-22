@@ -796,14 +796,14 @@ describe('ResourcesPage', () => {
     await screen.findByText('prod-web-01')
 
     const th = screen.getByRole('columnheader', { name: /实例名/ })
-    expect(th.style.width).toBe('180px')
+    expect(th.style.width).toBe('300px')
     const handle = within(th).getByTestId('column-resize-handle')
 
     fireEvent.mouseDown(handle, { clientX: 100, clientY: 10, button: 0 })
     fireEvent.mouseMove(document, { clientX: 160, clientY: 10 })
-    await waitFor(() => expect(th.style.width).toBe('240px'))
+    await waitFor(() => expect(th.style.width).toBe('360px'))
     fireEvent.mouseUp(document, { clientX: 160, clientY: 10 })
-    expect(th.style.width).toBe('240px')
+    expect(th.style.width).toBe('360px')
 
     // 纯会话态：不写任何列宽偏好到 localStorage
     expect(Array.from(storageMap.keys()).some((key) => key.startsWith('mc_res_list_col_widths_'))).toBe(false)

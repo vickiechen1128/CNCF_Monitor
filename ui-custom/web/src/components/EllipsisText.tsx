@@ -7,7 +7,8 @@ import type { ReactNode } from 'react'
 
 interface EllipsisTextProps {
   children: ReactNode
-  maxWidth?: number
+  /** 最大宽度：固定像素（默认 200）或 '100%'（跟随表格单元格宽度，用于可拖拽列宽） */
+  maxWidth?: number | string
   type?: 'secondary' | 'success' | 'warning' | 'danger'
   code?: boolean
   strong?: boolean

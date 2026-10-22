@@ -760,8 +760,8 @@ export function ResourcesPage() {
           // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
           // 主标识列固定左侧（tablePresets 规则：主标识列 fixed:'left'），横向滚动不丢失。
           fixed: 'left',
-          width: 180,
-          render: (_: unknown, record: ResourceListItem) => <EllipsisText strong>{record.instance_name || '-'}</EllipsisText>,
+          width: 300,
+          render: (_: unknown, record: ResourceListItem) => <EllipsisText strong maxWidth="100%">{record.instance_name || '-'}</EllipsisText>,
         }
         // F-6：拆分原「应用 / 环境 / 集群」组合列——应用信息由共享 appColumn 承载，
         // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
@@ -805,8 +805,8 @@ export function ResourcesPage() {
           dataIndex: 'instance_ip',
           key: 'instance_name',
           fixed: 'left',
-          width: 180,
-          render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText>,
+          width: 300,
+          render: (v?: string) => <EllipsisText maxWidth="100%">{v || '-'}</EllipsisText>,
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           {
@@ -843,8 +843,8 @@ export function ResourcesPage() {
           dataIndex: 'instance_ip',
           key: 'instance_name',
           fixed: 'left',
-          width: 180,
-          render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText>,
+          width: 300,
+          render: (v?: string) => <EllipsisText maxWidth="100%">{v || '-'}</EllipsisText>,
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           {
@@ -887,8 +887,8 @@ export function ResourcesPage() {
           key: 'service_name',
           // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长服务名截断 + 悬浮全文。
           fixed: 'left',
-          width: 180,
-          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+          width: 300,
+          render: (v?: string) => <EllipsisText strong maxWidth="100%">{v || '-'}</EllipsisText>,
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           {
@@ -958,8 +958,8 @@ export function ResourcesPage() {
           key: 'target_name',
           // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长目标名截断 + 悬浮全文。
           fixed: 'left',
-          width: 180,
-          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+          width: 300,
+          render: (v?: string) => <EllipsisText strong maxWidth="100%">{v || '-'}</EllipsisText>,
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
@@ -1005,8 +1005,8 @@ export function ResourcesPage() {
           dataIndex: 'api_name',
           key: 'api_name',
           fixed: 'left',
-          width: 180,
-          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+          width: 300,
+          render: (v?: string) => <EllipsisText strong maxWidth="100%">{v || '-'}</EllipsisText>,
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           {
