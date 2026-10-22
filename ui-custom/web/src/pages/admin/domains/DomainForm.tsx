@@ -7,6 +7,7 @@ import {
   StopOutlined,
 } from '@ant-design/icons'
 import {
+  fetchManagementDomain,
   networkDomainApi,
   tenantApi,
   zoneTypeApi,
@@ -83,10 +84,12 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
   // 云归属下拉数据源（云字典只读接口 GET /api/v2/platform/cloud-dict，仅启用项，M06 §5.2 / M07 §5.20）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
-  // 前置自检（登记态）：中心能否直接访问——能 → 硬劝阻；不能 → 展开登记字段
+  // 前置自检（登记态）：中心能否直接访问——能 → 登记中心直连域（全平台唯一）；不能 → 采集节点域
   const watchedCenterDirect = Form.useWatch('center_direct', form) as 'yes' | 'no' | undefined
-  /** {v2.13} 决策 79：新建时未选择「访问不到」不提供提交路径——硬劝阻终点 */
-  const canSubmit = mode === 'edit' ? true : watchedCenterDirect === 'no'
+  // 中心直连域（管理域）是否已登记：已存在时不再提供第二个创建路径。
+  const [managementDomain, setManagementDomain] = useState<NetworkDomain | null>(null)
+  const canCreateManagement = watchedCenterDirect === 'yes' && !managementDomain
+  const canSubmit = mode === 'edit' ? true : watchedCenterDirect === 'no' || canCreateManagement
 
   useEffect(() => {
     if (!open) return
@@ -114,6 +117,10 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
+    // 中心直连域可能尚未登记（方案 A）：单独拉取，失败不阻断其它字典加载。
+    void fetchManagementDomain()
+      .then(setManagementDomain)
+      .catch(() => setManagementDomain(null))
   }, [open, mode, domain, form])
 
   const enabledZoneTypes = zoneTypes.filter((z) => z.enabled)
@@ -143,7 +150,8 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
       if (mode === 'create') {
         const input: NetworkDomainCreateInput = {
           name: String(values.name),
-          domain_type: 'edge',
+          // 中心能直接访问 → 中心直连域（全平台唯一）；否则 → 采集节点域。
+          domain_type: values.center_direct === 'yes' ? 'management' : 'edge',
           cloud_code: String(values.cloud_code),
           zone_type: String(values.zone_type),
           description: values.description ? String(values.description) : undefined,
@@ -212,7 +220,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
               <Space direction="vertical" style={{ width: '100%' }} size={0}>
                 <div role="radiogroup" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                   {[
-                    { v: 'yes', title: '中心能直接访问', desc: '机器由平台中心直接采集，统一纳入中心直连域（default）。', tone: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
+                    { v: 'yes', title: '中心能直接访问', desc: '机器由平台中心直接采集，登记为中心直连域（全平台唯一）。', tone: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
                     { v: 'no', title: '中心访问不到', desc: '中心无法直接连通该网络，需在其中一台常开机器上安装采集节点回传数据。', tone: '#fa8c16', bg: '#fff7e6', icon: <DisconnectOutlined /> },
                   ].map((o) => (
                     <div
@@ -255,21 +263,29 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                 判断口径：以「平台中心能否直接连通目标机器」为准，与你本人能否登录运维无关。
               </Text>
             </div>
-            {watchedCenterDirect === 'yes' && (
-              /* {v2.13} 决策 79：硬劝阻终点——表单不展开、确认按钮禁用、无继续填写路径 */
+            {watchedCenterDirect === 'yes' && managementDomain && (
+              /* 中心直连域已登记：全平台唯一，不再提供第二个创建路径 */
               <div style={{ marginTop: 12 }}>
                 <Callout
                   tone="warning"
                   icon={<StopOutlined />}
-                  title="无需登记网域，请关闭本窗口"
+                  title="中心直连域已登记，全平台只能有一个"
                   extra={
                     <Button type="text" size="small" onClick={onCancel} style={{ color: tokens.colorInfo }}>
                       关闭
                     </Button>
                   }
                 >
-                  能被平台中心直接访问的机器统一放在「中心直连域（default）」，由中心直接采集。
-                  如需把网域共享给其他租户使用，请改用「授权租户」字段，不必另建网域。
+                  当前中心直连域为「{managementDomain.name}」。如需改名称或归属信息，请在列表编辑；
+                  如需重建，请先删除已有中心直连域。
+                </Callout>
+              </div>
+            )}
+            {watchedCenterDirect === 'yes' && !managementDomain && (
+              <div style={{ marginTop: 12 }}>
+                <Callout tone="info" icon={<InfoCircleFilled />} title="将登记中心直连域（全平台唯一）">
+                  中心直连域代表中心 Prometheus 自身的采集范围，全平台只能登记一个。
+                  创建后可在列表中编辑名称、删除后重建。
                 </Callout>
               </div>
             )}
@@ -283,7 +299,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
           </FormSection>
         )}
 
-        {(mode === 'edit' || watchedCenterDirect === 'no') && (
+        {(mode === 'edit' || watchedCenterDirect === 'no' || canCreateManagement) && (
           <>
             <FormSection title="行政信息">
               <Row gutter={16}>
@@ -298,7 +314,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                 </Col>
                 <Col span={14}>
                   <Form.Item label="网域名称" name="name" rules={[{ required: true, message: '请输入网域名称' }]}>
-                    <Input placeholder="例如：政务网 A 区" maxLength={64} disabled={domain?.id === 'default'} />
+                    <Input placeholder="例如：政务网 A 区" maxLength={64} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -311,7 +327,15 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                 <Col span={12}>
                   <Form.Item label="接入方式" extra="由「能否直连」自动得出">
                     <Input
-                      value={mode === 'edit' && domain?.domain_type === 'management' ? '中心直连域' : '采集节点域'}
+                      value={
+                        mode === 'edit'
+                          ? domain?.domain_type === 'management'
+                            ? '中心直连域'
+                            : '采集节点域'
+                          : watchedCenterDirect === 'yes'
+                            ? '中心直连域'
+                            : '采集节点域'
+                      }
                       disabled
                       style={{ color: '#1D2129' }}
                     />

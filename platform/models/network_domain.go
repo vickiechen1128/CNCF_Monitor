@@ -41,7 +41,10 @@ const (
 	AgentTypeVMAgent AgentType = "vmagent"
 )
 
-// DefaultDomainID is the historical pre-provisioned management domain id.
+// DefaultDomainID is the fixed internal id of the center-direct (management)
+// domain. The row is no longer seeded: it is registered on demand through M06
+// (at most one), but it always uses this id so config generation, alertmanager
+// ownership and Prometheus external_labels stay stable.
 const DefaultDomainID = "default"
 
 // RegistrationStatus 表示网域纳管状态（PRD Module_11 §8.3）。

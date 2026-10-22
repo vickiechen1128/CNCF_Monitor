@@ -677,14 +677,19 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   extra={
                     domains.length === 0 ? (
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        默认域自动同步已纳管，未纳管请前往
+                        请选择已纳管网域；未纳管请前往
                         <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
                         纳管
                       </Text>
                     ) : undefined
                   }
                 >
-                  <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="仅已纳管非冻结网域"
+                    notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记中心直连域或采集节点域"
+                  >
                     {domains.map((d) => (
                       <Select.Option key={d.id} value={d.id} label={d.name}>
                         {d.name}
@@ -885,14 +890,19 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               extra={
                 domains.length === 0 ? (
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    默认域自动同步已纳管，未纳管请前往
+                    请选择已纳管网域；未纳管请前往
                     <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
                     纳管
                   </Text>
                 ) : undefined
               }
             >
-              <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="仅已纳管非冻结网域"
+                notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记中心直连域或采集节点域"
+              >
                 {domains.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
                     {d.name}

@@ -17,14 +17,25 @@ import (
 var memDBCounter int64
 
 // newMemConfigDB opens a per-test in-memory SQLite DB migrated with the
-// alertmanager config version table.
+// alertmanager config version table and the management domain (alertmanager.yml
+// belongs to the center-direct domain, decision 60).
 func newMemConfigDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	n := atomic.AddInt64(&memDBCounter, 1)
 	dsn := fmt.Sprintf("file:amcfg_%d?mode=memory&cache=shared", n)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.AlertmanagerConfigVersion{}))
+	require.NoError(t, db.AutoMigrate(&models.AlertmanagerConfigVersion{}, &models.NetworkDomain{}))
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID:                  models.DefaultDomainID,
+		Name:                "默认网域",
+		DomainType:          models.DomainTypeManagement,
+		Channel:             models.ChannelTypeLocal,
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
+		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true,
+	}).Error)
 	return db
 }
 

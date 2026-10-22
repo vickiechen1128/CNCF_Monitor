@@ -46,7 +46,7 @@ function DisableDomainModalInner({ open, domain, onCancel, onSuccess }: DisableD
       return
     }
     if (domain.domain_type === 'management') {
-      message.error('系统预置管理域不可禁用')
+      message.error('中心直连域不可禁用')
       return
     }
     setConfirming(true)

@@ -302,11 +302,18 @@ func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore
 	category := row.Category
 	in := &row.Input
 
-	// 1. 网域：空自动填 default，再校验存在性（§5.16.2 / §5.16.1 引导闭环）。
-	if strings.TrimSpace(in.NetworkDomainID) == "" {
+	// 1. 网域：空自动填 default（中心直连域），再校验存在性（§5.16.2 / §5.16.1 引导闭环）。
+	// 中心直连域已改为按需登记：留空仍按历史语义指向 default，但该行不存在时
+	// 必须报错，不能把资源绑定到一个没有登记的中心直连域。
+	domainWasBlank := strings.TrimSpace(in.NetworkDomainID) == ""
+	if domainWasBlank {
 		in.NetworkDomainID = models.DefaultDomainID
 	}
 	if networkDomainExists != nil && !networkDomainExists(in.NetworkDomainID) {
+		if domainWasBlank {
+			return fieldErr(row, "network_domain_id", in.NetworkDomainID,
+				"网域留空默认归入中心直连域，但中心直连域尚未登记；请先到『系统设置 → 网域管理』登记中心直连域，或在模板中填写网域")
+		}
 		return fieldErr(row, "network_domain_id", in.NetworkDomainID,
 			fmt.Sprintf("网域 %s 未登记，请先到『系统设置 → 网域管理』登记后重新导入", in.NetworkDomainID))
 	}

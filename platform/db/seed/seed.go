@@ -1,7 +1,8 @@
 // Package seed provides idempotent upsert of the Phase 0 seed data:
-// platform_admin tenant, default network domain, zone_type dictionary,
-// default LabelTemplates and built-in ExporterTemplates with default
-// CITypeExporterMappings, plus the initial admin user (Module_06 §5.3).
+// platform_admin tenant, zone_type dictionary, default LabelTemplates and
+// built-in ExporterTemplates with default CITypeExporterMappings, plus the
+// initial admin user (Module_06 §5.3). The center-direct (management) network
+// domain is registered on demand through M06 and is intentionally not seeded.
 package seed
 
 import (

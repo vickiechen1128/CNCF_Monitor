@@ -88,9 +88,9 @@ function accessStepOf(record: NetworkDomain): number {
   return 3
 }
 
-/** 中心直连域接入进度：无采集节点环节，简化为两态（已预置 → 已纳管直连采集） */
+/** 中心直连域接入进度：无采集节点环节，简化为两态（已登记 → 已纳管直连采集） */
 const DIRECT_STEP_LABELS: Record<number, string> = {
-  1: '已预置（中心直连）',
+  1: '已登记（中心直连）',
   2: '已纳管·直连采集',
 }
 const DIRECT_STEP_HINT = '中心直连域由平台中心直接采集，无需安装采集节点。'
@@ -347,22 +347,17 @@ export function DomainsPage() {
         const moreItems: MenuProps['items'] = [
           { key: 'detail', label: '查看详情', icon: <ProfileOutlined /> },
           { type: 'divider' },
-          isManagement
-            ? {
-                key: 'system-hint',
-                disabled: true,
-                label: <Text type="secondary" style={{ fontSize: 12 }}>系统预置网域：不可禁用 / 删除</Text>,
-              }
-            : {
-                key: 'toggle',
-                label: record.status === 'enabled' ? '禁用网域' : '启用网域',
-                icon: record.status === 'enabled' ? <StopOutlined /> : <CheckCircleOutlined />,
-                danger: record.status === 'enabled',
-              },
         ]
+        // 管理域（中心直连域）仍禁止禁用（行政冻结），但允许删除 / 重建。
         if (!isManagement) {
-          moreItems.push({ key: 'delete', label: '删除网域', icon: <DeleteOutlined />, danger: true })
+          moreItems.push({
+            key: 'toggle',
+            label: record.status === 'enabled' ? '禁用网域' : '启用网域',
+            icon: record.status === 'enabled' ? <StopOutlined /> : <CheckCircleOutlined />,
+            danger: record.status === 'enabled',
+          })
         }
+        moreItems.push({ key: 'delete', label: '删除网域', icon: <DeleteOutlined />, danger: true })
         return (
           <Space size={0}>
             {!isManagement && (

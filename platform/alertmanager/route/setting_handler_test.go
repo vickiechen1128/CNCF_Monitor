@@ -27,7 +27,18 @@ func newRouteDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:route_%d?mode=memory&cache=shared", atomic.AddInt64(&routeDBCounter, 1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotifyChannel{}, &models.AlertmanagerRouteSetting{}))
+	require.NoError(t, db.AutoMigrate(&models.NotifyChannel{}, &models.AlertmanagerRouteSetting{}, &models.NetworkDomain{}))
+	// 方案 A：中心直连域按需登记；测试库显式建一条作为管理域单例。
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID:                  models.DefaultDomainID,
+		Name:                "默认网域",
+		DomainType:          models.DomainTypeManagement,
+		Channel:             models.ChannelTypeLocal,
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
+		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true,
+	}).Error)
 	return db
 }
 

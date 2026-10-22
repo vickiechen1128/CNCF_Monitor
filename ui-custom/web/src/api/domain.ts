@@ -24,6 +24,7 @@ export interface ListParams extends Record<string, string | number | boolean | u
   page_size?: number
   status?: string
   zone_type?: string
+  domain_type?: DomainType
   tenant_id?: string
   name?: string
 }
@@ -97,6 +98,15 @@ export const networkDomainApi = {
   remove(id: string): Promise<ApiResponse<NetworkDomainDeleteResult>> {
     return apiClient.delete<NetworkDomainDeleteResult>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`)
   },
+}
+
+/**
+ * 读取中心直连域（管理域单例）。方案 A 下它不再由 seed 预置，可能不存在；
+ * 依赖它的页面/动作必须先调用本函数拿到真实 ID，不能硬编码 'default'。
+ */
+export async function fetchManagementDomain(): Promise<NetworkDomain | null> {
+  const res = await networkDomainApi.list({ page: 1, page_size: 1, domain_type: 'management' })
+  return res.data?.list?.[0] ?? null
 }
 
 /**

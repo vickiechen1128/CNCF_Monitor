@@ -99,6 +99,21 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.AlertmanagerRouteSetting{},
 	))
 	require.NoError(t, seed.Run(db))
+	// 方案 A：中心直连域不再由 seed 预置，集成测试显式登记一次（模拟用户首装后
+	// 在网域管理页登记中心直连域），使既有 M07/M08/M09 链路保持可运行。
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID:                  models.DefaultDomainID,
+		Name:                "默认网域",
+		DomainType:          models.DomainTypeManagement,
+		ZoneType:            string(models.ZoneTypeInternet),
+		CloudCode:           "PUB-TX",
+		Channel:             models.ChannelTypeLocal,
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
+		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true,
+		RegistrationStatus:  models.RegistrationStatusMonitored,
+	}).Error)
 	// 决策 92：资源侧 app_code 必须引用未停用的应用字典条目。集成测试库无存量资源
 	// 可供 seed 迁移（seed 从存量取值生成条目），故显式补一条启用条目供资源用例引用。
 	for _, d := range []models.ApplicationDict{
@@ -353,7 +368,7 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		return w.Code, out
 	}
 
-	// 0. seeded default domain present
+	// 0. center-direct domain is registered by the test helper (no longer seeded)
 	{
 		code, out := exec("GET", "/api/v2/platform/network-domains", "")
 		require.Equal(t, http.StatusOK, code)
@@ -364,7 +379,7 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 				found = true
 			}
 		}
-		assert.True(t, found, "default domain should be seeded")
+		assert.True(t, found, "中心直连域应由登记流程创建")
 	}
 
 	// 1. zone-types returns enabled dictionary (non-paginated array)
@@ -428,12 +443,12 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		assert.Equal(t, false, impact["has_online_agents"])
 	}
 
-	// 6b. default management domain cannot be disabled/deleted
+	// 6b. center-direct domain: disable stays blocked, delete is allowed (方案 A)
 	{
 		code, _ := exec("PATCH", "/api/v2/platform/network-domains/"+models.DefaultDomainID+"/status", `{"status":"disabled"}`)
-		assert.Equal(t, 400, code) // 决策82：管理域禁禁用返回400（bad_request）
+		assert.Equal(t, 400, code) // 管理域仍禁止禁用（行政冻结）
 		code2, _ := exec("DELETE", "/api/v2/platform/network-domains/"+models.DefaultDomainID, "")
-		assert.Equal(t, 400, code2) // 决策82-1：管理域禁止删除返回400（bad_request）
+		assert.Equal(t, 200, code2) // 无引用时中心直连域可删除
 	}
 
 	// 7. re-enable then delete the (now enabled, empty) domain

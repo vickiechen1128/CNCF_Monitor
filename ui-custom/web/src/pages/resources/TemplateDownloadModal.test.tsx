@@ -154,11 +154,11 @@ describe('TemplateDownloadModal', () => {
 
   it('warns that undeclared default network domain fails import (F-22)', () => {
     renderModal()
-    // 三件事同时说清：表单必填 / 导入留空归入 default / default 未登记则导入失败
+    // 三件事同时说清：表单必填 / 导入留空归入中心直连域 / 中心直连域未登记则导入失败
     expect(screen.getByText(/在页面上新增或编辑资源时网域是必填项/)).toBeInTheDocument()
-    expect(screen.getByText(/留空会自动归入默认网域 default/)).toBeInTheDocument()
+    expect(screen.getByText(/留空会自动归入中心直连域/)).toBeInTheDocument()
     expect(
-      screen.getByText(/默认网域 default 必须在「系统设置 → 网域管理」里已登记，否则导入会直接失败/),
+      screen.getByText(/中心直连域必须先到「系统设置 → 网域管理」登记（全平台唯一），否则留空导入会直接失败/),
     ).toBeInTheDocument()
     // 原「留空即安全」表述已移除
     expect(screen.queryByText('网域可留空——留空时平台自动归属默认网域')).toBeNull()
