@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.2
+> **PRD 版本**: v2.5
 > **产品版本覆盖**: MVP / v0.2 / v1.0
-> **原型版本**: v1.72（PRD v2.0 为「M09 1拆2」瘦身轮——网域纳管 / 采集节点状态 / edge 协议 / EdgeAgent 数据模型 / 相关状态机与验收整体迁出至 [Module_11](Module_11_Edge_Access_and_Agent_Delivery.md)（决策 86），本模块收敛为配置生成与下发中心，配置面规格语义零变更；**M09 与 M11 共用本原型目录**（决策 87，不拆分），原有纳管页 / 节点状态页骨架原位复用，M11 新增页面亦落于此，配置确认页 / 下发记录页原型不变）
-> **更新日期**: 2026-09-30
+> **原型版本**: v1.72（PRD v2.0 为「M09 1拆2」瘦身轮——网域纳管 / 采集节点状态 / edge 协议 / EdgeAgent 数据模型 / 相关状态机与验收整体迁出至 [Module_11](Module_11_Edge_Access_and_Agent_Delivery.md)（决策 86），本模块收敛为配置生成与下发中心，配置面规格语义零变更；**M09 与 M11 共用本原型目录**（决策 87，不拆分），原有纳管页 / 节点状态页骨架原位复用，M11 新增页面亦落于此，配置确认页 / 下发记录页原型不变。**v2.3 收割增量（F-42 网域抽屉「回传参数」分组、采集节点「更多」菜单重启 / 清空积压项）待后续原型轮承接，本轮仅回写 PRD**；**v2.4 为跨模块 dev-feedback 收割（M11 F-23 / M11 G1），配置确认页 / 下发记录页交互不变，原型无需同步**）
+> **更新日期**: 2026-10-23
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -163,6 +163,7 @@ M09 的 Web 门户菜单为单一一级菜单组「配置下发」（配置面�
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --- | ------------------------- |
 | 变更单级确认     | 一次确认 / 废弃整张变更单（go/no-go），不逐行确认、不拆分发布；确认后 draft 转 `ConfigVersion` 并进入待下发                                                                   | P0  | MVP                       |
 | 确认门槛与留痕    | 仅 `validation_status=passed` 可确认发布；确认动作记录确认人（MVP 预置登录用户上下文，M06 用户管理接入后同步为真实用户）                                                            | P0  | MVP                       |
+| 系统初始化空配置例外 | 系统初始化空配置是人工确认的**唯一系统例外**——由 `system:bootstrap` 自动确认，不进入待确认列表、不要求人工 go/no-go；其余变更单仍须人工确认（触发条件与产物见 6.4.7，M11 F-23） | P0  | {v0.2}                    |
 | 确认抽屉标注发布通道 | `local`「确认后立即 reload 生效」；`agent_pull`「发布为配置包，待边缘 Agent 下次心跳拉取生效」                                                                          | P0  | MVP；agent\_pull 文案 {v0.2} |
 | 废弃伴随源数据回写  | 废弃前调 `discard-impact` 获取分类影响并弹窗知情告知，按分类回写（新建未生效 → 回退 `draft`；已生效修改 → 提示 + 复现；删除 / 停用型 → 自动恢复）；`change_status` 统一回写、无 `pending` 残留；语义见 6.5 | P1  | MVP                       |
 | 已发布版本入口    | 已确认 / 已废弃变更展示已发布配置版本号并提供「查看发布记录」，跳转下发记录页定位回滚                                                                                              | P0  | MVP                       |
@@ -219,6 +220,7 @@ M09 的 Web 门户菜单为单一一级菜单组「配置下发」（配置面�
 | 行为要点      | 说明                                                                                                                                         | 优先级 | 交付版本 |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --- | ---- |
 | 按网域生成产物   | 为每个网域生成一套配置产物（主配置、目标文件、规则、拨测、告警投递配置等），按网域独立确认与下发；产物结构与生成规则见 6.4 | P0  | MVP  |
+| 系统初始化空配置（M11 F-23） | 仅已纳管、未禁用、`channel=agent_pull`、尚无任何配置版本且当前无启用中采集 Job 的空白网域，由首个采集节点心跳触发；自动生成并确认一份零采集任务的空配置，使首次部署即可拉取、不以无配置失败启动；细节见 6.4.7 | P0  | {v0.2} |
 | 数据来源与自动触发 | 采集 Job / 告警规则（M01）与资源 / 标签模板（M07）变更后自动重算，无需用户手动触发；源表清单与触发条件见 6.5                                                                           | P0  | MVP  |
 | 保存后即时触发   | 用户在策略 / 资源页保存后前端 best-effort 即时触发一次草稿生成，并提供「前往配置变更确认」入口；轮询为兜底保底                                                                            | P0  | MVP  |
 | 草稿先行      | 生成结果先写入 `ConfigDraft`，不直接覆盖生效版本                                                                                                            | P0  | MVP  |
@@ -283,7 +285,7 @@ flowchart LR
 
 ### 4.2 确认与下发时序
 
-> 以下为**变更检测与配置生成全链路时序**。除「人工确认」外，整条链路均为 **Module\_09 异步轮询链路**（默认 30s 周期）；**人工确认是唯一同步环节**。
+> 以下为**常规变更检测与配置生成全链路时序**。常规链路除人工确认外均为 **Module\_09 异步轮询链路**（默认 30s 周期）；空白 `agent_pull` 网域的系统初始化空配置是独立心跳支路（自动确认，见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)），不属于轮询链路。常规变更的人工确认仍是唯一同步环节。
 
 ```mermaid
 flowchart TD
@@ -292,11 +294,13 @@ flowchart TD
   C["③ 按网域生成配置：prometheus.yml / targets/*.json / rules.yml / blackbox.yml（按需）"]
   D["④ 联合 checksum 裁决：与生效 ConfigVersion 一致 → 丢弃不产生新草稿（仅更新版本记录）；<br/>不一致 → 生成 status=pending 的 ConfigDraft"]
   E["⑤ 草稿进入确认列表（异步链路结束，等待确认）"]
-  F["⑥ 人工确认（唯一同步环节）：UI 预览 / diff → confirmed"]
+  F["⑥ 人工确认（常规链路唯一同步环节）：UI 预览 / diff → confirmed"]
   G["⑦ 生成 ConfigVersion<br/>⑧ 下发：local 通道 SIGHUP / POST /-/reload；agent_pull 通道 Edge Sync Agent 心跳拉取配置包<br/>⑨ 写入 ConfigDeployment 下发记录"]
   E1["④-b 同域活 pending 取代：checksum 相同则保持 skipped_pending（不推进检测基线）；不同则新单取代旧单，旧单置 discarded(superseded)"]
   A --> B --> C --> D --> E1 --> E --> F --> G
 ```
+
+**系统初始化空配置支路（M11 F-23）**：空白 `agent_pull` 网域的首个采集节点心跳 → 该网域无任何 `ConfigVersion` → 复用常规产物生成器产出一份零 Job 空配置 → `system:bootstrap` 自动确认 → 采集节点在同一轮心跳即可拉取。该支路不经过上图的轮询预筛与人工确认节点，触发条件、产物形态与幂等口径见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)。
 
 1. **轮询触发**：配置中心定时（默认 30s）读取 Module\_01 与 Module\_07 的数据；先聚合各源表 `max(updated_at)` 为「源数据版本」，仅当源数据版本变化时才进入生成（详见 [6.5.1](#651-触发模式与三层机制)）。
 2. **草稿生成**：按网域聚合 ScrapeJobs、Rules、Resources、LabelTemplates，生成 `ConfigDraft`。
@@ -383,6 +387,8 @@ flowchart TD
 `blackbox_yml` 在所属网域存在 `job_type=blackbox` 的 ScrapeJob 时必填，且必须随 `prometheus.yml` 一同下发。
 
 `targets_files` 下发时按 job 名拆分为 `targets/<job_name>.json` 文件（固定文件名覆盖写），job 名中的非法文件名字符需做安全转换，保证文件名稳定可预测。
+
+**系统初始化空配置（bootstrap，M11 F-23）字段口径**：`system:bootstrap` 自动确认的空配置按常规 `ConfigDraft` / `ConfigVersion` 结构落库；**草稿字段**固定为——`summary=系统初始化空配置（当前网域暂无采集任务）`、`validation_status=passed`、`validation_message=系统初始化空配置，无需人工校验`（该字段在 bootstrap 场景承载成功说明，不代表校验失败）、`change_items=[]`、`metadata.trigger_summary=系统初始化空配置`、`confirmed_by=system:bootstrap`；确认后生成 `ConfigVersion` 并继承产物、`metadata` 与 `change_no`，草稿保留 `confirmed_by` / `confirmed_at` 留痕。`targets_files={}`（空对象，不产出任何 targets 文件），`rules_yml` / `blackbox_yml` / `alertmanager_yml` 均为空。该单仅在网域尚无任何 `ConfigVersion` 且无启用中的采集 Job（零 Job 空白网域）时生成，真实配置下发后以真实版本为准（见 6.4.7）。
 
 ### 5.3 配置版本（ConfigVersion）
 
@@ -571,6 +577,7 @@ scrape_configs:
 | `agent_pull` | 采集器位于中心无法直接触及的远端节点（隔离网域等）        | 非 `default` 网域（固定） | **zip 配置包**（含 `metadata.json`）                                               | 由 Edge Sync Agent 心跳拉取，拉取后按 `metadata.json` 中的 checksum 做完整性校验                                                  |
 
 - **MVP 边界**：一个网域同一时刻只有一种下发通道、对应一个逻辑采集组；`channel` **由 `domain_type` 派生**（`management`→`local`、`edge`→`agent_pull`），不提供通道切换入口、亦非独立可设字段；**`domain_type` 未知时按契约不得回退 `local`**（避免边缘域被误判为直连域的历史 bug）；同一网域内不混合通道（`local` 与 `agent_pull` 并存属 {v0.4+} 演化）。
+- **回传参数下发通道（F-42）**：`agent_pull` 通道的 `metadata.json` 复用 `remote_write_url` 四档解析先例，扩展携带网域级回传参数 `maxDiskUsagePerURL`（分层默认：平台硬兜底 1–2GB，生产部署默认 50GB）；配置入口 = 网域详情/纳管抽屉「回传参数」分组（与 `remote_write_url` 同层，per-URL 口径同域共享）；参数变化由边缘 supervisor 滚动重启 vmagent 子进程生效（agent 本体不重启、`tmpDataPath` 不变队列数据不丢）；老版本 agent 不识别新字段维持默认，天然向后兼容。
 - **{v0.4+} 演化**：同一网域内多采集节点（vmagent 分片、HA、blackbox 多探测点）、混合通道、`local` ↔ `agent_pull` 通道切换届时一并评审；影响面（M09 下发粒度细化到节点、M01 Job 分片 / 绑定、external\_labels 节点标签、通道切换历史版本处理）已记录于 design-decisions 的「v0.4+ 演化影响备忘」。
 
 #### 6.4.2 文件分工与生成规则
@@ -663,7 +670,7 @@ scrape_configs:
 当网域内存在 `job_type=blackbox` 的 `ScrapeJob` 时，Module\_09 必须同时生成 `prometheus.yml` 中对应的 scrape\_config、`targets/` 下对应的目标文件与同域 `blackbox.yml` 中的探测模块：
 
 - blackbox Job 的 scrape\_config 必须设置 `metrics_path: /probe`，并通过 `params.module` 引用 `blackbox.yml` 中的模块名；
-- blackbox Job 的目标（`ScrapeJob.blackbox_targets`）与其他 job 一样写入 targets JSON 文件（如 `targets/blackbox-http.json`），`prometheus.yml` 的 blackbox scrape\_config 保留 `metrics_path` / `params` / `relabel_configs` 骨架并用 `file_sd_configs` 引用该文件；
+- blackbox Job 的目标由 M01 资源选择承载（`resource_type` ∈ `interface_service` / `application`，`selected_instance_ids` 为目标资源列表；探测地址按类别派生只读字段 `target_field` 填充：接口服务 `api_url` / 应用服务 `health_check_url`）。手填 `blackbox_targets` 已禁用——创建/编辑请求非空返回 `400`，历史字段仅兼容读取、**不再参与目标生成**（F-29，跨模块口径见 M01 §5.4 / M07 §9）；目标生成时与其他 job 一样写入 targets JSON 文件（如 `targets/blackbox-http.json`，target 同时携带资源标签），`prometheus.yml` 的 blackbox scrape\_config 保留 `metrics_path` / `params` / `relabel_configs` 骨架并用 `file_sd_configs` 引用该文件；
 - 通过 `relabel_configs` 将原 `__address__` 写入 `__param_target`，并把 `__address__` 替换为本地 blackbox exporter 地址，例如 `127.0.0.1:9115`；
 - `blackbox.yml` 仅写入本域 ScrapeJob 实际引用的模块，避免下发无关配置。
 
@@ -674,6 +681,16 @@ targets 统一采用 file\_sd（JSON 目标文件）；由中心 HTTP API 动态
 #### 6.4.6 认证 / TLS 透传与端口解析
 
 - **认证/TLS 透传**：将 `ScrapeJob` 的认证 / TLS 最小集映射进对应 `scrape_configs`：`auth_type=basic` → `basic_auth`、`auth_type=bearer` → `authorization`、`tls_skip_verify` → `tls_config.insecure_skip_verify`、`ca_file` → `tls_config.ca_file`；全部可选、默认不启用（无认证裸 http 场景不受影响）——M09 仅透传映射、无新机制；blackbox 拨测的 HTTP/HTTPS 模块同理透传 `tls_config`（**P0**）
+
+#### 6.4.7 系统初始化空配置（bootstrap，M11 F-23）
+
+- **适用条件**：仅同时满足「网域已纳管、未禁用、`channel=agent_pull`、该网域尚无任何 `ConfigVersion`、且当前无启用中的采集 Job（零 Job 空白网域）」时触发；`local` / 未纳管 / 已禁用网域不适用。空配置只用于首次部署的可拉取兜底，不改变网域的通道或纳管状态；已有启用中采集 Job 的网域必须走常规变更单人工确认，不得由 bootstrap 自动确认。
+- **触发时机**：由该网域**首个采集节点心跳**触发（对齐 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) §4.2），不走 watcher 轮询、不依赖源数据版本变化；生成失败仅记录日志、不阻断心跳，下一次心跳自动重试。
+- **产物形态**：复用常规产物生成器产出零 Job 配置——`prometheus.yml` 仅含 `global.external_labels` 与空 `scrape_configs: []`；`targets_files={}`（空对象，不产出任何 `targets/*.json`）；`rules.yml` / `blackbox.yml` / `alertmanager.yml` 为空；`metadata` 记录 `trigger_summary`、联合 checksum 与 `generator_version`。
+- **自动确认与审计**：生成后由系统直接确认（`validation_status=passed`、`confirmed_by=system:bootstrap`），按常规链路生成 `ConfigVersion` 与 `ConfigDeployment`；`agent_pull` 通道只登记待拉取、不写盘。该单**不进入待确认列表**，审计上以 `confirmed_by=system:bootstrap` 与固定 `summary` 可辨识；后续真实配置确认后生成新的 `ConfigVersion` 并成为生效版本，bootstrap 版本保留为历史。
+- **幂等与失败处理**：网域只要存在任一 `ConfigVersion` 即跳过；同一网域的 bootstrap 由网域锁串行；若已有同 `summary` 的 pending 草稿则复用，不重复生成；自动确认失败时软删除该 bootstrap 草稿，下一次心跳重建，不影响后续真实变更草稿。
+- **校验例外**：零 Job 不产出 targets 文件，故 [3.2.3](#323-下发前校验与失败出口) 的「空 targets 数组」拦截不适用；系统仅在该路径将 `validation_status` 直接置为 `passed`，用户触发的常规生成仍按 §3.2.3 / §6.1 校验。
+- **职责边界**：草稿生成、确认、版本与下发记录归 M09；心跳触发、采集节点就绪判定与拉取协议归 M11（[Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) §4.2 / §6.3）。
 
 ### 6.5 变更检测、摘要与草稿生命周期机制
 
@@ -729,6 +746,7 @@ Module\_09 采用\*\*「源数据版本触发预筛 + 生成后 checksum 裁决�
 **审批分级策略**：
 
 - **人工确认（go/no-go）**：`prometheus.yml`、`targets/*.json`、`rules.yml`、`blackbox.yml` 的变更进入待确认列表，由运维审批后发布；
+- **系统初始化空配置例外**：`system:bootstrap` 自动确认的空配置不受人工确认约束（生成即 confirmed、不进入待确认列表），仅用于空白 `agent_pull` 网域的首次可拉取兜底；此后真实配置变更仍全部走人工 go/no-go（M11 F-23，见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)）；
 - **人工确认（含告警配置）**：`alertmanager.yml` 由 [Module\_08](Module_08_Alertmanager_Notification_Management.md) 生成提交（文件挂载 + amtool 校验），作为**管理域（`default`）scope** 配置产物进入本模块 `ConfigDraft` / 配置变更确认流程，人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload；**不参与按网域扇出、不进入** **`agent_pull`** **配置包**（中心 Alertmanager 全局单例）；
 - **混单规则**：`alertmanager.yml` 变更单网域恒为管理域（`default`），与采集配置变更单相互独立；若同一批次同时涉及多类文件，按变更单分别确认；
 - **规则变更风险**：`MonitoringRule` 变更（新增/修改/删除）生成 `rules.yml` 差异，属高风险变更（可能导致误报/漏报），必须在变更清单中醒目提示。
@@ -771,7 +789,7 @@ Module\_09 采用\*\*「源数据版本触发预筛 + 生成后 checksum 裁决�
 | 规则（Rule）数据模型定义                                                           | ✅                             | ❌ 仅读取                                                                                                                        |
 | CI 类型 ↔ Exporter 模板绑定                                                    | ✅                             | ❌ 仅消费                                                                                                                        |
 | 规则编辑 UI                                                                  | ✅                             | ❌                                                                                                                            |
-| 按网域生成 `prometheus.yml` / `targets/*.json` / `rules.yml` / `blackbox.yml` | ❌                             | ✅ 读取 `ScrapeJob.job_type`、`blackbox_module`、`blackbox_targets` 生成 blackbox.yml、targets JSON 与对应 scrape\_configs（file\_sd 骨架） |
+| 按网域生成 `prometheus.yml` / `targets/*.json` / `rules.yml` / `blackbox.yml` | ❌                             | ✅ 读取 `ScrapeJob.job_type`、`blackbox_module` 与拨测资源选择（`resource_type` + `selected_instance_ids`，地址按派生 `target_field`：`api_url` / `health_check_url`）生成 blackbox.yml、targets JSON 与对应 scrape\_configs（file\_sd 骨架；不再读取手填 `blackbox_targets`，F-29） |
 | 配置草稿 / 预览 / Diff                                                         | ❌                             | ✅                                                                                                                            |
 | 配置下发 / Reload                                                            | ❌                             | ✅                                                                                                                            |
 | 策略定义与实例选择                                                                | ✅                             | ❌                                                                                                                            |
@@ -849,8 +867,9 @@ Module\_09 采用\*\*「源数据版本触发预筛 + 生成后 checksum 裁决�
 - `platform/models/`
 - Module\_01 API：读取 ScrapeJobs、Rules
 - Module\_07 API：读取 Resources、LabelTemplates
-- Module\_11：只读 `NetworkDomain.channel` 决定产物形态；`agent_pull` 网域的配置包由边缘 Agent 心跳拉取（edge 协议与 Edge Sync Agent 归 Module\_11，代码见 `platform/edge-sync-agent/`）
+- Module\_11：只读 `NetworkDomain.channel` 决定产物形态；`agent_pull` 网域的配置包由边缘 Agent 心跳拉取（edge 协议与 Edge Sync Agent 归 Module\_11，代码见 `platform/edge-sync-agent/`）；空白 `agent_pull` 网域的首个采集节点心跳会触发本模块的系统初始化空配置（bootstrap，M11 F-23，见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)）
 - 中心 Prometheus reload 接口（SIGHUP 或 HTTP `/-/reload`）
+- **中心 Prometheus 启动基线（M11 G1）**：启动参数必须同时开启 `--web.enable-lifecycle`（reload 生效）与 `--web.enable-remote-write-receiver`（接收边缘回传）；交付包 `start.sh` 两者皆带，`scripts/package-center.sh` 缺少 remote-write 开关即中止打包；开发态 `make run-prometheus` 监听 `127.0.0.1:9090`，生产态监听 `:9090` 且仅内网可达，公网访问经 G2 的 nginx 反代（IP 白名单 + TLS + 按网域 Token），见 M11 design-decisions 决策 1
 
 ***
 
@@ -863,6 +882,7 @@ Module\_09 采用\*\*「源数据版本触发预筛 + 生成后 checksum 裁决�
 ```mermaid
 stateDiagram-v2
     [*] --> pending: 生成：检测到源数据变更且内容有实际差异（联合 checksum 与生效版本不一致；空变更抑制，无差异不落库）
+    [*] --> confirmed: 系统初始化空配置（bootstrap，仅空白 agent_pull 网域；system:bootstrap 自动确认）
     pending --> confirmed: 确认发布（人工，变更单级 go/no-go；仅 validation_status=passed 可确认）
     pending --> discarded: 废弃（人工，伴随源数据分类回写）
     pending --> discarded: 被同域更晚 pending 取代（superseded，metadata 互记）
@@ -870,13 +890,14 @@ stateDiagram-v2
       遇活 pending：与既有 pending 产物 checksum 比较——相同保持 skipped_pending 不推基线；不同生成新单取代旧单
       内容无变化自动裁决（empty-change 抑制）→ 不生成
       校验失败后重新校验通过或废弃；失败归因 = user_config 时自动清 M01 源数据 pending 锁，草稿保留（防死锁）
+      bootstrap 草稿生成即 confirmed，不进入 pending；仅空白 agent_pull 网域首次心跳触发
     end note
 ```
 
 | 状态        | 含义               | 进入条件                                                                                                                                                                                                                              | 后续流转                                                                                                                                                                                                                                               |
 | --------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | pending   | 待确认              | configgen 检测到变更且产物有实际差异；仅 `validation_status=passed` 可确认                                                                                                                                                                          | 确认 → confirmed（生成 ConfigVersion）；废弃 → discarded（分类回写源数据）；校验失败 / 未校验（pending）不可确认，提供「重新校验 + 废弃」（见 3.2.3）；**校验失败归因** **`user_config`** **→ 自动清 M01 源数据** **`pending`** **锁、草稿保留**（防死锁；`platform_fault` 不清锁）；被同域更晚 pending 取代 → discarded(superseded) |
-| confirmed | 已确认              | 运维确认发布（记录确认人，变更单级 go/no-go）                                                                                                                                                                                                       | 生成 ConfigVersion（继承 change\_no，分配 cv-xxx）→ 进入下发流程；下发成功后 M01 `change_status` 回写 `deployed`                                                                                                                                                          |
+| confirmed | 已确认              | 运维确认发布（记录确认人，变更单级 go/no-go）；或系统初始化空配置由 `system:bootstrap` 自动确认（仅空白 `agent_pull` 网域，见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)）                                                                                                                                                                                                       | 生成 ConfigVersion（继承 change\_no，分配 cv-xxx）→ 进入下发流程；下发成功后 M01 `change_status` 回写 `deployed`                                                                                                                                                          |
 | discarded | 已废弃 / 自动丢弃 / 已取代 | 人工废弃（**伴随源数据分类回写：新建回退 draft / 已生效修改保留提示复现 / 删除·停用自动恢复，`change_status`** **清理防 pending 残留**）；或重算后 checksum 与生效版本一致（空变更抑制、不落库）；或被同域更晚 pending 取代（superseded，`metadata.superseded_by_change_no` 指向新单，新单 `supersedes_change_no` 指向旧单） | 终态，保持当前生效配置不变；废弃审计历史由本变更单承载                                                                                                                                                                                                                        |
 
 **废弃回写语义（MVP 落地）**：变更单**废弃（discard）不是「数据不动只废单」**——full-render 模型下废弃不处理源数据必然导致鬼影复现（下一轮轮询因「源版本 > 基线」重新生成内容相同的变更单）。废弃必须伴随源数据分类回写：
@@ -948,6 +969,7 @@ stateDiagram-v2
 - [ ] {P0} **回滚前差异知情**：回滚确认弹窗展示「回滚目标版本 vs 当前生效版本」的源数据操作差异清单（由两版本 `change_no` → `change_items` 推导），并固定提示「回滚不恢复 M01/M08 中的启停状态」
 - [ ] {v0.2} **回滚分裂态显式化**：回滚后生效配置与源数据期望不一致时，`out_of_sync_cause=rollback_diverged`（标签「已回滚·待源数据对齐」），引导前往 M01/M08 核对
 - [ ] {v0.2} **防「自动反悔」变更单标记**：回滚后产出的对齐型变更单带「回滚后源数据对齐」标记与说明文案，不静默抵消回滚
+- [ ] {P0} {v0.2} **系统初始化空配置可感知**：空白 `agent_pull` 网域的首个采集节点上线后，切换「已确认 / 全部」可见一条 `system:bootstrap` 自动确认的「系统初始化空配置（当前网域暂无采集任务）」记录，且不进入待确认列表；真实配置下发后以真实变更单为准
 - [ ] {P0} **变更单号自动生成**：configgen 生成草稿时自动分配（用户不可手填），格式 `CHG-{YYYYMMDD}-{当日序列}`，全局唯一
 - [ ] {P0} **提示分区规范**：用户可见文案不含「决策 X」「PRD X.X」等实现层引用；设计决策依据集中折叠在页面底部「原型与实现说明」区（默认折叠）
 
@@ -1018,6 +1040,8 @@ stateDiagram-v2
 - [ ] {P0} **`validation_message` 失败信息透传**：最近一次校验失败时写入人可读摘要，失败响应据此透传具象失败信息（与结构化 `validation_details` 互补）
 - [ ] {P0} **`source_version` 回填与版本查询双 ref 兼容**：草稿生成时回填上一已确认 `ConfigVersion` 的 `change_no`（确认不覆盖）；`GET /api/v2/platform/config-versions/{id}` 兼容纯数字主键与 `change_no` 两种 ref，保证 diff 拉到真实基线
 - [ ] {P0} **targets labels 校验对 `instance` 放行**：schema 校验仅拦 `__` 前缀保留标签与 `job` / `scheme`，`instance` 放行（系统默认模板会生成，对齐 M07 §5.12C）
+- [ ] {P0} {v0.2} **系统初始化空配置（M11 F-23）**：仅「已纳管 + 未禁用 + `agent_pull` + 无任何 `ConfigVersion` + 无启用中的采集 Job」触发；首个心跳生成零 Job 产物（`scrape_configs: []`、`targets_files={}`）并由 `system:bootstrap` 自动确认，幂等且不重复生成；生成失败不阻断心跳、下次心跳重试；不改变心跳契约
+- [ ] {P0} {v0.2} **中心 Prometheus 启动基线（M11 G1）**：启动参数同时包含 `--web.enable-lifecycle` 与 `--web.enable-remote-write-receiver`，交付包 `start.sh` 两者皆带且打包脚本对缺少 remote-write 开关中止；开发态监听 `127.0.0.1:9090`，生产态 `:9090` 仅内网可达
 
 ## 10. 术语映射（用户词汇表）
 
@@ -1026,6 +1050,7 @@ stateDiagram-v2
 | 后端术语                                           | 用户语言        | 说明                                                                                                                                                                                                                                                                                                                     |
 | ---------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ConfigDraft`                                  | 变更单 / 待确认变更 | 配置生成的草稿，进入人工确认的发布审批对象                                                                                                                                                                                                                                                                                                  |
+| 系统初始化空配置（bootstrap）                     | 系统初始化空配置    | 空白 `agent_pull` 网域首个采集节点心跳触发的零采集任务配置；由系统自动确认、不进入待确认列表，仅作首次可拉取兜底；审计字段 `confirmed_by` 原样展示 `system:bootstrap`（不做中文化），见 [6.4.7](#647-系统初始化空配置bootstrapm11-f-23)，M11 F-23 |
 | `change_no`                                    | 变更单号        | `CHG-YYYYMMDD-NNN`，用户可读唯一标识（类比工单号）                                                                                                                                                                                                                                                                                     |
 | `ConfigVersion` / `cv-xxx`                     | 配置版本        | 变更确认后生成的生效配置版本号                                                                                                                                                                                                                                                                                                        |
 | `ConfigDeployment` / `deploy-xxx`              | 发布记录 / 下发记录 | 每次发布或回滚的留痕记录                                                                                                                                                                                                                                                                                                           |
@@ -1108,6 +1133,7 @@ stateDiagram-v2
 
 - **配置变更确认页**：按网域组织视图（网域切换器列出所有已纳管网域），行内标注通道与对应生效提示；主体为变更单列表 + 详情抽屉，列表与抽屉分工为「变更摘要 = 列表总览（一句话），变更清单 = 抽屉详情（逐条明细）」。
 - **检测状态可观测区**（回答「变更为什么还没生效」）：展示每个网域的上次检测时间、当前源数据版本、本轮检测结果——检测到变更则显示生成了哪些草稿（引用草稿 ID / 触发摘要）；未检测到变更则显示本轮无变更、跳过重算；内容无变化则自动丢弃且不落库（空变更抑制）、不进入确认；生成失败则提示失败原因并要求查看日志，标记失败待重算、下一轮重试。**取值口径、空变更抑制与失败不推进版本的语义见 §6.5。**
+- **系统初始化空配置呈现**：bootstrap 记录按普通「已确认」变更单展示，详情直接展示原始 `confirmed_by=system:bootstrap`（不做中文化）；因变更列表默认仅筛「待确认」，该记录默认不可见，切换「已确认 / 全部」可查看（M11 F-23）。
 
 **关键交互规则**：变更单列表、详情抽屉、配置预览 / Diff、确认与废弃的交互细则见 §3.1 各行为要点；下发记录页字段与操作见 §3.2。
 
@@ -1118,11 +1144,11 @@ stateDiagram-v2
 **跨模块跳转**：校验失败时按校验详情来源提供「前往修改」跳转对应模块（如 M01 采集 Job / M07 资源），见 §11.2 跨模块跳转规则。
 ## Change Log
 
-> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.78 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
+> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v2.2 及更早）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
 
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 影响范围                            | 产品版本影响       | 状态    |
 | ----- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | ------------ | ----- |
-| v2.2 | 2026-09-30 | 优化 | **M09 dev-feedback 吸收（本轮 prototype-designer 评审）**——§3.2.3 / §6.1 校验工具「存在但不可执行」与「工具缺失」同口径归 `platform_fault`（保持 `pending`，禁误归 `user_config`）；§5.2 新增 `validation_message`（具象失败信息、失败响应透传）、`source_version` 精化为「上一已确认 `ConfigVersion` 的 `change_no`（确认不覆盖）」；§3.1.1 / §5.2 / §10 变更对象新增「告警投递（`prom_alerting`）」（注入段变化参与变更清单 diff，防空变更抑制死锁）；§6.1 明确 targets labels 校验对 `instance` 放行；新增 §7.1.5「与 Module_08 的边界」（通知 receiver / route 双作者命名空间与桥地址演进口径，对齐 M08 PRD v1.18）；§9.2 补 4 条技术验收 | §3.1.1 / §3.2.3 / §5.2 / §6.1 / §6.2.2 / §7.1.5 / §9.2 / §10 | 文档自身 | ready |
-| v2.1 | 2026-09-25 | 优化 | **PR77 回写（F-28 / F-31）**——§5.1 / §6.4.1 明确 `channel` 由 `domain_type` 派生（未知不回退 local）；§3.2.3 新增空 targets 拦截（与边缘拒收对称）；§3.3.3 新增地址解析不出不得静默放行 | §5.1 / §3.2.3 / §3.3.3 / §6.4.1 | 文档自身 | ready |
-| v2.0 | 2026-09-17 | 优化 | **M09 1拆2 瘦身（决策 86）**——网域纳管 / 采集节点状态 / edge 协议 / EdgeAgent 模型 / 相关状态机与验收迁 Module\_11，本模块收敛为配置生成与下发中心，配置面语义零变更 | 全文（章节重编号） | 文档自身 | ready |
+| v2.5 | 2026-10-23 | 优化 | **F-29 跨模块落点收割（拨测目标资源化）**：§6.4.5 blackbox Job 目标改为 M01 资源选择承载（`resource_type` ∈ `interface_service` / `application` + `selected_instance_ids`，地址按派生 `target_field` `api_url` / `health_check_url` 填充，target 携带资源标签）；手填 `blackbox_targets` 禁用（非空 400）、仅历史兼容不再参与生成；§M09/M01 边界表同步去 `blackbox_targets` 旧口径 | 6.4.5 / 边界矩阵 / Change Log | MVP 生效 | ready |
+| v2.4 | 2026-10-23 | 优化 | **跨模块 dev-feedback 收割（M11 F-23 / M11 G1）**——新增 §6.4.7 系统初始化空配置（bootstrap）：空白 `agent_pull` 网域首个心跳生成零 Job 空配置，`system:bootstrap` 自动确认（不进待确认列表、幂等、不改心跳契约）；§7.2 补启动基线（lifecycle / remote-write 开关、打包校验、监听边界） | §3.1.4 / §3.3.1 / §4.2 / §5.2 / §6.4.7 / §6.5.2 / §7.2 / §8.1 / §9.1 / §9.2 / §10 / §11.3 | {v0.2} | ready |
+| v2.3 | 2026-10-15 | 优化 | **M09 dev-feedback 收割（F-42）**——§6.4.1 新增「回传参数下发通道」：`metadata.json` 扩展携带 `maxDiskUsagePerURL`（硬兜底 1–2GB / 生产默认 50GB 分层）、网域抽屉「回传参数」分组为配置入口、supervisor diff 滚动重启；原型增量（回传参数分组 / 重启 / 清空积压菜单）标注待后续原型轮承接 | §6.4.1 / 文件头 | 文档自身 | ready |
 
