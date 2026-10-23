@@ -10,10 +10,13 @@
 ## 1. 项目目录结构
 
 > **维护提示（v1.25）**：`.kimi/agents/` 下的文件清单以实际目录为准，新增 Agent 时无需（也不应）同步本文；本目录树仅作整体认知参考。
+> **跨工具 Skill（2026-10-23）**：`.kimi/skills/` 是单一源，`.agents/skills/` 是共享镜像；修改后执行 `make sync-skills`，OpenCode / Trae / Kimi Code CLI 会自动发现。
 
 ```
 CNCF_Monitor/
-├── .kimi/                                       # Kimi Agent 与 Skill 定义
+├── .agents/                                     # 跨工具共享资产
+│   └── skills/                                  # Skill 共享镜像（由 .kimi/skills 生成）
+├── .kimi/                                       # Kimi Agent 与 Skill 定义（Skill 单一源）
 │   ├── agents/                                  # Agent 角色定义
 │   │   ├── backend-developer.md
 │   │   ├── frontend-developer.md
@@ -24,7 +27,7 @@ CNCF_Monitor/
 │   │   ├── build-resolver.md
 │   │   └── security-reviewer.md
 │   ├── AGENTS.md                                # Agent 团队速查
-│   └── skills/                                  # 可选 Skill
+│   └── skills/                                  # 可选 Skill（单一源）
 │
 ├── upstream/                                    # 上游开源源码（尽量不修改）
 │   ├── prometheus/

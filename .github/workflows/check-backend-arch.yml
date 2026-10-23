@@ -1,0 +1,38 @@
+name: Check Backend Architecture
+
+# 后端架构红线检查：增量代码必须符合
+# docs/05-execution-records/module-00-infrastructure/feature-debt-control.md
+# 的 R1-R4 要求。
+
+on:
+  pull_request:
+    paths:
+      - 'platform/**'
+      - '.github/workflows/check-backend-arch.yml'
+      - 'scripts/ci/check-backend-arch.sh'
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'platform/**'
+      - '.github/workflows/check-backend-arch.yml'
+      - 'scripts/ci/check-backend-arch.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-arch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check backend architecture red lines
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/ci/check-backend-arch.sh

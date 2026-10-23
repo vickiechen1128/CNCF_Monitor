@@ -27,7 +27,10 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 
 按顺序读取：
 
-1. `cncf-project`
+1. `cncf-project`（必读）：`.kimi/skills/cncf-project/SKILL.md`
+2. `api-standard`（派生 L3 / 契约快照时必读）：`.kimi/skills/api-standard/SKILL.md`
+3. `cncf-git-workflow`（规划分支 / 冻结 / 提交边界时按需）：`.kimi/skills/cncf-git-workflow/SKILL.md`
+4. `code-navigation`（需要定位现有实现时按需）：`.kimi/skills/code-navigation/SKILL.md`
 
 ### Step 2: 确认输入包
 
@@ -142,12 +145,25 @@ Track B/B+ 需求（dev-ready 轻量规格）派生时，L2 两份文档定位�
   1. 在 05 追加 / 更新「Track B 增量登记」小节：模块 / 能力 / feat 分支 / PRD 版本 / 关联 L3 路径；
   2. 验收条目以 checklist 并入 §7（新增「7.x Track B 增量验收」子节）——验收口径必须单一，禁止只散落在执行记录里；
   3. 不重排既有 Phase 结构；**版本末（integration/vX.Y 切出前）由 plan-maintainer 批量归并**，把 Track B 增量正式编入 Phase 结构并对齐 Plan 版本号。
-- **L3（task-sequence.yaml + api-contract-snapshot.md）**：两轨共用同一机制，是 Track B 逐任务管理的唯一载体，派生规则不变。**例外**：L3 的 `input_files` / `output_files` 字段，Track B/增量任务允许简写或留空——定位交给 `repo-map.md`（`make repo-map` 自动生成）+ 定点 `grep`，避免逐条回填文件路径清单的维护成本与随代码漂移失真。
+- **L3（task-sequence.yaml + api-contract-snapshot.md）**：两轨共用同一机制，是 Track B 逐任务管理的唯一载体，派生规则不变。**例外**：L3 的 `input_files` / `output_files` 字段，Track B/增量任务允许简写或留空——定位由开发 Agent 按 `code-navigation` skill 直接检索（定点 `grep` / `Read`，`repo-map.md` 仅作可选辅助索引），避免逐条回填文件路径清单的维护成本与随代码漂移失真。
 
 ### 版本对齐规则
 
 - 每次派生后，`04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md` 的 Plan 版本号必须与 PRD 版本号一致
 - 如果多个 PRD 模块版本不同，取触发本次派生的 PRD 版本号为基准，并在文档中标注各模块 PRD 版本
+- `mode: incremental`（增量/修复阶段）任务不更新 Plan 版本号，走下方「增量轻量规划」
+
+### 增量/修复阶段轻量规划（`mode: incremental`）
+
+任务卡标记 `mode: incremental` 时（缺陷修复、小优化、PRD 滞后回填阶段）：
+
+- **输入放宽**：不要求 ready / dev-ready PRD；输入为任务卡中的 `problem` + `acceptance` + `impact`，已提交 PRD 仍为约束。
+- **输出最小任务序列**：在 `task-sequence.yaml` 增量登记，每个任务必须含：
+  - `task_id`（沿用模块前缀递增）
+  - `problem` / `acceptance` / `impact` / `regression_risk` / `estimated_effort`
+  - `verify_commands`（目标测试，见 `testing-tdd` §4.3）
+- **不更新 04 / 05**：增量修复不编入战略矩阵；version-end 由 plan-maintainer 批量归并。
+- **红线**：任务涉及改模型、跨模块契约、核心安全逻辑时，标记需要 Orchestrator / 用户确认，不直接派生。
 
 ---
 
@@ -281,7 +297,7 @@ tasks:
 > - `status`：任务状态，`pending` / `done`，由 Orchestrator 在 developer 完成并提交 commit 后更新。
 > - `commit_group`：建议的提交分组名，同一 group 的相邻任务可合并为一个 commit；跨 group 禁止合并。
 > - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯代码实现位置。
-> - `input_files` / `output_files`（**Track A 建议精确；Track B/增量允许简写或留空**）：Track A 大功能任务下由 planner 前置规划文件落点，供 developer 按路径开工；Track B/增量开发因「先改代码、后回填」的节奏，定位一律交给 `repo-map.md`（`make repo-map` 自动生成，与当前代码实时一致）+ 定点 `grep`，不必为回填文件路径清单付出维护成本，避免蓝图字段漂移失真。
+> - `input_files` / `output_files`（**Track A 建议精确；Track B/增量允许简写或留空**）：Track A 大功能任务下由 planner 前置规划文件落点，供 developer 按路径开工；Track B/增量开发因「先改代码、后回填」的节奏，定位由开发 Agent 直接检索（定点 `grep` / `Read`，`repo-map.md` 仅作可选辅助索引），不必为回填文件路径清单付出维护成本，避免蓝图字段漂移失真。
 > - `prototype_pages`（前端任务必填）：该任务涉及的原型页面文件路径列表， reviewer/验收抽查的靶子。
 > - `ui_contract`（前端任务必填）：PRD 第 11 章「前端交互契约」对应条目编号，精确到页面状态矩阵条目。
 > - `nav_contract`（前端任务必填）：该页面对应的顶部一级 tab 文案、Sider 二级文案、跨模块入口，防止导航写反或模块名误用。
@@ -370,7 +386,7 @@ Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 �
   - `status`：初始为 `pending`，完成后由 Orchestrator 更新为 `done`
   - `commit_group`：建议的提交分组名，同组相邻任务可合并为一个 commit
   - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯
-- **前端验证命令粒度**：前端任务的 `verify_commands` 必须指向单文件/单目录测试（如 `pnpm vitest run src/pages/resources/__tests__/ResourceFormDrawer.test.tsx`），**跨模块收尾用变更范围回归**（`pnpm run typecheck:test` + `pnpm vitest run --changed ../origin/develop` + `pnpm lint`）；全量 `pnpm test` **仅在**用户明确要求、合并前把关、或改动跨 ≥3 顶层目录/触及 `src/api/`·`src/types/`·`src/test/` 共享层时写入，且须在任务卡中说明理由。**禁止**把 `--changed` 写成全量等价物后仍叠加全量命令（会双跑）。理由与耗时实测见 frontend-developer「测试时长与范围控制」与 `02_Frontend_Standard.md` §12。
+- **验证命令粒度**：按 `testing-tdd` §4 / §6 写入。前端任务默认单文件/单目录 vitest；Phase 收尾用 `typecheck:test` + `--changed` + `lint`；全量 `pnpm test` 仅三种允许情形，且须在任务卡说明理由。后端任务指向对应包/目录，不用全量 `go test ./platform/...` 替代目标验证。
 
 ---
 
@@ -398,25 +414,11 @@ Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 �
 
 ## 分支与模块顺序
 
-本项目采用**双文件夹隔离 + 设计/实现分离分支**模式：
+规划时只依赖以下边界；完整 Gitflow、双空间隔离、目录权限与冻结期规则见 `cncf-git-workflow`：
 
-- 设计空间 `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`（PRD + 原型代码）
-- 开发空间 `CNCF_Monitor-feature`：`develop` + `feat/module-XX`（生产代码实现），**默认串行切分支**（一个时间只开一个 feat 分支）
-- 开发侧并行仅为按需手段：确需零耦合任务同开时才额外 `git worktree add` 多目录，用完即删
-- 分支来源：`develop`
-- 合并目标：`develop`
-
-### Gitflow 分支约定
-
-| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 负责人 |
-|----------|----------|------|------|----------|--------|
-| `main` | `main` | 稳定/生产版本 | - | - | chenrt |
-| `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
-| `design/module-mvp-demo` | `design/module-mvp-demo` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
-| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
-| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
-| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
-| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
+- 设计空间：`design/module-mvp-demo`（PRD + 原型）。
+- 开发空间：`develop` + `feat/module-XX`，默认串行；零耦合任务才按需 worktree。
+- L3 任务只能引用对应 `feat/module-XX` 的目录边界。
 
 ### MVP 模块开发顺序
 
@@ -450,7 +452,7 @@ module-09-config-center（网域与边缘配置中心）
 - 如果需求涉及修改 `upstream/prometheus/`，必须明确说明需要生成 patch 文件
 - 如果需求影响多个 Agent（后端 + 前端 + 数据库），必须拆分子任务
 - 必须在规划中引用相关 PRD 和工程标准的文件路径
-- API 路径必须与 `03_API_Standard.md` 对齐：平台能力走 `/api/v2/platform/*`，Prometheus 代理走 `/api/v1/*`
+- API 路径、响应信封、字段命名、分页、枚举与鉴权规则一律引用 `api-standard`；L3 中不重复抄写完整 API 标准
 - 规划中需明确每个修改文件是"新增/修改/删除"，并标注是否存在现有测试需要同步更新
 - 对不确定的依赖（如子模块、工具链版本、环境变量），必须标注"待确认"并提供替代方案
 - 涉及共享文件的任务（如同一页面的 F5/F6）应在任务卡中标注，并建议 Orchestrator 由**同一 sub-agent 续作**或合并为连续任务，避免重复上下文建立

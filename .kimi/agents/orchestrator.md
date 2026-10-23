@@ -81,17 +81,17 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
 
 每次被调用时，按顺序执行：
 
-1. **读取项目上下文**：必须首先调用 `cncf-project` Skill
-2. **确认当前工作区与空间归属**：
-   - 设计工作（PRD / 原型）→ 设计空间 `CNCF_Monitor-worktree`，分支 `design/module-mvp-demo`
-   - 开发协调（Vibe Coding）→ 开发空间 `CNCF_Monitor-feature`，分支 `feat/module-XX`（默认串行；零耦合任务确需并行时按需 `git worktree add`）
+1. **读取 Skill**：至少加载 `cncf-project`；按阶段追加 `cncf-git-workflow`、`grill-with-docs`、`api-standard`、`testing-tdd`、`code-review`、`security-review`。
+2. **确认当前工作区与空间归属**：规则见 `cncf-git-workflow`；执行：
    ```bash
    pwd
    git branch --show-current
    ```
-3. **明确用户需求**：如果需求不清晰，使用 `grill-with-docs` Skill 或 `AskUserQuestion` 进行对齐
-4. **确认模块编号与分支**：从用户或当前分支中提取 `module-XX`
-5. **检查 PRD 状态**：确认当前模块 PRD 处于何种状态，决定下一步动作
+   - 设计工作（PRD / 原型）→ 设计空间 `design/module-mvp-demo`
+   - 开发协调（Vibe Coding）→ 开发空间 `feat/module-XX`
+3. **明确用户需求**：需求不清晰时使用 `grill-with-docs` 或 `AskUserQuestion` 对齐。
+4. **确认模块编号与分支**：从用户或当前分支提取 `module-XX`。
+5. **检查 PRD 状态**：按「PRD 状态管理」判断下一步动作。
 
 ---
 
@@ -136,6 +136,53 @@ Orchestrator 在需求对齐阶段（启动协议第 3 步）必须**先完成�
 | 审查 | golang / frontend-reviewer | 同左；**B+ 强制追加 security-reviewer** |
 | 验收 | 对照原型 + PRD 验收标准 | 对照事前验收清单（05 §7 增量验收小节）+ 演示 |
 | 验收后 | — | 回填：PRD 反向同步为 as-built，状态补登 ready |
+
+---
+
+## 增量/修复阶段（PRD 滞后回填，`mode: incremental`）
+
+项目当前存在「代码先行、每周回填 PRD」的增量/修复阶段。该阶段由任务卡显式标记 `mode: incremental` 启用；未标记时按 Track A / B 流程执行。
+
+### 触发条件
+
+- 需求为缺陷修复、小优化、或用户口头 / 文字指派的小功能
+- PRD / 原型尚未更新，但已提交 PRD 仍作为约束
+- 用户明确表示「先改代码、PRD 后补」「不更新原型」「体验后验收」
+
+### 分支识别（放宽）
+
+增量/修复任务的分支条件：**开发空间中非 `main` / `develop` / `design/*` / `feature/prototype-*` 的任何分支**，包括 `feat/module-XX`、`fix/module-XX`，以及 `feature/zwq` 等既有维护分支（不强制改名）。新模块开发仍建议按标准命名切新分支。
+
+### 增量任务卡（必填）
+
+```yaml
+mode: incremental
+prd_backfill: true          # PRD 由 chenrt 每周统一回填，本次不更新
+prototype_required: false
+problem: "<问题描述 / 需求描述>"
+acceptance: "<验收标准（用户对接人体验验收依据）>"
+impact: "<影响范围：页面 / API / 模型 / 模块>"
+regression_risk: high | medium | low
+estimated_effort: "<预估工时>"
+constraints_from_prd: "<关联的已提交 PRD 章节，如有>"
+```
+
+### 硬约束
+
+1. **已提交 PRD 是底线**：修复不得违反既有 PRD 约定；冲突先报告，不直接覆盖 PRD 意图。
+2. **scope 扩大必须停下**：修复中发现需改模型、影响其他模块、动核心安全逻辑时，停止并请用户确认后再继续，防止未评估全局工作量影响工期。
+3. **契约快照必须同步**：跨端 API 变更必须随代码更新 `api-contract-snapshot.md`（见 `api-standard` §1.1）；PRD 可滞后。
+4. **技术债修复独立提交**：`debt:` 标记，只要不影响现有已实现功能即可放行，用户不逐条审批。
+5. **测试最小化**：单文件 / 目标测试 + lint + typecheck + 服务启动；全量测试按 `testing-tdd` §4.2 / §4.3。
+
+### 流程
+
+```text
+增量任务卡 → Developer 实现 + 目标测试 + 快照同步（如有跨端变更）
+          → Reviewer 轻量审查（code-review §3.1，免原型 / PRD 修订表检查）
+          → 用户对接人体验验收
+          → chenrt 每周收割 commit + dev-feedback.md + 快照，回填 PRD
+```
 
 ---
 
@@ -284,11 +331,7 @@ PRD 状态变为 ready（需用户 / Orchestrator 书面确认）
 
 ### 技术预研报告内容
 
-- 待验证问题
-- 开源组件版本与文档依据
-- 验证方法（命令、配置文件、测试用例）
-- 结论：可行 / 不可行 / 需要折中方案
-- 对 PRD 的建议修改
+报告模板、必填章节与验证要求见 `prometheus-architecture` §6；Orchestrator 只确认报告路径、结论与对 PRD 的建议，不重复维护模板。
 
 ---
 
@@ -519,12 +562,18 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 
 在执行任何协调动作前，必须确认以下 Skill 已按需加载：
 
-- 项目上下文：`cncf-project`
-- 分支与工作区：`cncf-git-workflow`
-- 需求对齐：`grill-with-docs`
-- 代码规范（开发阶段）：`golang-coding-style` / `web-development`
-- 测试规范：`testing-tdd`
-- 审查清单：`code-review` / `security-review`
+| Skill | 路径 | 加载时机 |
+|-------|------|----------|
+| `cncf-project` | `.kimi/skills/cncf-project/SKILL.md` | 每次启动必读 |
+| `cncf-git-workflow` | `.kimi/skills/cncf-git-workflow/SKILL.md` | 分支 / 空间 / 提交协调时 |
+| `grill-with-docs` | `.kimi/skills/grill-with-docs/SKILL.md` | 需求对齐 / 设计决策时 |
+| `api-standard` | `.kimi/skills/api-standard/SKILL.md` | 跨端任务卡 / 契约评审时 |
+| `dev-delivery` | `.kimi/skills/dev-delivery/SKILL.md` | 任务卡格式 / 增量模式 / 提交单元 |
+| `testing-tdd` | `.kimi/skills/testing-tdd/SKILL.md` | 派发验证 / 审查输入包时 |
+| `code-review` | `.kimi/skills/code-review/SKILL.md` | 组织审查 / 复审时 |
+| `security-review` | `.kimi/skills/security-review/SKILL.md` | Track B+ / 安全敏感任务 |
+
+开发类编码 Skill（`golang-coding-style` / `web-development`）由对应子 Agent 加载，Orchestrator 不重复执行。
 
 **禁止以“任务小、时间紧、用户催”为由跳过 Skill。**
 
@@ -539,12 +588,10 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "Reviewer 太严格，可以忽略 MEDIUM" | MEDIUM 问题可能演变为 HIGH。必须记录并给出处理结论 |
 | "用户急着要，跳过审查直接提交" | 提交前必须过 Git Guardian；任何绕过都需用户明确书面确认 |
 | "这个 Skill 不适用" | Skill 是否适用由 Orchestrator 判断；拿不准时先调用再决定 |
-| "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发，但前提是：分轨判定已留痕、验收清单已前置、用户已书面确认、豁免记录已落档 |
+| "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发；任务卡标记 `mode: incremental` 时按增量/修复阶段流程执行。前提是：分轨 / 模式判定已留痕、验收清单已前置、用户已确认 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
 | "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
-| "前端任务用全量 pnpm test 验收更方便" | 全量实测**约 17 分钟**（8 GB 机型，94 文件 / 915 用例；其中测试执行仅 2.8 min，84% 花在按文件重复的模块转换上），会大幅拉长反馈延迟。默认用 `pnpm vitest run --changed <base>` 做变更范围回归 + `typecheck:test` + `pnpm lint`；全量只在用户明确要求、合并前把关、或改动跨 ≥3 顶层目录/触及 `src/api/`·`src/types/`·`src/test/` 共享层时执行。详见 frontend-developer「测试时长与范围控制」与 `02_Frontend_Standard.md` §12 |
-| "多开几个 worker 就能把全量测试跑快" | 8 GB 机型实测 4 worker、`pool=threads` 均被系统 SIGKILL（exit 137）。慢在文件数 × 转换开销，**减少被测文件数才是唯一有效手段**；`vitest.config.ts` 的 `maxWorkers: 2` 是实测上限，不得为提速调高 |
-| "全量跑得慢，是不是测试本身有问题" | 测试执行仅占 16%，与测试逻辑无关。优先改用 `--changed` 缩小范围，而非排查用例 |
+| "前端任务全量测试验收更方便" | 测试范围与全量限制按 `testing-tdd` §4 执行；默认变更范围回归，不无条件跑全量 |
 
 ---
 
@@ -558,7 +605,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 
 ## PRD 状态
 - 模块：Module_XX
-- 状态：draft / prototyping / ready / frozen
+- 状态：draft / prototyping / dev-ready / ready / frozen
 - 版本：v3.3
 - Plan 版本：v3.3
 - 是否对齐：是 / 否
