@@ -39,6 +39,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import {
   DEFAULT_RECEIVER_NAME,
   parseRouteDuration,
+  ROUTE_ISSUE_CODES,
   validateRouteNodeFields,
   validateRouteReceivers,
   type RouteEditNode,
@@ -54,6 +55,15 @@ import {
 import { DEFAULT_RECEIVER_LABEL } from './alertmanagerConstants'
 
 const { Text } = Typography
+
+/** draft 实时重校验覆盖的 issue code；树上同 code 的旧结论以 draft 为准。 */
+const DRAFT_RECHECKED_CODES = new Set<string>([
+  ROUTE_ISSUE_CODES.matcherNameEmpty,
+  ROUTE_ISSUE_CODES.matcherRegexInvalid,
+  ROUTE_ISSUE_CODES.durationInvalid,
+  ROUTE_ISSUE_CODES.repeatNotMultiple,
+  ROUTE_ISSUE_CODES.receiverDangling,
+])
 
 /** 分组间隔 Tooltip（AM 官方：单次发送耗时超过 group_interval 会被取消 → 漏发） */
 const GROUP_INTERVAL_TIMEOUT_TIP =
@@ -218,16 +228,12 @@ export function RouteEditorDrawer({
   }, [watched, node, enabledReceiverNames])
 
   const liveIssues = useMemo(() => {
-    const merged = [...nodeIssues]
-    const seen = new Set(merged.map((i) => `${i.code}:${i.field}`))
-    for (const i of draftIssues) {
-      const key = `${i.code}:${i.field}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        merged.push(i)
-      }
-    }
-    return merged
+    // draft 会重新校验这些 code；树上同 code 的旧结论必须整体丢弃，
+    // 否则用户把悬空接收人改选为有效渠道后，旧的 receiver_dangling 仍残留，
+    // 抽屉保存按钮被永久锁死（生产 2026-10-23 实测）。
+    // 其余 tree 级结论（根接收人必填 / 根 matchers 禁止）继续保留。
+    const stale = nodeIssues.filter((i) => !DRAFT_RECHECKED_CODES.has(i.code))
+    return [...stale, ...draftIssues]
   }, [nodeIssues, draftIssues])
 
   const blocking = liveIssues.filter((i) => i.level === 'error')

@@ -144,6 +144,7 @@ describe('RouteEditorDrawer（路由规则三段式表单 v0.3-b）', () => {
   // 验收 5：接收人悬空 → 红字阻断
   it('接收人悬空：引用未启用 / 不存在的渠道 → 红字阻断', async () => {
     renderDrawer({
+      knownReceivers: ['default'],
       issues: [
         {
           level: 'error',
@@ -559,6 +560,38 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     expect(screen.getByTestId('route-editor-save')).toBeDisabled()
     fireEvent.click(screen.getByTestId('route-editor-save'))
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  // 回归（生产 2026-10-23）：悬空接收人改选为有效渠道后，旧的树级 receiver_dangling
+  // 不得继续残留，否则抽屉保存按钮被永久锁死、无法把修改回传到页面。
+  it('悬空接收人改选为有效渠道后：阻断解除、保存按钮恢复', async () => {
+    const { onSubmit } = renderDrawer({
+      knownReceivers: ['default', 'notify-1'],
+      receiverOptions: ['sre-critical', 'default', 'notify-1'],
+      issues: [
+        {
+          level: 'error',
+          code: 'receiver_dangling',
+          node_id: 'root/0',
+          field: 'receiver',
+          message: '接收人「sre-critical」未定义（对应通知渠道未启用或已删除），告警将无处可发',
+        },
+      ],
+    })
+    await waitFor(() => expect(screen.getByTestId('route-editor-blocking')).toBeInTheDocument())
+    expect(screen.getByTestId('route-editor-save')).toBeDisabled()
+
+    openSelect('接收人')
+    await waitFor(() => expect(optionTitles()).toContain('notify-1'))
+    const option = Array.from(document.querySelectorAll('.ant-select-item-option')).find(
+      (el) => el.getAttribute('title') === 'notify-1',
+    ) as HTMLElement
+    fireEvent.click(option)
+
+    await waitFor(() => expect(screen.queryByTestId('route-editor-blocking')).toBeNull())
+    expect(screen.getByTestId('route-editor-save')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('route-editor-save'))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
   })
 
   it('接收人清单取不到（非管理员）：不判定悬空、不阻断保存', async () => {

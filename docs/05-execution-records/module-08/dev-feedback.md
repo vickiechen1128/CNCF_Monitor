@@ -942,3 +942,12 @@ L3（纯文案文档）──┘        │
   - 后端：`models/alertmanager_notify.go`（webhook 类型 / IsTemplateChannelType）；`notify/channel.go`（模板必填 / webhook 不允许模板 / IM 脱敏、webhook 明文）；`notify/bridge.go`（webhook 原样转发分支）；`notify/client.go`（`sendOutboundRaw`，跳过 IM 业务错误码）；`notify/template.go`（模板类型排除 webhook）；测试。
   - 前端：`types/alertmanager.ts` / `alertmanagerConstants.ts`（webhook 类型与展示名）；`NotifyChannelDrawer.tsx`（条件字段、模板必填、飞书自动选内置模板、URL/密钥掩码回填与清空校验）；`NotifyChannelsPage.test.tsx`（webhook、模板必填、清空校验）。
 - **状态**：**landed（2026-10-23，未提交）**——后端受影响包全过；前端 `tsc -p tsconfig.test.json` 通过，渠道页/模板页/路由页/useRoutes 共 72 例通过；接口实测：创建 `type=webhook` 返回 200 且 `webhook_url` 明文，删除成功。
+
+## 49. 路由编辑抽屉：悬空接收人改选为有效渠道后，保存按钮仍被旧错误锁死（② 实现缺陷，2026-10-23 修复）
+
+- **类别**：② 实现缺陷（前端实时预检合并逻辑）
+- **发现场景**：生产路由规则页存在历史手写 receiver（如 `?fsurl=...`），新版路由编辑器将其判为悬空并阻断保存；用户把接收人下拉改选为现有平台渠道后，抽屉「保存」仍为灰色，页面底部阻断提示也不消失。
+- **根因**：`RouteEditorDrawer.tsx` 的 `liveIssues` 由 `nodeIssues`（基于当前路由树，仍含旧接收人的 `receiver_dangling`）与 `draftIssues`（基于表单实时值，已无该错误）合并；原实现只把 draft 新错误追加到 node 旧结论，**从不移除**已被 draft 重新校验的旧错误。结果 `blocking.length > 0` 恒成立，抽屉保存按钮 `disabled`，修改无法回传到路由树。
+- **修复**：新增 `DRAFT_RECHECKED_CODES`（matcher 名 / 正则、时长、重复间隔不整除、接收人悬空）；合并时丢弃 `nodeIssues` 中这些 code 的旧结论，以 `draftIssues` 为准。根接收人必填、根 matchers 禁止等树级结论不在 draft 覆盖范围，继续保留。
+- **测试**：`RouteEditorDrawer.test.tsx` 新增回归用例「悬空接收人改选为有效渠道后：阻断解除、保存按钮恢复」；原悬空用例补 `knownReceivers: ['default']`，使 draft 自身判定悬空，避免依赖旧 `issues` 桩。
+- **状态**：**landed（2026-10-23，未提交）**——`tsc -p tsconfig.test.json` 通过；`RouteEditorDrawer` 38 例全过；改动文件 eslint 通过。
