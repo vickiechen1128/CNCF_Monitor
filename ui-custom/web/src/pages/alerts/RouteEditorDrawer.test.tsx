@@ -594,6 +594,38 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
   })
 
+  // 回归：根路由补上兜底接收人后，旧的 root_receiver_required 不得残留。
+  it('根路由补上兜底接收人后：阻断解除、保存按钮恢复', async () => {
+    const { onSubmit } = renderDrawer({
+      node: blankRouteNode('root', ''),
+      knownReceivers: ['default', 'notify-1'],
+      receiverOptions: ['default', 'notify-1'],
+      issues: [
+        {
+          level: 'error',
+          code: 'root_receiver_required',
+          node_id: 'root',
+          field: 'receiver',
+          message: '根路由必须指定兜底接收人（Alertmanager 要求 root route must specify a default receiver）',
+        },
+      ],
+    })
+    await waitFor(() => expect(screen.getByTestId('route-editor-blocking')).toBeInTheDocument())
+    expect(screen.getByTestId('route-editor-save')).toBeDisabled()
+
+    openSelect('接收人')
+    await waitFor(() => expect(optionTitles()).toContain('notify-1'))
+    const option = Array.from(document.querySelectorAll('.ant-select-item-option')).find(
+      (el) => el.getAttribute('title') === 'notify-1',
+    ) as HTMLElement
+    fireEvent.click(option)
+
+    await waitFor(() => expect(screen.queryByTestId('route-editor-blocking')).toBeNull())
+    expect(screen.getByTestId('route-editor-save')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('route-editor-save'))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+  })
+
   it('接收人清单取不到（非管理员）：不判定悬空、不阻断保存', async () => {
     const { onSubmit } = renderDrawer({ knownReceivers: [] })
     expect(screen.queryByTestId('route-editor-receiver-dangling')).toBeNull()

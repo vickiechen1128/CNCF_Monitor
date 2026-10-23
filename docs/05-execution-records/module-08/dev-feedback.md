@@ -951,3 +951,16 @@ L3（纯文案文档）──┘        │
 - **修复**：新增 `DRAFT_RECHECKED_CODES`（matcher 名 / 正则、时长、重复间隔不整除、接收人悬空）；合并时丢弃 `nodeIssues` 中这些 code 的旧结论，以 `draftIssues` 为准。根接收人必填、根 matchers 禁止等树级结论不在 draft 覆盖范围，继续保留。
 - **测试**：`RouteEditorDrawer.test.tsx` 新增回归用例「悬空接收人改选为有效渠道后：阻断解除、保存按钮恢复」；原悬空用例补 `knownReceivers: ['default']`，使 draft 自身判定悬空，避免依赖旧 `issues` 桩。
 - **状态**：**landed（2026-10-23，未提交）**——`tsc -p tsconfig.test.json` 通过；`RouteEditorDrawer` 38 例全过；改动文件 eslint 通过。
+
+## 50. 路由节点校验器抽象：通用规则 + 根节点分支，页面/抽屉共用（③ 技术优化，2026-10-23）
+
+- **类别**：③ 技术优化（消除重复校验与手写 code 清单，修复同类残留风险）
+- **背景**：#49 修复了「悬空接收人改选后旧 receiver_dangling 仍锁死抽屉保存」；复盘发现根路由的两条树级规则（`root_receiver_required` / `root_matchers_forbidden`）同样存在「改好根表单、旧错误不消失」的死锁，且页面 / 抽屉各自组合校验逻辑，新增规则容易漏同步。
+- **结论**：抽象为单一节点校验器 `validateRouteNode(node, { knownReceivers, isRoot })`：
+  - 通用规则（所有节点）：matcher 标签名/正则、时长格式、接收人悬空；
+  - 根节点分支（`isRoot = true`）：receiver 必填、matchers 必须为空；
+  - 导出 `ROUTE_NODE_ISSUE_CODES`（校验器可能产出的全部 code），抽屉用它丢弃树上同 code 的旧结论；
+  - `validateRouteTree(nodes, knownReceivers?)` 内部按 `parent_id === ''` 调统一校验器；`useRoutes` 不再分别调用字段校验与接收人悬空校验；
+  - 抽屉 `draftIssues` 直接调用同一校验器，删除手写 `DRAFT_RECHECKED_CODES` 与额外的根规则过滤。
+- **测试**：`RouteEditorDrawer.test.tsx` 新增根路由补接收人后阻断解除的回归用例；现有悬空接收人回归、根/子节点规则用例全过；`RoutesPage` / `useRoutes` 用例全过。
+- **状态**：**landed（2026-10-23，未提交）**——`tsc -p tsconfig.test.json` 通过；`RouteEditorDrawer` 39 例、`RoutesPage` + `useRoutes` 46 例全过；改动文件 eslint 通过。

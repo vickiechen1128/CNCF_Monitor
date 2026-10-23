@@ -39,9 +39,8 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import {
   DEFAULT_RECEIVER_NAME,
   parseRouteDuration,
-  ROUTE_ISSUE_CODES,
-  validateRouteNodeFields,
-  validateRouteReceivers,
+  ROUTE_NODE_ISSUE_CODES,
+  validateRouteNode,
   type RouteEditNode,
   type RouteIssue,
 } from './routeTree'
@@ -55,15 +54,6 @@ import {
 import { DEFAULT_RECEIVER_LABEL } from './alertmanagerConstants'
 
 const { Text } = Typography
-
-/** draft 实时重校验覆盖的 issue code；树上同 code 的旧结论以 draft 为准。 */
-const DRAFT_RECHECKED_CODES = new Set<string>([
-  ROUTE_ISSUE_CODES.matcherNameEmpty,
-  ROUTE_ISSUE_CODES.matcherRegexInvalid,
-  ROUTE_ISSUE_CODES.durationInvalid,
-  ROUTE_ISSUE_CODES.repeatNotMultiple,
-  ROUTE_ISSUE_CODES.receiverDangling,
-])
 
 /** 分组间隔 Tooltip（AM 官方：单次发送耗时超过 group_interval 会被取消 → 漏发） */
 const GROUP_INTERVAL_TIMEOUT_TIP =
@@ -112,7 +102,7 @@ export interface RouteEditorDrawerProps {
   /**
    * 已启用通知渠道派生的接收人名（`ReceiverName()`，与 `useRouteEditor.knownReceivers` 同源）。
    * F13：下拉数据源 + 悬空判定基准；缺省回落 `receiverOptions`。
-   * 取不到清单（非管理员）时传空数组 → **不判定、不阻断**（沿用 validateRouteReceivers 口径）。
+   * 取不到清单（非管理员）时传空数组 → **不判定、不阻断**（沿用 validateRouteNode 口径）。
    */
   knownReceivers?: string[]
   /**
@@ -215,7 +205,7 @@ export function RouteEditorDrawer({
     () => (knownReceivers ?? receiverOptions ?? []).map((n) => (n ?? '').trim()).filter((n) => n.length > 0),
     [knownReceivers, receiverOptions],
   )
-  /** 清单为空 = 取不到（如非管理员）→ 不判定悬空（与 validateRouteReceivers 同口径） */
+  /** 清单为空 = 取不到（如非管理员）→ 不判定悬空（与 validateRouteNode 同口径） */
   const canJudgeReceiver = enabledReceiverNames.length > 0
   const enabledReceiverSet = useMemo(() => new Set(enabledReceiverNames), [enabledReceiverNames])
 
@@ -224,7 +214,10 @@ export function RouteEditorDrawer({
   const draftIssues = useMemo(() => {
     const values = watched ?? {}
     const draft = toRouteEditNode(node, { ...values, name: values.name ?? node?.name ?? '' })
-    return [...validateRouteNodeFields(draft), ...validateRouteReceivers([draft], enabledReceiverNames)]
+    return validateRouteNode(draft, {
+      knownReceivers: enabledReceiverNames,
+      isRoot: node?.parent_id === '',
+    })
   }, [watched, node, enabledReceiverNames])
 
   const liveIssues = useMemo(() => {
@@ -232,7 +225,7 @@ export function RouteEditorDrawer({
     // 否则用户把悬空接收人改选为有效渠道后，旧的 receiver_dangling 仍残留，
     // 抽屉保存按钮被永久锁死（生产 2026-10-23 实测）。
     // 其余 tree 级结论（根接收人必填 / 根 matchers 禁止）继续保留。
-    const stale = nodeIssues.filter((i) => !DRAFT_RECHECKED_CODES.has(i.code))
+    const stale = nodeIssues.filter((i) => !ROUTE_NODE_ISSUE_CODES.has(i.code))
     return [...stale, ...draftIssues]
   }, [nodeIssues, draftIssues])
 
