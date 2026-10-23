@@ -554,9 +554,9 @@
 
 ## 15. 新增登记（2026-10-09，资源删除「引用保护」B 方案决策）
 
-### F-21. 资源删除：从 PRD §6.6.1 的 403 拦截改为「静默放行 + 知情确认」（② 决策已拍板，待 PRD 回写）
+### F-21. 资源删除：从 PRD §6.6.1 的 403 拦截改为「静默放行 + 知情确认」（② 决策已拍板，已收割回写）
 
-- **类别**：② 实现/产品已决策（**B 方案**）；PRD §6.6.1 文字与代码现状冲突，待产品侧收割回写。
+- **类别**：② 实现/产品已决策（**B 方案**）；PRD §6.6.1 文字与代码现状冲突，~~待产品侧收割回写~~ **已收割（2026-10-15，PRD v2.52）**。
 - **背景 / 触发**：M07 资源软删（DELETE `/resources/:resource_id`）修复变更检测失明期间，复盘「被采集 Job 引用的资源能否删除」——
   - **现状冲突**：`delete.go` 的 `TODO(M01)`（L29-32、L43-45）写明「被 ScrapeJob 引用时 **403** data 返回引用 Job 名单」，但 **M01 从未实现该 403 拦截**，代码实际**静默放行**（直接软删、不反向查 ScrapeJob）；而 PRD §6.6.1（L1353）与 M07 契约快照 §3 DELETE 行仍写 `forbidden`：被引用时禁止删除 + 回传引用名单 + 「查看引用 Job」跳转。属「代码与契约文字冲突」类问题（同构已在前序轮次修过的模式）。
   - **同类口径割裂**：生成侧 `generator/targets.go:282` 已实现 `if rt.Status=="offline"` → 静默排除 target（`SkipReasonOffline`），即「资源下线」已是**静默自愈**；而「资源删除」在 PRD 文字上仍是 403 拦截，两者自相矛盾。
@@ -574,9 +574,9 @@
 - **落地动作（本轮已做）**：
   - 后端（`platform/`，依 backend-developer.md）：新增只读反查接口 `GET /api/v2/platform/resources/:resource_id/referenced-by` → `{jobs:[{job_name,network_domain_id,enabled}],total}`（查 `scrape_jobs.selected_instance_ids` 含该 resource_id 且未软删的 Job；停用 Job 同样计入引用、软删 Job 不计——与 M07 标签模板引用保护 §6.6.3.1 同口径）；`delete.go` 的 `TODO(M01)` 注释改写为 B 方案静默放行口径（不再 403）；M07 契约快照 §3 同步：DELETE 行去掉 `forbidden`、新增 GET `referenced-by` 行。
   - 前端（`ui-custom/web/`，依 frontend-developer.md）：`resourceApi` 新增 `referencedBy(id)`；资源列表删除由 `Popconfirm` 改为「先调 `referencedBy` 预检 → 二次确认弹窗回显引用数 + 引用 Job 名单 + 『查看引用 Job』跳转（`/scrape-jobs`）」。
-  - **PRD §6.6.1（L1353）文字修订由产品侧收割**：`forbidden` → 「允许删除；删除二次确认弹窗回显引用该资源的采集 Job 数（含『查看引用 Job』跳转）后放行」，与 offline 静默口径对齐。本分支不修改 PRD（红线）。
-- **影响模块**：backend `platform/config/resource`、frontend `ui-custom/web/src/pages/resources`、契约 `module-07/api-contract-snapshot.md`；PRD §6.6.1 待用户统一修改。
-- **状态**：后端 + 前端已落地 + 单测通过；PRD 文字待用户回写。
+  - **PRD §6.6.1（L1353）文字修订由产品侧收割**：`forbidden` → 「允许删除；删除二次确认弹窗回显引用该资源的采集 Job 数（含『查看引用 Job』跳转）后放行」，与 offline 静默口径对齐。本分支不修改 PRD（红线）。~~待收割~~ **已收割（2026-10-15，PRD v2.52 §6.6.1 改 B 方案 + §12 契约表新增 `GET .../referenced-by` 行，见 L1356）**。
+- **影响模块**：backend `platform/config/resource`、frontend `ui-custom/web/src/pages/resources`、契约 `module-07/api-contract-snapshot.md`；PRD §6.6.1 已统一修改。
+- **状态**：后端 + 前端已落地 + 单测通过；**PRD 文字已回写（v2.52，2026-10-15）**。
 
 ---
 
@@ -688,8 +688,8 @@
 | --- | --- | --- | --- |
 | F-22-① | `FILLING_TIPS` 五类共用一句必填说明，四类失准 | 前端 `TemplateDownloadModal.tsx` | ✅ 修 |
 | F-22-② | 网域提示把「留空即安全」教成安全操作（`default` 未登记会直接失败） | 前端 `TemplateDownloadModal.tsx` | ✅ 修 |
-| F-22-③ | `cluster` 前后端必填性矛盾 | 前端 `ResourceFormDrawer.tsx` + 后端 `validate.go` | ❌ 待设计裁定 |
-| F-22-④ | `zone_env` 幽灵列（UI 不展示、平台不用） | 后端 `template.go` 提示 + 前端提示 | ⚠️ 仅补说明，是否移除待裁定 |
+| F-22-③ | `cluster` 前后端必填性矛盾 | 前端 `ResourceFormDrawer.tsx` + 后端 `validate.go` | ✅ 已裁定收割（前端补必填，对齐后端 db/mw/app 必填，PRD v2.52，2026-10-15） |
+| F-22-④ | `zone_env` 幽灵列（UI 不展示、平台不用） | 后端 `template.go` 提示 + 前端提示 | ✅ 已裁定收割（从下载模板移除、导入层容忍历史列，PRD v2.52 §5.2 L587，2026-10-15） |
 | F-23-① | 模板无任何示例数据行 | 后端 `template.go` `buildTemplateXLSX` | ✅ 修 |
 | F-23-② | 列名英文码与页面中文列名对不上号 | 后端 `template.go` `buildValueSheet` | ✅ 修（补中文释义） |
 | F-23-③ | sheet2 按类过滤 + 行序对齐 | 后端 `template.go` | ✅ 修（与 F-24 同批落地） |
@@ -697,7 +697,7 @@
 
 - **影响模块**：backend `platform/config/resource`（`template.go`）、frontend `ui-custom/web/src/pages/resources`（`TemplateDownloadModal.tsx`）。
 - **契约影响**：`api-contract-snapshot.md` 的模板下载接口**签名与响应不变**（仍返回 xlsx blob），sheet 内容属实现细节，**无需改契约**。
-- **PRD 影响**：F-22-③ `cluster` 必填口径、F-22-④ `zone_env` 列存废，需设计侧在下一轮 PRD 迭代收割。
+- **PRD 影响**：F-22-③ `cluster` 必填口径、F-22-④ `zone_env` 列存废，~~需设计侧在下一轮 PRD 迭代收割~~ **已收割（2026-10-15，PRD v2.52：③ 前端补必填对齐后端；④ 模板移除 + 导入层容忍）**。
 
 ---
 
@@ -762,10 +762,10 @@
 | F-27 | 前端待登记高亮只覆盖业务和应用 | 前端 `ImportModal.tsx` | ✅ commit `d4d1c13` |
 
 - **契约影响**：无。错误响应结构 `models.ImportErrorDetail` 未变，仅 `platform_code` 的 reason 文案内容变化（前端已适配）；模板下载接口亦不变。
-- **遗留待设计裁定**：
-  1. `app_platform_rel.go` L201 的「平台 %s 未登记或已停用，请到『平台字典』登记或启用后重试」仍与 F-25/F-26 新文案不同构。该入口属「应用↔平台关联」写入路径（非导入），**是否也支持声明通道需 PRD 确认**，本轮未动。
-  2. **网域无声明 sheet 通道**（`excel_declare.go` 只有业务/应用/平台/服务四个）。网域只能去 M06 登记 —— 符合 chenrt「引导去平台侧登记」的诉求，但需在 PRD 中明示，避免用户误以为网域也能在 Excel 内声明。
-  3. F-22-③ `cluster` 前后端必填性矛盾、F-22-④ `zone_env` 列存废，仍待设计裁定。
+- **遗留待设计裁定**（~~三项待裁定~~ **三项均已收割，2026-10-15 PRD v2.52**）：
+  1. `app_platform_rel.go` L201 的「平台 %s 未登记或已停用，请到『平台字典』登记或启用后重试」仍与 F-25/F-26 新文案不同构。该入口属「应用↔平台关联」写入路径（非导入），**是否也支持声明通道需 PRD 确认**，本轮未动。→ **已落档（v2.52 §5.24 L930）**：声明 sheet 四通道**仅覆盖 Excel 导入这一条写入动线**，非导入写入路径不提供声明通道、须在各自管理页维护。
+  2. **网域无声明 sheet 通道**（`excel_declare.go` 只有业务/应用/平台/服务四个）。网域只能去 M06 登记 —— 符合 chenrt「引导去平台侧登记」的诉求，但需在 PRD 中明示，避免用户误以为网域也能在 Excel 内声明。→ **已落档（v2.52 §5.24 L931）**：声明 sheet 只有业务/应用/平台/服务四通道，网域不在其列，报错引导恒闭环到 M06 网域管理。
+  3. F-22-③ `cluster` 前后端必填性矛盾、F-22-④ `zone_env` 列存废，仍待设计裁定。→ **已裁定收割（v2.52：③ 前端补必填；④ 模板移除 + 导入层容忍历史列）**。
 
 ---
 
