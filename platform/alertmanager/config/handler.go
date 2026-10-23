@@ -3,13 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
-	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -46,43 +43,8 @@ func parseID(c *gin.Context) (uint, error) {
 	return uint(n), nil
 }
 
-// SubmitHandler 处理 POST /api/v2/platform/alertmanager/config（契约 §3）：
-//
-//	body: { content: '<alertmanager.yml 全文>', uploaded_by?: string }
-//
-// 校验失败返回 bad_request，data 含 { items, note } 行级错误；校验通过
-// 写入 AlertmanagerConfigVersion 留痕并触发 M09 管理域变更检测。
-func SubmitHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req struct {
-			Content    string `json:"content" binding:"required"`
-			UploadedBy string `json:"uploaded_by"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
-			return
-		}
-
-		v, err := Submit(db, req.Content, req.UploadedBy)
-		// review-fix A：errChangeTrigger 时配置已校验并落库留痕（v 非 nil），仅触发
-		// M09 变更检测失败——须在通用 err 分支之前命中，记录日志并正常返回版本（不报
-		// 500，契约「校验失败不阻断挂载」；稳态 watcher 下一轮会兜底重试检测）。
-		// 2026-10-09（立场 1）：自动确认闭环已移除，submitValidated 不再返回 errAutoApply
-		// ——该分支保留作防御（若将来重新引入自动确认路径，此处已能正确降级不误报 500）。
-		if errors.Is(err, errAutoApply) {
-			log.Printf("[alertmanager-config] persist ok but auto-apply management domain failed: %v", err)
-		} else if errors.Is(err, errChangeTrigger) {
-			log.Printf("[alertmanager-config] persist ok but trigger change detect failed: %v", err)
-		} else if err != nil {
-			respondSubmitError(c, err)
-			return
-		}
-		response.OK(c, v)
-	}
-}
-
 // CurrentHandler 处理 GET /api/v2/platform/alertmanager/config/current（契约 §3）：
-// 返回当前生效配置（最近一条 applied 版本）；无则返回 { content: '' }。
+// 返回当前生效配置（最近一条 applied 版本）；无则返回 { content: ” }。
 func CurrentHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cur, err := LatestApplied(db)
@@ -133,73 +95,5 @@ func GetVersionHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		response.OK(c, v)
-	}
-}
-
-// RemountHandler 处理 POST /api/v2/platform/alertmanager/config/versions/{id}/remount
-// （契约 §3 / §9.1 P0 回滚动线）：将历史版本内容重新挂载提交，再次走校验 → 留痕 →
-// 触发 M09 变更检测，总是写入新版本。返回新生成的版本。
-func RemountHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id, err := parseID(c)
-		if err != nil {
-			response.BadRequest(c, err)
-			return
-		}
-		var req struct {
-			UploadedBy string `json:"uploaded_by"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
-			return
-		}
-
-		// 先查原版本获取内容。
-		old, err := GetVersion(db, id)
-		if errors.Is(err, ErrVersionNotFound) {
-			response.NotFound(c, err.Error())
-			return
-		}
-		if err != nil {
-			response.InternalServerError(c, err)
-			return
-		}
-
-		newV, err := Remount(db, old.Content, req.UploadedBy)
-		// review-fix A：errChangeTrigger 时内容已校验并重新落库留痕（newV 非 nil），
-		// 先于通用 err 分支命中，记录日志正常返回新版本（不报 500）。
-		// dev-feedback §25 方案 A：errAutoApply 同款降级（收录成功，仅自动下发失败）。
-		if errors.Is(err, errAutoApply) {
-			log.Printf("[alertmanager-config] remount persist ok but auto-apply management domain failed: %v", err)
-		} else if errors.Is(err, errChangeTrigger) {
-			log.Printf("[alertmanager-config] remount persist ok but trigger change detect failed: %v", err)
-		} else if err != nil {
-			respondSubmitError(c, err)
-			return
-		}
-		response.OK(c, newV)
-	}
-}
-
-// respondSubmitError 将服务层错误映射为统一错误响应（契约 §3：校验失败 bad_request）。
-func respondSubmitError(c *gin.Context, err error) {
-	var valErr *ErrValidation
-	switch {
-	case errors.Is(err, domainregistry.ErrManagementDomainNotRegistered):
-		// 中心直连域未登记：409 + 可操作提示（先去网域管理登记）。
-		response.Conflict(c, err)
-	case errors.Is(err, ErrEmptyContent):
-		response.BadRequest(c, err)
-	case errors.As(err, &valErr):
-		// 校验失败：bad_request，data 为 { items, note, cause }，不进落库/流水线。
-		// （契约 §3：errType bad_request，data 带行级错误集合；cause 区分 user_config / platform_fault）。
-		c.JSON(http.StatusBadRequest, response.Response{
-			Status:    response.StatusError,
-			ErrorType: response.ErrorTypeBadRequest,
-			Error:     "validation failed",
-			Data:      gin.H{"items": valErr.Items, "note": valErr.Note, "cause": string(valErr.Cause)},
-		})
-	default:
-		response.InternalServerError(c, err)
 	}
 }

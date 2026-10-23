@@ -102,24 +102,6 @@ receivers:
   - name: default
 `
 
-// --- Submit：平台内置空接收人 default 自动补齐 ---
-
-func TestSubmitEnsuresBuiltinDefaultReceiver(t *testing.T) {
-	db := newMemConfigDB(t)
-	stubAmtoolAvailable(t)
-	stubChangeTrigger(t)
-
-	// 只有 route、没有 receivers：平台应补齐 `default`（无任何通知配置），
-	// 使根路由引用闭合且 Alertmanager 可加载。
-	v, err := Submit(db, "route:\n  receiver: default\n", "tester")
-	require.NoError(t, err)
-	require.NotNil(t, v)
-	assert.Contains(t, v.Content, "receivers:")
-	assert.Contains(t, v.Content, "- name: default")
-	assert.Equal(t, models.AlertmanagerConfigChecksum(v.Content), v.Checksum,
-		"checksum 必须基于补齐后的最终内容")
-}
-
 // --- Submit：校验通过 → 落库留痕 + 触发 M09 变更检测 ---
 
 func TestSubmitPersistsOnValid(t *testing.T) {

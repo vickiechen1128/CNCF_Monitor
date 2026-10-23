@@ -48,29 +48,14 @@ export interface AlertmanagerListParams extends Record<string, string | number |
   page_size?: number
 }
 
-/** 挂载请求体（契约 §3 POST /config，字段必填见契约 §7） */
-export interface SubmitAlertmanagerConfigInput {
-  content: string
-  uploaded_by?: string
-}
-
 /** 当前生效「产品视图」alertmanager.yml 原文（C1：route 保存合并基）响应 data */
 export interface EffectiveAlertmanagerYaml {
   /** 含平台物化 receivers 的生效产品视图 alertmanager.yml */
   yaml: string
 }
 
-/** 重新挂载历史版本请求体（契约 §3 POST .../versions/{id}/remount） */
-export interface RemountConfigInput {
-  uploaded_by?: string
-}
-
-/** Alertmanager 配置挂载与版本 API（config-mount service） */
+/** Alertmanager 配置只读留痕 API（导入 / 重新挂载入口已于 2026-10-23 删除） */
 export const alertmanagerConfigApi = {
-  /** 提交挂载：先校验（amtool check-config 等价），校验通过留痕 + 提交 M09 变更单 */
-  submit(input: SubmitAlertmanagerConfigInput): Promise<ApiResponse<AlertmanagerConfigVersion>> {
-    return apiClient.post<AlertmanagerConfigVersion>('/api/v2/platform/alertmanager/config', { body: input })
-  },
   /** 当前生效配置只读视图（最近一条 applied；无则 `{ content: '' }`） */
   getCurrent(): Promise<ApiResponse<AlertmanagerConfigVersion>> {
     return apiClient.get<AlertmanagerConfigVersion>('/api/v2/platform/alertmanager/config/current')
@@ -95,20 +80,6 @@ export const alertmanagerConfigApi = {
   getVersion(id: string): Promise<ApiResponse<AlertmanagerConfigVersion>> {
     return apiClient.get<AlertmanagerConfigVersion>(
       `/api/v2/platform/alertmanager/config/versions/${encodeURIComponent(id)}`,
-    )
-  },
-  /**
-   * 重新挂载历史版本（P0 回滚）：再次走校验 + M09 变更单。
-   *
-   * @deprecated 2026-10-02 起前端**无调用方**——告警配置页已按用户意见移除「重新挂载此版本」入口
-   * （重新提交历史配置改走「查看版本内容 → 改 → 导入整份配置文件」）。
-   * 端点本身后端仍在（契约 §3 保留，未删），故此处镜像暂留以保持契约可追溯；
-   * 注意与 `notifyTemplatesApi.remount`（通知模板版本回滚，**仍在用**）语义区分，勿混。
-   */
-  remount(id: string, input: RemountConfigInput = {}): Promise<ApiResponse<AlertmanagerConfigVersion>> {
-    return apiClient.post<AlertmanagerConfigVersion>(
-      `/api/v2/platform/alertmanager/config/versions/${encodeURIComponent(id)}/remount`,
-      { body: input },
     )
   },
 }

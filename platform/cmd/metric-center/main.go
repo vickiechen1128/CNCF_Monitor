@@ -181,10 +181,9 @@ func main() {
 		log.Printf("WARN: notify bridge base URL 回落到回环地址 127.0.0.1：跨网/边缘域部署下接收人片段与 M09 物化的通知 receiver 将指向不可达地址；请通过 NOTIFY_BRIDGE_URL（或 --notify.bridge-url）设为中心对外可达地址（如 http://center.example.com:8080）")
 	}
 
-	// 决策 74 定稿：把桥基础地址与令牌注入 M09 草稿服务，使其在物化管理域
-	// alertmanager.yml 时生成平台通知 receivers（配置即生效）。令牌为空时物化不写
-	// http_config.authorization，桥端一律 401 —— 启动 WARN 显式暴露，避免静默失效。
-	draft.NotifyBridgeURL = bridgeBaseURL
+	// 平台通知入口地址注入唯一生成规则：保存路由与 M09 生成使用同一个值，
+	// 产出的 alertmanager.yml receivers 完全一致。
+	generator.NotifyBridgeURL = bridgeBaseURL
 
 	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{
 		Location: loadRenderLocation(*notifyRenderTimezone),

@@ -183,13 +183,24 @@ func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfi
 // alertmanager.yml 的 receivers。按 ID 升序保证物化顺序稳定（checksum 可复现）。
 //
 // 2026-10-22 起渠道取消启停状态；是否进入 receivers 只取决于「是否被路由规则引用」，
-// 由 MaterializeNotifyReceivers 结合 route 段判定。
+// 由 BuildAlertmanagerConfig 结合 route 段判定。
 func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
 	var channels []models.NotifyChannel
 	if err := db.Order("id ASC").Find(&channels).Error; err != nil {
 		return nil, fmt.Errorf("load notify channels: %w", err)
 	}
 	return channels, nil
+}
+
+// LoadAlertmanagerConfigInput 组装唯一生成规则的完整输入：route 段 + 当前渠道。
+// 平台入口地址由生成器运行时配置 NotifyBridgeURL 统一提供，不属于调用方参数。
+// 两个入口（路由保存 / M09 生成）都通过本函数组装，避免各自拼装造成口径漂移。
+func LoadAlertmanagerConfigInput(db *gorm.DB, routeSection string) (AlertmanagerConfigInput, error) {
+	channels, err := LoadNotifyChannels(db)
+	if err != nil {
+		return AlertmanagerConfigInput{}, err
+	}
+	return AlertmanagerConfigInput{RouteSection: routeSection, Channels: channels}, nil
 }
 
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。

@@ -42,11 +42,6 @@ var (
 // 不生成 alerting 段。可注入便于测试。
 var AlertmanagerTarget string
 
-// NotifyBridgeURL 是 M08 通知渲染桥的基础地址，由 cmd/metric-center 从监听地址 /
-// NOTIFY_BRIDGE_URL 注入（决策 74 定稿：M09 物化平台通知 receivers）。为空时不物化
-// （不写悬空 URL）。可注入便于测试。
-var NotifyBridgeURL string
-
 // draftLocks 是按 domainID 的进程内互斥锁表：GenerateDraft 的「查活 pending → 生成新单
 // → 废弃旧单」序列非原子，前端保存后同步 POST 与 30s 轮询 watcher 同秒触发时，两路都
 // 走「无活 pending」主路径各自插库，产生多份并存 pending（2026-10-12 诊断：
@@ -270,43 +265,35 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	}
 	// dev-feedback #44：来源版本 ID 落到产物的非产物字段（与内容同源，见上方加载处）。
 	artifacts.AlertmanagerSourceVersionID = amSourceVersionID
-	// 决策 74 定稿：管理域存在 alertmanager.yml 时把平台启用渠道物化为 receivers
-	//（与 M07 LabelTemplate 同「配置即生效」范式），并把重名冲突写入非产物字段
-	// NotifyReceiverConflicts 供 ValidateArtifacts 转行级错误。须在 Checksum 之前完成。
-	if err := materializeNotifyReceivers(db, artifacts); err != nil {
+	// 管理域存在 alertmanager.yml 时，用唯一生成规则整份重建（global + route + receivers）。
+	// 须在 Checksum 之前完成。
+	if err := rebuildAlertmanagerConfig(db, artifacts); err != nil {
 		return nil, nil, nil, err
 	}
 	return artifacts, jobs, rules, nil
 }
 
-// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把被路由引用的平台渠道物化为
-// receivers 并合并进产物（决策 74 定稿）。AlertmanagerYML 为空（非管理域 / 无告警配置）
-// 时直接返回。物化幂等：已物化的平台 receiver（名称与桥 URL 均匹配）识别为自身产物、
-// 不重复追加也不误判重名，保证「重新校验」可从草稿产物复现同一结果。
-func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error {
+// rebuildAlertmanagerConfig 在存在 alertmanager.yml 产物时，用**唯一生成规则**
+// （generator.BuildAlertmanagerConfig）整份重建产物：提取存量 route 段 + 当前渠道，
+// 重新生成 global / route / receivers（旧手写、未引用、已删渠道 receiver 全部丢弃）。
+// AlertmanagerYML 为空（非管理域 / 无告警配置）时直接返回。
+func rebuildAlertmanagerConfig(db *gorm.DB, artifacts *generator.ConfigArtifacts) error {
 	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
 		return nil
 	}
-	// 平台内置空接收人 default：即便存量留痕里没有，也在生成侧补齐，保证根路由可引用
-	// 「默认（不通知）」且 amtool 校验闭合。
-	ensured, err := generator.EnsureDefaultReceiver(artifacts.AlertmanagerYML)
+	routeSection, err := generator.ExtractRouteSection(artifacts.AlertmanagerYML)
 	if err != nil {
 		return err
 	}
-	artifacts.AlertmanagerYML = ensured
-	channels, err := generator.LoadNotifyChannels(db)
+	input, err := generator.LoadAlertmanagerConfigInput(db, routeSection)
 	if err != nil {
 		return err
 	}
-	materialized, conflicts, err := generator.MaterializeNotifyReceivers(artifacts.AlertmanagerYML, generator.NotifyReceiverInput{
-		BridgeURL: NotifyBridgeURL,
-		Channels:  channels,
-	})
+	built, err := generator.BuildAlertmanagerConfig(input)
 	if err != nil {
 		return err
 	}
-	artifacts.AlertmanagerYML = materialized
-	artifacts.NotifyReceiverConflicts = conflicts
+	artifacts.AlertmanagerYML = built
 	return nil
 }
 
@@ -857,7 +844,7 @@ func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error {
 // 留痕 applied_at 永为空，M08 版本历史永久显示「已提交，待确认下发」（用户实测
 // id=18：其单 CHG-20261013-002 生成 17 秒即被废弃，单子在库、状态 discarded，仅因
 // M09 列表默认按 pending 过滤而「看不到」，被误判为脏数据）。恢复手段改为显式路径：
-// 重新挂载（Remount 产新版本 + 新单）或修改策略/资源触发产草稿。
+// 重新保存路由（产新版本 + 新单）或修改策略/资源触发产草稿。
 //
 // 与 unlockSourceDataOnFailed 的区别：废弃是**变更单级终态**、会按决策 43 分类回写
 // 源数据（job 表 deployed 语义 = 回到已生效基线）；失败自动清锁是**非终态**（草稿仍
@@ -1052,9 +1039,9 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err != nil {
 		return nil, err
 	}
-	// 决策 74 定稿：重校需复现物化结果（含重名冲突）。已物化的平台 receiver 由物化函数
-	// 幂等识别，不误判重名；冲突未消除时仍复现 failed + 行级错误，避免「重校即静默放行」。
-	if err := materializeNotifyReceivers(db, artifacts); err != nil {
+	// 重校也走唯一生成规则：从草稿产物提取 route 段后整份重建，
+	// 保证重校结果与下次生成一致（旧手写/未引用 receiver 全部丢弃）。
+	if err := rebuildAlertmanagerConfig(db, artifacts); err != nil {
 		return nil, err
 	}
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready

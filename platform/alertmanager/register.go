@@ -1,13 +1,14 @@
 // Package alertmanager 汇总 Module_08 告警收敛与通知管理的控制面路由装载。
 // 统一挂载到 /api/v2/platform/alertmanager/*：
-//   - /config*：alertmanager.yml 文件挂载 / 当前生效 / 版本列表与详情 / 重新挂载（M08 config）；
+//   - /config*：alertmanager.yml 当前生效 / 版本列表与详情（只读留痕；M08 config）；
 //   - /silences*：静默管理——服务端代理 Alertmanager 原生 /api/v2/silences，
 //     写路径带决策 56 matcher 授权收敛（即时生效、不入 M09 流水线，决策 59）；
 //   - /alerts：通知状态查看——服务端代理 Alertmanager 原生 /api/v2/alerts（v2 口径，
 //     决策 61），notify_status 四态归一 + 决策 56 读路径授权过滤骨架（T08-07，契约 §10.2）。
 //
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §6.3 / §9.1 / §9.2；docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4/§10。
+//
+//	§6.3 / §9.1 / §9.2；docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4/§10。
 package alertmanager
 
 import (
@@ -30,19 +31,18 @@ import (
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error {
 	am := platform.Group("/alertmanager")
 
-	// M08 alertmanager.yml 文件挂载（契约 §3）：留痕版本自身已校验（决策 60 校验失败不落库）。
+	// M08 alertmanager.yml 只读留痕（2026-10-23 起不再提供导入 / 重新挂载入口：
+	// 配置内容只能由唯一生成规则产出，写入口仅剩路由保存）。
 	cfg := am.Group("/config")
 	// 列表端点不含 content，保留在根组（仅全局认证 au-02）。
 	cfg.GET("/versions", config.ListVersionsHandler(db))
-	// 写端点（提交/重挂）与返回完整内容（含凭据明文：basic_auth / bearer_token）的读端点
-	// （current / 版本详情）统一挂 RequireAdmin 最小授权门（security-review B/C：管理类
-	// 写接口仅认证不授权；告警配置为管理事务）。严格复用 main.go /users /tenants 的挂法。
+	// 返回完整内容（含凭据明文：basic_auth / bearer_token）的读端点
+	// （current / 版本详情）挂 RequireAdmin 最小授权门（security-review B/C：
+	// 告警配置为管理事务）。严格复用 main.go /users /tenants 的挂法。
 	adminCfg := cfg.Group("")
 	adminCfg.Use(auth.RequireAdmin())
-	adminCfg.POST("", config.SubmitHandler(db))
 	adminCfg.GET("/current", config.CurrentHandler(db))
 	adminCfg.GET("/versions/:id", config.GetVersionHandler(db))
-	adminCfg.POST("/versions/:id/remount", config.RemountHandler(db))
 	// C1：route 保存合并基 = 当前生效产品视图 alertmanager.yml（含平台物化 receivers），
 	// 供前端仅覆盖 route 段、保留平台 receivers（RequireAdmin，内容含出站凭据，与 /current 同级）。
 	adminCfg.GET("/product", route.EffectiveAlertmanagerYAMLHandler(db))

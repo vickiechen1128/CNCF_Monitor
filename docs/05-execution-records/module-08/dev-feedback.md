@@ -964,3 +964,53 @@ L3（纯文案文档）──┘        │
   - 抽屉 `draftIssues` 直接调用同一校验器，删除手写 `DRAFT_RECHECKED_CODES` 与额外的根规则过滤。
 - **测试**：`RouteEditorDrawer.test.tsx` 新增根路由补接收人后阻断解除的回归用例；现有悬空接收人回归、根/子节点规则用例全过；`RoutesPage` / `useRoutes` 用例全过。
 - **状态**：**landed（2026-10-23，未提交）**——`tsc -p tsconfig.test.json` 通过；`RouteEditorDrawer` 39 例、`RoutesPage` + `useRoutes` 46 例全过；改动文件 eslint 通过。
+
+## 51. alertmanager.yml 收敛为唯一生成规则：路由提交与 M09 生成统一整份重建（2026-10-23 用户拍板）
+
+- **类别**：① 契约收口（告警配置唯一作者 = 平台）+ ③ 技术优化（删除合并 / 保留 / 冲突 / 局部补齐等所有旁路）
+- **发现场景**：用户检查 pending 草稿时发现历史手写 `old-deleted-receiver` 与测试注入的非空 `default` 仍留在 `receivers:` 段；平台已下线「手写配置」能力（告警配置唯一写入口 = 路由规则页），保留手写 receiver 的逻辑已无产品依据。用户进一步要求：**全局只能有一套 alertmanager.yml 生成规则，任何重新生成都必须走它；未来告警抑制也只是给这套规则增加生成能力，不得到处适配。**
+- **结论 / 用户拍板**：
+  - **唯一生成规则** `generator.BuildAlertmanagerConfig(AlertmanagerConfigInput)`：输入 route 段 + 渠道 + 桥地址，输出完整 `alertmanager.yml`：
+    - `global.resolve_timeout: 5m`（平台固定）；
+    - `route`（输入段）；
+    - `receivers` = 内置空 `default` + route 引用的渠道 `notify-<id>`（按渠道 ID 升序；桥地址为空时只写 `name` 占位）。
+  - **两个入口只做输入转换，不各自实现生成逻辑**：
+    - 路由保存：`GenerateRouteSection(路由树)` → `BuildAlertmanagerConfig`；
+    - M09 生成 / 重校：`ExtractRouteSection(存量 yml)` → `BuildAlertmanagerConfig`。
+  - 旧 receivers / global / inhibit_rules / templates / mute_time_intervals 一律不再保留；手写同名 receiver 直接由平台产物覆盖，删除 `NotifyReceiverConflict` 与 `ValidateArtifacts` 冲突分支。
+  - **删除全部旁路适配**：`MergeRouteSection`、`EnsureReceiverNames`、`EnsureDefaultReceiver`、`MaterializeNotifyReceivers` 及 `default_receiver.go` / `notify_receivers.go` 整文件删除；原始挂载 `Submit` / `Remount` 不再自动补 default（AM 校验要求 route 引用的 receiver 必须已声明）。
+  - **渠道删除本次不动**：保持现有 GORM 软删除（用户裁决「渠道删除先不动」）。
+  - 抑制规则能力尚未实现（无 UI），整份重建会丢弃存量 `inhibit_rules`；未来接入时在唯一规则内增加 `inhibit_rules` 生成，调用方零改动。
+- **回填清单**：
+  - 新增 `platform/configcenter/generator/alertmanager_config_build.go`：`BuildAlertmanagerConfig`（唯一规则）、`ExtractRouteSection`（M09 入口）及测试。
+  - 删除 `platform/configcenter/generator/{default_receiver.go,notify_receivers.go}` 及其测试。
+  - `platform/configcenter/generator/{notify_route_generate.go,generator.go,validate.go,data_source.go}`：删除 `MergeRouteSection`、`EnsureReceiverNames`、`ValidateRouteSectionWithAmtool` / `RouteAmtoolChecker`（仅测试使用的旁路校验器）、`NotifyReceiverConflicts` 及冲突校验。
+  - `platform/alertmanager/route/save_handler.go`：保存链路 = `GenerateRouteSection` → `BuildAlertmanagerConfig`，`base_checksum` 仅用于乐观锁。
+  - `platform/configcenter/draft/service.go`：M09 物化/重校 = `ExtractRouteSection` → `BuildAlertmanagerConfig`。
+  - `platform/alertmanager/config/service.go`：`Submit` / `Remount` 去掉 `EnsureDefaultReceiver` 调用。
+  - 测试：`alertmanager_config_build_test.go` 覆盖两个入口 + 旧配置清理；`save_handler_test.go` / `draft_test.go` / `config_test.go` / `notify_route_generate_test.go` / `validate_test.go` 同步改写。
+- **测试与校验**：受影响包（generator / draft / route / notify / config）全过；`make test-platform` 仅剩既有环境基线失败（`admin/storagelog`、`db`、`strategy/rule` promtool 桩）；`go vet ./platform/...` 通过；`make repo-map` 已刷新且 `make check-repo-map` 通过。
+- **状态**：**landed（2026-10-23，未提交）**
+
+## 52. 删除「导入整份配置」与「重新挂载历史版本」入口，保存/生成统一入口地址与装配逻辑（2026-10-23 用户拍板）
+
+- **类别**：① 能力收口（告警配置唯一写入口 = 路由保存）+ ③ 技术优化（两个入口共用装配）
+- **背景**：用户确认低成本方案：不做路由树持久化、不重构；各入口自行提供路由段，其余完整数据由共用装配函数统一准备，交给唯一生成器。同时删除两个会绕过唯一生成规则的旁路入口。
+- **结论 / 用户拍板**：
+  - **删除导入整份配置**：后端 `POST /api/v2/platform/alertmanager/config`（`SubmitHandler`）与前端 `alertmanagerConfigApi.submit` / `SubmitAlertmanagerConfigInput` 全部删除。
+  - **删除重新挂载历史版本**：后端 `POST /config/versions/{id}/remount`（`RemountHandler`）、`config.Remount` 与前端 `alertmanagerConfigApi.remount` / `RemountConfigInput` 全部删除。
+  - 内部 `config.Submit` 保留，仅作为路由保存链路的「amtool 校验 + 版本留痕 + 触发 M09」工序，不再对外暴露。
+  - **平台入口地址统一**：`NotifyBridgeURL` 从 `draft` 移到 `generator` 运行时配置（启动时由 main 注入）；保存路由与 M09 生成使用同一个值，保存期直接写完整 `webhook_configs.url`，不再「先 name 占位、下发再补全」。
+  - **共用装配**：新增 `generator.LoadAlertmanagerConfigInput(db, routeSection)`（加载渠道 + 入口地址），路由保存与 M09 生成只负责提供各自 route 段，避免口径漂移；未来告警抑制只需在装配与生成器中各改一处。
+- **回填清单**：
+  - `platform/alertmanager/config/{handler.go,service.go,version_test.go}`：删除导入/重挂 handler、Remount 服务与对应测试；只读端点保留。
+  - `platform/alertmanager/register.go`：删除 `POST /config` 与 `POST /config/versions/:id/remount` 注册。
+  - `platform/configcenter/generator/alertmanager_config_build.go`：新增运行时 `NotifyBridgeURL`，生成器直接使用。
+  - `platform/configcenter/generator/data_source.go`：新增 `LoadAlertmanagerConfigInput` 共用装配。
+  - `platform/alertmanager/route/save_handler.go`：改用共用装配，保存期写完整入口地址。
+  - `platform/configcenter/draft/service.go`：移除 `draft.NotifyBridgeURL`，改用共用装配。
+  - `platform/cmd/metric-center/main.go`：入口地址注入改为 `generator.NotifyBridgeURL`。
+  - `ui-custom/web/src/api/alertmanager.ts`：删除 submit / remount 方法及类型。
+  - 测试：`save_handler_test.go` 新增「保存期写完整入口地址」用例；`main_test.go` 冒烟改为验证导入入口已删除（404）。
+- **运维注意**：升级前已存在的 pending 草稿仍可能是旧内容，不要直接确认；重新保存一次路由，让新单取代旧单。
+- **状态**：**landed（2026-10-23，未提交）**
