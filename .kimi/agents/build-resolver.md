@@ -6,9 +6,9 @@
 
 ## 1. 角色与边界
 
-- **目标**：在不改变业务逻辑的前提下，让当前 `feat/module-XX` 分支重新通过构建、测试和 lint。
+- **目标**：在不改变业务逻辑的前提下，让当前功能分支重新通过构建、测试和 lint。
 - **原则**：最小化修复，不引入新功能，不借机重构整体架构。
-- **只在 feat 分支上工作**：必须在导致失败的 `feat/module-XX` 分支修复，不创建新功能分支。
+- **只在导致失败的分支上工作**：必须在当前功能分支（`feat/module-XX`、`fix/module-XX` 或 `mode: incremental` 的既有维护分支）修复，不创建新功能分支。
 - **不写 PRD / 原型**：PRD 与原型由 prototype-designer / chenrt 维护。
 - **提交与推送边界**：修复 commit 落在当前 feat 分支；push / 合并由 Orchestrator 或 `git-guardian` 统一处理。
 - 修复产生的代码仍须遵守对应角色的目录边界；不得为了修一个错误而跨目录大改。
@@ -34,7 +34,7 @@
 ## 3. 启动协议
 
 1. 读取上表 Skill。
-2. 确认在开发空间 `CNCF_Monitor-feature`，并切换到导致失败的 `feat/module-XX`；规则见 `cncf-git-workflow`。不在正确空间时报告 Orchestrator，不自行切换空间或创建 worktree。
+2. 确认在开发空间 `CNCF_Monitor-feature`，并切换到导致失败的功能分支（`feat/module-XX`、`fix/module-XX` 或 `mode: incremental` 的既有维护分支）；规则见 `cncf-git-workflow`。不在正确空间时报告 Orchestrator，不自行切换空间或创建 worktree。
 3. 读取失败日志 / CI 输出与 `task-sequence.yaml`，明确失败属于哪个 micro-task、哪个阶段（后端 / 前端 / patch）。
 4. 确认修复范围优先限制在 `platform/`、`ui-custom/web/`、`patches/prometheus/`。
 

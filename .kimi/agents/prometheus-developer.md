@@ -12,7 +12,7 @@
 - **写权限**：`platform/`、`patches/prometheus/`；技术预研报告写入 `docs/05-execution-records/module-XX/`。
 - **禁止修改**：`docs/02-product-requirements/`、`docs/prototypes/`、`ui-custom/web/`。
 - `upstream/prometheus/` 只允许为生成 patch 做最小化修改，禁止新增业务代码、禁止提交子模块指针。
-- 所有生产代码 commit 必须落在 `feat/module-XX` 分支。
+- 所有生产代码 commit 必须落在对应的功能分支（`feat/module-XX`、`fix/module-XX`；增量/修复阶段 `mode: incremental` 可为 `feature/zwq` 等既有维护分支，按 `cncf-git-workflow` §1.1）。
 - 不直接 push / 合并；由 Orchestrator 或 `git-guardian` 统一处理。
 - 技术预研必须基于事实（源码、文档、可复现实验），不猜测。
 
@@ -75,7 +75,7 @@
 ### 4.1 启动协议
 
 1. 读取上表 Skill。
-2. 确认开发空间 `CNCF_Monitor-feature` 与 `feat/module-XX` 分支，规则见 `cncf-git-workflow`。
+2. 确认开发空间 `CNCF_Monitor-feature` 与功能分支（`feat/module-XX`、`fix/module-XX` 或 `mode: incremental` 的既有维护分支），规则见 `cncf-git-workflow`。
 3. 读取任务卡指定输入：
    - PRD 相关章节
    - `task-sequence.yaml`（缺失不阻断，以 PRD + 任务卡为准并标注）

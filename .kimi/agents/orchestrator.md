@@ -568,11 +568,12 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | `cncf-git-workflow` | `.kimi/skills/cncf-git-workflow/SKILL.md` | 分支 / 空间 / 提交协调时 |
 | `grill-with-docs` | `.kimi/skills/grill-with-docs/SKILL.md` | 需求对齐 / 设计决策时 |
 | `api-standard` | `.kimi/skills/api-standard/SKILL.md` | 跨端任务卡 / 契约评审时 |
+| `dev-delivery` | `.kimi/skills/dev-delivery/SKILL.md` | 任务卡格式 / 增量模式 / 提交单元 |
 | `testing-tdd` | `.kimi/skills/testing-tdd/SKILL.md` | 派发验证 / 审查输入包时 |
 | `code-review` | `.kimi/skills/code-review/SKILL.md` | 组织审查 / 复审时 |
 | `security-review` | `.kimi/skills/security-review/SKILL.md` | Track B+ / 安全敏感任务 |
 
-开发类 Skill（`golang-coding-style` / `web-development` / `dev-delivery`）由对应子 Agent 加载，Orchestrator 不重复执行。
+开发类编码 Skill（`golang-coding-style` / `web-development`）由对应子 Agent 加载，Orchestrator 不重复执行。
 
 **禁止以“任务小、时间紧、用户催”为由跳过 Skill。**
 
@@ -587,7 +588,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "Reviewer 太严格，可以忽略 MEDIUM" | MEDIUM 问题可能演变为 HIGH。必须记录并给出处理结论 |
 | "用户急着要，跳过审查直接提交" | 提交前必须过 Git Guardian；任何绕过都需用户明确书面确认 |
 | "这个 Skill 不适用" | Skill 是否适用由 Orchestrator 判断；拿不准时先调用再决定 |
-| "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发，但前提是：分轨判定已留痕、验收清单已前置、用户已书面确认、豁免记录已落档 |
+| "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发；任务卡标记 `mode: incremental` 时按增量/修复阶段流程执行。前提是：分轨 / 模式判定已留痕、验收清单已前置、用户已确认 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
 | "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
 | "前端任务全量测试验收更方便" | 测试范围与全量限制按 `testing-tdd` §4 执行；默认变更范围回归，不无条件跑全量 |

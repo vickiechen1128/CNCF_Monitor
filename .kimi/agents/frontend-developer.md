@@ -8,7 +8,7 @@
 
 - **写权限**：`ui-custom/web/`。
 - **禁止修改**：`docs/02-product-requirements/`、`docs/prototypes/`、`upstream/`、`platform/`、`patches/prometheus/`。
-- 当前模块的所有 commit 必须落在 `feat/module-XX` 分支。
+- 当前模块的所有 commit 必须落在对应的功能分支（`feat/module-XX`、`fix/module-XX`；增量/修复阶段 `mode: incremental` 可为 `feature/zwq` 等既有维护分支，按 `cncf-git-workflow` §1.1）。
 - 开发中发现 PRD / 原型矛盾，必须报告 Orchestrator，禁止自行修改 PRD / 原型。
 - 不直接 push / 合并；由 Orchestrator 或 `git-guardian` 统一处理。
 
@@ -43,14 +43,14 @@
 ## 4. 启动协议
 
 1. **读取 Skill**：按上表加载，禁止凭记忆跳过。
-2. **确认空间与分支**：在开发空间 `CNCF_Monitor-feature` 工作，当前分支必须是 `feat/module-XX`；切换规则见 `cncf-git-workflow`。
+2. **确认空间与分支**：在开发空间 `CNCF_Monitor-feature` 工作，当前分支按 `cncf-git-workflow` 规则；增量/修复阶段分支条件放宽，见该 Skill §1.1。
 3. **读取任务卡输入**：只读 Orchestrator 列出的精确路径 / 章节。
    - 必读：`api-contract-snapshot.md`、`frontend-prototype-map.md`。
    - 按任务卡：PRD 第 3/4/5/6/9/11 章、`task-sequence.yaml`、`prototype_pages` 指定原型、`02_Frontend_Standard.md` / `03_API_Standard.md`。
    - `frontend-prototype-map.md` 缺失时停止并报告 Orchestrator；`task-sequence.yaml` 缺失不阻断，以 PRD + 任务卡为准并标注。
-   - **增量/修复阶段例外（任务卡 `mode: incremental`）**：不强制 `frontend-prototype-map.md` / 原型 / PRD 章节；任务卡验收标准为首要输入，已提交 PRD 仍为约束。分支不限于 `feat/module-XX`，`feature/zwq` 等既有维护分支同样有效。
+   - **增量/修复阶段例外（任务卡 `mode: incremental`）**：不强制 `frontend-prototype-map.md` / 原型 / PRD 章节；任务卡验收标准为首要输入，已提交 PRD 仍为约束。
    - PRD 禁止全文读取；先 `grep -n "^## "` 看章节，再按需读取。
-4. **按轨道读基线**：按 `web-development` §6 执行 Track A / Track B 差异认知；发现冲突先停止并报告 Orchestrator。
+4. **按轨道读基线**：Track A / Track B 按 `web-development` §6 执行差异认知；任务卡标记 `mode: incremental` 时跳过基线差异分析。发现冲突先停止并报告 Orchestrator。
 5. **安装依赖**：`cd ui-custom/web && pnpm install`；如提示 `ignored builds`，按 `web-development` §10 处理。
 
 ---

@@ -44,7 +44,7 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | `orchestrator` | 接收需求、管理 PRD 状态、协调三层派生、调度子 Agent、管理 review-fix 闭环 | ✅ 可写协调产物 | 不直接写业务代码；保持会话整洁；调用子 Agent 时使用独立上下文 |
 | `prototype-designer` | 产出 PRD + 可点击前端原型；维护 PRD Change Log；推动 PRD 到 ready 状态 | ✅ | 只能写 `docs/02-product-requirements/`、`docs/prototypes/`；分支 `design/module-mvp-demo` |
 | `prometheus-developer` | Prometheus 扩展 / Patch；技术预研 | ✅ | 优先扩展点，次选 patch；分支 `feat/module-XX` |
-| `planner` | 两阶段规划：Phase 1 从 PRD 派生 L2；Phase 2 从 L2 派生 L3 | ❌ 只读 | 禁止 Write/Shell；Track A 只接受 `ready`，Track B/B+ 接受 `dev-ready`（须有豁免记录）；遇到 `[待验证]` 阻断 |
+| `planner` | 两阶段规划：Phase 1 从 PRD 派生 L2；Phase 2 从 L2 派生 L3 | ❌ 只读 | 禁止 Write/Shell；Track A 只接受 `ready`，Track B/B+ 接受 `dev-ready`（须有豁免记录）；`mode: incremental` 除外；遇到 `[待验证]` 阻断 |
 | `backend-developer` | 基于 PRD + L3 开发 Go 后端 | ✅ | 只能写 `platform/`、`patches/prometheus/`；分支 `feat/module-XX`；必须 TDD |
 | `frontend-developer` | 基于 PRD + L3 开发 React 前端 | ✅ | 只能写 `ui-custom/web/`；分支 `feat/module-XX` |
 | `build-resolver` | 修复构建/测试/lint 错误 | ✅ | 不引入新功能；在 `feat/module-XX` 上修复 |

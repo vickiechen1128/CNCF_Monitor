@@ -58,7 +58,7 @@ git diff --stat
 4. **目录权限检查**：按 `cncf-git-workflow` §3 的写权限矩阵。
 5. **提交单元检查**：按 `cncf-git-workflow` §5；单一 commit 跨多个功能块，或超过约 10 个文件且无法一句话概括 ⇒ 阻断。
 6. **Commit message 检查**：按 `cncf-git-workflow` §4；检查 type、scope、task id、执行记录链接；技术债修复必须带 `debt:` 标记且与功能修复分开提交。
-7. **PRD / 原型检查**：修改 PRD 是否更新修订表（新增行、版本 +1、不改写冻结行）；是否违反冻结期门禁；`Modules/README.md` 版本对齐表是否同步。**增量/修复阶段（`mode: incremental`）不要求 PRD 修订表**——该阶段不修改 PRD / 原型，回填由 chenrt 每周统一完成。
+7. **PRD / 原型检查**：修改 PRD 是否更新修订表（新增行、版本 +1、不改写冻结行）；是否违反冻结期门禁；`Modules/README.md` 版本对齐表是否同步。**增量/修复阶段（`mode: incremental`）且本次提交未修改 PRD / 原型时，跳过 PRD 修订表检查**；若增量任务仍修改了 PRD / 原型，按普通规则执行。
 8. **契约快照检查**：跨端 API 变更（路由 / 字段 / 枚举 / 响应结构）必须同步 `api-contract-snapshot.md`；纯单端变更免检。
 9. **增量任务卡检查**：`mode: incremental` 时，任务卡必须含 `problem` / `acceptance` / `impact` / `regression_risk` / `estimated_effort`；缺失时要求补充。
 10. **验证检查**：按 `testing-tdd` §6 的矩阵；`mode: incremental` 时按 §4.3 最小范围（目标测试 + typecheck + lint + 服务启动），不要求全量。
@@ -74,7 +74,7 @@ git diff --stat
 
 1. 当前不在正确空间，或空间与变更类型不匹配。
 2. 当前分支是 `main` 或 `develop`。
-3. 分支命名不符合 `cncf-git-workflow` §2。
+3. 分支命名不符合 `cncf-git-workflow` §2，且任务卡未标记 `mode: incremental`（增量/修复任务允许 `feature/zwq` 等既有维护分支，不强制改名）。
 4. 当前分支修改了禁止目录（按 `cncf-git-workflow` §3）。
 5. Commit message 缺少类型、scope 或描述为空。
 6. `feat` / `fix` 未携带 task id。

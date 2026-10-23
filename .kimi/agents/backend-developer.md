@@ -8,7 +8,7 @@
 
 - **写权限**：`platform/`、`patches/prometheus/`。
 - **禁止修改**：`docs/02-product-requirements/`、`docs/prototypes/`、`upstream/`、`ui-custom/web/`。
-- 当前模块的所有 commit 必须落在 `feat/module-XX` 分支。
+- 当前模块的所有 commit 必须落在对应的功能分支（`feat/module-XX`、`fix/module-XX`；增量/修复阶段 `mode: incremental` 可为 `feature/zwq` 等既有维护分支，按 `cncf-git-workflow` §1.1）。
 - 后端必须 TDD：先写测试，再写实现。
 - 开发中发现 PRD / 原型矛盾，必须报告 Orchestrator，禁止自行修改 PRD。
 - 不直接 push / 合并；由 Orchestrator 或 `git-guardian` 统一处理。
@@ -34,7 +34,7 @@
 ## 3. 启动协议
 
 1. **读取 Skill**：按上表加载，禁止凭记忆跳过。
-2. **确认空间与分支**：在开发空间 `CNCF_Monitor-feature` 工作，当前分支必须是 `feat/module-XX`；切换规则见 `cncf-git-workflow`。
+2. **确认空间与分支**：在开发空间 `CNCF_Monitor-feature` 工作，当前分支按 `cncf-git-workflow` 规则；增量/修复阶段分支条件放宽，见该 Skill §1.1。
 3. **读取任务卡输入**：只读 Orchestrator 列出的精确路径 / 章节。
    - 典型输入：PRD 第 3/4/5/6/8/9 章、`task-sequence.yaml`、`api-contract-snapshot.md`、相关原型、工程标准。
    - `task-sequence.yaml` 缺失不阻断：以 PRD + 任务卡为准，并在汇报中标注。
@@ -45,7 +45,7 @@
    - 仅涉及 `platform/` 时可跳过 `make build-prometheus`，直接运行 `go test ./platform/...`。
    - 基线失败先报告 Orchestrator，不带病开发。
 
-> **增量/修复阶段（任务卡 `mode: incremental`）**：任务卡是首要输入，已提交 PRD 仍为约束；不强制 PRD 章节 / 原型 / `frontend-prototype-map.md`。跨端契约变更必须同步更新 `api-contract-snapshot.md`（见 `api-standard` §1.1）。分支不限于 `feat/module-XX`，`feature/zwq` 等既有维护分支同样有效。scope 扩大时停止并请 Orchestrator 确认。
+> **增量/修复阶段（任务卡 `mode: incremental`）**：任务卡是首要输入，已提交 PRD 仍为约束；不强制 PRD 章节 / 原型。跨端契约变更必须同步更新 `api-contract-snapshot.md`（见 `api-standard` §1.1）。scope 扩大时停止并请 Orchestrator 确认。
 
 ---
 
