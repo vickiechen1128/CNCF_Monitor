@@ -27,8 +27,7 @@ import (
 // amURL 为中心 Alertmanager HTTP 地址（由 main 装配 --alertmanager.url 注入）：
 // 静默代理与 AM 配置下发 reload 均依赖它。amURL 非法 / 为空时返回错误，调用方
 // （main.setupRouter）据此如实启动失败，避免「静默路由配置缺失却静默可用」。
-// notifyCfg 为 PL-3 接收人配置片段生成所需配置（桥基础地址 + 内网令牌，由 main 推导）。
-func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error {
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error {
 	am := platform.Group("/alertmanager")
 
 	// M08 alertmanager.yml 文件挂载（契约 §3）：留痕版本自身已校验（决策 60 校验失败不落库）。
@@ -78,19 +77,14 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notify
 
 	// M08 PL-3 通知渲染桥（设计提案 §3.3.8）：通知渠道 CRUD + 通知模板提交/回滚。
 	// 读端点挂根组（仅全局认证），写端点与接收人片段生成挂 RequireAdmin（与 config / silences 一致）。
-	notify.RegisterRoutes(am, db, notifyCfg)
+	notify.RegisterRoutes(am, db)
 
-	// M08 最小运行骨架自动布缆（T08-11，决策 113 口径 C）：默认接收人设定读写。
-	// GET（读派生生效态）保留在根组（仅全局认证，同 notify 读端点挂法）；PUT（改写设定并
-	// 触发重算 + 自动下发）为管理写操作，挂 RequireAdmin（与 config / silences / notify 一致）。
-	rs := am.Group("/route-setting")
-	rs.GET("", route.GetRouteSettingHandler(db))
-	adminRS := rs.Group("")
-	adminRS.Use(auth.RequireAdmin())
-	adminRS.PUT("", route.PutRouteSettingHandler(db))
-	// M08 route 前台化 v0.3-a 只读渲染（T08-12）：GET /routes，仅全局认证、只读、无写能力
-	// （鉴权面不扩张）；响应不返回桥令牌等敏感值（receiver 出站地址脱敏）。与 /route-setting
-	// 并列——后者为「默认接收人设定」读写，本端点为「路由树只读视图」。
+	// M08 route 前台化：GET /routes 返回只读路由树视图（仅全局认证）；
+	// POST /routes 接收编辑态路由树，由后端生成 route 段 + 合并整份配置 + amtool 校验
+	// （RequireAdmin，与 config 写端点同级）。
 	am.GET("/routes", route.ListRoutesHandler(db))
+	adminRoutes := am.Group("/routes")
+	adminRoutes.Use(auth.RequireAdmin())
+	adminRoutes.POST("", route.SaveRoutesHandler(db))
 	return nil
 }

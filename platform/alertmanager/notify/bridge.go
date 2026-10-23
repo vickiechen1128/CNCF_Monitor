@@ -1,14 +1,11 @@
 package notify
 
 import (
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,24 +16,14 @@ import (
 
 // 桥端点错误（handler 映射为统一 errorType）。
 var (
-	// ErrBridgeUnauthorized 内网调用令牌缺失或非法。
-	ErrBridgeUnauthorized = errors.New("内网调用令牌缺失或非法")
 	// ErrBridgeTargetURLRejected 请求方传入了目标地址参数（SSRF 硬约束：一律拒绝）。
 	ErrBridgeTargetURLRejected = errors.New("本端点不接受请求方传入的目标地址，请使用平台内已登记的 channel ID")
-	// ErrBridgeChannelInvalid channel 参数非法（非平台内已登记的渠道 ID）。
-	ErrBridgeChannelInvalid = errors.New("channel 参数非法（须为平台内已登记的渠道 ID，不接受目标地址）")
-	// ErrBridgeTemplateInvalid template 参数非法（非平台内已登记的模板 ID）。
-	ErrBridgeTemplateInvalid = errors.New("template 参数非法（须为平台内已登记的模板 ID）")
-	// ErrBridgeChannelDisabled 通知渠道已禁用。
-	ErrBridgeChannelDisabled = errors.New("通知渠道已禁用")
-	// ErrBridgeTemplateMismatch 模板适用渠道类型与渠道类型不一致。
-	ErrBridgeTemplateMismatch = errors.New("模板适用渠道类型与渠道类型不一致")
+	// ErrBridgeChannelInvalid id 参数非法（非平台内已登记的渠道 ID）。
+	ErrBridgeChannelInvalid = errors.New("id 参数非法（须为平台内已登记的渠道 ID，不接受目标地址）")
 )
 
 // BridgeConfig 是通知渲染桥运行配置。
 type BridgeConfig struct {
-	// Token 是内网调用令牌；为空表示未启用（桥端点一律 401）。
-	Token string
 	// Location 是渲染显示时区；nil → DefaultRenderLocation（东八区固定偏移）。
 	Location *time.Location
 }
@@ -52,20 +39,11 @@ var bridgeLogf = func(format string, args ...interface{}) { log.Printf(format, a
 
 // BridgeHandler 处理 POST /api/v1/webhooks/notify：AM 投递 → 按模板渲染 → 转投
 // 平台内已登记的渠道。端点不属平台用户认证态（调用方为中心 Alertmanager），
-// 由内网调用令牌鉴权。SSRF 硬约束：目标地址只由服务端从 DB 解析，绝不接受
-// 请求方传入；幂等——无状态渲染转发，不落告警业务表，仅记结构化发送日志。
-//
-// 令牌传输面（H-1）：令牌经 `Authorization: Bearer <token>` 请求头承载，**不经 URL
-// query**——gin 全局 Logger 会把 RawQuery 明文落访问日志，令牌入 query 即等于外泄。
-// AM 侧由 `webhook_configs.http_config.authorization` 注入。
+// 依赖部署层（同机 / 内网防火墙）限制访问；应用层不再校验内部令牌。
+// SSRF 硬约束：目标地址只由服务端从 DB 解析，绝不接受请求方传入；幂等——无状态
+// 渲染转发，不落告警业务表，仅记结构化发送日志。
 func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 鉴权：内网调用令牌（Authorization 头）。未配置 / 缺失 / 不匹配 → 401。
-		if !bridgeTokenValid(cfg.Token, bearerToken(c.Request)) {
-			bridgeLogf("[notify-bridge] reject: unauthorized remote=%s", c.ClientIP())
-			response.Unauthorized(c, ErrBridgeUnauthorized.Error())
-			return
-		}
 		// SSRF 硬约束 1：拒绝任何请求方传入的目标地址参数。
 		for _, p := range forbiddenTargetParams {
 			if c.Query(p) != "" {
@@ -75,7 +53,7 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			}
 		}
 		// SSRF 硬约束 2：channel 必须是平台内已登记的 ID（不接受地址）。
-		channelID, err := parseUintQuery(c.Query("channel"))
+		channelID, err := parseUintQuery(c.Query("id"))
 		if err != nil {
 			response.BadRequest(c, ErrBridgeChannelInvalid)
 			return
@@ -89,17 +67,7 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			}
 			return
 		}
-		if !ch.Enabled {
-			response.BadRequest(c, ErrBridgeChannelDisabled)
-			return
-		}
-		// 模板：显式 template ID（须同渠道类型），省略则用该渠道类型的内置默认模板。
-		tpl, err := resolveBridgeTemplate(db, ch, c.Query("template"))
-		if err != nil {
-			respondBridgeTemplateError(c, err)
-			return
-		}
-		// 载荷解码（AM 原生 webhook JSON）。
+		// 载荷解码（AM 原生 webhook JSON）：先校验格式并统计告警条数。
 		raw, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			response.BadRequest(c, fmt.Errorf("读取请求体失败: %w", err))
@@ -108,6 +76,35 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 		payload, err := decodeWebhook(raw)
 		if err != nil {
 			response.BadRequest(c, err)
+			return
+		}
+
+		// 自定义 Webhook：原样转发 AM JSON，不渲染、不签名、不判 IM 业务错误码。
+		if ch.Type == models.NotifyChannelTypeWebhook {
+			status, err := sendOutboundRaw(c.Request.Context(), ch.WebhookURL, raw)
+			if err != nil {
+				bridgeLogf("[notify-bridge] send failed channel=%d type=webhook alerts=%d http_status=%d err=%v",
+					ch.ID, len(payload.Alerts), status, err)
+				response.BadGateway(c, err, "自定义 Webhook 发送失败，请检查地址与平台出站网络")
+				return
+			}
+			bridgeLogf("[notify-bridge] send ok channel=%d type=webhook status=%s alerts=%d",
+				ch.ID, payload.Status, len(payload.Alerts))
+			response.OK(c, gin.H{
+				"success":     1,
+				"fail":        0,
+				"channel":     strconv.FormatUint(uint64(ch.ID), 10),
+				"alert_count": len(payload.Alerts),
+			})
+			return
+		}
+
+		// 模板：按渠道 ID 实时读取平台侧绑定（渠道 default_template_id → 内置默认）。
+		// 2026-10-22 收口：不再接受 `?template=` —— 模板不写进 alertmanager.yml，
+		// 换绑模板是纯 DB 操作，旧 URL 里残留的 template 参数直接忽略。
+		tpl, err := resolveBridgeTemplate(db, ch)
+		if err != nil {
+			respondBridgeTemplateError(c, err)
 			return
 		}
 		// 网域归一（M08 §10.2 与前端告警列表口径一致）：把写入侧 network_domain_id
@@ -126,17 +123,23 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
-		// 飞书签名校验：渠道登记了 secret 时注入 timestamp + sign（开启「签名校验」的
-		// 自定义机器人要求每请求携带，否则拒收）；未登记 secret 则原样转发，兼容
-		// 未开启签名校验的存量渠道。
-		outbound, err := applyFeishuSignature(ch, body, time.Now())
+		// 渠道加签：飞书把 timestamp + sign 注入 JSON body；钉钉把 timestamp + sign 拼到
+		// webhook URL query。未登记 secret 的渠道原样转发，兼容未开启签名的渠道。
+		now := time.Now()
+		outbound, err := applyFeishuSignature(ch, body, now)
 		if err != nil {
 			bridgeLogf("[notify-bridge] sign failed channel=%d template=%d err=%v", ch.ID, tpl.ID, err)
 			response.InternalServerError(c, err)
 			return
 		}
+		outboundURL, err := applyDingTalkSignature(ch, ch.WebhookURL, now)
+		if err != nil {
+			bridgeLogf("[notify-bridge] dingtalk sign failed channel=%d template=%d err=%v", ch.ID, tpl.ID, err)
+			response.InternalServerError(c, err)
+			return
+		}
 		// 出站转投：目标来自 DB（ch.WebhookURL），非请求方。
-		status, err := sendOutbound(c.Request.Context(), ch.WebhookURL, outbound)
+		status, err := sendOutbound(c.Request.Context(), outboundURL, outbound)
 		if err != nil {
 			bridgeLogf("[notify-bridge] send failed channel=%d type=%s template=%d alerts=%d http_status=%d err=%v",
 				ch.ID, ch.Type, tpl.ID, len(payload.Alerts), status, err)
@@ -157,30 +160,11 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 }
 
 // RegisterBridgeRoutes 挂载平台内置渲染桥 POST /api/v1/webhooks/notify 到 v1 组。
-// 该端点不属平台用户认证态（调用方为中心 Alertmanager），由 BridgeHandler 自校验
-// 内网调用令牌；装配方须把 "/api/v1/webhooks/" 加入 auth.PublicPathPrefixes 以豁免
-// 全局用户认证（main.setupRouter 已接线）。
+// 该端点不属平台用户认证态（调用方为中心 Alertmanager）；装配方须把
+// "/api/v1/webhooks/" 加入 auth.PublicPathPrefixes 以豁免全局用户认证
+// （main.setupRouter 已接线）。访问控制由部署层（同机 / 内网防火墙）承担。
 func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig) {
 	v1.POST("/webhooks/notify", BridgeHandler(db, cfg))
-}
-
-// bridgeTokenValid 常量时间比较内网调用令牌，避免时序侧信道；任一侧为空视为非法。
-func bridgeTokenValid(expected, got string) bool {
-	if expected == "" || got == "" {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(expected), []byte(got)) == 1
-}
-
-// bearerToken 从 Authorization 请求头解析 `Bearer <token>`（H-1）。缺失 / 非 Bearer
-// 前缀 / 空令牌均返回空串（由 bridgeTokenValid 判为未授权）。前缀按 RFC 6750 大小写不敏感。
-func bearerToken(r *http.Request) string {
-	const prefix = "Bearer "
-	h := r.Header.Get("Authorization")
-	if len(h) <= len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
-		return ""
-	}
-	return strings.TrimSpace(h[len(prefix):])
 }
 
 // parseUintQuery 解析查询参数为无符号 ID；非法或 0 返回错误。
@@ -192,28 +176,15 @@ func parseUintQuery(s string) (uint, error) {
 	return uint(n), nil
 }
 
-// resolveBridgeTemplate 解析渲染模板，优先级（设计提案 notify-template-channel-binding.md §5.2）：
-//  1. 显式 `?template=`（须与渠道类型一致，非法/不符仍报错——这是调用方显式指定，不静默降级）；
-//  2. 渠道绑定 `default_template_id`（渠道 ↔ 模板一等绑定，dev-feedback #30）；
-//  3. 该渠道类型的内置默认模板（零配置 Happy Path）。
+// resolveBridgeTemplate 解析渲染模板（2026-10-22 收口）：
+//  1. 渠道绑定 `default_template_id`（渠道 ↔ 模板一等绑定，dev-feedback #30）；
+//  2. 该渠道类型的内置默认模板（零配置 Happy Path）。
 //
-// 第 2 级**优雅回落**：绑定模板被删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回错误**
+// 绑定模板被删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回错误**
 // ——绑定是「便利覆盖」，其失效不应让该渠道的告警整体投递失败（AM 会无限重试 400）。
-func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error) {
-	if rawID != "" {
-		tplID, err := parseUintQuery(rawID)
-		if err != nil {
-			return nil, ErrBridgeTemplateInvalid
-		}
-		tpl, err := GetTemplate(db, tplID)
-		if err != nil {
-			return nil, err
-		}
-		if tpl.ChannelType != ch.Type {
-			return nil, ErrBridgeTemplateMismatch
-		}
-		return tpl, nil
-	}
+// 不再读取 `?template=`：平台物化的 receiver URL 只带 channel ID，模板内容与绑定都不进入
+// alertmanager.yml，换绑即时生效。
+func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel) (*models.NotifyTemplate, error) {
 	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
 		tpl, err := GetTemplate(db, *ch.DefaultTemplateID)
 		if err == nil && tpl.ChannelType == ch.Type {
@@ -230,8 +201,7 @@ func respondBridgeTemplateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrTemplateNotFound):
 		response.NotFound(c, err.Error())
-	case errors.Is(err, ErrBridgeTemplateInvalid), errors.Is(err, ErrBridgeTemplateMismatch),
-		errors.Is(err, ErrTemplateBuiltinMissing):
+	case errors.Is(err, ErrTemplateBuiltinMissing):
 		response.BadRequest(c, err)
 	default:
 		response.InternalServerError(c, err)

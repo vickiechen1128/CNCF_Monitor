@@ -60,7 +60,6 @@ var (
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
 	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
-	notifyBridgeToken       = flag.String("notify.bridge-token", "", "通知渲染桥（POST /api/v1/webhooks/notify）内网调用令牌，可用环境变量 NOTIFY_BRIDGE_TOKEN 覆盖；为空时桥端点一律 401")
 	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（IANA 名称，如 Asia/Shanghai），可用环境变量 NOTIFY_RENDER_TIMEZONE 覆盖；为空默认东八区固定偏移（不依赖宿主机时区）")
 	notifyBridgeURL         = flag.String("notify.bridge-url", "", "通知渲染桥基础地址覆盖（默认由 --listen-address 推导）；跨网/边缘域部署时显式设为中心桥公网可达地址（如 http://center.example.com:8080），使接收人片段与 M09 物化的 receiver 指向正确跨网地址，可用环境变量 NOTIFY_BRIDGE_URL 覆盖")
 	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
@@ -102,9 +101,6 @@ func main() {
 
 	// M08 PL-3 通知渲染桥：内网调用令牌 + 渲染时区，环境变量优先（env/env.sh 注入口径，
 	// 令牌随 alertmanager.yml 生成时写入 receiver URL）。
-	if v := os.Getenv("NOTIFY_BRIDGE_TOKEN"); v != "" {
-		*notifyBridgeToken = v
-	}
 	if v := os.Getenv("NOTIFY_RENDER_TIMEZONE"); v != "" {
 		*notifyRenderTimezone = v
 	}
@@ -189,17 +185,9 @@ func main() {
 	// alertmanager.yml 时生成平台通知 receivers（配置即生效）。令牌为空时物化不写
 	// http_config.authorization，桥端一律 401 —— 启动 WARN 显式暴露，避免静默失效。
 	draft.NotifyBridgeURL = bridgeBaseURL
-	draft.NotifyBridgeToken = *notifyBridgeToken
-	if *notifyBridgeToken == "" {
-		log.Printf("WARN: --notify.bridge-token 未配置：M09 物化的通知 receiver 将不带鉴权且桥端点一律 401，M08 告警通知不可用")
-	}
 
 	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{
-		Token:    *notifyBridgeToken,
 		Location: loadRenderLocation(*notifyRenderTimezone),
-	}, notify.ReceiverSnippetConfig{
-		BridgeURL:   bridgeBaseURL,
-		BridgeToken: *notifyBridgeToken,
 	})
 	if err != nil {
 		log.Fatalf("failed to setup router: %v", err)
@@ -223,9 +211,8 @@ func main() {
 }
 
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
-// bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（内网令牌 + 渲染时区）。
-// snippetCfg 为 M08 PL-3 接收人配置片段生成配置（桥基础地址 + 内网令牌）。
-func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig) (*gin.Engine, error) {
+// bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（渲染时区）。
+func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error) {
 	r := gin.Default()
 	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
 	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
@@ -252,15 +239,12 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	registerPrometheusProxyRoutes(apiV1, promURL)
 	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
 	query.RegisterRoutes(apiV1, db.DB, promURL)
-	// M08 PL-3 通知渲染桥（设计提案 §3.3.3/§3.3.8）：不挂认证态平台组，按 v1 路径装配，
-	// 由 BridgeHandler 自校验内网调用令牌（上方 PublicPathPrefixes 已豁免全局用户认证）。
+	// M08 PL-3 通知渲染桥（设计提案 §3.3.3/§3.3.8）：不挂认证态平台组，按 v1 路径装配
+	// （上方 PublicPathPrefixes 已豁免全局用户认证）；访问控制由部署层承担。
 	notify.RegisterBridgeRoutes(apiV1, db.DB, bridgeCfg)
-	if bridgeCfg.Token == "" {
-		log.Printf(">>> WARN: notify bridge token not configured; POST /api/v1/webhooks/notify will reject all calls with 401")
-	}
 
 	apiV2 := r.Group("/api/v2")
-	if err := registerPlatformConfigRoutes(apiV2, promURL, snippetCfg); err != nil {
+	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
 		return nil, err
 	}
 
@@ -289,7 +273,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetCfg notify.ReceiverSnippetConfig) error {
+func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -353,7 +337,7 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
-	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL, snippetCfg); err != nil {
+	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
 		return fmt.Errorf("register alertmanager routes: %w", err)
 	}
 

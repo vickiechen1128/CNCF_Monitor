@@ -30,7 +30,14 @@ func newNotifyDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:notify_%d?mode=memory&cache=shared", atomic.AddInt64(&notifyDBCounter, 1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotifyChannel{}, &models.NotifyTemplate{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
+		// 渠道删除前的路由引用检查会读取当前生效 / 待确认配置。
+		&models.ConfigDraft{},
+		&models.ConfigVersion{},
+		&models.AlertmanagerConfigVersion{},
+	))
 	return db
 }
 
@@ -71,26 +78,76 @@ func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T) {
 
 func TestCreateChannelPersistsAndValidates(t *testing.T) {
 	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "feishu-default")
 
 	ch, err := CreateChannel(db, ChannelInput{
-		Name:       "SRE 飞书群",
-		Type:       "feishu",
-		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
-		Secret:     "s3cr3t",
+		Name:              "SRE 飞书群",
+		Type:              "feishu",
+		WebhookURL:        "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+		Secret:            "s3cr3t",
+		DefaultTemplateID: &tpl.ID,
 	})
 	require.NoError(t, err)
 	require.NotZero(t, ch.ID)
-	assert.True(t, ch.Enabled, "enabled 缺省为 true")
+	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName(), "receiver 名恒为 notify-<id>")
 
 	// 非法输入。
-	_, err = CreateChannel(db, ChannelInput{Name: "", Type: "feishu", WebhookURL: "https://x/y"})
+	_, err = CreateChannel(db, ChannelInput{Name: "", Type: "feishu", WebhookURL: "https://x/y", DefaultTemplateID: &tpl.ID})
 	assert.ErrorIs(t, err, ErrChannelNameRequired)
-	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "email", WebhookURL: "https://x/y"})
+	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "email", WebhookURL: "https://x/y", DefaultTemplateID: &tpl.ID})
 	assert.ErrorIs(t, err, ErrChannelTypeInvalid)
-	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "ftp://x/y"})
+	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "ftp://x/y", DefaultTemplateID: &tpl.ID})
 	assert.ErrorIs(t, err, ErrChannelWebhookInvalid)
-	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "http://"})
+	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "http://", DefaultTemplateID: &tpl.ID})
 	assert.ErrorIs(t, err, ErrChannelWebhookInvalid)
+	// 飞书 / 钉钉 / 企业微信未绑定模板 → 拒绝。
+	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://x/y"})
+	assert.ErrorIs(t, err, ErrChannelTemplateRequired)
+}
+
+// TestCreateWebhookChannel 自定义 Webhook：不绑定模板、不要求 secret，地址明文回显。
+func TestCreateWebhookChannel(t *testing.T) {
+	db := newNotifyDB(t)
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "自建告警网关", Type: "webhook", WebhookURL: "https://alert-gateway.example/hook",
+	})
+	require.NoError(t, err)
+	assert.Nil(t, ch.DefaultTemplateID)
+	view := ToChannelView(ch)
+	assert.Equal(t, "https://alert-gateway.example/hook", view.WebhookURL, "webhook 地址不脱敏")
+	assert.False(t, view.SecretSet)
+
+	tpl := newFeishuTemplate(t, db, "inapplicable")
+	_, err = CreateChannel(db, ChannelInput{
+		Name: "bad-webhook", Type: "webhook", WebhookURL: "https://alert-gateway.example/hook2",
+		DefaultTemplateID: &tpl.ID,
+	})
+	assert.ErrorIs(t, err, ErrChannelTemplateNotApplicable)
+}
+
+// TestDeleteChannelBlockedWhenReferencedByRoute 渠道被路由引用时禁止删除（要求先改绑）。
+func TestDeleteChannelBlockedWhenReferencedByRoute(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "route-ref")
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "SRE 飞书群", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x",
+		DefaultTemplateID: &tpl.ID,
+	})
+	require.NoError(t, err)
+	content := "route:\n  receiver: " + ch.ReceiverName() + "\nreceivers:\n  - name: " + ch.ReceiverName() + "\n"
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content: content, Checksum: models.AlertmanagerConfigChecksum(content),
+		Status: models.AlertmanagerConfigStatusApplied,
+	}).Error)
+
+	err = DeleteChannel(db, ch.ID)
+	var inUse *ErrChannelInUse
+	require.ErrorAs(t, err, &inUse)
+	assert.Contains(t, inUse.Error(), "路由")
+	assert.Contains(t, inUse.Error(), "notify-"+fmt.Sprint(ch.ID))
+	// 渠道仍存在。
+	_, err = GetChannel(db, ch.ID)
+	require.NoError(t, err)
 }
 
 // TestChannelViewMasksCredentials 覆盖响应脱敏：不回显完整 webhook_url / secret。
@@ -101,7 +158,6 @@ func TestChannelViewMasksCredentials(t *testing.T) {
 		Type:       models.NotifyChannelTypeFeishu,
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/abc-secret-token",
 		Secret:     "topsecret",
-		Enabled:    true,
 	}
 	v := ToChannelView(ch)
 	assert.Equal(t, "7", v.ID)
@@ -117,7 +173,11 @@ func TestChannelViewMasksCredentials(t *testing.T) {
 
 func TestUpdateChannelPartialAndNotFound(t *testing.T) {
 	db := newNotifyDB(t)
-	ch, err := CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/a", Secret: "s"})
+	tpl := newFeishuTemplate(t, db, "partial")
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/a", Secret: "s",
+		DefaultTemplateID: &tpl.ID,
+	})
 	require.NoError(t, err)
 
 	// 仅改 name：webhook / secret 保留。
@@ -140,9 +200,15 @@ func TestUpdateChannelPartialAndNotFound(t *testing.T) {
 
 func TestDeleteChannelAndList(t *testing.T) {
 	db := newNotifyDB(t)
-	c1, err := CreateChannel(db, ChannelInput{Name: "a", Type: "feishu", WebhookURL: "https://x/a"})
+	feishuTpl := newFeishuTemplate(t, db, "list-feishu")
+	wecomTpl := newTemplateForType(t, db, "list-wecom", models.NotifyChannelTypeWecom)
+	c1, err := CreateChannel(db, ChannelInput{
+		Name: "a", Type: "feishu", WebhookURL: "https://x/a", DefaultTemplateID: &feishuTpl.ID,
+	})
 	require.NoError(t, err)
-	_, err = CreateChannel(db, ChannelInput{Name: "b", Type: "wecom", WebhookURL: "https://y/b"})
+	_, err = CreateChannel(db, ChannelInput{
+		Name: "b", Type: "wecom", WebhookURL: "https://y/b", DefaultTemplateID: &wecomTpl.ID,
+	})
 	require.NoError(t, err)
 
 	rows, err := ListChannels(db)
@@ -157,13 +223,13 @@ func TestDeleteChannelAndList(t *testing.T) {
 
 // --- 渠道 ↔ 模板一等绑定（dev-feedback #30） ---
 
-// newFeishuTemplate 落一条飞书模板用于绑定测试。
-func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate {
+// newTemplateForType 落一条指定渠道类型的模板用于绑定测试。
+func newTemplateForType(t *testing.T, db *gorm.DB, name string, chType models.NotifyChannelType) *models.NotifyTemplate {
 	t.Helper()
 	tpl := &models.NotifyTemplate{
 		Name:        name,
-		ChannelType: models.NotifyChannelTypeFeishu,
-		Content:     `{"msg_type":"text","text":"x"}`,
+		ChannelType: chType,
+		Content:     `{"msgtype":"text","text":"x"}`,
 		Checksum:    models.AlertmanagerConfigChecksum(name),
 		Status:      models.NotifyTemplateStatusApplied,
 	}
@@ -171,8 +237,14 @@ func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTem
 	return tpl
 }
 
+// newFeishuTemplate 落一条飞书模板用于绑定测试。
+func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate {
+	t.Helper()
+	return newTemplateForType(t, db, name, models.NotifyChannelTypeFeishu)
+}
+
 // TestCreateChannelBindsDefaultTemplate 绑定存在且类型一致的模板 → 落库并在响应视图回显；
-// 未绑定时为 null（回落内置默认），零配置 Happy Path 不变。
+// 飞书 / 钉钉 / 企业微信未绑定模板 → 拒绝。
 func TestCreateChannelBindsDefaultTemplate(t *testing.T) {
 	db := newNotifyDB(t)
 	tpl := newFeishuTemplate(t, db, "自定义卡片")
@@ -186,9 +258,8 @@ func TestCreateChannelBindsDefaultTemplate(t *testing.T) {
 	assert.Equal(t, tpl.ID, *ch.DefaultTemplateID)
 	assert.Equal(t, &tpl.ID, ToChannelView(ch).DefaultTemplateID, "响应须回显绑定模板 ID")
 
-	plain, err := CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/y"})
-	require.NoError(t, err)
-	assert.Nil(t, plain.DefaultTemplateID, "默认不绑定（null → 用内置默认模板）")
+	_, err = CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/y"})
+	assert.ErrorIs(t, err, ErrChannelTemplateRequired, "IM 类型必须显式绑定模板")
 }
 
 // TestCreateChannelRejectsInvalidTemplateBinding 绑定不存在 / 类型不符 → 可映射为
@@ -213,19 +284,23 @@ func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChannelTemplateMismatch)
 }
 
-// TestUpdateChannelRebindAndClear 绑定可切换、可解绑（0 → null 回落内置默认）、
-// 未显式传入则保留原绑定。
-func TestUpdateChannelRebindAndClear(t *testing.T) {
+// TestUpdateChannelRebindAndTypeSwitch 绑定可切换；IM 类型不允许解绑；
+// 切到自定义 Webhook 自动清空模板，切回 IM 未选模板则拒绝。
+func TestUpdateChannelRebindAndTypeSwitch(t *testing.T) {
 	db := newNotifyDB(t)
-	tpl := newFeishuTemplate(t, db, "t1")
-	ch, err := CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x"})
+	tpl1 := newFeishuTemplate(t, db, "t1")
+	tpl2 := newFeishuTemplate(t, db, "t2")
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x",
+		DefaultTemplateID: &tpl1.ID,
+	})
 	require.NoError(t, err)
 
-	// 绑定。
-	updated, err := UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &tpl.ID})
+	// 改绑。
+	updated, err := UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &tpl2.ID})
 	require.NoError(t, err)
 	require.NotNil(t, updated.DefaultTemplateID)
-	assert.Equal(t, tpl.ID, *updated.DefaultTemplateID)
+	assert.Equal(t, tpl2.ID, *updated.DefaultTemplateID)
 
 	// 未传绑定 → 保留。
 	renamed := "kept"
@@ -233,14 +308,21 @@ func TestUpdateChannelRebindAndClear(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updated.DefaultTemplateID, "未显式传绑定应保留原绑定")
 
-	// 传 0 → 解绑并持久化。
+	// IM 类型传 0 解绑 → 拒绝（模板必填）。
 	clear := uint(0)
-	updated, err = UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &clear})
+	_, err = UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &clear})
+	assert.ErrorIs(t, err, ErrChannelTemplateRequired)
+
+	// 切到自定义 Webhook → 自动清空模板。
+	webhookType := "webhook"
+	updated, err = UpdateChannel(db, ch.ID, UpdateChannelInput{Type: &webhookType})
 	require.NoError(t, err)
 	assert.Nil(t, updated.DefaultTemplateID)
-	reloaded, err := GetChannel(db, ch.ID)
-	require.NoError(t, err)
-	assert.Nil(t, reloaded.DefaultTemplateID, "解绑须落库（回落内置默认）")
+
+	// 切回飞书但未选模板 → 拒绝。
+	feishuType := "feishu"
+	_, err = UpdateChannel(db, ch.ID, UpdateChannelInput{Type: &feishuType})
+	assert.ErrorIs(t, err, ErrChannelTemplateRequired)
 }
 
 // --- Handler 层 ---
@@ -281,11 +363,13 @@ func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) 
 
 func TestChannelCRUDHandlers(t *testing.T) {
 	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "crud")
 	r := newNotifyRouter(db)
 
 	// 创建。
 	code, out := doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
 		"name": "SRE", "type": "feishu", "webhook_url": "https://open.feishu.cn/hook/xyz", "secret": "sec",
+		"default_template_id": tpl.ID,
 	})
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, "success", out.Status)
@@ -339,6 +423,26 @@ func TestChannelHandlerTemplateBinding(t *testing.T) {
 	code, out = doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
 		"name": "bad", "type": "feishu", "webhook_url": "https://open.feishu.cn/hook/xyz",
 		"default_template_id": 8888,
+	})
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out.ErrorType)
+}
+// TestChannelHandlerWebhookType 自定义 Webhook：无模板可创建且地址明文回显；
+// 带模板 → 400。
+func TestChannelHandlerWebhookType(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "webhook-inapplicable")
+	r := newNotifyRouter(db)
+
+	code, out := doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
+		"name": "自建告警网关", "type": "webhook", "webhook_url": "https://alert-gateway.example/hook",
+	})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "https://alert-gateway.example/hook", out.Data["webhook_url"], "webhook 地址明文回显")
+
+	code, out = doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
+		"name": "bad", "type": "webhook", "webhook_url": "https://alert-gateway.example/hook2",
+		"default_template_id": tpl.ID,
 	})
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)

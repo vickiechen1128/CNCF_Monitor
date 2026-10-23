@@ -246,11 +246,11 @@ export interface AlertHistoryData {
 // 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
 // =====================================================================
 
-/** 通知渠道类型（机器人）：飞书 / 钉钉 / 企业微信 */
-export type NotifyChannelType = 'feishu' | 'dingtalk' | 'wecom'
+/** 通知渠道类型：飞书 / 钉钉 / 企业微信 / 自定义 Webhook */
+export type NotifyChannelType = 'feishu' | 'dingtalk' | 'wecom' | 'webhook'
 
 /**
- * 通知渠道（机器人 Webhook 目标，提案 §3.3.2）。
+ * 通知渠道（告警送达目标，提案 §3.3.2）。
  * AM 侧桥 URL 只引用渠道 ID，目标地址仅平台侧存储、响应严格脱敏。
  */
 export interface NotifyChannel {
@@ -263,42 +263,44 @@ export interface NotifyChannel {
   webhook_url: string
   /** secret 永不回显，仅告知是否已设置 */
   secret_set: boolean
-  enabled: boolean
-  /** 渠道物化的 AM receiver 名（由渠道名归一 / 回落 notify-<id>，与 M09 生成器同源，决策 74）；非敏感字段，列表即回显。
-   * 供前端批量派生「已知接收人」清单，避免逐渠道调用 admin-only 的 receiver-snippet 接口（H1）。 */
+  /** 渠道在 alertmanager.yml 中的稳定 receiver 名（恒为 notify-<id>，与 M09 生成器同源）；
+   * 非敏感字段，列表即回显。供路由页把 notify-<id> 映射为渠道中文名。 */
   receiver_name?: string
+  /** 当前生效 / 待确认路由树中引用该渠道 receiver 的节点数；0 = 未被路由使用 */
+  route_reference_count?: number
   /** 绑定的通知模板 ID（缺省 = 使用平台内置默认模板）；渠道 ↔ 模板一等绑定（dev-feedback #30） */
   default_template_id?: number
   /** RFC3339 */
   created_at: string
 }
 
-/** 通知模板状态：先校验、通过才落库留痕，本表恒为 applied（复用决策 59/60 纪律） */
-export type NotifyTemplateStatus = 'applied'
-
-/** 通知模板（Alertmanager 标准 Go template 文本，版本化留痕；提案 §3.3.2） */
+/** 通知模板列表项（不含 content；2026-10-22 起模板为可编辑实体，不再有版本历史） */
 export interface NotifyTemplate {
   id: string
   name: string
-  /** 适用渠道类型（与渠道类型匹配后才可组合） */
+  /** 适用渠道类型（创建后不可修改；与渠道类型匹配后才可组合） */
   channel_type: NotifyChannelType
-  /** Alertmanager 标准 Go template 文本（不是脚本） */
-  content: string
-  /** 平台内置默认模板（随版本升级） */
+  /** 平台内置默认模板（随版本升级，只读；可复制为自定义模板） */
   is_builtin: boolean
-  checksum: string
-  status: NotifyTemplateStatus
+  /** 被多少个通知渠道显式绑定（删除前提示用） */
+  bound_channel_count: number
   /** RFC3339 */
   created_at: string
+  /** RFC3339 */
+  updated_at: string
 }
 
-/** 创建通知渠道请求体（name/type/webhook_url 必填；enabled 省略默认 true） */
+/** 通知模板详情（含 Alertmanager 标准 Go template 文本，不是脚本） */
+export interface NotifyTemplateDetail extends NotifyTemplate {
+  content: string
+}
+
+/** 创建通知渠道请求体（name/type/webhook_url 必填） */
 export interface CreateNotifyChannelPayload {
   name: string
   type: NotifyChannelType
   webhook_url: string
   secret?: string
-  enabled?: boolean
   /** 绑定的通知模板 ID（可选；不传 = 使用平台内置默认模板） */
   default_template_id?: number
 }
@@ -313,11 +315,10 @@ export interface UpdateNotifyChannelPayload {
   type?: NotifyChannelType
   webhook_url?: string
   secret?: string
-  enabled?: boolean
   default_template_id?: number
 }
 
-/** 提交通知模板请求体（均必填；content 为 Alertmanager 标准 Go template） */
+/** 新建 / 编辑通知模板请求体（content 为 Alertmanager 标准 Go template） */
 export interface SubmitNotifyTemplatePayload {
   name: string
   channel_type: NotifyChannelType
@@ -329,24 +330,6 @@ export interface NotifyChannelsData {
   items: NotifyChannel[]
 }
 
-/**
- * 接收人配置片段（PL-3 T08-12，B 路线；Module_08 §3.3.5）。
- * 服务端按渠道 ID 拼好可参考的 `alertmanager.yml` `receivers:` YAML 片段（内嵌真实数字渠道 ID；
- * 桥令牌走 `http_config.authorization` 请求头，不写进 URL query）。B 路线：已启用渠道的接收人由平台
- * 生成配置时自动写入，本片段仅在用户**手写自定义 receiver** 时作参考。
- * 令牌未配置（`token_configured=false`）时 url / snippet 用占位符，片段不可直接使用。
- */
-export interface ReceiverSnippetData {
-  /** 建议的接收人名（由渠道名归一为安全字符集，可直接使用） */
-  receiver_name: string
-  /** 桥接地址（含真实数字渠道 ID；桥令牌不入 URL，令牌未配置时为占位符） */
-  url: string
-  /** 可参考的 `receivers:` YAML 片段 */
-  snippet: string
-  /** 桥令牌是否已配置；false 时 UI 必须显式告警（片段无法发出通知） */
-  token_configured: boolean
-}
-
 /** GET /notify-templates 响应 data 信封（含 total） */
 export interface NotifyTemplatesData {
   items: NotifyTemplate[]
@@ -354,53 +337,9 @@ export interface NotifyTemplatesData {
 }
 
 // =====================================================================
-// 最小运行骨架自动布缆（T08-11 后端 / T08-F8 前端；决策 113 口径 C）
-// 契约权威：platform/alertmanager/route/setting_handler.go（api-contract-snapshot.md 待回写）。
-// =====================================================================
-
-/**
- * 默认接收人（根兜底）生效来源（决策 113 第 6 条）：
- * - `explicit`：用户显式指定且目标渠道可用——平台当前**正在接管**根兜底（`enabled=true`）；
- * - `auto_first_enabled`：未设定但有已启用渠道——仅作 UI 预填建议（`enabled=false`，产物零变化）；
- * - `none`：显式设定的目标渠道已停用/删除，或无任何已启用渠道。
- */
-export type RouteReceiverSource = 'explicit' | 'auto_first_enabled' | 'none'
-
-/**
- * 默认接收人设定（GET/PUT `/route-setting` 响应 data）。
- * 选定默认接收人 = 授权平台在生成配置时**只替换** alertmanager.yml 根 `route.receiver` 单键；
- * 响应**不含下发状态**（决策 60 冻结）。
- */
-export interface RouteSetting {
-  /** 平台当前是否正在接管根兜底（= `effective_source === 'explicit'`） */
-  enabled: boolean
-  /** 持久化设定值（`null` = 不接管；显式设定的渠道停用后原值保留） */
-  default_receiver_channel_id: number | null
-  /** route 段作者模式（T08-F12 模式开关）：handwritten / managed */
-  mode: RouteMode
-  /** 实际（或建议）写入根 `route.receiver` 的 AM receiver 名；`none` 时为空串 */
-  effective_receiver_name: string
-  effective_source: RouteReceiverSource
-}
-
-/** PUT `/route-setting` 请求体：`null` = 关闭接管（护栏③：停止替换、不删最后写入的值） */
-export interface UpdateRouteSettingPayload {
-  default_receiver_channel_id: number | null
-  /** route 段作者模式（T08-F12）；空串 / 缺省由后端归一为 handwritten */
-  mode?: RouteMode
-}
-
-// =====================================================================
-// route 前台化 v0.3-a：只读路由树（T08-12 后端契约 / T08-F10 前端消费）
+// route 前台化：路由树只读视图 + 用户直接编辑（后端 GET /routes；保存复用 POST /config）
 // 契约权威：platform/alertmanager/route/handler.go（api-contract-snapshot.md 待回写）。
 // =====================================================================
-
-/**
- * route 段作者模式（PRD §4.1.1 / 提案 §4.3；后端 `RouteMode`）：
- * - `handwritten`（默认）：route 段由用户手写维护，本页只读渲染；
- * - `managed`：route 段由平台生成并接管（T08-F12 模式开关），平台拥有 root 兜底等 segment。
- */
-export type RouteMode = 'handwritten' | 'managed'
 
 /**
  * 归一后的单条路由匹配条件（对齐 `RouteMatcher`，字段名 snake_case）。
@@ -437,39 +376,80 @@ export interface RouteNode {
   order: number
   /** 顶层路由标记 */
   locked: boolean
+  /** route 级未建模键（如旧式 match / mute_time_intervals）的原样 YAML 片段；后端解析时捕获 */
+  raw?: string
+}
+
+/** 编辑态单条匹配条件（与后端 generator.RouteEditMatcher 字段一致） */
+export interface RouteEditMatcher {
+  name: string
+  value: string
+  /** true=`=` / `=~`（相等）；false=`!=` / `!~`（取反） */
+  is_equal: boolean
+  /** true=正则匹配（`=~` / `!~`） */
+  is_regex: boolean
 }
 
 /**
- * 孤立接收人：平台命名空间内「已生成但没有任何路由引用」的接收人（提案 §4.9 / dev-feedback #26）。
- * `url` 已脱敏（保留 `scheme://host`，路径与查询以 `/***` 替代）。
+ * 编辑态路由节点（前序扁平序列，`items[0]` 为根路由）。
+ * 保存时原样提交给后端，由后端生成 route YAML。
  */
-export interface DeadReceiver {
+export interface RouteEditNode {
+  id: string
+  parent_id: string
   name: string
-  url: string
+  matchers: RouteEditMatcher[]
+  receiver: string
+  group_by: string[]
+  group_wait: string
+  group_interval: string
+  repeat_interval: string
+  continue: boolean
+  order: number
+  enabled: boolean
+  /** 不可表达子树的原文（整节点替换）；前端编辑路径通常为空串 */
+  raw_yaml: string
+  /** route 级未建模键的原样 YAML 片段（节点内附加键） */
+  raw: string
 }
 
 /**
  * GET `/api/v2/platform/alertmanager/routes` 响应 data（只读、无写能力）。
- * 成功：`{ mode, items, dead_receivers, declared_receivers }`；
- * 解析失败 / 非常规结构降级：`{ mode, parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
+ * 成功：`{ items, declared_receivers }`；
+ * 解析失败 / 非常规结构降级：`{ parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
  *
- * ⚠ `declared_receivers` 与 `dead_receivers` 口径**故意不同**（后端 route/handler.go 有同款注释）：
- *   - `declared_receivers` = 生效 YAML `receivers:` 段已声明的**全集**（含用户手写），
- *     供前端判「路由引用的接收人是否悬空」。手写 receiver 必须在其中，否则合法配置被误判
- *     为「未定义」而阻断保存（2026-10-08 实测：手写 `feishu` + 平台 `notify-1` 共存时，
- *     引用 `feishu` 的 5 个节点全被误报，页面进入不能新建也不能保存的死锁）。
- *   - `dead_receivers` = 平台物化了但无任何路由指向（**平台命名空间子集**），不含手写。
+ * `declared_receivers` = 生效 YAML `receivers:` 段已声明的**全集**（含用户手写），
+ * 供前端判「路由引用的接收人是否悬空」。手写 receiver 必须在其中，否则合法配置被误判
+ * 为「未定义」而阻断保存。
  */
 export interface RouteTreeData {
-  mode: RouteMode
   /** 前序扁平节点序列（`items[0]` = 顶层路由）；解析失败时缺省 */
   items?: RouteNode[]
-  /** 平台已生成但无任何路由引用的接收人；解析失败时缺省 */
-  dead_receivers?: DeadReceiver[]
+  /** 当前合并基（生效产品视图 YAML）的 sha256，进入编辑时作为 base_checksum 回传 */
+  effective_checksum?: string
+  /** 管理域当前活 pending 变更单（存在即表示页面展示的是待确认版本） */
+  pending?: {
+    change_no: string
+    created_at: string
+  } | null
   /** 生效配置 `receivers:` 段已声明的接收人名（全集，含手写）；解析失败时仍可能存在 */
   declared_receivers?: string[]
   /** 解析失败原因（成功时缺省） */
   parse_error?: string
   /** 解析失败时的 alertmanager.yml 原文（降级为只读展示） */
   raw_yaml?: string
+}
+
+/** POST `/api/v2/platform/alertmanager/routes` 请求体：只提交结构化路由树，不提交 YAML */
+export interface SaveRoutesPayload {
+  /** 进入编辑时 GET /routes 返回的 effective_checksum（乐观锁） */
+  base_checksum: string
+  route_tree: RouteEditNode[]
+}
+
+/** 路由保存成功响应 data */
+export interface SaveRoutesResult {
+  version: AlertmanagerConfigVersion
+  /** 本次生成的 pending 变更单号（无则缺省） */
+  change_no?: string
 }

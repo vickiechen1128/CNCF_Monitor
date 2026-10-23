@@ -17,10 +17,10 @@ func TestParseDeclaredReceivers(t *testing.T) {
 receivers:
     - name: 'feishu'
       webhook_configs:
-        - url: 'http://metricam.example.com:8080/api/v1/webhooks/notify?channel=1'
+        - url: 'http://metricam.example.com:8080/api/v1/webhooks/notify?id=1'
     - name: notify-1
       webhook_configs:
-        - url: http://127.0.0.1:8080/api/v1/webhooks/notify?channel=1
+        - url: http://127.0.0.1:8080/api/v1/webhooks/notify?id=1
 `,
 			want: []string{"feishu", "notify-1"},
 		},

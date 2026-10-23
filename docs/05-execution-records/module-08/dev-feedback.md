@@ -856,3 +856,89 @@ L3（纯文案文档）──┘        │
   - 后端新增 `platform/configcenter/deployment/callback_alertmanager_test.go`（5 例）：reuse 路径来源 + 骑窗版本均标记（旧口径下来源反而遗留——防回归）/ discarded 兄弟不被 resurrect / 存量回落不覆盖已生效时间戳 / discarded 来源被确认后自愈 applied。
   - 前端：`alertmanagerConstants.test.ts` 扩 discarded 派生 3 例（终态优先于 applied_at / status 缺省回落旧口径）；`AlertConfigPage.test.tsx` 新增「discarded → 已废弃 + 恢复指引，且无待确认提示/确认入口」；`ConfigPreviewPage.test.tsx` 新增含/不含告警配置的废弃影响正反 2 例。
 - **状态**：**landed（2026-10-13，未提交）**——`go build ./platform/...` exit 0；`go test ./platform/configcenter/... ./platform/models/... ./platform/alertmanager/...` **13 包全过**（新增 12 例）；前端 `alertmanagerConstants` 18 + `AlertConfigPage` 39 + `ConfigPreviewPage` 20 全过（另：`tsc -p tsconfig.test.json` 存量 9 错均在未触碰文件，属 HEAD/WIP 遗留，与本次无关）；`make repo-map` 已刷新且 `make check-repo-map` 通过。⚠️ 真机端到端（重启后端 AutoMigrate 加列 → 挂载 → 废弃 → 版本历史显示「已废弃」）待用户重启后复核。
+
+## 45. 路由树保存仍由前端生成 YAML + 默认告警配置未落库：只读/编辑两态割裂、历史 receiver 仍可被选中（② 实现偏差 / ① 数据空白，2026-10-22 修复）
+
+- **类别**：② 实现偏差（前端/后端双份 YAML 生成；接收人合法集合含历史声明）+ ① 数据空白（平台无默认告警配置记录）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.1 / §9.1；源码见回填清单
+- **发现场景**：
+  - 告警配置页删除导入能力后，路由页只读态显示 0 节点，点「编辑路由」却出现 1 个根节点，放弃编辑又回到 0 节点；
+  - 根路由预检报「根路由必须指定兜底接收人」，用户质疑默认配置为何不是配置；
+  - 接收人下拉仍可能出现已停用渠道 / 历史手写 receiver，用户明确要求「默认 + 已启用渠道」之外不允许选择。
+- **根因**：
+  - **默认配置不在数据库**：`alertmanager_config_versions` 无 seed 记录；磁盘 `deploy/alertmanager/alertmanager.yml` 只被 `make run-alertmanager` 使用，平台路由页读不到。根路由由前端 `emptyRouteTree()` 临时合成，导致只读/编辑两态不一致。
+  - **YAML 由前端生成**：`useRoutes.save()` 调用 `routeTree.ts` 的 `generateRouteSection` / `mergeRouteSection`，再以整份 `content` 调 `POST /config`；Go 侧 `GenerateRouteSection` 是另一份镜像，后端无法验证 YAML 是否忠实反映树。
+  - **接收人合法集合过宽**：`knownReceivers` 并入了当前 YAML `receivers:` 段的历史声明（为修复 2026-10-08 手写 receiver 误判），导入能力删除后该口径变成「已停用渠道/历史手写 receiver 仍可选」。
+- **结论 / 修复**：
+  - **默认配置入库**：新增 `seed.EnsureDefaultAlertmanagerConfig`（`db.Init → seed.Run`），无 applied 版本时写入与 `deploy/alertmanager/alertmanager.yml` 一致的默认配置，`status=applied`、`applied_at=seed 时间`、`applied_by=system`；单测守卫模板漂移。路由页删除「未配置」标签与合成占位，只读/编辑均读 DB。
+  - **后端生成 YAML**：新增 `POST /api/v2/platform/alertmanager/routes`（RequireAdmin），请求只携带 `{ base_checksum, route_tree }`。后端依次：乐观锁校验 → 树/接收人校验 → `GenerateRouteSection` → `MergeRouteSection` → `EnsureReceiverNames`（渠道 receiver 先补空占位，真实 webhook 由 M09 物化）→ `config.Submit`（amtool 校验 + 落版本 + 触发 M09）。前端删除保存链路中的 YAML 生成/合并。
+  - **接收人收口**：前端与后端统一为 `default ∪ 已启用渠道 receiver_name`；`declared_receivers` 不再参与可选集合与合法性校验。已停用/删除渠道与历史手写 receiver 判 `receiver_dangling` 并阻断保存。
+  - **交互调整**：路由页默认只读，仅「编辑路由」入口；编辑态只保留「新建 / 保存 / 放弃」；删除「重新载入当前配置」；进入编辑先刷新 `GET /routes` 并用回传的最新数据载入；保存成功回只读态并提示待确认；`GET /routes` 新增 `effective_checksum` 与 `pending`，有 pending 时展示「当前显示的是待确认版本」横幅。
+  - **清理**：删除 `AlertmanagerRouteSetting` 模型、`/route-setting` API、根 receiver 物化与托管模式预置示例注入；告警配置页删除导入卡/抽屉/手写说明。
+- **影响模块**：M08（路由页 / 告警配置页 / 通知渠道页）、M09（变更单 pending 视图消费）、DB seed。
+- **回填清单**：
+  - 后端：`platform/db/seed/alertmanager_default.go`、`platform/db/seed/seed.go`；`platform/alertmanager/route/save_handler.go`、`handler.go`、`validate.go`、`register.go`；`platform/configcenter/generator/default_receiver.go`、`notify_route_generate.go`；`platform/alertmanager/config/service.go`；删除 `setting_handler.go`、`models/alertmanager_route_setting.go`、`notify_route_skeleton.go`、`notify_route_preset.go`。
+  - 前端：`RoutesPage.tsx`、`useRoutes.ts`、`routeTree.ts`、`RouteEditorDrawer.tsx`、`api/alertmanager.ts`、`types/alertmanager.ts`；删除 `useRouteSetting.ts`、`AlertConfigDrawer.tsx`；告警配置页与通知渠道页去除导入/兜底接管能力。
+  - API：新增 `POST /api/v2/platform/alertmanager/routes`；`GET /routes` 增 `effective_checksum` / `pending`；删除 `GET/PUT /route-setting`。
+- **测试护栏**：
+  - 后端：`seed` 默认配置写入/幂等/不覆盖 + 模板漂移；`generator` 默认接收人补齐、receiver 占位、空 base 合并；`route` 乐观锁 409、树校验、悬空接收人、生成并保留非 route 段；`cmd/metric-center` 冒烟改为默认版本非空。
+  - 前端：alerts 目录 14 文件 214 例全过；覆盖只读/编辑两态、进入编辑刷新、保存只提交树 + `base_checksum`、pending 横幅、默认接收人文案。
+- **状态**：**landed（2026-10-22，未提交）**——`go build ./platform/...` exit 0；`make test-platform` 相关包全过（仅剩既有环境基线失败：`admin/storagelog`、`db.TestInitDefaultPath`、`strategy/rule` promtool 桩脚本）；前端 `tsc --noEmit` exit 0，alerts 214 例全过；`make check-repo-map` 通过；本机重启后 `GET /routes` 返回默认根路由、`effective_checksum` 非空、`pending=null`。
+- **后续**：下发后读回校验（写盘/reload 后比对 AM 实际加载配置）未实现；`routeTree.ts` 的 `generateRouteSection` / `mergeRouteSection` 已退出保存链路，保留为与 Go 生成器对齐的纯函数测试镜像。
+
+## 46. 通知模板页信息架构重做 + 渠道/模板/路由解耦：去版本历史、去模板 ID 入 yml、渠道 CRUD 不再触发配置变更（2026-10-22 用户拍板）
+
+- **类别**：① 数据形态/交互设计（模板被做成 append-only 留痕表，前端直接暴露原始版本行）+ ② 实现偏差（模板 ID 写入 receiver URL，导致换绑模板也要改 yml）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §3.1 / §9.1；源码见回填清单
+- **发现场景**：用户走查 `/notify-templates` 指出：内置模板上下重复展示；「提交自定义模板」实为新增但无编辑入口；没有编辑却有「历史版本 / 重新挂载」，语义无法理解；进一步追问「receiver 为什么既有 `notify-<id>` 又有 `channel=<id>`」，并明确「模板改了就是改了，不需要下发/审批」。
+- **结论 / 用户拍板**：
+  - **模板是可变实体，不是版本留痕**：去掉版本历史 / remount / status / checksum 展示；模板新建、编辑、复制、删除均原地生效。
+  - **模板页 = 一个清单 + 按渠道类型分 Tab**：内置与自定义同表展示；内置置顶只读、只能查看/复制；自定义可新建/编辑/复制/删除；删除被渠道绑定的模板时阻止，提示先去通知渠道改绑；编辑时渠道类型锁死（创建后不可变）。
+  - **模板彻底退出 alertmanager.yml**：receiver URL 只带 `?id=<渠道ID>`；模板内容与绑定由桥在投递时按渠道 ID 实时读 DB（渠道 `default_template_id` → 内置默认）。换绑模板 / 改模板内容立即生效，不产生 M09 变更单、不 reload。
+  - **receiver 名恒为 `notify-<渠道ID>`**：不再由渠道名派生、不接受覆盖；渠道改名 / 改 webhook / 改类型 / 换绑模板均不影响 yml。
+  - **只物化被路由引用的渠道**：新增渠道本身不写 yml；未被路由引用的渠道不物化、不产生 receiver；路由引用集合变化才触发 yml/M09。
+  - **渠道删除保护**：被当前生效/待确认路由树引用时拒绝删除（409），要求先去路由规则页改绑；渠道列表返回 `route_reference_count` 供前端前置提示。
+  - **删除渠道启停状态**：移除 UI Switch、列表列与 API `enabled` 字段；启动迁移显式删除 `notify_channels.enabled` 列（GORM AutoMigrate 只增不删）。
+  - **源数据聚合收口**：`NotifyChannel` / `NotifyTemplate` 移出 M09 `sourceTableScopes`；渠道/模板 CRUD 不再空跑变更检测。
+  - **路由页删除「有渠道未被任何路由引用」提示**（用户 2026-10-22 追加反馈：未被引用是正常状态，不应提示）：`GET /routes` 不再返回 `dead_receivers`，前端删除该卡片；通知渠道页也只在被引用时显示「被 N 条路由引用」，未引用不再打标记。
+- **回填清单**：
+  - 模型/DB：`platform/models/alertmanager_notify.go`（去 `Enabled`；`ReceiverName()` 恒 `notify-<id>`）；`platform/db/db.go`（启动迁移 DROP `notify_channels.enabled`）。
+  - 后端：`platform/alertmanager/notify/channel.go`（去 enabled；删除前路由引用检查）、`channel_handler.go`、`bridge.go`（只按 `id` 解析渠道；去 `?template=`）、`receiver_snippet.go`（`?id=`、固定 `notify-<id>`、去 name 覆盖）、`template.go`（Create/Update/Delete/List/Detail + 名称唯一 + 内置/绑定保护 + `CompactTemplateVersions`）、`template_handler.go`、`register.go`；`platform/configcenter/generator/notify_receivers.go`（只物化被引用渠道、清理未引用平台 receiver、`?id=`）、`route_receivers.go`（收集 route receiver）、`data_source.go`（`LoadNotifyChannels`）、`change_detect.go`；`platform/alertmanager/route/refs.go`（路由引用收集）与 `handler.go` / `save_handler.go` 适配。
+  - 前端：`types/alertmanager.ts`、`api/alertmanager.ts`、`useNotifyTemplates.ts`、`NotifyTemplatesPage.tsx`（Tab + 单表 + 内置只读 + CRUD）、`NotifyTemplateDrawer.tsx`（新建/编辑/复制）、`NotifyChannelsPage.tsx`（去启停、路由引用列、删除拦截）、`NotifyChannelDrawer.tsx`（去启停）、`useRoutes.ts`（去 enabled 过滤）；删除 `useDerivedReceivers.ts`。
+  - 契约：`api-contract-snapshot.md` §11 同步（模板端点、渠道字段、桥参数 `id`、去 template、只物化被引用渠道、删除保护）。
+- **测试**：
+  - 后端 `notify` / `route` / `configcenter/generator` / `configcenter/draft` / `models` / `cmd/metric-center` 目标包通过（CGO 环境）。
+  - 前端 `tsc -p tsconfig.test.json --noEmit` 通过；`NotifyTemplatesPage` / `NotifyChannelsPage` 用例重写并全过；全量 vitest 待收口。
+- **状态**：**landed（2026-10-22，未提交）**——后端 `alertmanager` / `configcenter` / `models` / `cmd/metric-center` 相关包全过；前端 `tsc -p tsconfig.test.json --noEmit` 与改动文件 eslint 通过，`NotifyTemplatesPage` / `NotifyChannelsPage` / `useRoutes` / `RoutesPage` / `ReceiverSnippetDrawer` 用例全过（全量 vitest 1104 passed / 4 failed，失败均在未触碰文件：`InstanceSelector`、`ResourcesPage` 超时、`ScrapeJobFormDrawer.blackboxEdit`，属既有环境基线）；`make repo-map` 已刷新且 `check-repo-map.sh` 通过。**真机迁移已验证**：用当前 `metric_center.db` 副本启动新二进制后，`notify_channels.enabled` 列被自动删除、渠道/模板数据保持、新模板路由（GET 详情 / PUT / 无 remount）注册成功；`notify-<id>` 与 `?id=` 口径已生效。
+
+## 47. 通知渠道列表通用化 + 删除接收人配置 + 去掉内部桥令牌 + 钉钉加签（2026-10-23 用户拍板）
+
+- **类别**：① 信息架构（列表展示类型独有字段）+ ① 交互缺口（签名无法关闭）+ ② 实现偏差（钉钉 secret 存而未用）
+- **发现场景**：用户走查通知渠道页指出：列表是「钉钉式配置表」，应只保留渠道名称 / 渠道类型 / 被引用次数 / 创建时间；Webhook、签名、模板等类型独有字段应进编辑抽屉；「接收人配置」不需要；内部 token 也不需要；钉钉要能用。
+- **结论 / 用户拍板**：
+  - **列表只保留通用列**：渠道名称 / 渠道类型 / 被引用次数（0 显示 0）/ 创建时间 / 操作（编辑、删除）。去掉 Webhook、签名密钥、接收人、模板绑定列。
+  - **删除「接收人配置」**：前端抽屉、API 方法、类型全部删除；后端 `GET /notify-channels/{id}/receiver-snippet` 端点及相关代码全部删除（保留 `DeriveBridgeBaseURL` 供 M09 物化使用）。
+  - **删除控制面 ↔ Alertmanager 内部桥令牌**：去掉 `NOTIFY_BRIDGE_TOKEN` / `--notify.bridge-token`、桥端点 Bearer 校验、M09 receiver 的 `http_config.authorization` 写入、Makefile / 交付包 env 中的令牌配置。桥端点改为依赖部署层（同机 / 内网防火墙）限制访问；**安全提示**：任何能访问 `/api/v1/webhooks/notify` 的人都能伪造通知，生产必须做网络层限制。
+  - **钉钉加签**：补实现（timestamp + sign 追加到 webhook URL query；key=secret，msg=timestamp+"\n"+secret）；仅在填写 secret 时启用。飞书保持 body 注入签名。
+  - **签名开关**：飞书 / 钉钉编辑抽屉增加「签名设置」开关；关闭时隐藏密钥输入并显式提交 `secret: ""` 清空已存密钥，解决「填过之后无法关闭」的问题。企业微信没有加签，隐藏开关；切换渠道类型时关闭签名并清空旧密钥。
+  - **内置模板**：不新增钉钉内置模板；保留飞书现有内置模板；企业微信暂无内置模板（用户尚未拍板）。
+- **回填清单**：
+  - 后端：`platform/alertmanager/notify/{bridge.go,client.go,register.go,channel.go}`、删除 `receiver_snippet.go`、新增 `bridge_url.go`；`platform/alertmanager/register.go`；`platform/cmd/metric-center/main.go`；`platform/configcenter/draft/service.go`；`platform/configcenter/generator/notify_receivers.go`；`Makefile`；`scripts/package-center.sh`（env.sh / start.sh / README 模板）。
+  - 前端：`NotifyChannelsPage.tsx`（五列表格）、`NotifyChannelDrawer.tsx`（Webhook 地址、签名开关、按类型显示密钥）、删除 `ReceiverSnippetDrawer.tsx`；`api/alertmanager.ts` / `types/alertmanager.ts` / `alertmanagerConstants.ts` 清理。
+  - 测试：后端 notify / generator / draft / cmd 相关包；前端渠道页、路由页、useRoutes、模板页。
+- **状态**：**landed（2026-10-23，未提交）**——后端受影响包全过；前端 `tsc -p tsconfig.test.json` 通过，渠道页 / 模板页 / 路由页 / useRoutes 用例全过（68 例）；钉钉加签固定向量与「有/无 secret」两条桥用例通过。
+
+## 48. 自定义 Webhook 类型 + 模板/签名字段必填与掩码交互（2026-10-23 用户拍板）
+
+- **类别**：① 能力缺口（缺自定义 Webhook 渠道）+ ① 校验/交互缺口（模板、地址、签名未统一必填，已存值不可见）
+- **发现场景**：用户走查渠道编辑抽屉指出：类型只有飞书/钉钉/企微，没有自定义 Webhook；模板、Webhook 地址、签名密钥的必填与 `*` 标记不一致；已配置的 Webhook/密钥看不到，无法判断是否已填。
+- **结论 / 用户拍板**：
+  - **新增 `webhook` 渠道类型（自定义 Webhook）**：只填名称、类型、Webhook 地址；不显示模板、签名开关/密钥；桥把 Alertmanager 原始 JSON 原样 POST 到该地址，不渲染、不签名、不判 `code`/`errcode` 业务错误；只看 HTTP 状态码；不做自定义 header/鉴权（本期）。
+  - **内置类型模板必填**：飞书/钉钉/企业微信创建/更新必须绑定模板。飞书自动选中内置「飞书卡片-默认」；钉钉/企业微信无内置模板，必须选自定义模板，否则前端/后端均拒绝。
+  - **自定义 Webhook 禁止模板**：后端拒绝给 webhook 绑定模板；从 IM 类型切到 webhook 自动清空模板。
+  - **地址与密钥可见**：编辑 IM 渠道时回填脱敏 Webhook 地址（`scheme://host/***`）与密钥占位 `***`，用户能看到「已配置」；保持原值=不修改，清空则触发必填校验；自定义 Webhook 地址返回/回填完整地址，编辑同样必填。
+  - **必填标记**：Webhook 地址、通知模板、签名密钥（开关打开时）均显示 `*`；签名开关关闭时密钥字段隐藏、不校验，保存时清空。
+- **回填清单**：
+  - 后端：`models/alertmanager_notify.go`（webhook 类型 / IsTemplateChannelType）；`notify/channel.go`（模板必填 / webhook 不允许模板 / IM 脱敏、webhook 明文）；`notify/bridge.go`（webhook 原样转发分支）；`notify/client.go`（`sendOutboundRaw`，跳过 IM 业务错误码）；`notify/template.go`（模板类型排除 webhook）；测试。
+  - 前端：`types/alertmanager.ts` / `alertmanagerConstants.ts`（webhook 类型与展示名）；`NotifyChannelDrawer.tsx`（条件字段、模板必填、飞书自动选内置模板、URL/密钥掩码回填与清空校验）；`NotifyChannelsPage.test.tsx`（webhook、模板必填、清空校验）。
+- **状态**：**landed（2026-10-23，未提交）**——后端受影响包全过；前端 `tsc -p tsconfig.test.json` 通过，渠道页/模板页/路由页/useRoutes 共 72 例通过；接口实测：创建 `type=webhook` 返回 200 且 `webhook_url` 明文，删除成功。

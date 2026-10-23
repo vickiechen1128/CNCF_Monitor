@@ -19,26 +19,30 @@ import (
 // receiverNamePattern 匹配非 [a-z0-9] 连续片段，用于归一为单个 '-'。
 var receiverNamePattern = regexp.MustCompile(`[^a-z0-9]+`)
 
-// SanitizeReceiverName 由渠道名 / 接收人名生成合法 AM receiver 名：转小写、非 [a-z0-9]
-// 字符归一为 '-'、压缩连续 '-'、去首尾 '-'；结果可为空（调用方负责回落 notify-<id> 或报错）。
+// SanitizeReceiverName 把用户显式指定的 receiver 名归一为合法 AM 名：转小写、非 [a-z0-9]
+// 字符归一为 '-'、压缩连续 '-'、去首尾 '-'；结果可为空（调用方负责报错）。
 //
-// 单一实现：notify 包接收人片段（receiver_snippet.go）与 M09 生成器物化 receivers
-// （configcenter/generator）必须同源（决策 74 定稿第 1 条：禁止两处各写一份造成漂移）。
+// 仅用于「接收人配置片段」里用户覆盖名的清洗。平台物化 receiver 名恒为 notify-<id>
+// （见 ReceiverName），不再由渠道名派生，避免改名影响已下发的路由配置。
 func SanitizeReceiverName(raw string) string {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	s = receiverNamePattern.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
 }
 
-// ReceiverName 返回渠道的建议 AM receiver 名：渠道名 sanitize 后为空回落 notify-<id>。
+// ReceiverName 返回渠道在 alertmanager.yml 中的稳定 receiver 名：恒为 notify-<id>。
+//
+// 2026-10-22 收口：receiver 名只由**不可变的渠道 ID** 决定，渠道名仅用于界面展示。
+// 旧实现优先用渠道名 sanitize 的结果，改名会改变 receiver 名并导致路由引用失效；
+// 改为 ID 后，改名 / 改 webhook / 改类型 / 换绑模板都不会影响 alertmanager.yml。
 func (c NotifyChannel) ReceiverName() string {
-	if n := SanitizeReceiverName(c.Name); n != "" {
-		return n
-	}
 	return "notify-" + strconv.FormatUint(uint64(c.ID), 10)
 }
 
-// NotifyChannelType 表示通知渠道类型（设计提案 §3.3.2：feishu / dingtalk / wecom）。
+// NotifyChannelType 表示通知渠道类型。
+//
+//   - feishu / dingtalk / wecom：平台按模板渲染消息，可选签名；
+//   - webhook：自定义 Webhook，平台原样转发 Alertmanager JSON，不渲染模板、不签名。
 type NotifyChannelType string
 
 // 通知渠道类型常量。
@@ -46,6 +50,7 @@ const (
 	NotifyChannelTypeFeishu   NotifyChannelType = "feishu"
 	NotifyChannelTypeDingtalk NotifyChannelType = "dingtalk"
 	NotifyChannelTypeWecom    NotifyChannelType = "wecom"
+	NotifyChannelTypeWebhook  NotifyChannelType = "webhook"
 )
 
 // ValidNotifyChannelTypes 返回合法的通知渠道类型取值集合。
@@ -54,11 +59,23 @@ func ValidNotifyChannelTypes() []string {
 		string(NotifyChannelTypeFeishu),
 		string(NotifyChannelTypeDingtalk),
 		string(NotifyChannelTypeWecom),
+		string(NotifyChannelTypeWebhook),
 	}
 }
 
 // IsValidNotifyChannelType 判定给定字符串是否为合法渠道类型。
 func IsValidNotifyChannelType(t string) bool {
+	switch NotifyChannelType(t) {
+	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom, NotifyChannelTypeWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsTemplateChannelType 判定该渠道类型是否使用通知模板。
+// 自定义 Webhook 原样转发 AM JSON，不使用模板。
+func IsTemplateChannelType(t string) bool {
 	switch NotifyChannelType(t) {
 	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom:
 		return true
@@ -70,22 +87,21 @@ func IsValidNotifyChannelType(t string) bool {
 // NotifyChannel 是通知渠道（设计提案 §3.3.2）：AM 侧只引用 ID、不暴露目标地址；
 // WebhookURL / Secret 仅在平台侧存储（列表响应按需脱敏，脱敏在 notify 包的视图层完成）。
 //
-//	Name             渠道名称（如「SRE 飞书群」）
+//	Name             渠道名称（如「SRE 飞书群」），仅用于界面展示；改名不影响 AM receiver 名
 //	Type             渠道类型（feishu / dingtalk / wecom）
-//	WebhookURL       机器人 Webhook 地址（含 token），仅平台侧存储
+//	WebhookURL       告警送达的 Webhook 地址（含 token），仅平台侧存储
 //	Secret           加签密钥（选填，启用加签时必填）
-//	Enabled          启用状态
 //	DefaultTemplateID 该渠道渲染时使用的通知模板（null = 用内置默认模板，零配置 Happy Path 不变）；
 //	                  非空时须满足 template.channel_type == 本渠道 Type（渠道 CRUD 前置校验，桥亦有兜底）。
-//	                  经 M09 物化写进 receiver URL 的 `&template=<ID>`，是「渠道 ↔ 模板一等绑定」的载体
-//	                  （dev-feedback #30 / 设计提案 notify-template-channel-binding.md §5.1）。
+//	                  绑定关系只在平台侧生效：receiver URL 只带 `?id=<ID>`，桥在每次投递时实时
+//	                  读取本字段，因此换绑模板不需要改 alertmanager.yml / 不触发 M09 变更
+//	                  （2026-10-22 收口；旧实现把 `&template=<ID>` 写进 URL，已废弃）。
 type NotifyChannel struct {
 	BaseModel
 	Name              string            `gorm:"size:100;not null" json:"name"`
 	Type              NotifyChannelType `gorm:"size:20;not null" json:"type"`
 	WebhookURL        string            `gorm:"size:1024;not null" json:"webhook_url"`
 	Secret            string            `gorm:"size:256" json:"secret,omitempty"`
-	Enabled           bool              `gorm:"not null" json:"enabled"`
 	DefaultTemplateID *uint             `gorm:"size:20" json:"default_template_id,omitempty"`
 }
 

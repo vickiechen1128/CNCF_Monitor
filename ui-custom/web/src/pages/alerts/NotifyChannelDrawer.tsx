@@ -26,6 +26,9 @@ import { NOTIFY_CHANNEL_TYPE_OPTIONS, NOTIFY_TEMPLATES_PATH } from './alertmanag
 
 const { Text } = Typography
 
+/** 已存密钥在前端的占位值：可见地表示「已设置」，提交时原样保留、不当作真实密钥。 */
+const MASKED_SECRET = '***'
+
 export interface NotifyChannelDrawerProps {
   open: boolean
   /** 编辑对象；null = 新增 */
@@ -39,8 +42,9 @@ interface FormValues {
   name: string
   type: NotifyChannelType
   webhook_url?: string
+  /** 是否启用签名/加签；仅飞书 / 钉钉有效 */
+  signing_enabled?: boolean
   secret?: string
-  enabled: boolean
   /** 绑定的通知模板 ID；undefined = 使用平台内置默认模板 */
   default_template_id?: number
 }
@@ -62,6 +66,7 @@ function isValidWebhookUrl(value: string): boolean {
 function mapErrorToField(message: string): keyof FormValues | null {
   const msg = message.toLowerCase()
   if (msg.includes('webhook') || msg.includes('url') || msg.includes('地址')) return 'webhook_url'
+  if (msg.includes('模板') || msg.includes('template')) return 'default_template_id'
   if (msg.includes('名称') || msg.includes('name')) return 'name'
   if (msg.includes('类型') || msg.includes('type')) return 'type'
   if (msg.includes('密钥') || msg.includes('secret') || msg.includes('加签')) return 'secret'
@@ -76,10 +81,17 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
   const [templates, setTemplates] = useState<NotifyTemplate[]>([])
   const isEdit = record !== null
   const channelType = Form.useWatch('type', form)
+  const signingEnabled = Form.useWatch('signing_enabled', form)
+  const isWebhook = channelType === 'webhook'
+  const usesTemplate = !isWebhook
+  const supportsSigning = channelType === 'feishu' || channelType === 'dingtalk'
+  const signingLabel = channelType === 'dingtalk' ? '加签密钥' : '签名密钥'
+  const secretRequired = supportsSigning && signingEnabled
 
   // 模板下拉选项：仅当前渠道类型下的模板，内置默认置顶并标注（渠道 ↔ 模板一等绑定，dev-feedback #30）。
-  const templateOptions = templates
-    .filter((t) => t.channel_type === channelType)
+  const typeTemplates = templates.filter((t) => t.channel_type === channelType)
+  const hasBuiltin = typeTemplates.some((t) => t.is_builtin)
+  const templateOptions = [...typeTemplates]
     .sort((a, b) => Number(b.is_builtin) - Number(a.is_builtin))
     .map((t) => ({
       value: Number(t.id),
@@ -93,7 +105,14 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
     void (async () => {
       try {
         const res = await notifyTemplatesApi.list()
-        if (!cancelled) setTemplates(res.data?.items ?? [])
+        if (cancelled) return
+        const items = res.data?.items ?? []
+        setTemplates(items)
+        // 飞书有内置模板：未选择时自动选中，既满足「模板必填」也保留零配置体验。
+        if (form.getFieldValue('type') === 'feishu' && !form.getFieldValue('default_template_id')) {
+          const builtin = items.find((t) => t.is_builtin && t.channel_type === 'feishu')
+          if (builtin) form.setFieldValue('default_template_id', Number(builtin.id))
+        }
       } catch {
         if (!cancelled) setTemplates([])
       }
@@ -101,7 +120,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, form])
 
   useEffect(() => {
     if (!open) return
@@ -113,11 +132,16 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
       form.setFieldsValue({
         name: record.name,
         type: record.type,
-        enabled: record.enabled,
-        webhook_url: '',
-        secret: '',
+        // IM 机器人地址本身就是脱敏串（如 https://open.feishu.cn/***），直接回填让用户看到已配置；
+        // 自定义 Webhook 返回完整地址。提交时未改动的 IM 脱敏串不会回传。
+        webhook_url: record.webhook_url,
+        signing_enabled: record.secret_set,
+        // 已存密钥用 *** 占位，用户能看到「已设置」；提交时 *** 视为保留原值。
+        secret: record.secret_set ? MASKED_SECRET : '',
         default_template_id: record.default_template_id,
       })
+    } else {
+      form.setFieldsValue({ signing_enabled: false })
     }
   }, [open, record, form])
 
@@ -127,13 +151,24 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
     const name = values.name.trim()
     const webhookUrl = values.webhook_url?.trim() ?? ''
     const secret = values.secret?.trim() ?? ''
+    const usesTemplate = values.type !== 'webhook'
+    const canSign = values.type === 'feishu' || values.type === 'dingtalk'
+    const wantSign = canSign && values.signing_enabled === true
+    // IM 渠道编辑时回填的是脱敏串（如 https://open.feishu.cn/***）；未改动则不回传。
+    const maskedURLUnchanged = record?.type !== 'webhook' && webhookUrl === (record?.webhook_url ?? '')
     try {
       if (record) {
-        const payload: UpdateNotifyChannelPayload = { name, type: values.type, enabled: values.enabled }
-        if (webhookUrl) payload.webhook_url = webhookUrl
-        if (secret) payload.secret = secret
-        // 编辑态总是显式提交绑定：选了模板 → 该 ID；未选 → 0（解绑回落内置默认）。
-        payload.default_template_id = values.default_template_id ?? 0
+        const payload: UpdateNotifyChannelPayload = { name, type: values.type }
+        if (webhookUrl && !maskedURLUnchanged) payload.webhook_url = webhookUrl
+        if (wantSign) {
+          // *** 表示沿用已存密钥；只有用户粘贴了新密钥才提交。
+          if (secret && secret !== MASKED_SECRET) payload.secret = secret
+        } else {
+          // 关闭签名（或切换到不支持签名的类型）：显式清空已存密钥。
+          payload.secret = ''
+        }
+        // 自定义 Webhook 显式解绑模板；IM 类型始终提交所选模板（必填）。
+        payload.default_template_id = usesTemplate ? (values.default_template_id ?? 0) : 0
         await onUpdate(record.id, payload)
         message.success('通知渠道已更新')
       } else {
@@ -141,10 +176,9 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           name,
           type: values.type,
           webhook_url: webhookUrl,
-          enabled: values.enabled,
         }
-        if (secret) payload.secret = secret
-        if (values.default_template_id) payload.default_template_id = values.default_template_id
+        if (wantSign && secret && secret !== MASKED_SECRET) payload.secret = secret
+        if (usesTemplate && values.default_template_id) payload.default_template_id = values.default_template_id
         await onCreate(payload)
         message.success('通知渠道已创建')
       }
@@ -176,13 +210,13 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
       }
     >
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        通知渠道是告警最终送达的目标机器人；配置告警分派时只引用渠道 ID，真实地址仅平台侧存储。
+        通知渠道是告警最终送达的目标；配置告警分派时只引用渠道 ID，真实地址仅平台侧存储。
       </Text>
 
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ type: 'feishu', enabled: true }}
+        initialValues={{ type: 'feishu' }}
         onFinish={handleFinish}
       >
         <Form.Item
@@ -200,38 +234,66 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
         >
           <Select
             options={NOTIFY_CHANNEL_TYPE_OPTIONS}
-            placeholder="请选择机器人类型"
-            onChange={() => form.setFieldValue('default_template_id', undefined)}
+            placeholder="请选择渠道类型"
+            onChange={(v: NotifyChannelType) => {
+              form.setFieldValue('default_template_id', undefined)
+              // 飞书有内置模板：切到飞书时自动选中，满足模板必填。
+              if (v === 'feishu') {
+                const builtin = templates.find((t) => t.is_builtin && t.channel_type === 'feishu')
+                if (builtin) form.setFieldValue('default_template_id', Number(builtin.id))
+              }
+              // 渠道类型变化后，目标地址与密钥对应的机器人类型都变了：清空地址，
+              // 关闭签名并清空旧密钥，由用户按新类型重新填写。
+              if (v !== record?.type) {
+                form.setFieldsValue({ webhook_url: '', signing_enabled: false, secret: '' })
+              }
+            }}
           />
         </Form.Item>
 
-        <Form.Item
-          name="default_template_id"
-          label="通知模板"
-          extra={
-            <>
-              未选则使用平台内置默认模板；如需个性化卡片，可先到
-              <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
-              复制内置模板自定义后再回来选择。
-            </>
-          }
-        >
-          <Select
-            allowClear
-            options={templateOptions}
-            placeholder="使用平台内置默认模板"
-            notFoundContent="该渠道类型下暂无模板，可到通知模板页复制内置模板自定义"
-          />
-        </Form.Item>
+        {usesTemplate && (
+          <Form.Item
+            name="default_template_id"
+            label="通知模板"
+            required
+            rules={[{ required: true, message: '请选择通知模板' }]}
+            extra={
+              hasBuiltin ? (
+                <>
+                  模板必填；飞书已自动选中内置默认模板，也可到
+                  <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
+                  复制后自定义。
+                </>
+              ) : (
+                <>
+                  该渠道类型没有内置模板，必须选择自定义模板；没有合适的请先到
+                  <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
+                  新建。
+                </>
+              )
+            }
+          >
+            <Select
+              options={templateOptions}
+              placeholder={hasBuiltin ? '请选择通知模板' : '请选择自定义模板'}
+              notFoundContent="该渠道类型下暂无模板，请先到通知模板页新建自定义模板"
+            />
+          </Form.Item>
+        )}
 
         <Form.Item
           name="webhook_url"
-          label="机器人 Webhook"
+          label="Webhook 地址"
+          required
           rules={[
+            {
+              // 编辑时回填原值（IM 为脱敏串）：保持原值=不修改；清空则必须重新填写完整地址。
+              required: true,
+              message: '请填写 Webhook 地址',
+            },
             {
               validator: (_rule, value: string | undefined) => {
                 const v = (value ?? '').trim()
-                if (!isEdit && !v) return Promise.reject(new Error('请填写机器人 Webhook 地址'))
                 if (v && !isValidWebhookUrl(v)) {
                   return Promise.reject(new Error('Webhook 地址需为合法的 http/https 链接'))
                 }
@@ -240,32 +302,61 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
             },
           ]}
           extra={
-            isEdit
-              ? `当前地址：${record?.webhook_url ?? '-'}（已脱敏）；留空表示不修改，变更请重新粘贴完整地址`
-              : '机器人完整地址（含 token），仅在平台侧存储，列表按脱敏展示'
+            isWebhook
+              ? '平台会把 Alertmanager 原始告警 JSON POST 到该地址，不渲染模板、不签名。'
+              : isEdit
+                ? '当前地址已脱敏显示（路径 / token 显示为 ***）；保持原值表示不修改，清空后必须重新填写完整地址'
+                : '完整机器人地址（含 token），仅在平台侧存储'
           }
         >
-          <Input
-            placeholder={isEdit ? (record?.webhook_url ?? '留空不修改') : 'https://.../机器人 Webhook 地址'}
-            allowClear
-          />
+          <Input placeholder="https://.../Webhook 地址" allowClear />
         </Form.Item>
 
-        <Form.Item
-          name="secret"
-          label="签名密钥（选填）"
-          extra={
-            isEdit && record?.secret_set
-              ? '已设置，留空不修改'
-              : '钉钉 / 飞书启用加签时需要；留空表示不设置加签'
-          }
-        >
-          <Input placeholder={isEdit && record?.secret_set ? '已设置，留空不修改' : '选填，加签密钥'} allowClear />
-        </Form.Item>
+        {supportsSigning && (
+          <Form.Item
+            name="signing_enabled"
+            label="签名设置"
+            valuePropName="checked"
+            extra={
+              channelType === 'dingtalk'
+                ? '仅当钉钉机器人安全设置开启「加签」时打开；关闭会清空已存密钥'
+                : '仅当飞书机器人安全设置开启「签名校验」时打开；关闭会清空已存密钥'
+            }
+          >
+            <Switch
+              checkedChildren="已启用"
+              unCheckedChildren="未启用"
+              onChange={(checked) => {
+                if (!checked) form.setFieldValue('secret', '')
+              }}
+            />
+          </Form.Item>
+        )}
 
-        <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-          <Switch checkedChildren="启用" unCheckedChildren="停用" />
-        </Form.Item>
+        {supportsSigning && signingEnabled && (
+          <Form.Item
+            name="secret"
+            label={signingLabel}
+            required={supportsSigning && signingEnabled}
+            rules={[
+              {
+                required: secretRequired,
+                message:
+                  channelType === 'dingtalk'
+                    ? '请填写钉钉加签密钥；未开启加签请关闭开关'
+                    : '请填写飞书签名密钥；未开启签名校验请关闭开关',
+              },
+            ]}
+            extra={
+              isEdit && record?.secret_set
+                ? '已设置（显示为 ***）；保留 *** 表示不修改，粘贴新值则覆盖；如需关闭请关闭上方开关'
+                : '填写机器人后台安全设置中生成的密钥'
+            }
+          >
+            <Input placeholder="粘贴签名/加签密钥" allowClear />
+          </Form.Item>
+        )}
+
       </Form>
 
       {error && (

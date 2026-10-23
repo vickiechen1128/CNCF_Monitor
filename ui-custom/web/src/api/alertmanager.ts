@@ -13,19 +13,19 @@ import type {
   CreateNotifyChannelPayload,
   CreateSilencePayload,
   NotifyChannel,
+  NotifyChannelType,
   NotifyChannelsData,
-  NotifyTemplate,
+  NotifyTemplateDetail,
   NotifyTemplatesData,
   PaginatedItems,
   PromAlertsData,
-  ReceiverSnippetData,
-  RouteSetting,
   RouteTreeData,
+  SaveRoutesPayload,
+  SaveRoutesResult,
   Silence,
   SilenceLabelOptionsData,
   SubmitNotifyTemplatePayload,
   UpdateNotifyChannelPayload,
-  UpdateRouteSettingPayload,
   ValidateErrorData,
 } from '../types/alertmanager'
 
@@ -193,8 +193,7 @@ export const alertStatusApi = {
 /**
  * 通知渠道管理 API（PL-3 通知渲染桥，提案 §3.3.8；M08 内容 Owner）。
  * 端点尚未写入 api-contract-snapshot.md，契约权威 = 设计提案 §3.3 + 任务卡 wire 格式，待回写。
- * 凭据口径：webhook_url 响应脱敏、secret 永不回显（secret_set 仅布尔）；
- * 接收人片段（含平台桥令牌）挂 RequireAdmin，非管理员 403。
+ * 凭据口径：webhook_url 响应脱敏、secret 永不回显（secret_set 仅布尔）。
  */
 export const notifyChannelsApi = {
   /** 渠道列表（登录态） */
@@ -218,35 +217,6 @@ export const notifyChannelsApi = {
       `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}`,
     )
   },
-  /**
-   * 接收人配置片段（admin，T08-F13）：按渠道生成可直接粘进 alertmanager.yml `receivers:`
-   * 段的 YAML 片段（内嵌真实数字渠道 ID 与桥令牌，目标地址恒由服务端拼装）。
-   * 非管理员调用返回 403；渠道不存在 not_found；id 非法 bad_request。
-   */
-  getReceiverSnippet(id: string): Promise<ApiResponse<ReceiverSnippetData>> {
-    return apiClient.get<ReceiverSnippetData>(
-      `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}/receiver-snippet`,
-    )
-  },
-}
-
-/**
- * 默认接收人（根兜底）设定 API（T08-11，决策 113 口径 C）。
- *
- * 选定默认接收人 = 授权平台在生成配置时**只替换** alertmanager.yml 根 `route.receiver` 单键
- * （不触碰 group_by / 三个时间字段 / continue，不写 route.routes[]）；`null` = 关闭接管（护栏③：
- * 停止替换、不删最后写入的值）。写端点需管理员权限（非 admin 403），渠道不存在/未启用 → 400
- * bad_request；响应**不含下发状态**（决策 60 冻结）。
- */
-export const routeSettingApi = {
-  /** 读取设定并派生生效态视图（登录态） */
-  get(): Promise<ApiResponse<RouteSetting>> {
-    return apiClient.get<RouteSetting>('/api/v2/platform/alertmanager/route-setting')
-  },
-  /** 写入设定（admin）：写入后与挂载同构触发重算 + 自动下发；响应返回最新生效视图 */
-  update(payload: UpdateRouteSettingPayload): Promise<ApiResponse<RouteSetting>> {
-    return apiClient.put<RouteSetting>('/api/v2/platform/alertmanager/route-setting', { body: payload })
-  },
 }
 
 /**
@@ -255,22 +225,32 @@ export const routeSettingApi = {
  * 模板内容为 Alertmanager 标准 Go template（不是脚本）；校验在服务端做，校验失败不落库。
  */
 export const notifyTemplatesApi = {
-  /** 模板列表（含 total；内置模板 is_builtin=true，随版本升级） */
-  list(): Promise<ApiResponse<NotifyTemplatesData>> {
-    return apiClient.get<NotifyTemplatesData>('/api/v2/platform/alertmanager/notify-templates')
+  /** 模板列表（不含 content；内置模板 is_builtin=true，随版本升级） */
+  list(params?: { channel_type?: NotifyChannelType }): Promise<ApiResponse<NotifyTemplatesData>> {
+    return apiClient.get<NotifyTemplatesData>('/api/v2/platform/alertmanager/notify-templates', {
+      params,
+    })
   },
-  /** 提交模板（admin）：服务端校验 Go template，失败返回 400 bad_request（data.items 行级错误），校验通过才落库留痕 */
-  submit(input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplate>> {
-    return apiClient.post<NotifyTemplate>('/api/v2/platform/alertmanager/notify-templates', { body: input })
-  },
-  /** 回滚：把该历史版本内容重新提交为新的留痕（name 指定新留痕名称） */
-  remount(id: string, name: string): Promise<ApiResponse<NotifyTemplate>> {
-    return apiClient.post<NotifyTemplate>(
-      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}/remount`,
-      { body: { name } },
+  /** 模板详情（含 content），供查看 / 编辑 / 复制 */
+  get(id: string): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.get<NotifyTemplateDetail>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
     )
   },
-  /** 删除自定义模板（admin）：内置模板不可删除；不存在 not_found */
+  /** 新建自定义模板（admin）：服务端校验 Go template，失败返回 400（data.items 行级错误） */
+  create(input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.post<NotifyTemplateDetail>('/api/v2/platform/alertmanager/notify-templates', {
+      body: input,
+    })
+  },
+  /** 编辑自定义模板（admin）：内容校验同新建；渠道类型不可变；内置模板拒绝 */
+  update(id: string, input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplateDetail>> {
+    return apiClient.put<NotifyTemplateDetail>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
+      { body: input },
+    )
+  },
+  /** 删除自定义模板（admin）：内置 / 被渠道绑定的模板拒绝；不存在 not_found */
   remove(id: string): Promise<ApiResponse<{ id: string }>> {
     return apiClient.delete<{ id: string }>(
       `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
@@ -281,13 +261,24 @@ export const notifyTemplatesApi = {
 /**
  * 路由规则（route 前台化）只读视图 API（T08-12 / T08-F10，v0.3-a）。
  *
- * 仅全局认证、只读、无写能力；响应成功为 `{ mode, items, dead_receivers }`，
- * 解析失败降级为 `{ mode, parse_error, raw_yaml }`（非 500、不白屏）。
+ * 仅全局认证、只读、无写能力；响应成功为 `{ items, dead_receivers, declared_receivers }`，
+ * 解析失败降级为 `{ parse_error, raw_yaml }`（非 500、不白屏）。
+ * 保存复用 `POST /api/v2/platform/alertmanager/config`（整份配置生成 + M09 变更单）。
  * 契约权威：platform/alertmanager/route/handler.go（api-contract-snapshot.md 待回写）。
  */
 export const alertmanagerRoutesApi = {
   /** 只读路由树视图（当前生效 alertmanager.yml 的 route 段解析结果） */
   getRoutes(): Promise<ApiResponse<RouteTreeData>> {
     return apiClient.get<RouteTreeData>('/api/v2/platform/alertmanager/routes')
+  },
+  /**
+   * 保存编辑态路由树（admin）。
+   *
+   * 前端**不生成 YAML**：只提交结构化树 + base_checksum；后端负责生成 route 段、合并整份
+   * 配置、补默认接收人、amtool 校验、落 M08 版本并触发 M09 变更单。
+   * base_checksum 与当前产物不一致时返回 409（配置已被他人更新）。
+   */
+  saveRoutes(payload: SaveRoutesPayload): Promise<ApiResponse<SaveRoutesResult>> {
+    return apiClient.post<SaveRoutesResult>('/api/v2/platform/alertmanager/routes', { body: payload })
   },
 }

@@ -104,12 +104,18 @@ func AutoMigrate() error {
 		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
-		// 最小运行骨架自动布缆（Module_08 决策 113：管理域单例根兜底接管设定）
-		&models.AlertmanagerRouteSetting{},
 		// 预留
 		&models.BusinessMetric{},
 	); err != nil {
 		return err
+	}
+
+	// 2026-10-22 渠道取消启停状态：GORM AutoMigrate 只增不删，这里显式删除历史列。
+	// 列不存在（新库 / 已迁移）时跳过，幂等。SQLite 3.35+ 支持 DROP COLUMN。
+	if DB.Migrator().HasColumn(&models.NotifyChannel{}, "enabled") {
+		if err := DB.Exec("ALTER TABLE notify_channels DROP COLUMN enabled").Error; err != nil {
+			return fmt.Errorf("drop notify_channels.enabled: %w", err)
+		}
 	}
 
 	// 中心直连域（管理域）全平台唯一：只允许一条未软删的 management 行。

@@ -42,15 +42,10 @@ var (
 // 不生成 alerting 段。可注入便于测试。
 var AlertmanagerTarget string
 
-// NotifyBridgeURL / NotifyBridgeToken 是 M08 通知渲染桥的运行配置，由 cmd/metric-center
-// 从监听地址与 --notify.bridge-token 注入（决策 74 定稿：M09 物化平台通知 receivers）。
-// NotifyBridgeURL 为空时不物化（不写悬空 URL）；NotifyBridgeToken 为空时不写
-// http_config.authorization（缺失鉴权由桥端 401 + 启动 WARN 暴露，不伪造占位令牌）。
-// 可注入便于测试。
-var (
-	NotifyBridgeURL   string
-	NotifyBridgeToken string
-)
+// NotifyBridgeURL 是 M08 通知渲染桥的基础地址，由 cmd/metric-center 从监听地址 /
+// NOTIFY_BRIDGE_URL 注入（决策 74 定稿：M09 物化平台通知 receivers）。为空时不物化
+// （不写悬空 URL）。可注入便于测试。
+var NotifyBridgeURL string
 
 // draftLocks 是按 domainID 的进程内互斥锁表：GenerateDraft 的「查活 pending → 生成新单
 // → 废弃旧单」序列非原子，前端保存后同步 POST 与 30s 轮询 watcher 同秒触发时，两路都
@@ -128,8 +123,7 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	items := appendRoutePresetSeededItem(
-		appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts), artifacts)
+	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	checksum := artifacts.Checksum()
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
@@ -282,22 +276,10 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	if err := materializeNotifyReceivers(db, artifacts); err != nil {
 		return nil, nil, nil, err
 	}
-	// 决策 113（最小运行骨架自动布缆，口径 C）：**必须排在 receivers 物化之后**（平台
-	// receiver 未物化则根兜底目标不可校验）、Checksum 之前（替换结果须参与联合 checksum）。
-	// 异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
-	materializeRootRouteReceiver(db, artifacts)
-	// dev-feedback #33（骨架 → 完整预置示例）：**排在 receivers 物化之后、根兜底注入之前**——
-	//   - 必须在 receivers 之后：种子的子路由 receiver 只能引用**文件中真实已声明**的名字，
-	//     平台 receiver 未物化则示例只能引用用户自有 receiver（甚至无可引用 ⇒ 跳过）；
-	//   - 必须在根兜底之前：根兜底负责把种子里根 route 的 receiver 收敛为「用户选定的默认
-	//     接收人」（决策 113 口径 C）。若反过来，根兜底刚写好的 receiver 会被种子整体替换掉，
-	//     决策 113 的接管语义被静默回退。
-	// 同样必须在 Checksum 之前（注入结果须参与联合 checksum）。异常一律降级为跳过 + 诊断。
-	seedManagedRoutePreset(db, artifacts)
 	return artifacts, jobs, rules, nil
 }
 
-// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把平台已启用通知渠道物化为
+// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把被路由引用的平台渠道物化为
 // receivers 并合并进产物（决策 74 定稿）。AlertmanagerYML 为空（非管理域 / 无告警配置）
 // 时直接返回。物化幂等：已物化的平台 receiver（名称与桥 URL 均匹配）识别为自身产物、
 // 不重复追加也不误判重名，保证「重新校验」可从草稿产物复现同一结果。
@@ -305,14 +287,20 @@ func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifact
 	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
 		return nil
 	}
-	channels, err := generator.LoadEnabledNotifyChannels(db)
+	// 平台内置空接收人 default：即便存量留痕里没有，也在生成侧补齐，保证根路由可引用
+	// 「默认（不通知）」且 amtool 校验闭合。
+	ensured, err := generator.EnsureDefaultReceiver(artifacts.AlertmanagerYML)
+	if err != nil {
+		return err
+	}
+	artifacts.AlertmanagerYML = ensured
+	channels, err := generator.LoadNotifyChannels(db)
 	if err != nil {
 		return err
 	}
 	materialized, conflicts, err := generator.MaterializeNotifyReceivers(artifacts.AlertmanagerYML, generator.NotifyReceiverInput{
-		BridgeURL:   NotifyBridgeURL,
-		BridgeToken: NotifyBridgeToken,
-		Channels:    channels,
+		BridgeURL: NotifyBridgeURL,
+		Channels:  channels,
 	})
 	if err != nil {
 		return err
@@ -320,180 +308,6 @@ func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifact
 	artifacts.AlertmanagerYML = materialized
 	artifacts.NotifyReceiverConflicts = conflicts
 	return nil
-}
-
-// materializeRootRouteReceiver 按管理域单例设定（默认接收人）原地替换 alertmanager.yml
-// 根兜底 route.receiver 单键（决策 113，口径 C）：
-//
-//   - AlertmanagerYML 为空（从未挂载 / 非管理域）→ 直接返回（不影响其它产物）；
-//   - 设定未开启（DefaultReceiverChannelID=nil）或目标渠道不可用（被禁用 / 删除）→ 直接
-//     返回，产物字节级不变（护栏③：关闭 = 停止替换，不删最后写入的值）；
-//   - 设定生效 → 调用 generator.MaterializeRootRouteReceiver（receivers 已物化 ⇒ 平台
-//     receiver 名可达），并在**实际发生替换**时置 artifacts.RootRouteRebuilt，供
-//     buildChangeItems 追加「根兜底被平台重建」变更项（护栏②）。
-//
-// 无返回值：本工序的一切异常（YAML 非法 / 无 route / 目标 receiver 不可达 / DB 读取失败）
-// 一律降级为「跳过 + 诊断」（写入非产物字段 RootRouteDiagnostics），**绝不返回 error**——
-// 不得让挂载路径因骨架而失败（决策 113 前置事实）。
-func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifacts) {
-	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
-		return
-	}
-	setting, err := generator.LoadRouteSetting(db)
-	if err != nil {
-		artifacts.RootRouteDiagnostics = []generator.RootRouteDiagnostic{{
-			Code:    generator.RootRouteSkipLoadSettingFailed,
-			Message: fmt.Sprintf("读取默认接收人设定失败，跳过根兜底物化: %v", err),
-		}}
-		return
-	}
-	if setting.DefaultReceiverChannelID == nil {
-		return // 未开启接管：产物字节级不变。
-	}
-	channels, err := generator.LoadEnabledNotifyChannels(db)
-	if err != nil {
-		artifacts.RootRouteDiagnostics = []generator.RootRouteDiagnostic{{
-			Code:    generator.RootRouteSkipLoadChannelsFailed,
-			Message: fmt.Sprintf("读取已启用通知渠道失败，跳过根兜底物化: %v", err),
-		}}
-		return
-	}
-	// 渠道不存在 / 未启用 → 设定保留但本次不接管（T08-08 EffectiveDefaultReceiver 纯函数口径）。
-	receiver, ok := setting.EffectiveDefaultReceiver(channels)
-	if !ok {
-		return
-	}
-	platformNames := make([]string, 0, len(channels))
-	for _, ch := range channels {
-		platformNames = append(platformNames, ch.ReceiverName())
-	}
-
-	out, diags, err := generator.MaterializeRootRouteReceiver(artifacts.AlertmanagerYML, generator.RootRouteInput{
-		Enabled:               true,
-		DefaultReceiver:       receiver,
-		PlatformReceiverNames: platformNames,
-	})
-	if err != nil {
-		// 序列化失败等不可预期异常：保留原产物并记录诊断，不阻断挂载路径。
-		artifacts.RootRouteDiagnostics = diags
-		return
-	}
-	if out != artifacts.AlertmanagerYML {
-		artifacts.RootRouteRebuilt = true
-	}
-	artifacts.AlertmanagerYML = out
-	artifacts.RootRouteDiagnostics = diags
-}
-
-// seedManagedRoutePreset 在**平台管理模式**下为「尚无具体分流」的 alertmanager.yml 注入一份
-// 完整预置示例（根 route + 3 条带 matchers 的示例分流 + 1 条 inhibit 示例），补齐
-// dev-feedback #33 的「标准 alertmanager 配置文件模板库」缺口（决策 113 只落地了根兜底单键骨架）。
-//
-// 与 materializeRootRouteReceiver 的分工（互不越界）：
-//   - 骨架（决策 113）：只原地替换根 route.receiver 单键，管「兜底是谁」；
-//   - 预置（本函数）：管「完整示例长什么样」，只在**托管模式** + **无既有分流**时注入一次。
-//
-// 门禁（全部在 generator 侧，本函数只负责取数与接线）：
-//   - AlertmanagerYML 为空 / 模式非 managed（含零值 handwritten）→ 字节级不变，零副作用；
-//   - route 已有子路由 / 根 matchers / continue=true → 不 clobber，跳过 + 诊断；
-//   - 解析异常 / 无可引用 receiver → 跳过 + 诊断。
-//
-// 无返回值：本工序的一切异常一律降级为「跳过 + 诊断」（写入非产物字段 RoutePresetDiagnostics），
-// **绝不返回 error**——不得让挂载路径因预置示例而失败（与骨架同口径）。
-func seedManagedRoutePreset(db *gorm.DB, artifacts *generator.ConfigArtifacts) {
-	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
-		return
-	}
-	setting, err := generator.LoadRouteSetting(db)
-	if err != nil {
-		artifacts.RoutePresetDiagnostics = []generator.RoutePresetDiagnostic{{
-			Code:    generator.PresetSkipLoadSettingFailed,
-			Message: fmt.Sprintf("读取 route 段模式设定失败，跳过预置示例注入: %v", err),
-		}}
-		return
-	}
-	// 手写模式（含存量零值，LoadRouteSetting 已归一）= 永久逃生舱：平台零写入。
-	if setting.Mode != models.RouteModeManaged {
-		return
-	}
-	channels, err := generator.LoadEnabledNotifyChannels(db)
-	if err != nil {
-		artifacts.RoutePresetDiagnostics = []generator.RoutePresetDiagnostic{{
-			Code:    generator.PresetSkipLoadChannelsFailed,
-			Message: fmt.Sprintf("读取已启用通知渠道失败，跳过预置示例注入: %v", err),
-		}}
-		return
-	}
-	platformNames := make([]string, 0, len(channels))
-	for _, ch := range channels {
-		platformNames = append(platformNames, ch.ReceiverName())
-	}
-	// 示例根路由的兜底 receiver 优先取用户选定的默认接收人；未开启接管时回落为
-	// 「已启用渠道第一个」（与 GET /route-setting 的 auto_first_enabled 建议同源），
-	// 再由种子自身回落到「根 route 既有 receiver / 文件 receivers 首个声明」。
-	defaultReceiver := ""
-	if r, ok := setting.EffectiveDefaultReceiver(channels); ok {
-		defaultReceiver = r
-	} else if len(channels) > 0 {
-		defaultReceiver = channels[0].ReceiverName()
-	}
-
-	out, diags, err := generator.SeedManagedRoutePreset(artifacts.AlertmanagerYML, generator.RoutePresetInput{
-		Mode:                  setting.Mode,
-		DefaultReceiver:       defaultReceiver,
-		PlatformReceiverNames: platformNames,
-	})
-	if err != nil {
-		// 序列化失败等不可预期异常：保留原产物并记录诊断，不阻断挂载路径。
-		artifacts.RoutePresetDiagnostics = diags
-		return
-	}
-	if out != artifacts.AlertmanagerYML {
-		artifacts.RoutePresetSeeded = true
-	}
-	artifacts.AlertmanagerYML = out
-	artifacts.RoutePresetDiagnostics = diags
-}
-
-// appendRoutePresetSeededItem 在 artifacts 标记「本次实际注入了预置示例」时追加一条显式变更项，
-// 供 M09 变更单明示「预置示例已注入」——否则用户只看到 alertmanager.yml 整体 diff 里凭空多出
-// 一整棵路由树，不知道是平台注入的示例、也不知道可直接改可删。追加后重排 ID，保证 ci-N 连续。
-func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChangeItem {
-	if artifacts == nil || !artifacts.RoutePresetSeeded {
-		return items
-	}
-	items = append(items, models.ConfigChangeItem{
-		Type:          string(models.ChangeItemTypeAdd),
-		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
-		Description:   "预置路由示例已注入（平台管理模式派生基线：根路由 + 3 条示例分流 + 1 条抑制示例，可改可删）",
-		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
-		Risk:          string(models.RiskHigh),
-	})
-	for i := range items {
-		items[i].ID = fmt.Sprintf("ci-%d", i+1)
-	}
-	return items
-}
-
-// appendRootRouteRebuiltItem 在 artifacts 标记「本次实际替换了根兜底 receiver」时追加一条
-// 显式变更项（决策 113 护栏②：复用既有变更项机制，不新增机制），供 M09 变更单明示
-// 「根兜底被平台重建」——否则用户手改根 receiver 被平台覆盖只在 alertmanager.yml 整体
-// diff 中被淹没，用户看不到「我的根兜底被改了」。追加后重排 ID，保证 ci-N 连续。
-func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChangeItem {
-	if artifacts == nil || !artifacts.RootRouteRebuilt {
-		return items
-	}
-	items = append(items, models.ConfigChangeItem{
-		Type:          string(models.ChangeItemTypeUpdate),
-		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
-		Description:   "根兜底被平台重建（route.receiver 已按默认接收人替换）",
-		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
-		Risk:          string(models.RiskHigh),
-	})
-	for i := range items {
-		items[i].ID = fmt.Sprintf("ci-%d", i+1)
-	}
-	return items
 }
 
 // LatestLivePending 返回某网域最新活 pending 草稿（无则 nil）。供 M09 自动变更检测
@@ -569,8 +383,7 @@ func reconcileWithExistingPending(
 		return nil, err
 	}
 
-	items := appendRoutePresetSeededItem(
-		appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts), artifacts)
+	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
@@ -1244,12 +1057,6 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err := materializeNotifyReceivers(db, artifacts); err != nil {
 		return nil, err
 	}
-	// 决策 113：重校路径同样复现根兜底物化（receivers 之后、校验之前），与 buildArtifacts
-	// 接线一致——否则重校会回退根兜底，与初次生成的产物不一致。
-	materializeRootRouteReceiver(db, artifacts)
-	// dev-feedback #33：重校路径同样复现预置示例注入（根兜底之后，与 buildArtifacts 一致），
-	// 否则重校会回退预置示例、与初次生成的产物不一致。
-	seedManagedRoutePreset(db, artifacts)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))

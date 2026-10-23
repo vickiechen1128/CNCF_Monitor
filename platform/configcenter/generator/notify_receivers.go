@@ -21,11 +21,7 @@ type NotifyReceiverInput struct {
 	// BridgeURL 是通知渲染桥基础地址（形如 http://127.0.0.1:8080，不含路径）。
 	// 为空时不物化（不写出悬空/相对 URL）。
 	BridgeURL string
-	// BridgeToken 是桥内网调用令牌；写入 receiver 的 http_config.authorization.credentials
-	// （H-1：令牌走请求头，不落 URL query）。为空时不写 http_config（缺失鉴权由桥端 401 +
-	// 启动 WARN 暴露，绝不伪造占位令牌进入真实下发配置）。
-	BridgeToken string
-	// Channels 是平台已启用的通知渠道（enabled=true），每个生成一个 receiver。
+	// Channels 是平台全部通知渠道；只有被 route 段引用到的渠道才会被物化为 receiver。
 	Channels []models.NotifyChannel
 }
 
@@ -40,19 +36,9 @@ type NotifyReceiverConflict struct {
 
 // ---- 平台物化 receiver 的 YAML 结构（仅本文件的生成/解析用） ----
 
-type genHTTPConfig struct {
-	Authorization *genAuthorization `yaml:"authorization,omitempty"`
-}
-
-type genAuthorization struct {
-	Type        string `yaml:"type"`
-	Credentials string `yaml:"credentials"`
-}
-
 type genWebhookConfig struct {
-	URL          string         `yaml:"url"`
-	SendResolved bool           `yaml:"send_resolved"`
-	HTTPConfig   *genHTTPConfig `yaml:"http_config,omitempty"`
+	URL          string `yaml:"url"`
+	SendResolved bool   `yaml:"send_resolved"`
 }
 
 type genReceiver struct {
@@ -60,11 +46,13 @@ type genReceiver struct {
 	WebhookConfigs []genWebhookConfig `yaml:"webhook_configs"`
 }
 
-// MaterializeNotifyReceivers 把平台已启用渠道物化为 alertmanager.yml 的 receivers，与用户
-// 手写 receivers 合并（决策 74 定稿第 1/2/3 条）：
-//   - 每个 enabled 渠道生成一个 receiver：`url` = 桥地址 + `?channel=<真实数字 ID>`
-//     （渠道绑定了通知模板时再追加 `&template=<真实数字 ID>`），
-//     `http_config.authorization` = `Bearer <令牌>`（H-1：令牌走请求头，不落 URL query）；
+// MaterializeNotifyReceivers 把**被路由引用**的平台渠道物化为 alertmanager.yml 的 receivers，
+// 与用户手写 receivers 合并：
+//   - 只物化 route 段（根 route.receiver + 递归 routes[].receiver）引用到的渠道；
+//     未被引用的渠道不进入 yml —— 新增渠道 / 改名 / 改 webhook / 换绑模板都不会触发配置变更；
+//   - 每个渠道生成一个 receiver：`url` = 桥地址 + `?id=<真实渠道 ID>`；
+//     模板绑定不写进 URL，由桥在投递时按 channel ID 实时解析；
+//   - 不再被路由引用的平台 receiver 从 yml 中移除（只移除平台形态，用户手写项保留）；
 //   - 用户手写 receivers 原样保留（baseYAML 其余内容透传，不解析其它段语义）；
 //   - 平台槽位残壳（同名 receiver 仅含 name 键、无任何通知配置，如残缺测试基座残留）
 //     不判冲突，按平台槽位原地补齐 webhook_configs（2026-10-10 回归修复）；
@@ -86,6 +74,20 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 		return "", nil, fmt.Errorf("alertmanager.yml 顶层不是映射，无法物化通知 receivers")
 	}
 	root := doc.Content[0]
+
+	// 2026-10-22：只物化被 route 段引用的渠道。未被引用的渠道不进入 yml，
+	// 因此新增渠道 / 改名 / 改 webhook / 换绑模板都不会触发配置变更；
+	// 只有路由规则变化（引用集合变化）才会让 receivers 段变化。
+	referenced, err := CollectRouteReceiverNames(baseYAML)
+	if err != nil {
+		return "", nil, err
+	}
+	active := make([]models.NotifyChannel, 0, len(in.Channels))
+	for _, ch := range in.Channels {
+		if _, ok := referenced[ch.ReceiverName()]; ok {
+			active = append(active, ch)
+		}
+	}
 
 	var recvSeq *yaml.Node
 	// existing: receiver 名 → {行号, 首个 webhook url, 节点}。节点用于地址演进原地更新；
@@ -119,33 +121,54 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 		)
 	}
 
-	// 平台命名空间集合：本次物化将生成的全部平台 receiver 名（= 各已启用渠道的
-	// ch.ReceiverName()）。L2 以「receiver 名 ∈ 此集合」判定是否为平台槽位，不再依赖
-	// 「名称 + 桥 URL 全等」（决策 74 定稿补充）。
-	platformNames := make(map[string]bool, len(in.Channels))
+	// 平台命名空间：全部渠道的稳定 receiver 名（恒为 notify-<id>）。用于识别既有
+	// receiver 是否属于平台产物；未被路由引用的渠道不会进入 active，也不物化。
+	allPlatformNames := make(map[string]bool, len(in.Channels))
 	for _, ch := range in.Channels {
-		platformNames[ch.ReceiverName()] = true
+		allPlatformNames[ch.ReceiverName()] = true
 	}
 
-	// 冲突检测 + 平台 receiver 地址演进识别（L2，决策 74 定稿补充）：
-	//   以「receiver 名 ∈ 平台命名空间（本次物化将生成的平台名集合）」判定是否为平台槽位，
-	//   不再依赖「名称 + 桥 URL 全等」。
+	// 清理不再被路由引用的平台 receiver：保持 yml 与「只物化被引用渠道」口径一致。
+	// 只移除平台形态（桥地址形态 / 仅 name 键残壳）的同名 receiver，避免误删用户手写项。
+	if len(allPlatformNames) > 0 && len(recvSeq.Content) > 0 {
+		kept := make([]*yaml.Node, 0, len(recvSeq.Content))
+		for _, item := range recvSeq.Content {
+			ni := mappingValueIndex(item, "name")
+			if ni >= 0 {
+				name := item.Content[ni].Value
+				if allPlatformNames[name] {
+					if _, stillReferenced := referenced[name]; !stillReferenced &&
+						(isPlatformBridgeURL(firstWebhookURL(item)) || receiverNameOnly(item)) {
+						delete(existing, name)
+						continue
+					}
+				}
+			}
+			kept = append(kept, item)
+		}
+		recvSeq.Content = kept
+	}
+
+	// 本次实际物化的平台名集合（只含被路由引用的渠道）。
+	activeNames := make(map[string]bool, len(active))
+	for _, ch := range active {
+		activeNames[ch.ReceiverName()] = true
+	}
+
+	// 冲突检测 + 平台 receiver 地址演进识别：
 	//   - 已物化（url 相同）：跳过（幂等）；
-	//   - 同名且 URL 属平台桥地址形态（url 不同）：平台自身产物地址演进 → 收集原地更新，
-	//     不报冲突（不再把桥地址变化误读为「与手写 receiver 重名」）；
-	//   - 同名但 URL 非平台桥地址形态（确系用户手写、指向别处）：真重名 → 冲突
-	//     （failed + user_config + 行级错误，决策 74「绝不静默覆盖/合并」语义不变）；
-	//   - 平台内部两条渠道 sanitize 同名（name 不在既有 receivers 中）：冲突
-	//     （AM 拒绝重复 receiver 名）。
+	//   - 同名且 URL 属平台桥地址形态（url 不同）：平台自身产物地址演进 → 收集原地更新；
+	//   - 同名但 URL 非平台桥地址形态（确系用户手写、指向别处）：真重名 → 冲突；
+	//   - 平台内部两条渠道同名（name 不在既有 receivers 中）：冲突。
 	// 任一真重名冲突即整体不写入（避免半合并）；地址演进原地更新也只在无冲突时才落盘。
 	var conflicts []NotifyReceiverConflict
 	seen := map[string]bool{}
 	type platformUpdate struct {
 		node             *yaml.Node
-		name, url, token string
+		name, url string
 	}
 	var updates []platformUpdate
-	for _, ch := range in.Channels {
+	for _, ch := range active {
 		name := ch.ReceiverName()
 		url := bridgeReceiverURL(in.BridgeURL, ch)
 		ex, ok := existing[name]
@@ -163,7 +186,7 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 		}
 		if isPlatformBridgeURL(ex.url) {
 			// 平台自身产物地址演进 → 原地更新，不冲突
-			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url, token: in.BridgeToken})
+			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url})
 			continue
 		}
 		if ex.url == "" && receiverNameOnly(ex.node) {
@@ -171,7 +194,7 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 			// 提交残留的 name-only 基座）。空 URL 无法辨识桥形态，但「除 name 外无任何键」
 			// 说明它不可能是用户手写的有效 receiver（手写至少带通知配置），按平台槽位
 			// 原地补齐 webhook_configs，不判重名冲突。
-			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url, token: in.BridgeToken})
+			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url})
 			continue
 		}
 		// 同名但 URL 非平台桥地址形态 → 确系用户手写 squat → 真重名冲突
@@ -182,24 +205,24 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 	}
 	// 原地更新平台 receiver 地址演进（无真重名冲突时才落盘，避免半合并）
 	for _, u := range updates {
-		replacement, err := platformReceiverNode(u.name, u.url, u.token)
+		replacement, err := platformReceiverNode(u.name, u.url)
 		if err != nil {
 			return "", nil, err
 		}
 		*u.node = *replacement
 	}
 
-	// 追加尚未物化的平台 receiver（已物化的平台槽位已跳过或原地更新，不再重复追加）。
-	for _, ch := range in.Channels {
+	// 追加尚未物化的平台 receiver（只追加被路由引用的渠道）。
+	for _, ch := range active {
 		name := ch.ReceiverName()
 		if _, inDraft := existing[name]; inDraft {
 			continue // 已存在（幂等跳过或原地更新），不重复追加
 		}
-		if !platformNames[name] {
+		if !activeNames[name] {
 			continue // 非平台槽位（不应发生：name 由渠道 ReceiverName 得出）
 		}
 		url := bridgeReceiverURL(in.BridgeURL, ch)
-		node, err := platformReceiverNode(name, url, in.BridgeToken)
+		node, err := platformReceiverNode(name, url)
 		if err != nil {
 			return "", nil, err
 		}
@@ -213,30 +236,20 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 	return string(out), nil, nil
 }
 
-// bridgeReceiverURL 拼平台物化 receiver 的桥地址：只带 channel 参数（真实数字 ID），
-// 令牌不经 query 传递（H-1）；渠道绑定了通知模板时追加 `&template=<真实数字 ID>`
-// （渠道 ↔ 模板一等绑定，dev-feedback #30：绑定是渠道数据属性，随物化持久、不被重算覆写）。
+// bridgeReceiverURL 拼平台物化 receiver 的桥地址：只带 id 参数（真实渠道 ID），
+// 模板绑定不写进 URL，由桥在投递时按 channel ID 实时解析
+// （2026-10-22 收口：换绑模板不再需要改 alertmanager.yml / 不走 M09 变更）。
 // 口径与 notify/receiver_snippet.go buildBridgeURL 一致。
 func bridgeReceiverURL(base string, ch models.NotifyChannel) string {
-	u := strings.TrimRight(base, "/") + bridgeEndpointPath +
-		"?channel=" + strconv.FormatUint(uint64(ch.ID), 10)
-	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
-		u += "&template=" + strconv.FormatUint(uint64(*ch.DefaultTemplateID), 10)
-	}
-	return u
+	return strings.TrimRight(base, "/") + bridgeEndpointPath +
+		"?id=" + strconv.FormatUint(uint64(ch.ID), 10)
 }
 
-// platformReceiverNode 构造单个平台 receiver 的 yaml.Node（含 http_config.authorization，
-// 令牌非空时）。receiver 名已由 models.ReceiverName sanitize 为安全字符集。
-func platformReceiverNode(name, url, token string) (*yaml.Node, error) {
+// platformReceiverNode 构造单个平台 receiver 的 yaml.Node。receiver 名恒为 notify-<id>。
+func platformReceiverNode(name, url string) (*yaml.Node, error) {
 	rcv := genReceiver{
 		Name:           name,
 		WebhookConfigs: []genWebhookConfig{{URL: url, SendResolved: true}},
-	}
-	if token != "" {
-		rcv.WebhookConfigs[0].HTTPConfig = &genHTTPConfig{
-			Authorization: &genAuthorization{Type: "Bearer", Credentials: token},
-		}
 	}
 	raw, err := yaml.Marshal(rcv)
 	if err != nil {

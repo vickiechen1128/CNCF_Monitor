@@ -1,6 +1,7 @@
 package route
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,6 +20,35 @@ import (
 	"gorm.io/gorm"
 )
 
+var routeDBCounter int64
+
+// adminUser 返回请求上下文中的管理员用户（RequireAdmin 门禁用）。
+func adminUser() *models.User {
+	return &models.User{
+		ID: "u1", Username: "admin", DisplayName: "系统管理员",
+		TenantID: models.PlatformAdminTenantID,
+		Role:     models.UserRoleAdmin, Status: models.UserStatusActive,
+	}
+}
+
+// doJSON 以 JSON 请求体发起请求并返回响应录制器。
+func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader *bytes.Reader
+	if body == "" {
+		reader = bytes.NewReader(nil)
+	} else {
+		reader = bytes.NewReader([]byte(body))
+	}
+	req := httptest.NewRequest(method, path, reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 // newRoutesDB 造内存 SQLite，迁移本端点涉及的表（挂载留痕 + 生效产物 + 通知渠道）。
 func newRoutesDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -30,7 +60,6 @@ func newRoutesDB(t *testing.T) *gorm.DB {
 		&models.NotifyChannel{},
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
-		&models.AlertmanagerRouteSetting{},
 	))
 	return db
 }
@@ -53,7 +82,6 @@ func seedWebhookChannel(t *testing.T, db *gorm.DB, name, webhook string) *models
 		Name:       name,
 		Type:       models.NotifyChannelTypeFeishu,
 		WebhookURL: webhook,
-		Enabled:    true,
 	}
 	require.NoError(t, db.Create(ch).Error)
 	return ch
@@ -69,10 +97,8 @@ func newRoutesRouter(db *gorm.DB) *gin.Engine {
 }
 
 type routesData struct {
-	Mode          string         `json:"mode"`
-	Items         []RouteNode    `json:"items"`
-	DeadReceivers []DeadReceiver `json:"dead_receivers"`
-	ParseError    string         `json:"parse_error"`
+	Items         []RouteNode `json:"items"`
+	ParseError    string      `json:"parse_error"`
 	RawYAML       string         `json:"raw_yaml"`
 }
 
@@ -87,66 +113,25 @@ func decodeRoutes(t *testing.T, w *httptest.ResponseRecorder) routesData {
 	return env.Data
 }
 
-// TestListRoutesHandler_OK：成功渲染路由树 + dead_receivers（平台命名空间内无引用者）。
+// TestListRoutesHandler_OK：成功渲染路由树。
 func TestListRoutesHandler_OK(t *testing.T) {
 	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/open-apis/bot/v2/hook/SECRETHOOK")
-	seedWebhookChannel(t, db, "beta", "https://open.feishu.cn/open-apis/bot/v2/hook/SECRETHOOK2")
-	seedAppliedConfig(t, db, `
+	alpha := seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/open-apis/bot/v2/hook/SECRETHOOK")
+	seedAppliedConfig(t, db, fmt.Sprintf(`
 route:
   # 路由名称: 根兜底
-  receiver: alpha
+  receiver: %s
   routes:
     - receiver: notify-999
-`)
+`, alpha.ReceiverName()))
 
 	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	data := decodeRoutes(t, w)
 
-	assert.Equal(t, ModeHandwritten, data.Mode, "未持久化模式设定时归一为 handwritten")
 	require.Len(t, data.Items, 2)
 	assert.True(t, data.Items[0].Locked)
 	assert.Equal(t, "根兜底", data.Items[0].Name)
-
-	// alpha 被根兜底引用 → 非死接收人；beta 无任何 route 引用 → 死接收人。
-	require.Len(t, data.DeadReceivers, 1)
-	assert.Equal(t, "beta", data.DeadReceivers[0].Name)
-	assert.Equal(t, "https://open.feishu.cn/***", data.DeadReceivers[0].URL, "出站地址脱敏")
-}
-
-// TestListRoutesHandler_RootFallbackCountsAsReference：根兜底 route.receiver 计入引用判定。
-func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T) {
-	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/hook/A")
-	seedWebhookChannel(t, db, "beta", "https://open.feishu.cn/hook/B")
-	seedAppliedConfig(t, db, "route:\n  receiver: beta\n  routes:\n    - receiver: some-manual\n")
-
-	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
-	require.Equal(t, http.StatusOK, w.Code)
-	data := decodeRoutes(t, w)
-
-	require.Len(t, data.DeadReceivers, 1)
-	assert.Equal(t, "alpha", data.DeadReceivers[0].Name, "根兜底引用的 beta 不算死接收人")
-}
-
-// TestListRoutesHandler_ReturnsStoredMode 覆盖 T08-F12：GET /routes 的 mode 取自
-// AlertmanagerRouteSetting 持久化值，而非硬编码。持久化 managed 时须返回 managed。
-func TestListRoutesHandler_ReturnsStoredMode(t *testing.T) {
-	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/hook/A")
-	seedAppliedConfig(t, db, "route:\n  receiver: alpha\n")
-
-	require.NoError(t, db.Create(&models.AlertmanagerRouteSetting{
-		NetworkDomainID:          models.DefaultDomainID,
-		DefaultReceiverChannelID: nil,
-		Mode:                     models.RouteModeManaged,
-	}).Error)
-
-	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
-	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
-	data := decodeRoutes(t, w)
-	assert.Equal(t, string(models.RouteModeManaged), data.Mode, "mode 须反映持久化值")
 }
 
 // TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView 覆盖 C1：GET /config/product 返回
@@ -187,34 +172,30 @@ func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T) {
 	assert.Contains(t, env.Data.YAML, "- name: sre", "须包含平台物化的 receivers")
 }
 
-// TestListRoutesHandler_NoConfig：无生效配置 → 空 items，全部平台接收人视为无引用。
+// TestListRoutesHandler_NoConfig：无生效配置 → 空 items。
 func TestListRoutesHandler_NoConfig(t *testing.T) {
 	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/hook/A")
 
 	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeRoutes(t, w)
 	assert.Empty(t, data.Items)
-	require.Len(t, data.DeadReceivers, 1)
-	assert.Equal(t, "alpha", data.DeadReceivers[0].Name)
 }
 
 // TestListRoutes_PrefersGeneratedArtifactOverMountTrace：存在平台生成产物（ConfigVersion）时
-// 以产物为准，而非 M08 挂载留痕原文——保证页面根兜底 receiver 与磁盘生效配置一致，且已被根
-// 路由引用的平台 receiver 不被误报为死接收人（E2E 发现的偏差回归用例）。
+// 以产物为准，而非 M08 挂载留痕原文——保证页面根兜底 receiver 与磁盘生效配置一致。
 func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T) {
 	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/SECRET") // receiver 名 = sre
+	ch := seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/SECRET")
 
 	// M08 挂载留痕原文：根兜底仍是用户手写值，且不含平台物化 receiver。
 	seedAppliedConfig(t, db, "route:\n  receiver: user-fallback\nreceivers:\n  - name: user-fallback\n")
-	// M09 生成产物：根兜底已被平台接管为 sre，并物化了 sre。
+	// M09 生成产物：根兜底已被平台接管为 notify-<id>，并物化了该 receiver。
 	require.NoError(t, db.Create(&models.ConfigVersion{
 		NetworkDomainID: models.DefaultDomainID,
 		DraftID:         "d-1",
 		ChangeNo:        "CHG-TEST-001",
-		AlertmanagerYml: "route:\n    receiver: sre\nreceivers:\n    - name: user-fallback\n    - name: sre\n",
+		AlertmanagerYml: fmt.Sprintf("route:\n    receiver: %s\nreceivers:\n    - name: user-fallback\n    - name: %s\n", ch.ReceiverName(), ch.ReceiverName()),
 	}).Error)
 
 	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
@@ -222,15 +203,14 @@ func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T) {
 	data := decodeRoutes(t, w)
 
 	require.Len(t, data.Items, 1)
-	assert.Equal(t, "sre", data.Items[0].Receiver, "根兜底应取生成产物中被平台接管后的值")
-	assert.Empty(t, data.DeadReceivers, "sre 已被根路由引用，不得误报为死接收人")
+	assert.Equal(t, ch.ReceiverName(), data.Items[0].Receiver, "根兜底应取生成产物中被平台接管后的值")
 }
 
-// TestListRoutes_PrefersNewerDraftOverVersion：草稿比已确认版本更新时（如渠道禁用后生成的
-// 待确认单）以草稿产物为准，页面反映「即将生效」的路由树。
+// TestListRoutes_PrefersNewerDraftOverVersion：草稿比已确认版本更新时以草稿产物为准，
+// 页面反映「即将生效」的路由树。
 func TestListRoutes_PrefersNewerDraftOverVersion(t *testing.T) {
 	db := newRoutesDB(t)
-	seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/SECRET")
+	ch := seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/SECRET")
 
 	old := time.Now().Add(-time.Hour)
 	require.NoError(t, db.Create(&models.ConfigVersion{
@@ -238,7 +218,7 @@ func TestListRoutes_PrefersNewerDraftOverVersion(t *testing.T) {
 		NetworkDomainID: models.DefaultDomainID,
 		DraftID:         "d-old",
 		ChangeNo:        "CHG-TEST-OLD",
-		AlertmanagerYml: "route:\n    receiver: sre\n",
+		AlertmanagerYml: "route:\n    receiver: " + ch.ReceiverName() + "\n",
 	}).Error)
 	require.NoError(t, db.Create(&models.ConfigDraft{
 		NetworkDomainID:  models.DefaultDomainID,
@@ -254,8 +234,6 @@ func TestListRoutes_PrefersNewerDraftOverVersion(t *testing.T) {
 
 	require.Len(t, data.Items, 1)
 	assert.Equal(t, "user-fallback", data.Items[0].Receiver, "更新的待确认草稿产物优先")
-	require.Len(t, data.DeadReceivers, 1)
-	assert.Equal(t, "sre", data.DeadReceivers[0].Name, "草稿中根兜底已不指向 sre")
 }
 
 // TestListRoutes_IgnoresDiscardedDraft：已废弃草稿不参与产物视图，回落到已确认版本。

@@ -347,6 +347,17 @@ func TestMergeRouteSection_AppendsRouteWhenMissing(t *testing.T) {
 	assert.Contains(t, merged, "receiver: 'default'")
 }
 
+// TestMergeRouteSection_EmptyBaseReturnsGenerated 覆盖全新环境（无既有 alertmanager.yml）：
+// 生成物即完整配置，receiver 由后续 EnsureDefaultReceiver / 渠道物化补齐。
+func TestMergeRouteSection_EmptyBaseReturnsGenerated(t *testing.T) {
+	generated, err := GenerateRouteSection(sampleRouteEditTree())
+	require.NoError(t, err)
+
+	merged, err := MergeRouteSection("   \n", generated)
+	require.NoError(t, err)
+	assert.Equal(t, generated, merged)
+}
+
 // TestMergeRouteSection_RejectsInvalidInput 覆盖 base / 生成物非法时的显式失败。
 func TestMergeRouteSection_RejectsInvalidInput(t *testing.T) {
 	generated, err := GenerateRouteSection(sampleRouteEditTree())

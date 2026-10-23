@@ -179,37 +179,17 @@ func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfi
 	return &cfg, nil
 }
 
-// LoadEnabledNotifyChannels 读取平台已启用的通知渠道（M08 NotifyChannel，enabled=true），
-// 供 M09 物化管理域 alertmanager.yml 的 receivers（决策 74 定稿：配置即生效，与 M07
-// LabelTemplate 物化范式一致）。按 id 升序保证物化顺序稳定（checksum 可复现）。
-func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
+// LoadNotifyChannels 读取平台全部通知渠道（M08 NotifyChannel），供 M09 物化管理域
+// alertmanager.yml 的 receivers。按 ID 升序保证物化顺序稳定（checksum 可复现）。
+//
+// 2026-10-22 起渠道取消启停状态；是否进入 receivers 只取决于「是否被路由规则引用」，
+// 由 MaterializeNotifyReceivers 结合 route 段判定。
+func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
 	var channels []models.NotifyChannel
-	err := db.Where("enabled = ?", true).Order("id ASC").Find(&channels).Error
-	if err != nil {
-		return nil, fmt.Errorf("load enabled notify channels: %w", err)
+	if err := db.Order("id ASC").Find(&channels).Error; err != nil {
+		return nil, fmt.Errorf("load notify channels: %w", err)
 	}
 	return channels, nil
-}
-
-// LoadRouteSetting 读取 M08「最小运行骨架自动布缆」的管理域单例设定（决策 113，默认接收人）。
-// alertmanager.yml 恒属管理域 default（决策 60），故单例按 models.DefaultDomainID 定位。
-// 记录缺失时返回零值设定（DefaultReceiverChannelID=nil = 不接管）且不报错——存量环境未配置
-// 该设定属正常态，生成侧据此回落为「不替换根兜底」，对存量产物零影响。
-func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error) {
-	var s models.AlertmanagerRouteSetting
-	err := db.Where("network_domain_id = ?", models.DefaultDomainID).First(&s).Error
-	if err == gorm.ErrRecordNotFound {
-		return &models.AlertmanagerRouteSetting{NetworkDomainID: models.DefaultDomainID, Mode: models.RouteModeHandwritten}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("load alertmanager route setting: %w", err)
-	}
-	// 存量零值行（Mode=""）归一为 handwritten，保证 GET /routes 返回真实持久化模式，
-	// 而非硬编码（T08-F12 后向兼容，零影响）。
-	if s.Mode == "" {
-		s.Mode = models.RouteModeHandwritten
-	}
-	return &s, nil
 }
 
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。

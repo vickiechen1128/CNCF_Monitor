@@ -42,21 +42,6 @@ type ConfigArtifacts struct {
 	// 错误，绝不静默覆盖）。**非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化，
 	// 仅用于 ValidateArtifacts 产出 alertmanager.yml 行级错误。
 	NotifyReceiverConflicts []NotifyReceiverConflict
-	// RootRouteRebuilt 标记本次生成是否**实际替换**了 alertmanager.yml 根兜底 receiver
-	// （M08 决策 113 护栏②：开关开启后用户手改根 receiver，下次生成覆盖须在 M09 变更单里
-	// 明示「根兜底被平台重建」）。**非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化，
-	// 仅供 draft.buildChangeItems 追加一条显式变更项。
-	RootRouteRebuilt bool
-	// RootRouteDiagnostics 是根兜底物化的跳过 / 异常归因（**非产物字段**：不参与 Checksum()、
-	// 不落盘、不 JSON 序列化）。异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
-	RootRouteDiagnostics []RootRouteDiagnostic
-	// RoutePresetSeeded 标记本次生成是否**实际注入**了托管模式预置示例（M08 dev-feedback #33
-	// 「骨架 → 完整预置示例」缺口）。**非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化，
-	// 仅供 draft 追加一条显式变更项（复用既有变更项机制，不新增机制）。
-	RoutePresetSeeded bool
-	// RoutePresetDiagnostics 是预置示例注入的跳过 / 异常归因（**非产物字段**：不参与 Checksum()、
-	// 不落盘、不 JSON 序列化）。异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
-	RoutePresetDiagnostics []RoutePresetDiagnostic
 	// AlertmanagerSourceVersionID 记录本产物 alertmanager.yml 来源的 M08 留痕版本 ID
 	// （buildArtifacts 加载时最新一条 applied 的 AlertmanagerConfigVersion；无则为 0）。
 	// **非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化。用途（dev-feedback #44）：

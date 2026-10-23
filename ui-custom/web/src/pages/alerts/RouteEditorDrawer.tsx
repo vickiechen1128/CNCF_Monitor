@@ -37,6 +37,7 @@ import {
 } from 'antd'
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import {
+  DEFAULT_RECEIVER_NAME,
   parseRouteDuration,
   validateRouteNodeFields,
   validateRouteReceivers,
@@ -50,7 +51,7 @@ import {
   toRouteLabelSelectOptions,
   useRouteLabelOptions,
 } from './routeLabels'
-import { ROUTE_ROOT_RECEIVER_READONLY_TIP } from './alertmanagerConstants'
+import { DEFAULT_RECEIVER_LABEL } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -66,7 +67,7 @@ const GROUP_BY_TIP = '留空 = 不分组（同批告警合并为一条通知）�
 
 /** 接收人说明（PRD §11.7：下拉数据源 = 已启用通知渠道） */
 const RECEIVER_TIP =
-  '下拉只列已启用通知渠道的接收人：选项显示为「渠道名（配置名）」，配置名是渠道名自动转换生成（渠道名含中文时无法直接作配置名）；引用已停用 / 已删除渠道的接收人会判为悬空并阻断保存'
+  '下拉列出已启用通知渠道的接收人，以及平台内置的「默认（不通知）」；渠道接收人显示为「渠道名（配置名）」，配置名由渠道名自动转换生成。选中「默认（不通知）」时，告警不会发往任何渠道。引用已停用 / 已删除渠道的接收人会判为悬空并阻断保存'
 
 /** 接收人悬空红字（PRD §11.7：引用悬空 → 红字「未定义」） */
 const RECEIVER_DANGLING_TIP = '未定义：该接收人不在已启用通知渠道清单内（渠道已停用或已删除），请改选后再保存'
@@ -150,7 +151,8 @@ function toRouteEditNode(node: RouteEditNode | null, values: RouteFormValues): R
     continue: values.continue === true,
     order: node?.order ?? 0,
     enabled: values.enabled !== false,
-    raw_yaml: '',
+    raw_yaml: node?.raw_yaml ?? '',
+    raw: node?.raw ?? '',
   }
 }
 
@@ -255,6 +257,10 @@ export function RouteEditorDrawer({
               </Space>
             ),
           }
+        }
+        // 平台内置空接收人：明确标注「不通知」，避免用户误以为是某个真实渠道
+        if (n === DEFAULT_RECEIVER_NAME) {
+          return { value: n, label: DEFAULT_RECEIVER_LABEL }
         }
         // 平台物化的 receiver：显示成「渠道名（notify-N）」，让下拉选项与通知渠道页对得上
         const channelName = receiverChannelNames?.[n]
@@ -419,16 +425,7 @@ export function RouteEditorDrawer({
           name="receiver"
           label="接收人"
           extra={
-            isRoot ? (
-              // 决策一（提案 §3.1 方案 A，验收 A6）：顶层路由的接收人**只读**。
-              // 本抽屉只在「平台生成」模式挂载（手写模式整页只读），故 `isRoot` 即等价于
-              // 「平台生成模式下的顶层路由」。理由：兜底控件是唯一可改入口，前端不必再造
-              // 「两入口必须同步」的约束——后端 `materializeRootRouteReceiver` 每次生成配置时
-              // 都会用兜底控件的取值覆盖根 receiver，此处改了也会被静默改回去。
-              <Text type="secondary" data-testid="route-editor-receiver-readonly-tip">
-                {ROUTE_ROOT_RECEIVER_READONLY_TIP}
-              </Text>
-            ) : receiverDangling ? (
+            receiverDangling ? (
               <Text type="danger" data-testid="route-editor-receiver-dangling">
                 {RECEIVER_DANGLING_TIP}
               </Text>
@@ -443,7 +440,6 @@ export function RouteEditorDrawer({
             allowClear
             showSearch
             optionFilterProp="value"
-            disabled={isRoot}
           />
         </Form.Item>
         <Form.Item

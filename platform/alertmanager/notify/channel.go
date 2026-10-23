@@ -4,7 +4,7 @@
 // 参见设计提案 docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md
 //   §3.3.2（数据模型）/ §3.3.3（内置渲染端点）/ §3.3.8（接口契约汇总）。
 // 安全口径：桥端点仅接受平台内已登记的 channel ID（目标地址由服务端从 DB 解析，
-// 杜绝 SSRF）；内网调用令牌鉴权；出站 HTTP 客户端统一 CA 配置（client.go）。
+// 杜绝 SSRF）；访问控制由部署层（同机 / 内网防火墙）承担；出站 HTTP 客户端统一 CA 配置（client.go）。
 package notify
 
 import (
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -25,15 +26,21 @@ var (
 	// ErrChannelNameRequired 渠道名称必填。
 	ErrChannelNameRequired = errors.New("渠道名称不能为空")
 	// ErrChannelTypeInvalid 渠道类型非法。
-	ErrChannelTypeInvalid = errors.New("渠道类型非法（仅支持 feishu / dingtalk / wecom）")
-	// ErrChannelWebhookInvalid 机器人 Webhook 地址非法。
-	ErrChannelWebhookInvalid = errors.New("机器人 Webhook 地址非法（仅允许 http/https、host 非空，且禁止私网 / 环回 / link-local / 云元数据地址）")
+	ErrChannelTypeInvalid = errors.New("渠道类型非法（仅支持 feishu / dingtalk / wecom / webhook）")
+	// ErrChannelWebhookInvalid Webhook 地址非法。
+	ErrChannelWebhookInvalid = errors.New("Webhook 地址非法（仅允许 http/https、host 非空，且禁止私网 / 环回 / link-local / 云元数据地址）")
+	// ErrChannelReferenceCheckFailed 无法解析当前告警路由配置，删除前的引用检查无法完成。
+	ErrChannelReferenceCheckFailed = errors.New("无法解析当前告警路由配置，暂不能删除渠道；请先修复路由配置")
 	// ErrChannelNotFound 渠道不存在。
 	ErrChannelNotFound = errors.New("通知渠道不存在")
 	// ErrChannelTemplateNotFound 渠道绑定的通知模板不存在（渠道 ↔ 模板绑定，dev-feedback #30）。
 	ErrChannelTemplateNotFound = errors.New("绑定的通知模板不存在")
 	// ErrChannelTemplateMismatch 渠道绑定的通知模板类型与渠道类型不一致。
 	ErrChannelTemplateMismatch = errors.New("绑定的模板渠道类型与渠道不一致")
+	// ErrChannelTemplateRequired 飞书 / 钉钉 / 企业微信渠道必须绑定通知模板。
+	ErrChannelTemplateRequired = errors.New("该渠道类型必须绑定通知模板")
+	// ErrChannelTemplateNotApplicable 自定义 Webhook 渠道不使用通知模板。
+	ErrChannelTemplateNotApplicable = errors.New("自定义 Webhook 渠道不使用通知模板")
 )
 
 // allowPrivateWebhookTargets 允许私网 / 环回 / link-local 目标地址（默认 false = 拒绝）。
@@ -95,8 +102,6 @@ type ChannelInput struct {
 	Type       string
 	WebhookURL string
 	Secret     string
-	// Enabled 为 nil 时默认 true（创建）。
-	Enabled *bool
 	// DefaultTemplateID 绑定的通知模板（可选）：nil 不绑定（用内置默认）；非空须存在且渠道类型一致。
 	DefaultTemplateID *uint
 }
@@ -108,7 +113,6 @@ type UpdateChannelInput struct {
 	Type       *string
 	WebhookURL *string
 	Secret     *string
-	Enabled    *bool
 	// DefaultTemplateID 绑定调整：nil = 保留原绑定；0 = 解绑（回落内置默认）；>0 = 改为该模板
 	// （须存在且渠道类型一致）。以 0 表达「解绑」是因为「不传」已被「保留」占用，而用户需要能把
 	// 已绑定的渠道改回内置默认（否则绑定一旦设置无法撤销）。
@@ -116,11 +120,17 @@ type UpdateChannelInput struct {
 }
 
 // resolveChannelTemplateID 校验并解析渠道模板绑定（dev-feedback #30 方案 B §5.5）：
-// 非空绑定须存在（ErrChannelTemplateNotFound）且与渠道类型一致（ErrChannelTemplateMismatch）。
-// 返回规范化后的绑定值（nil 或 >0 的指针）。
+//   - 飞书 / 钉钉 / 企业微信：模板必填，且须存在、类型一致；
+//   - 自定义 Webhook：不允许绑定模板（raw 为 nil/0 时返回 nil）。
 func resolveChannelTemplateID(db *gorm.DB, raw *uint, chType models.NotifyChannelType) (*uint, error) {
+	if chType == models.NotifyChannelTypeWebhook {
+		if raw == nil || *raw == 0 {
+			return nil, nil
+		}
+		return nil, ErrChannelTemplateNotApplicable
+	}
 	if raw == nil || *raw == 0 {
-		return nil, nil // 未绑定 / 解绑
+		return nil, ErrChannelTemplateRequired
 	}
 	tpl, err := GetTemplate(db, *raw)
 	if err != nil {
@@ -151,16 +161,11 @@ func CreateChannel(db *gorm.DB, in ChannelInput) (*models.NotifyChannel, error) 
 	if err != nil {
 		return nil, err
 	}
-	enabled := true
-	if in.Enabled != nil {
-		enabled = *in.Enabled
-	}
 	ch := &models.NotifyChannel{
 		Name:              in.Name,
 		Type:              models.NotifyChannelType(in.Type),
 		WebhookURL:        in.WebhookURL,
 		Secret:            in.Secret,
-		Enabled:           enabled,
 		DefaultTemplateID: binding,
 	}
 	if err := db.Create(ch).Error; err != nil {
@@ -196,16 +201,22 @@ func UpdateChannel(db *gorm.DB, id uint, in UpdateChannelInput) (*models.NotifyC
 	if in.Secret != nil {
 		ch.Secret = *in.Secret
 	}
-	if in.Enabled != nil {
-		ch.Enabled = *in.Enabled
-	}
-	// 绑定校验用更新后的渠道类型（Type 与 DefaultTemplateID 可在同一次更新中调整）。
-	if in.DefaultTemplateID != nil {
+	// 绑定校验用更新后的渠道类型（Type 与 DefaultTemplateID 可在同一次更新中调整）：
+	//   - 自定义 Webhook：清空模板；显式传非 0 模板 → 拒绝；
+	//   - 飞书 / 钉钉 / 企业微信：模板必填；未传且原有绑定为空 → 拒绝。
+	if ch.Type == models.NotifyChannelTypeWebhook {
+		if in.DefaultTemplateID != nil && *in.DefaultTemplateID != 0 {
+			return nil, ErrChannelTemplateNotApplicable
+		}
+		ch.DefaultTemplateID = nil
+	} else if in.DefaultTemplateID != nil {
 		binding, err := resolveChannelTemplateID(db, in.DefaultTemplateID, ch.Type)
 		if err != nil {
 			return nil, err
 		}
 		ch.DefaultTemplateID = binding
+	} else if ch.DefaultTemplateID == nil || *ch.DefaultTemplateID == 0 {
+		return nil, ErrChannelTemplateRequired
 	}
 	if err := db.Save(ch).Error; err != nil {
 		return nil, fmt.Errorf("update notify channel: %w", err)
@@ -238,10 +249,36 @@ func GetChannel(db *gorm.DB, id uint) (*models.NotifyChannel, error) {
 	return &ch, nil
 }
 
+// ErrChannelInUse 表示渠道被当前路由规则引用，禁止删除（应先到路由规则页改绑）。
+type ErrChannelInUse struct {
+	Receiver string
+	Routes   []string
+}
+
+func (e *ErrChannelInUse) Error() string {
+	if len(e.Routes) == 0 {
+		return fmt.Sprintf("通知渠道（%s）正在被路由规则引用，请先在路由规则页改绑后再删除", e.Receiver)
+	}
+	return fmt.Sprintf("通知渠道（%s）正在被 %d 条路由规则引用（%s），请先在路由规则页改绑后再删除",
+		e.Receiver, len(e.Routes), strings.Join(e.Routes, "、"))
+}
+
 // DeleteChannel 删除通知渠道（GORM 软删除）；不存在返回 ErrChannelNotFound。
+//
+// 2026-10-22：删除前检查路由引用。渠道的 receiver 名恒为 notify-<id>；若当前生效/待确认
+// 路由树仍引用它，删除会让下一次生成的 alertmanager.yml 出现悬空 receiver（amtool 校验失败），
+// 因此拒绝删除并返回 ErrChannelInUse，要求用户先改路由。
 func DeleteChannel(db *gorm.DB, id uint) error {
-	if _, err := GetChannel(db, id); err != nil {
+	ch, err := GetChannel(db, id)
+	if err != nil {
 		return err
+	}
+	refs, err := route.ReferencedReceiverNames(db)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrChannelReferenceCheckFailed, err)
+	}
+	if routes := refs[ch.ReceiverName()]; len(routes) > 0 {
+		return &ErrChannelInUse{Receiver: ch.ReceiverName(), Routes: routes}
 	}
 	if err := db.Delete(&models.NotifyChannel{}, id).Error; err != nil {
 		return fmt.Errorf("delete notify channel: %w", err)
@@ -249,37 +286,52 @@ func DeleteChannel(db *gorm.DB, id uint) error {
 	return nil
 }
 
-// ChannelView 是渠道响应视图（契约：响应脱敏，不回显 secret / 完整 webhook_url）。
+// ChannelView 是渠道响应视图：
+//   - 飞书 / 钉钉 / 企业微信：webhook_url 脱敏（含机器人 token）；
+//   - 自定义 Webhook：返回完整地址（普通 HTTP 端点，通常不含平台凭据）；
+//   - secret 永不回显，仅 secret_set 布尔。
 type ChannelView struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	WebhookURL string `json:"webhook_url"`
 	SecretSet  bool   `json:"secret_set"`
-	Enabled    bool   `json:"enabled"`
-	// DefaultTemplateID 绑定的通知模板 ID（null/缺省 = 用内置默认模板）；非敏感字段，直接回显。
+	// DefaultTemplateID 绑定的通知模板 ID：飞书/钉钉/企微必填；自定义 Webhook 恒为 null。
 	DefaultTemplateID *uint `json:"default_template_id,omitempty"`
-	// ReceiverName 是渠道在 alertmanager.yml `receivers:` 段中物化的接收人名（由渠道名归一或
-	// 回落 notify-<id>，与 M09 生成器同源，决策 74）；非敏感字段，直接回显。供前端「黑名单校验
-	// 接收人是否悬空」等场景批量派生已知接收人清单，避免逐渠道调用 admin-only 的 receiver-snippet
-	// 接口（T08-F13 验收 #1：非管理员也能获得可用接收人清单）。
+	// ReceiverName 是渠道在 alertmanager.yml `receivers:` 段中的稳定接收人名（恒为 notify-<id>，
+	// 与 M09 生成器同源）。非敏感字段，直接回显，供前端路由页把 notify-<id> 映射为渠道中文名。
 	ReceiverName string `json:"receiver_name"`
-	CreatedAt   string `json:"created_at"`
+	// RouteReferenceCount 是当前生效 / 待确认路由树中引用该渠道 receiver 的节点数。
+	// 0 = 渠道未被任何路由使用（不会物化进 alertmanager.yml，也不会有告警送达）；
+	// >0 = 正在被路由使用，删除会被后端拒绝（需先去路由页改绑）。
+	RouteReferenceCount int64  `json:"route_reference_count"`
+	CreatedAt           string `json:"created_at"`
 }
 
-// ToChannelView 将渠道转换为脱敏响应视图。
+// ToChannelView 将渠道转换为响应视图（IM 类型脱敏 webhook_url；自定义 Webhook 明文）。
 func ToChannelView(ch *models.NotifyChannel) ChannelView {
+	webhookURL := maskWebhookURL(ch.WebhookURL)
+	if ch.Type == models.NotifyChannelTypeWebhook {
+		webhookURL = ch.WebhookURL
+	}
 	return ChannelView{
 		ID:                strconv.FormatUint(uint64(ch.ID), 10),
 		Name:              ch.Name,
 		Type:              string(ch.Type),
-		WebhookURL:        maskWebhookURL(ch.WebhookURL),
+		WebhookURL:        webhookURL,
 		SecretSet:         ch.Secret != "",
-		Enabled:           ch.Enabled,
 		DefaultTemplateID: ch.DefaultTemplateID,
 		ReceiverName:      ch.ReceiverName(),
 		CreatedAt:         ch.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+// toChannelViewWithRouteRefs 在基础视图上补充「被多少条路由引用」。
+// refs 为 receiver 名 → 引用它的路由展示名列表；为空 / 读取失败时计 0（仅影响展示）。
+func toChannelViewWithRouteRefs(ch *models.NotifyChannel, refs map[string][]string) ChannelView {
+	v := ToChannelView(ch)
+	v.RouteReferenceCount = int64(len(refs[v.ReceiverName]))
+	return v
 }
 
 // maskWebhookURL 脱敏出站地址：保留 scheme://host，路径与查询（含 token）以 /*** 替代。

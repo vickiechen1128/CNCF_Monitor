@@ -45,7 +45,6 @@ UNAME_M := $(shell uname -m)
 # 生产部署必须显式注入强随机令牌（package-center.sh / 部署文档已走环境变量路径），
 # 此处默认值仅供本地开发，切勿用于生产。
 NOTIFY_BRIDGE_URL ?= http://127.0.0.1:8080
-NOTIFY_BRIDGE_TOKEN ?= local-dev-bridge-token
 # 渲染时区：空 → 平台回落 UTC（告警卡片时间会显示 UTC 而非本地时）。
 NOTIFY_RENDER_TIMEZONE ?= Asia/Shanghai
 
@@ -441,7 +440,6 @@ run-metric-center: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
 	@echo ">>> Starting metric-center"
 	@cd "$(PROJECT_ROOT)" && \
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
-		NOTIFY_BRIDGE_TOKEN="$(NOTIFY_BRIDGE_TOKEN)" \
 		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
 		./platform/cmd/metric-center/metric-center$(EXE) \
 		--config.reload-url=http://localhost:9090/-/reload

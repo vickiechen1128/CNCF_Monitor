@@ -856,7 +856,7 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
 		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
-		&models.NotifyChannel{}, &models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
+		&models.NotifyChannel{}, &models.NotifyTemplate{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)
@@ -882,7 +882,7 @@ func newSourceVersionDB(t *testing.T) *gorm.DB {
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
 		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.NotifyChannel{},
-		&models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
+		&models.NotifyTemplate{}))
 	return db
 }
 
@@ -1055,39 +1055,6 @@ func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T) {
 	assert.NotEqual(t, aBefore, aAfter, "A 域自身删除须推进 A 域版本")
 	assert.Equal(t, bBefore, bAfter, "A 域删除不得推进 B 域版本")
 	assert.False(t, NeedsRegeneration(bBefore, bAfter), "B 域不应因他域删除触发重算")
-}
-
-// TestSourceDataVersionRouteSettingDomainScoped AlertmanagerRouteSetting 亦为 domainScoped=true
-// （决策 113：alertmanager.yml 恒属 default），删除须只推进所属域版本。
-func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T) {
-	db := newSourceVersionDB(t)
-	setting := &models.AlertmanagerRouteSetting{
-		NetworkDomainID: "default",
-		Mode:            models.RouteModeManaged,
-	}
-	require.NoError(t, db.Create(setting).Error)
-
-	// 先把该行的 updated_at 钉在基准时刻（UpdateColumn 避开 GORM 的 autoUpdateTime），
-	// 再删——否则「建行」与「软删」在同一次时钟刻度内完成时（Windows 时钟粒度可达
-	// 亚毫秒，两次 time.Now() 逐字节相同），deleted_at 与前一刻的 updated_at 相等，
-	// 版本不推进，断言假失败。与 seedVersionHost 同法：让断言只依赖「删除推进
-	// deleted_at」，不依赖墙钟先后与执行速度。
-	require.NoError(t, db.Model(&models.AlertmanagerRouteSetting{}).
-		Where("id = ?", setting.ID).
-		UpdateColumn("updated_at", hostVersionSeedAt).Error)
-
-	// 造一个更早的版本起点，便于观察删除是否推进。
-	seedVersionHost(t, db, "other-domain", "srv-o", "res-o")
-
-	before, err := SourceDataVersion(db, "default")
-	require.NoError(t, err)
-	require.NotEmpty(t, before)
-
-	require.NoError(t, db.Delete(&models.AlertmanagerRouteSetting{BaseModel: models.BaseModel{ID: setting.ID}}).Error)
-
-	after, err := SourceDataVersion(db, "default")
-	require.NoError(t, err)
-	assert.NotEqual(t, before, after, "删除管理域单例设定须推进 default 域版本")
 }
 
 // ---- helper clones string for composite label expansion ----

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-22 15:37 · commit: `b2381ee`
+> 生成时间: 2026-10-23 00:56 · commit: `1dc56b3`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -478,6 +478,7 @@
 - `func stubAmtoolFails(t *testing.T)`
 - `func stubAmtoolUnavailable(t *testing.T)`
 - `func stubChangeTrigger(t *testing.T) *int32`
+- `func TestSubmitEnsuresBuiltinDefaultReceiver(t *testing.T)`
 - `func TestSubmitPersistsOnValid(t *testing.T)`
 - `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
 - `func TestSubmitRejectsEmptyContent(t *testing.T)`
@@ -579,36 +580,31 @@
 - `type BridgeConfig struct`
 - `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
 - `func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig)`
-- `func bridgeTokenValid(expected, got string) bool`
-- `func bearerToken(r *http.Request) string`
 - `func parseUintQuery(s string) (uint, error)`
-- `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error)`
+- `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel) (*models.NotifyTemplate, error)`
 - `func respondBridgeTemplateError(c *gin.Context, err error)`
 
 ### `platform/alertmanager/notify/bridge_test.go`
 
 - `type fakeReceiver struct`
-- `method (*fakeReceiver) record(path string, body []byte)`
+- `method (*fakeReceiver) record(path, query string, body []byte)`
 - `method (*fakeReceiver) calls() int`
 - `method (*fakeReceiver) lastBody() []byte`
+- `method (*fakeReceiver) lastQuery() string`
 - `func startFakeReceiver(t *testing.T, f *fakeReceiver) string`
 - `func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine`
-- `func doBridgeJSON(t *testing.T, r *gin.Engine, path, token string, body interface{}) (int, channelResp)`
+- `func doBridgeJSON(t *testing.T, r *gin.Engine, path string, body interface{}) (int, channelResp)`
 - `func amBridgePayload(status string) map[string]interface{}`
-- `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string, enabled bool) *models.NotifyChannel`
-- `func TestBridgeRejectsMissingOrWrongToken(t *testing.T)`
+- `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string) *models.NotifyChannel`
+- `func mustCreateChannelWithSecret(t *testing.T, db *gorm.DB, name, chType, url, secret string) *models.NotifyChannel`
 - `func TestBridgeRejectsArbitraryTargetURL(t *testing.T)`
 - `func TestBridgeChannelNotFound(t *testing.T)`
-- `func TestBridgeChannelDisabled(t *testing.T)`
 - `func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T)`
-- `func TestBridgeUsesExplicitTemplate(t *testing.T)`
-- `func TestBridgeTemplateChannelTypeMismatch(t *testing.T)`
 - `func mustBindChannel(t *testing.T, db *gorm.DB, ch *models.NotifyChannel, tplID uint)`
 - `func mustCreateFeishuTemplate(t *testing.T, db *gorm.DB, name, marker string) *models.NotifyTemplate`
 - `func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.NotifyChannel) (int, channelResp, string)`
 - `func captureBridgeLogs(t *testing.T) *[]string`
 - `func TestBridgeUsesChannelBoundTemplate(t *testing.T)`
-- `func TestBridgeExplicitTemplateOverridesChannelBinding(t *testing.T)`
 - `func TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing(t *testing.T)`
 - `func TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch(t *testing.T)`
 - `func TestBridgeSendFailureReturnsBadGateway(t *testing.T)`
@@ -620,6 +616,15 @@
 - `func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T)`
 - `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
 - `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
+- `func TestDingTalkSign(t *testing.T)`
+- `func TestBridgeSignsDingTalkURL(t *testing.T)`
+- `func TestBridgeDingTalkWithoutSecretDoesNotSign(t *testing.T)`
+- `func TestBridgeWebhookForwardsRawPayload(t *testing.T)`
+- `func TestBridgeWebhookRejectsMalformedPayload(t *testing.T)`
+
+### `platform/alertmanager/notify/bridge_url.go`
+
+- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
 
 ### `platform/alertmanager/notify/channel.go`
 
@@ -633,9 +638,12 @@
 - `func UpdateChannel(db *gorm.DB, id uint, in UpdateChannelInput) (*models.NotifyChannel, error)`
 - `func ListChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
 - `func GetChannel(db *gorm.DB, id uint) (*models.NotifyChannel, error)`
+- `type ErrChannelInUse struct`
+- `method (*ErrChannelInUse) Error() string`
 - `func DeleteChannel(db *gorm.DB, id uint) error`
 - `type ChannelView struct`
 - `func ToChannelView(ch *models.NotifyChannel) ChannelView`
+- `func toChannelViewWithRouteRefs(ch *models.NotifyChannel, refs map[string][]string) ChannelView`
 - `func maskWebhookURL(raw string) string`
 
 ### `platform/alertmanager/notify/channel_handler.go`
@@ -652,60 +660,39 @@
 - `func newNotifyDB(t *testing.T) *gorm.DB`
 - `func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T)`
 - `func TestCreateChannelPersistsAndValidates(t *testing.T)`
+- `func TestCreateWebhookChannel(t *testing.T)`
+- `func TestDeleteChannelBlockedWhenReferencedByRoute(t *testing.T)`
 - `func TestChannelViewMasksCredentials(t *testing.T)`
 - `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
 - `func TestDeleteChannelAndList(t *testing.T)`
+- `func newTemplateForType(t *testing.T, db *gorm.DB, name string, chType models.NotifyChannelType) *models.NotifyTemplate`
 - `func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate`
 - `func TestCreateChannelBindsDefaultTemplate(t *testing.T)`
 - `func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T)`
-- `func TestUpdateChannelRebindAndClear(t *testing.T)`
+- `func TestUpdateChannelRebindAndTypeSwitch(t *testing.T)`
 - `func newNotifyRouter(db *gorm.DB) *gin.Engine`
 - `type channelResp struct`
 - `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
 - `func TestChannelCRUDHandlers(t *testing.T)`
 - `func TestChannelHandlerTemplateBinding(t *testing.T)`
+- `func TestChannelHandlerWebhookType(t *testing.T)`
 
 ### `platform/alertmanager/notify/client.go`
 
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
+- `func sendOutboundRaw(ctx context.Context, target string, body []byte) (int, error)`
+- `func sendOutboundWithCheck(ctx context.Context, target string, body []byte, checkBusinessError bool) (int, error)`
 - `func sanitizeOutboundError(err error) error`
 - `func feishuSign(secret, timestamp string) string`
 - `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
+- `func dingTalkSign(secret, timestamp string) string`
+- `func applyDingTalkSignature(ch *models.NotifyChannel, rawURL string, now time.Time) (string, error)`
 - `func checkOutboundBusinessError(respBody []byte) error`
-
-### `platform/alertmanager/notify/receiver_snippet.go`
-
-- `type ReceiverSnippetConfig struct`
-- `type ReceiverSnippet struct`
-- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
-- `func sanitizeReceiverName(raw string) string`
-- `func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg ReceiverSnippetConfig) (ReceiverSnippet, error)`
-- `func buildBridgeURL(baseURL string, ch *models.NotifyChannel) string`
-- `func buildReceiverSnippetYAML(name, rawURL, credentials string) string`
-- `func escapeSingleQuotes(s string) string`
-- `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
-
-### `platform/alertmanager/notify/receiver_snippet_test.go`
-
-- `func TestDeriveBridgeBaseURL(t *testing.T)`
-- `func TestSanitizeReceiverName(t *testing.T)`
-- `func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T)`
-- `func TestBuildReceiverSnippetEmptyNameFallsBack(t *testing.T)`
-- `func TestBuildReceiverSnippetNameOverride(t *testing.T)`
-- `func TestBuildReceiverSnippetTokenNotConfigured(t *testing.T)`
-- `func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T)`
-- `func snippetPath(id uint) string`
-- `func newSnippetRouter(t *testing.T, db *gorm.DB, cfg ReceiverSnippetConfig, u *models.User) *gin.Engine`
-- `func TestReceiverSnippetHandlerAuth(t *testing.T)`
-- `func TestReceiverSnippetHandlerErrors(t *testing.T)`
-- `func TestReceiverSnippetIncludesBoundTemplate(t *testing.T)`
-- `func TestReceiverSnippetAcceptedByAmtool(t *testing.T)`
-- `func locateAmtool(t *testing.T) string`
 
 ### `platform/alertmanager/notify/register.go`
 
-- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB, snippetCfg ReceiverSnippetConfig)`
+- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
 
 ### `platform/alertmanager/notify/render.go`
 
@@ -729,46 +716,60 @@
 
 ### `platform/alertmanager/notify/template.go`
 
+- `type ErrTemplateInUse struct`
+- `method (*ErrTemplateInUse) Error() string`
 - `type builtinTemplate struct`
 - `func builtinTemplates() []builtinTemplate`
 - `func EnsureBuiltinTemplates(db *gorm.DB) error`
-- `type SubmitTemplateInput struct`
-- `func SubmitTemplate(db *gorm.DB, in SubmitTemplateInput) (*models.NotifyTemplate, error)`
-- `func RemountTemplate(db *gorm.DB, id uint, name string) (*models.NotifyTemplate, error)`
-- `func ListTemplates(db *gorm.DB) ([]models.NotifyTemplate, error)`
+- `type CreateTemplateInput struct`
+- `type UpdateTemplateInput struct`
+- `func CreateTemplate(db *gorm.DB, in CreateTemplateInput) (*models.NotifyTemplate, error)`
+- `func UpdateTemplate(db *gorm.DB, id uint, in UpdateTemplateInput) (*models.NotifyTemplate, error)`
+- `func ensureTemplateNameAvailable(db *gorm.DB, name, channelType string, excludeID uint) error`
+- `type TemplateListItem struct`
+- `type TemplateDetail struct`
+- `func ListTemplates(db *gorm.DB, channelType string) ([]TemplateListItem, error)`
+- `func templateBoundChannelCount(db *gorm.DB, id uint) (int64, error)`
+- `func templateBoundChannelCounts(db *gorm.DB) (map[uint]int64, error)`
 - `func GetTemplate(db *gorm.DB, id uint) (*models.NotifyTemplate, error)`
 - `func DeleteTemplate(db *gorm.DB, id uint) error`
+- `func CompactTemplateVersions(db *gorm.DB) error`
 - `func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemplate, error)`
-- `func findTemplateByChecksum(db *gorm.DB, name, channelType, checksum string) (*models.NotifyTemplate, error)`
-- `type TemplateView struct`
+- `func toTemplateListItem(t *models.NotifyTemplate, bound int64) TemplateListItem`
+- `func toTemplateDetail(t *models.NotifyTemplate, bound int64) TemplateDetail`
 
 ### `platform/alertmanager/notify/template_handler.go`
 
-- `func toTemplateView(t *models.NotifyTemplate) TemplateView`
 - `func respondTemplateError(c *gin.Context, err error)`
 - `func ListTemplatesHandler(db *gorm.DB) gin.HandlerFunc`
-- `func SubmitTemplateHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RemountTemplateHandler(db *gorm.DB) gin.HandlerFunc`
+- `func GetTemplateHandler(db *gorm.DB) gin.HandlerFunc`
+- `func CreateTemplateHandler(db *gorm.DB) gin.HandlerFunc`
+- `func UpdateTemplateHandler(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteTemplateHandler(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/alertmanager/notify/template_test.go`
 
 - `func stubTemplateValid(t *testing.T)`
 - `func stubTemplateInvalid(t *testing.T)`
-- `func TestSubmitTemplateValidatesAndPersists(t *testing.T)`
-- `func TestSubmitTemplateRejectsValidationFailureNoPersist(t *testing.T)`
-- `func TestSubmitTemplateRejectsBadNameAndType(t *testing.T)`
-- `func TestSubmitTemplateIdempotent(t *testing.T)`
-- `func TestSubmitTemplateCloneBuiltinVerbatimCreatesNewRow(t *testing.T)`
-- `func TestRemountTemplateWritesNewRow(t *testing.T)`
+- `func TestCreateTemplateValidatesAndPersists(t *testing.T)`
+- `func TestCreateTemplateRejectsValidationFailureNoPersist(t *testing.T)`
+- `func TestCreateTemplateRejectsBadNameAndType(t *testing.T)`
+- `func TestCreateTemplateNameConflict(t *testing.T)`
+- `func TestCreateTemplateCloneBuiltinVerbatimCreatesNewRow(t *testing.T)`
+- `func TestUpdateTemplateInPlace(t *testing.T)`
+- `func TestUpdateTemplateRejectsBuiltinAndTypeChange(t *testing.T)`
+- `func TestUpdateTemplateNameConflict(t *testing.T)`
+- `func TestDeleteTemplateRejectsBuiltinAndBound(t *testing.T)`
+- `func TestDeleteTemplateSoftDeletesUnbound(t *testing.T)`
+- `func TestCompactTemplateVersionsRemapsBindings(t *testing.T)`
 - `func TestEnsureBuiltinTemplatesIdempotent(t *testing.T)`
 - `func TestBuiltinFeishuTemplateParses(t *testing.T)`
 - `func newTemplateRouter(db *gorm.DB) *gin.Engine`
-- `func TestTemplateHandlersSubmitValidationAndRemount(t *testing.T)`
+- `func TestTemplateHandlersCRUD(t *testing.T)`
 
 ### `platform/alertmanager/register.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error`
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
 
 ### `platform/alertmanager/route/convert.go`
 
@@ -793,17 +794,17 @@
 
 ### `platform/alertmanager/route/handler.go`
 
-- `type DeadReceiver struct`
 - `func ListRoutes(db *gorm.DB) (gin.H, error)`
+- `func pendingChangeView(db *gorm.DB) interface{}`
 - `func effectiveAlertmanagerYAML(db *gorm.DB) (string, error)`
-- `func deadReceivers(db *gorm.DB, nodes []RouteNode) ([]DeadReceiver, error)`
-- `func maskReceiverURL(raw string) string`
 - `func ListRoutesHandler(db *gorm.DB) gin.HandlerFunc`
 - `func EffectiveAlertmanagerYAML(db *gorm.DB) (gin.H, error)`
 - `func EffectiveAlertmanagerYAMLHandler(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/alertmanager/route/handler_test.go`
 
+- `func adminUser() *models.User`
+- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
 - `func newRoutesDB(t *testing.T) *gorm.DB`
 - `func seedAppliedConfig(t *testing.T, db *gorm.DB, content string)`
 - `func seedWebhookChannel(t *testing.T, db *gorm.DB, name, webhook string) *models.NotifyChannel`
@@ -811,8 +812,6 @@
 - `type routesData struct`
 - `func decodeRoutes(t *testing.T, w *httptest.ResponseRecorder) routesData`
 - `func TestListRoutesHandler_OK(t *testing.T)`
-- `func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T)`
-- `func TestListRoutesHandler_ReturnsStoredMode(t *testing.T)`
 - `func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T)`
 - `func TestListRoutesHandler_NoConfig(t *testing.T)`
 - `func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T)`
@@ -821,10 +820,6 @@
 - `func TestListRoutesHandler_ParseErrorDegradesTo200(t *testing.T)`
 - `func TestListRoutesHandler_AuthOnlyNoWrite(t *testing.T)`
 - `func TestListRoutesHandler_NoSensitiveValues(t *testing.T)`
-
-### `platform/alertmanager/route/management_domain_test.go`
-
-- `func TestPutRouteSettingRejectsWhenManagementDomainMissing(t *testing.T)`
 
 ### `platform/alertmanager/route/parse.go`
 
@@ -857,51 +852,35 @@
 - `func TestParseRouteTree_EmptyContent(t *testing.T)`
 - `func TestParseRouteTree_Errors(t *testing.T)`
 
-### `platform/alertmanager/route/setting_handler.go`
+### `platform/alertmanager/route/refs.go`
 
-- `type RouteSettingView struct`
-- `func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error)`
-- `func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
-- `func saveRouteSetting(db *gorm.DB, domainID string, channelID *uint, mode models.RouteMode) error`
-- `func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
-- `func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
+- `func ReferencedReceiverNames(db *gorm.DB) (map[string][]string, error)`
 
-### `platform/alertmanager/route/setting_handler_test.go`
+### `platform/alertmanager/route/save_handler.go`
 
-- `func newRouteDB(t *testing.T) *gorm.DB`
-- `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) *models.NotifyChannel`
-- `func seedSetting(t *testing.T, db *gorm.DB, channelID *uint)`
-- `func loadSettingRaw(t *testing.T, db *gorm.DB) *models.AlertmanagerRouteSetting`
-- `type pipelineRecorder struct`
-- `func stubPipeline(t *testing.T) *pipelineRecorder`
-- `func newRouteRouter(db *gorm.DB, user *models.User) *gin.Engine`
-- `func adminUser() *models.User`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func decodeView(t *testing.T, w *httptest.ResponseRecorder) RouteSettingView`
-- `func TestGetRouteSetting_NoneWhenNoChannelsAndNoSetting(t *testing.T)`
-- `func TestGetRouteSetting_AutoFirstEnabledSuggestion(t *testing.T)`
-- `func TestGetRouteSetting_ExplicitWhenChannelAvailable(t *testing.T)`
-- `func TestGetRouteSetting_NoneWhenTargetChannelDisabled(t *testing.T)`
-- `func TestPutRouteSetting_PersistsValidChannel(t *testing.T)`
-- `func TestPutRouteSetting_NullClosesTakeover(t *testing.T)`
-- `func TestPutRouteSetting_PersistsMode(t *testing.T)`
-- `func TestPutRouteSetting_RejectsInvalidMode(t *testing.T)`
-- `func TestPutRouteSetting_RejectsMissingChannel(t *testing.T)`
-- `func TestPutRouteSetting_RejectsDisabledChannel(t *testing.T)`
-- `func TestGetRouteSettingHandler_OK(t *testing.T)`
-- `func TestPutRouteSettingHandler_ValidChannelInvokesPipeline(t *testing.T)`
-- `func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T)`
-- `func TestPutRouteSettingHandler_PersistsMode(t *testing.T)`
-- `func TestPutRouteSettingHandler_RejectsInvalidMode(t *testing.T)`
-- `func TestPutRouteSettingHandler_BadRequestWhenChannelUnavailable(t *testing.T)`
-- `func TestRouteSetting_AdminGate(t *testing.T)`
-- `func TestPutRouteSettingHandler_MalformedBody(t *testing.T)`
+- `type ErrRouteTreeInvalid struct`
+- `method (*ErrRouteTreeInvalid) Error() string`
+- `type SaveRoutesRequest struct`
+- `type SaveRoutesResult struct`
+- `func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRoutesResult, error)`
+- `func SaveRoutesHandler(db *gorm.DB) gin.HandlerFunc`
+
+### `platform/alertmanager/route/save_handler_test.go`
+
+- `func rootEditNode(receiver string) generator.RouteEditNode`
+- `func stubSubmitRoutes(t *testing.T) *string`
+- `func TestSaveRoutes_RejectsStaleBaseChecksum(t *testing.T)`
+- `func TestSaveRoutes_RejectsInvalidTree(t *testing.T)`
+- `func TestSaveRoutes_RejectsDanglingReceiver(t *testing.T)`
+- `func TestSaveRoutes_GeneratesRouteAndPreservesOtherSections(t *testing.T)`
+- `func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T)`
 
 ### `platform/alertmanager/route/validate.go`
 
 - `type RouteIssue struct`
 - `func HasBlockingIssue(issues []RouteIssue) bool`
 - `func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue`
+- `func ValidateRouteReceivers(nodes []generator.RouteEditNode, allowed []string) []RouteIssue`
 - `func validateRouteEditNodeFields(n *generator.RouteEditNode) []RouteIssue`
 - `func durationIssue(n *generator.RouteEditNode, field, value string) RouteIssue`
 - `func parseRouteDurationIfSet(raw string) (int64, bool)`
@@ -1057,10 +1036,10 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig)…`
+- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetCfg notify.ReceiverSnippetConfig) error`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
 - `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
@@ -1091,7 +1070,6 @@
 - `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
 - `type apiClient struct`
 - `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
-- `method (*apiClient) jsonAuth(method, path, token, body string) (int, map[string]interface{})`
 - `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
 - `func mustJSON(t *testing.T, v interface{}) string`
 - `func buildXLSX(t *testing.T, category models.ResourceCategory, rows [][]string) []byte`
@@ -2323,10 +2301,6 @@
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
 - `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
-- `func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
-- `func seedManagedRoutePreset(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
-- `func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChang…`
-- `func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChange…`
 - `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
 - `func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
@@ -2366,34 +2340,6 @@
 - `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
 - `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
 
-### `platform/configcenter/draft/service_route_preset_test.go`
-
-- `type presetRouteView struct`
-- `type presetAMView struct`
-- `func parsePresetAM(t *testing.T, yml string) presetAMView`
-- `func stubNotifyBridge(t *testing.T)`
-- `func seedManagedRouteSetting(t *testing.T, db *gorm.DB, mode models.RouteMode, channelID *uint)`
-- `func TestSeedManagedRoutePreset_ManagedModeInjectsPreset(t *testing.T)`
-- `func TestSeedManagedRoutePreset_HandwrittenModeNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_ExistingRoutesNoClobber(t *testing.T)`
-- `func TestSeedManagedRoutePreset_ChangeItemEmitted(t *testing.T)`
-- `func TestGenerateDraft_HandwrittenNoPresetChangeItem(t *testing.T)`
-- `func TestRevalidateDraft_ReproducesPreset(t *testing.T)`
-- `func TestSeedManagedRoutePreset_IdempotentAcrossBuilds(t *testing.T)`
-- `func TestSeedManagedRoutePreset_RepeatedOnSeededRouteIsNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoRouteDegradesWithoutError(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoAlertmanagerYMLNoOp(t *testing.T)`
-
-### `platform/configcenter/draft/service_route_test.go`
-
-- `func seedAlertmanagerContent(t *testing.T, db *gorm.DB, content string)`
-- `func seedChannel(t *testing.T, db *gorm.DB, name string, enabled bool) uint`
-- `func TestLoadRouteSetting_ZeroWhenMissing(t *testing.T)`
-- `func TestMaterializeRootRouteReceiver_DisabledAndUnavailableKeepBytes(t *testing.T)`
-- `func TestMaterializeRootRouteReceiver_NoRouteDegradesWithoutError(t *testing.T)`
-- `func TestGenerateDraft_RootRouteRebuiltEmitsChangeItem(t *testing.T)`
-- `func TestGenerateDraft_NoRootRouteChangeNoChangeItem(t *testing.T)`
-
 ### `platform/configcenter/draft/service_test.go`
 
 - `func newTestDB(t *testing.T) *gorm.DB`
@@ -2432,10 +2378,29 @@
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
 - `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
-- `func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
-- `func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error)`
+- `func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
+
+### `platform/configcenter/generator/default_receiver.go`
+
+- `func EnsureDefaultReceiver(baseYAML string) (string, error)`
+- `func EnsureReceiverNames(baseYAML string, names []string) (string, error)`
+- `func sortedNames(set map[string]bool) []string`
+- `func receiverNameNode(name string) *yaml.Node`
+- `func defaultReceiverNode() *yaml.Node`
+- `func marshalDocument(doc *yaml.Node, fallback string) (string, error)`
+
+### `platform/configcenter/generator/default_receiver_test.go`
+
+- `func TestEnsureDefaultReceiver_AddsWhenMissing(t *testing.T)`
+- `func TestEnsureDefaultReceiver_AppendsToExistingReceivers(t *testing.T)`
+- `func TestEnsureDefaultReceiver_ExistingDefaultByteIdentical(t *testing.T)`
+- `func TestEnsureDefaultReceiver_Idempotent(t *testing.T)`
+- `func TestEnsureReceiverNames_AppendsMissingStubs(t *testing.T)`
+- `func TestEnsureReceiverNames_NoMissingIsByteIdentical(t *testing.T)`
+- `func TestEnsureReceiverNames_Idempotent(t *testing.T)`
+- `func TestEnsureDefaultReceiver_DegradesWithoutError(t *testing.T)`
 
 ### `platform/configcenter/generator/generator.go`
 
@@ -2496,7 +2461,6 @@
 - `func TestSourceDataVersionPureNullDeletedAt(t *testing.T)`
 - `func TestSourceDataVersionEmptyDB(t *testing.T)`
 - `func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T)`
-- `func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestExpandLabelTemplateDictTransform(t *testing.T)`
 - `func TestResolveTargetsDictTransform(t *testing.T)`
@@ -2531,13 +2495,11 @@
 
 - `type NotifyReceiverInput struct`
 - `type NotifyReceiverConflict struct`
-- `type genHTTPConfig struct`
-- `type genAuthorization struct`
 - `type genWebhookConfig struct`
 - `type genReceiver struct`
 - `func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string, []NotifyReceiverConflict, error)`
 - `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
-- `func platformReceiverNode(name, url, token string) (*yaml.Node, error)`
+- `func platformReceiverNode(name, url string) (*yaml.Node, error)`
 - `func mappingValueIndex(m *yaml.Node, key string) int`
 - `type existingReceiver struct`
 - `func firstWebhookURL(recv *yaml.Node) string`
@@ -2547,18 +2509,17 @@
 ### `platform/configcenter/generator/notify_receivers_test.go`
 
 - `func chWithID(id uint, name string) models.NotifyChannel`
-- `func TestMaterializeNotifyReceiversAppendsPlatformReceiver(t *testing.T)`
-- `func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T)`
-- `func TestMaterializeReceiverEmitsTemplateParam(t *testing.T)`
-- `func TestMaterializeReceiverBindingChangeViaAddressEvolution(t *testing.T)`
-- `func TestMaterializeNotifyReceiversNoop(t *testing.T)`
-- `func TestMaterializeNotifyReceiversHandwrittenNameConflict(t *testing.T)`
-- `func TestMaterializeNotifyReceiversInternalDuplicate(t *testing.T)`
-- `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
+- `func baseWithReferenced(names ...string) string`
+- `func TestCollectRouteReceiverNames(t *testing.T)`
+- `func TestMaterializeNotifyReceiversOnlyReferenced(t *testing.T)`
+- `func TestMaterializeNotifyReceiversRemovesUnreferencedPlatformReceiver(t *testing.T)`
+- `func TestMaterializeReceiverOmitsTemplateParam(t *testing.T)`
 - `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
-- `func TestMaterializeNotifyReceiversHandwrittenSquatStillConflicts(t *testing.T)`
+- `func TestMaterializeNotifyReceiversHandwrittenSquatConflicts(t *testing.T)`
 - `func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNoop(t *testing.T)`
+- `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
 
 ### `platform/configcenter/generator/notify_route_generate.go`
 
@@ -2596,6 +2557,7 @@
 - `func TestGenerateRouteSection_RejectsMalformedEditTree(t *testing.T)`
 - `func TestMergeRouteSection_OnlyRouteNodeReplaced(t *testing.T)`
 - `func TestMergeRouteSection_AppendsRouteWhenMissing(t *testing.T)`
+- `func TestMergeRouteSection_EmptyBaseReturnsGenerated(t *testing.T)`
 - `func TestMergeRouteSection_RejectsInvalidInput(t *testing.T)`
 - `func TestValidateRouteSectionWithAmtool_SubmitsCheckableDocument(t *testing.T)`
 - `func TestValidateRouteSectionWithAmtool_RealBinaryIfAvailable(t *testing.T)`
@@ -2605,70 +2567,6 @@
 - `type amtoolFailure struct`
 - `method (*amtoolFailure) Error() string`
 - `func collectYAMLKeys(t *testing.T, content string) []string`
-
-### `platform/configcenter/generator/notify_route_preset.go`
-
-- `type RoutePresetInput struct`
-- `type RoutePresetDiagnostic struct`
-- `func SeedManagedRoutePreset(baseYAML string, in RoutePresetInput) (string, []RoutePresetDiagnostic, error)`
-- `func routeHasUserEdits(route *yaml.Node) (string, bool)`
-- `func nonEmptySequenceKey(m *yaml.Node, key string) (int, bool)`
-- `func declaredReceiverNames(root *yaml.Node) []string`
-- `func resolvePresetReceiver(root, route *yaml.Node, declared []string, defaultReceiver string) string`
-- `func secondaryPresetReceiver(primary string, declared []string, platformNames []string) string`
-- `func routePresetTree(receiver, teamReceiver string) []RouteEditNode`
-- `func invalidPresetReference(n *yaml.Node, known map[string]bool) string`
-- `func splitMatcherShorthand(s string) (name, value string, ok bool)`
-- `func appendPresetInhibitRule(root *yaml.Node)`
-- `func presetMatcherSequence(shorthand string) *yaml.Node`
-
-### `platform/configcenter/generator/notify_route_preset_test.go`
-
-- `func managedPresetInput() RoutePresetInput`
-- `func TestSeedManagedRoutePreset_ManagedInjectsCompleteExample(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoDanglingReceiver(t *testing.T)`
-- `func TestSeedManagedRoutePreset_SecondaryReceiverPrefersPlatformSlot(t *testing.T)`
-- `func TestSeedManagedRoutePreset_HandwrittenModeByteIdentical(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoClobberWhenRouteHasChildren(t *testing.T)`
-- `func TestSeedManagedRoutePreset_NoClobberOnRootMatchersOrContinue(t *testing.T)`
-- `func TestSeedManagedRoutePreset_EmptySequencesAreNotUserEdits(t *testing.T)`
-- `func TestSeedManagedRoutePreset_Idempotent(t *testing.T)`
-- `func TestSeedManagedRoutePreset_KeepsExistingInhibitRules(t *testing.T)`
-- `func TestSeedManagedRoutePreset_SkipsDegradesWithoutError(t *testing.T)`
-- `func TestSeedManagedRoutePreset_DeclaredReceiverNames(t *testing.T)`
-- `func TestSeedManagedRoutePreset_AmtoolValid(t *testing.T)`
-- `func TestSeedManagedRoutePreset_MatchersAreAMStringShorthand(t *testing.T)`
-- `type presetRouteView struct`
-- `func parsePresetRoot(t *testing.T, yml string) presetRouteView`
-- `func mustParseRoot(t *testing.T, yml string) *yaml.Node`
-- `func referencedReceiverNames(t *testing.T, yml string) []string`
-- `func collectMatcherSequences(t *testing.T, yml string) [][]*yaml.Node`
-- `func TestSeedManagedRoutePreset_EmptyBaseIsNoOp(t *testing.T)`
-- `func TestSeedManagedRoutePreset_DiagnosticMessagesAreActionable(t *testing.T)`
-
-### `platform/configcenter/generator/notify_route_skeleton.go`
-
-- `type RootRouteInput struct`
-- `type RootRouteDiagnostic struct`
-- `func MaterializeRootRouteReceiver(baseYAML string, in RootRouteInput) (string, []RootRouteDiagnostic, error)`
-- `func knownReceiverNames(root *yaml.Node, platformNames []string) map[string]bool`
-
-### `platform/configcenter/generator/notify_route_skeleton_test.go`
-
-- `func TestMaterializeRootRouteReceiverDisabledByteIdentical(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverReplacesOnlyRootReceiver(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverIdempotent(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverSkipsUnknownReceiver(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverAcceptsPlatformMaterializedName(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverNoRouteSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverInvalidYAMLSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverMalformedDocSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverRouteNotMappingSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverNoRootReceiverSkips(t *testing.T)`
-- `func TestMaterializeRootRouteReceiverAlreadyTargetKeepsRoutes(t *testing.T)`
-- `type routeNodeView struct`
-- `func parseRootRoute(t *testing.T, yml string) routeNodeView`
-- `func parseRouteTree(t *testing.T, yml string) []routeNodeView`
 
 ### `platform/configcenter/generator/render.go`
 
@@ -2692,6 +2590,12 @@
 - `func renderRules(rules []models.MonitoringRule) string`
 - `func renderBlackbox(modules map[string]struct{}) string`
 - `func renderBlackboxModule(module string) string`
+
+### `platform/configcenter/generator/route_receivers.go`
+
+- `func CollectRouteReceiverNames(baseYAML string) (map[string]struct{}, error)`
+- `func collectRouteReceivers(n *yaml.Node, out map[string]struct{}) error`
+- `func derefYAMLNode(n *yaml.Node) *yaml.Node`
 
 ### `platform/configcenter/generator/targets.go`
 
@@ -2892,6 +2796,16 @@
 - `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
+
+### `platform/db/seed/alertmanager_default.go`
+
+- `func EnsureDefaultAlertmanagerConfig(db *gorm.DB) error`
+
+### `platform/db/seed/alertmanager_default_test.go`
+
+- `func TestDefaultAlertmanagerConfigMatchesDeployTemplate(t *testing.T)`
+- `func TestEnsureDefaultAlertmanagerConfig_Idempotent(t *testing.T)`
+- `func TestEnsureDefaultAlertmanagerConfig_DoesNotOverwriteExisting(t *testing.T)`
 
 ### `platform/db/seed/app_platform_rel.go`
 
@@ -3824,6 +3738,7 @@
 - `type NotifyChannelType = string`
 - `func ValidNotifyChannelTypes() []string`
 - `func IsValidNotifyChannelType(t string) bool`
+- `func IsTemplateChannelType(t string) bool`
 - `type NotifyChannel struct`
 - `method (NotifyChannel) TableName() string`
 - `type NotifyTemplateStatus = string`
@@ -3834,26 +3749,9 @@
 
 - `func newNotifyModelDB(t *testing.T) *gorm.DB`
 - `func TestNotifyChannelMigrateAndPersist(t *testing.T)`
-- `func TestNotifyChannelEnabledFalsePersists(t *testing.T)`
+- `func TestNotifyChannelReceiverNameIsStable(t *testing.T)`
 - `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
 - `func TestValidNotifyChannelTypes(t *testing.T)`
-
-### `platform/models/alertmanager_route_setting.go`
-
-- `type RouteMode = string`
-- `type AlertmanagerRouteSetting struct`
-- `method (AlertmanagerRouteSetting) TableName() string`
-- `method (AlertmanagerRouteSetting) EffectiveDefaultReceiver(channels []NotifyChannel) (string, bool)`
-
-### `platform/models/alertmanager_route_setting_test.go`
-
-- `func newRouteSettingDB(t *testing.T) *gorm.DB`
-- `func TestAlertmanagerRouteSettingMigrateAndPersist(t *testing.T)`
-- `func TestAlertmanagerRouteSettingNilMeansNoTakeover(t *testing.T)`
-- `func TestAlertmanagerRouteSettingEffectiveReceiverEnabled(t *testing.T)`
-- `func TestAlertmanagerRouteSettingEffectiveReceiverUnavailable(t *testing.T)`
-- `func TestAlertmanagerRouteSettingUniquePerDomain(t *testing.T)`
-- `func TestAlertmanagerRouteSettingReceiverNameFallback(t *testing.T)`
 
 ### `platform/models/app_platform_rel.go`
 
@@ -5029,7 +4927,6 @@
 - `interface AlertHistoryQuery`
 - `const alertStatusApi`
 - `const notifyChannelsApi`
-- `const routeSettingApi`
 - `const notifyTemplatesApi`
 - `const alertmanagerRoutesApi`
 
@@ -5351,10 +5248,6 @@
 - `interface UseUsersResult`
 - `function useUsers`
 
-### `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`
-
-- `function AlertConfigDrawer`
-
 ### `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`
 
 - `function AlertConfigPage`
@@ -5395,11 +5288,6 @@
 
 - `function NotifyTemplatesPage`
 
-### `ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`
-
-- `interface ReceiverSnippetDrawerProps`
-- `function ReceiverSnippetDrawer`
-
 ### `ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx`
 
 - `interface RouteEditorParentOption`
@@ -5418,6 +5306,8 @@
 
 - `const CURRENT_USER`
 - `const CONFIG_PREVIEW_PATH`
+- `const ROUTES_PATH`
+- `const DEFAULT_RECEIVER_LABEL`
 - `const configStatusLabel`
 - `const configStatusColor`
 - `function isConfigApplied`
@@ -5449,41 +5339,13 @@
 - `const alertHistoryStateLabel`
 - `function alertMatchKey`
 - `const alertHistoryStateColor`
-- `const SILENCES_PATH`
 - `const ALERT_CONFIG_PATH`
 - `const NOTIFY_CHANNELS_PATH`
 - `const NOTIFY_TEMPLATES_PATH`
-- `interface AlertConfigScopeBlock`
-- `const ALERT_CONFIG_REQUIRED_BLOCKS`
-- `const ALERT_CONFIG_EXEMPT_BLOCKS`
-- `const ROUTE_SETTING_CARD_TITLE`
-- `const ROUTE_SETTING_MODE_LABEL`
-- `const ROUTE_SETTING_FALLBACK_LABEL`
-- `const ROUTE_MODE_HANDWRITTEN`
-- `const ROUTE_MODE_MANAGED`
-- `const ROUTE_MODE_TIP`
-- `const ROUTE_SETTING_MODE_INDEPENDENCE_TIP`
-- `const ROUTE_ROOT_FALLBACK_TAG`
-- `const ROUTE_ROOT_RECEIVER_READONLY_TIP`
-- `const ALERT_IMPORT_CARD_TITLE`
-- `const ALERT_IMPORT_LABEL`
-- `const ALERT_ADVANCED_GUIDE_TITLE`
-- `const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO`
-- `const ALERT_ADVANCED_GUIDE_MANAGED`
-- `const ALERTMANAGER_MIN_SKELETON`
-- `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
-- `const CHANNEL_FALLBACK_COLUMN_TITLE`
-- `const CHANNEL_FALLBACK_TAG`
-- `const CHANNEL_FALLBACK_SUGGESTED_TAG`
-- `const CHANNEL_DERIVED_RECEIVER_EMPTY`
-- `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
-- `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
-- `const CHANNEL_DERIVED_RECEIVER_RENAME_TIP`
-- `const CHANNEL_TEMPLATE_BIND_NONE_PREFIX`
 - `const notifyChannelTypeLabel`
 - `const notifyChannelTypeColor`
 - `const NOTIFY_CHANNEL_TYPE_OPTIONS`
-- `const notifyTemplateStatusLabel`
+- `const TEMPLATE_CHANNEL_TYPE_OPTIONS`
 - `const NOTIFY_TEMPLATE_BUILTIN_TIP`
 
 ### `ui-custom/web/src/pages/alerts/routeLabels.ts`
@@ -5499,9 +5361,8 @@
 ### `ui-custom/web/src/pages/alerts/routeTree.ts`
 
 - `const ROUTE_ROOT_ID`
+- `const DEFAULT_RECEIVER_NAME`
 - `const ROUTE_NAME_COMMENT_PREFIX`
-- `interface RouteEditMatcher`
-- `interface RouteEditNode`
 - `type RouteIssueLevel`
 - `const ROUTE_ISSUE_CODES`
 - `interface RouteIssue`
@@ -5539,12 +5400,6 @@
 - `function usePromAlerts`
 - `function useNetworkDomains`
 
-### `ui-custom/web/src/pages/alerts/useDerivedReceivers.ts`
-
-- `interface DerivedReceiverRow`
-- `interface UseDerivedReceiversResult`
-- `function useDerivedReceivers`
-
 ### `ui-custom/web/src/pages/alerts/useHistoryAlerts.ts`
 
 - `interface HistoryAlertsQuery`
@@ -5564,14 +5419,6 @@
 - `interface UseNotifyTemplatesResult`
 - `function useNotifyTemplates`
 
-### `ui-custom/web/src/pages/alerts/useRouteSetting.ts`
-
-- `const NONE_RECEIVER_VALUE`
-- `interface RouteSettingOption`
-- `interface UseRouteSettingResult`
-- `const ROUTE_SETTING_NONE_LABEL`
-- `function useRouteSetting`
-
 ### `ui-custom/web/src/pages/alerts/useRoutes.ts`
 
 - `interface RouteRow`
@@ -5584,7 +5431,6 @@
 - `interface UseRouteEditorOptions`
 - `interface UseRouteEditorResult`
 - `function useRouteEditor`
-- `function isRouteEditable`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -6170,22 +6016,20 @@
 - `interface AlertHistoryData`
 - `type NotifyChannelType`
 - `interface NotifyChannel`
-- `type NotifyTemplateStatus`
 - `interface NotifyTemplate`
+- `interface NotifyTemplateDetail`
 - `interface CreateNotifyChannelPayload`
 - `interface UpdateNotifyChannelPayload`
 - `interface SubmitNotifyTemplatePayload`
 - `interface NotifyChannelsData`
-- `interface ReceiverSnippetData`
 - `interface NotifyTemplatesData`
-- `type RouteReceiverSource`
-- `interface RouteSetting`
-- `interface UpdateRouteSettingPayload`
-- `type RouteMode`
 - `interface RouteMatcher`
 - `interface RouteNode`
-- `interface DeadReceiver`
+- `interface RouteEditMatcher`
+- `interface RouteEditNode`
 - `interface RouteTreeData`
+- `interface SaveRoutesPayload`
+- `interface SaveRoutesResult`
 
 ### `ui-custom/web/src/types/api.ts`
 

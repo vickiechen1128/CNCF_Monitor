@@ -1,18 +1,16 @@
 /**
- * 通知模板管理页测试（PL-3 通知渲染桥，T08-F11）。
- * 覆盖：列表渲染（内置标记 + 渠道中文名）/ 提交校验失败行级错误渲染 / 提交成功 /
- * 回滚（remount）成功 / 内置模板不可删除 / 权限不足 / 抽屉「关闭→打开」回显回归（Step 3.7）。
- * antd 稳定模式见 src/test/antdTestUtils.tsx（Step 3.6）。
+ * 通知模板管理页测试（2026-10-22 模板改为可编辑实体）。
+ * 覆盖：同一清单展示内置/自定义、内置只读、新建/编辑/复制/删除、
+ * 被绑定模板阻止删除、详情查看、权限不足、接口错误。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
-import { ApiError } from '../../api/client'
 import { NotifyTemplatesPage } from './NotifyTemplatesPage'
-import type { NotifyTemplate } from '../../types/alertmanager'
+import type { NotifyTemplate, NotifyTemplateDetail } from '../../types/alertmanager'
 
 const useNotifyTemplatesMock = vi.fn()
 vi.mock('./useNotifyTemplates', () => ({
@@ -20,43 +18,47 @@ vi.mock('./useNotifyTemplates', () => ({
 }))
 
 const reloadMock = vi.fn()
-const submitMock = vi.fn()
-const remountMock = vi.fn()
+const createMock = vi.fn()
+const updateMock = vi.fn()
 const removeMock = vi.fn()
+const getDetailMock = vi.fn()
 
-const builtinRow: NotifyTemplate = {
+const builtin: NotifyTemplate = {
   id: '1',
   name: '飞书卡片-默认',
   channel_type: 'feishu',
-  content: '{{ define "feishu.card" }}{{ end }}',
   is_builtin: true,
-  checksum: 'abc123',
-  status: 'applied',
+  bound_channel_count: 0,
   created_at: '2026-09-28T10:00:00Z',
+  updated_at: '2026-10-16T10:00:00Z',
 }
 
-const customRow: NotifyTemplate = {
+const custom: NotifyTemplate = {
   id: '2',
-  name: '安全告警-钉钉卡片',
-  channel_type: 'dingtalk',
-  content: '{{ define "dingtalk.card" }}{{ end }}',
+  name: '安全告警-飞书卡片',
+  channel_type: 'feishu',
   is_builtin: false,
-  checksum: 'def456',
-  status: 'applied',
-  created_at: '2026-09-28T11:00:00Z',
+  bound_channel_count: 0,
+  created_at: '2026-10-20T10:00:00Z',
+  updated_at: '2026-10-22T10:00:00Z',
+}
+
+const customDetail: NotifyTemplateDetail = {
+  ...custom,
+  content: '{"msg_type":"text","text":{"content":"{{ .Status }}"}}',
 }
 
 function result(over: Record<string, unknown> = {}) {
   return {
     templates: [],
-    total: 0,
     loading: false,
     error: null,
     permissionDenied: false,
     reload: reloadMock,
-    submit: submitMock,
-    remount: remountMock,
+    create: createMock,
+    update: updateMock,
     remove: removeMock,
+    getDetail: getDetailMock,
     ...over,
   }
 }
@@ -77,59 +79,123 @@ describe('NotifyTemplatesPage（通知模板管理）', () => {
   beforeEach(() => {
     useNotifyTemplatesMock.mockReset()
     reloadMock.mockReset()
-    submitMock.mockReset()
-    submitMock.mockResolvedValue(builtinRow)
-    remountMock.mockReset()
-    remountMock.mockResolvedValue(customRow)
+    createMock.mockReset()
+    updateMock.mockReset()
     removeMock.mockReset()
+    getDetailMock.mockReset()
+    createMock.mockResolvedValue(customDetail)
+    updateMock.mockResolvedValue(customDetail)
     removeMock.mockResolvedValue(undefined)
+    getDetailMock.mockResolvedValue(customDetail)
   })
 
-  it('页头渲染模板名称与提交入口', () => {
+  it('页头渲染与新建入口', () => {
     useNotifyTemplatesMock.mockReturnValue(result())
     renderPage()
     expect(screen.getAllByText('通知模板').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /提交自定义模板/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /新建模板/ })).toBeInTheDocument()
   })
 
-  it('列表渲染：内置标记、渠道中文名、状态；内置模板显式呈现', async () => {
-    useNotifyTemplatesMock.mockReturnValue(result({ templates: [builtinRow, customRow], total: 2 }))
+  it('内置和自定义同表展示；内置只读、自定义可编辑删除', async () => {
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [builtin, custom] }))
     renderPage()
-    // 内置模板名同时出现于「平台内置模板」区与模板列表
-    expect((await screen.findAllByText('飞书卡片-默认')).length).toBeGreaterThan(0)
-    expect(screen.getByText('安全告警-钉钉卡片')).toBeInTheDocument()
-    // 渠道类型用中文展示名，禁止直接渲染枚举值
-    expect(screen.queryByText('feishu')).toBeNull()
-    expect(screen.queryByText('dingtalk')).toBeNull()
-    expect(screen.getAllByText('飞书').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('钉钉').length).toBeGreaterThan(0)
-    // 内置 / 自定义标记 + 状态展示名
-    expect(screen.getAllByText('内置').length).toBeGreaterThan(0)
-    expect(screen.getByText('自定义')).toBeInTheDocument()
-    expect(screen.getAllByText('已生效').length).toBe(2)
+
+    expect(await screen.findByText('飞书卡片-默认')).toBeInTheDocument()
+    expect(screen.getByText('安全告警-飞书卡片')).toBeInTheDocument()
+    // 内置行只有查看/复制；自定义行有编辑/删除。
+    const builtinRow = screen.getByText('飞书卡片-默认').closest('tr') as HTMLElement
+    const customRow = screen.getByText('安全告警-飞书卡片').closest('tr') as HTMLElement
+    expect(builtinRow).not.toBeNull()
+    expect(customRow).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: /编辑/ })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /删除/ })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /复制/ })).toHaveLength(2)
   })
 
-  it('内置模板不可删除：内置行展示「内置」标记且不提供删除操作', async () => {
-    useNotifyTemplatesMock.mockReturnValue(result({ templates: [builtinRow, customRow], total: 2 }))
+  it('新建模板：提交 create payload', async () => {
+    const user = userEvent.setup()
+    useNotifyTemplatesMock.mockReturnValue(result())
     renderPage()
-    const matches = await screen.findAllByText('飞书卡片-默认')
-    const row = matches.map((el) => el.closest('tr')).find(Boolean) as HTMLElement
-    expect(within(row).getByText('内置')).toBeInTheDocument()
-    // 平台模板为版本留痕、后端未提供删除端点 → 该内置行不提供删除操作（删除入口仅对自定义模板出现）
-    expect(within(row).queryByRole('button', { name: /删除/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: /新建模板/ }))
+    await user.type(screen.getByLabelText('模板名称'), '新模板')
+    fireEvent.change(screen.getByLabelText('模板内容（Go template）'), {
+      target: { value: '{{ define "x" }}{{ end }}' },
+    })
+    await user.click(screen.getByRole('button', { name: /创建模板/ }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        name: '新模板',
+        channel_type: 'feishu',
+        content: '{{ define "x" }}{{ end }}',
+      }),
+    )
   })
 
-  it('自定义模板可删除：操作列出现「删除」按钮，二次确认后调用 remove', async () => {
-    useNotifyTemplatesMock.mockReturnValue(result({ templates: [customRow], total: 1 }))
+  it('编辑模板：预填详情、渠道类型置灰、提交 update', async () => {
+    const user = userEvent.setup()
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [custom] }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /编辑/ }))
+    expect(await screen.findByDisplayValue('安全告警-飞书卡片')).toBeInTheDocument()
+    // 渠道类型 Select 在编辑态禁用（aria-disabled）。
+    const typeSelect = document.querySelector('.ant-select-disabled')
+    expect(typeSelect).not.toBeNull()
+
+    fireEvent.change(screen.getByLabelText('模板内容（Go template）'), {
+      target: { value: '{{ define "y" }}{{ end }}' },
+    })
+    await user.click(screen.getByRole('button', { name: /保存修改/ }))
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith('2', {
+        name: '安全告警-飞书卡片',
+        channel_type: 'feishu',
+        content: '{{ define "y" }}{{ end }}',
+      }),
+    )
+  })
+
+  it('复制模板：名称带副本后缀，提交 create', async () => {
+    const user = userEvent.setup()
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [custom] }))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /复制/ }))
+    expect(await screen.findByDisplayValue('安全告警-飞书卡片（副本）')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /保存为新模板/ }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        name: '安全告警-飞书卡片（副本）',
+        channel_type: 'feishu',
+        content: customDetail.content,
+      }),
+    )
+  })
+
+  it('删除未绑定模板：二次确认后调用 remove', async () => {
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [custom] }))
     const modal = mockAntdModal()
     renderPage()
-    // 自定义行提供删除入口（antd 图标 span 会贡献 aria-label，故用正则匹配）
-    const delBtn = screen.getByRole('button', { name: /删除/ })
-    await userEvent.click(delBtn)
-    // 二次确认
+    fireEvent.click(await screen.findByRole('button', { name: /删除/ }))
     expect(modal.confirm).toHaveBeenCalled()
     await (modal.confirm.mock.calls[0][0].onOk as () => Promise<void>)()
     expect(removeMock).toHaveBeenCalledWith('2')
+  })
+
+  it('删除被渠道绑定的模板：只提示去改绑，不调用 remove', async () => {
+    const bound = { ...custom, bound_channel_count: 2 }
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [bound] }))
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /删除/ }))
+    expect(modal.warning).toHaveBeenCalled()
+    expect(modal.confirm).not.toHaveBeenCalled()
+    expect(removeMock).not.toHaveBeenCalled()
+  })
+
+  it('查看模板：拉取详情并展示内容', async () => {
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [custom] }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /查看/ }))
+    expect(await screen.findByText(customDetail.content)).toBeInTheDocument()
   })
 
   it('权限不足：显示权限不足空态', () => {
@@ -144,84 +210,5 @@ describe('NotifyTemplatesPage（通知模板管理）', () => {
     expect(screen.getByText('通知模板加载失败，请稍后重试')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
     expect(reloadMock).toHaveBeenCalled()
-  })
-
-  it('提交自定义模板：必填校验拦截，填齐后提交 payload', async () => {
-    const user = userEvent.setup()
-    useNotifyTemplatesMock.mockReturnValue(result())
-    renderPage()
-    await user.click(screen.getByRole('button', { name: /提交自定义模板/ }))
-    await user.click(screen.getByRole('button', { name: /^提交模板$/ }))
-    expect(await screen.findByText('请填写模板名称')).toBeInTheDocument()
-    expect(submitMock).not.toHaveBeenCalled()
-
-    await user.type(screen.getByLabelText('模板名称'), '安全告警-飞书卡片')
-    // 模板内容含 `{{ }}`，userEvent.type 会把花括号当键描述符转义，改用 fireEvent.change 写入原值
-    fireEvent.change(screen.getByLabelText('模板内容（Go template）'), {
-      target: { value: '{{ define "x" }}{{ end }}' },
-    })
-    await user.click(screen.getByRole('button', { name: /^提交模板$/ }))
-    await waitFor(() =>
-      expect(submitMock).toHaveBeenCalledWith({
-        name: '安全告警-飞书卡片',
-        channel_type: 'feishu',
-        content: '{{ define "x" }}{{ end }}',
-      }),
-    )
-  })
-
-  it('提交校验失败：把后端行级错误渲染在编辑框旁，不落库', async () => {
-    const user = userEvent.setup()
-    const badRequest = new ApiError('校验失败', 400, 'bad_request', {
-      status: 'error',
-      data: {
-        items: [{ file: 'feishu.card', line: 3, message: 'unexpected EOF in template' }],
-        note: '校验失败未保存、未生效；修改后请重新提交',
-      },
-      error: '校验失败',
-      errorType: 'bad_request',
-    })
-    submitMock.mockRejectedValue(badRequest)
-    useNotifyTemplatesMock.mockReturnValue(result())
-    renderPage()
-    await user.click(screen.getByRole('button', { name: /提交自定义模板/ }))
-    await user.type(screen.getByLabelText('模板名称'), '坏模板')
-    fireEvent.change(screen.getByLabelText('模板内容（Go template）'), { target: { value: '{{ define' } })
-    await user.click(screen.getByRole('button', { name: /^提交模板$/ }))
-    expect(await screen.findByText('模板校验未通过（未保存、未生效）')).toBeInTheDocument()
-    expect(screen.getByText('unexpected EOF in template')).toBeInTheDocument()
-    expect(screen.getByText(/feishu\.card:3/)).toBeInTheDocument()
-  })
-
-  it('回滚：Modal 二次确认后调用 remount(历史版本 id, 名称)', async () => {
-    useNotifyTemplatesMock.mockReturnValue(result({ templates: [customRow], total: 1 }))
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /重新挂载/ }))
-    expect(modal.confirm).toHaveBeenCalled()
-    const conf = modal.confirm.mock.calls[0][0]
-    expect(conf.title).toContain('安全告警-钉钉卡片')
-    await (conf.onOk as () => Promise<void>)()
-    await waitFor(() => expect(remountMock).toHaveBeenCalledWith('2', '安全告警-钉钉卡片'))
-  })
-
-  it('抽屉关闭后重新打开仍正确回显（forceRender 回归，Step 3.7）', async () => {
-    const user = userEvent.setup()
-    useNotifyTemplatesMock.mockReturnValue(result({ templates: [builtinRow], total: 1 }))
-    renderPage()
-    const cloneBtn = await screen.findByRole('button', { name: /复制并自定义/ })
-    await user.click(cloneBtn)
-    expect((screen.getByLabelText('模板名称') as HTMLInputElement).value).toBe('飞书卡片-默认（副本）')
-    expect((screen.getByLabelText('模板内容（Go template）') as HTMLTextAreaElement).value).toBe(
-      '{{ define "feishu.card" }}{{ end }}',
-    )
-
-    // 关闭后再打开：回显不得丢失
-    fireEvent.click(document.querySelector('.ant-drawer-close') as HTMLElement)
-    await user.click(screen.getByRole('button', { name: /复制并自定义/ }))
-    expect((await screen.findByLabelText('模板名称') as HTMLInputElement).value).toBe('飞书卡片-默认（副本）')
-    expect((screen.getByLabelText('模板内容（Go template）') as HTMLTextAreaElement).value).toBe(
-      '{{ define "feishu.card" }}{{ end }}',
-    )
   })
 })

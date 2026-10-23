@@ -32,7 +32,6 @@ func TestNotifyChannelMigrateAndPersist(t *testing.T) {
 		Type:       NotifyChannelTypeFeishu,
 		WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
 		Secret:     "s3cr3t",
-		Enabled:    true,
 	}
 	require.NoError(t, db.Create(&ch).Error)
 	require.NotZero(t, ch.ID)
@@ -42,20 +41,21 @@ func TestNotifyChannelMigrateAndPersist(t *testing.T) {
 	assert.Equal(t, "SRE 飞书群", got.Name)
 	assert.Equal(t, NotifyChannelTypeFeishu, got.Type)
 	assert.Equal(t, "s3cr3t", got.Secret)
-	assert.True(t, got.Enabled)
 	assert.Equal(t, "notify_channels", NotifyChannel{}.TableName())
 }
 
-// TestNotifyChannelEnabledFalsePersists 覆盖 enabled=false 不被默认值覆盖。
-func TestNotifyChannelEnabledFalsePersists(t *testing.T) {
+// TestNotifyChannelReceiverNameIsStable 覆盖 receiver 名恒为 notify-<id>，与渠道名无关：
+// 改名不会改变 receiver 名，因此 alertmanager.yml / 路由引用不受影响。
+func TestNotifyChannelReceiverNameIsStable(t *testing.T) {
 	db := newNotifyModelDB(t)
 
-	ch := NotifyChannel{Name: "disabled", Type: NotifyChannelTypeWecom, WebhookURL: "https://qyapi.weixin.qq.com/x", Enabled: false}
+	ch := NotifyChannel{Name: "sre-feishu", Type: NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/x"}
 	require.NoError(t, db.Create(&ch).Error)
+	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName())
 
-	var got NotifyChannel
-	require.NoError(t, db.First(&got, ch.ID).Error)
-	assert.False(t, got.Enabled)
+	ch.Name = "改名后的渠道"
+	require.NoError(t, db.Save(&ch).Error)
+	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName(), "改名不得改变 receiver 名")
 }
 
 // TestNotifyTemplateMigrateAndChecksum 覆盖模板建表 / checksum 复用 config 口径 / status 恒 applied。
@@ -93,5 +93,9 @@ func TestValidNotifyChannelTypes(t *testing.T) {
 	assert.False(t, IsValidNotifyChannelType(""))
 
 	types := ValidNotifyChannelTypes()
-	assert.ElementsMatch(t, []string{"feishu", "dingtalk", "wecom"}, types)
+	assert.ElementsMatch(t, []string{"feishu", "dingtalk", "wecom", "webhook"}, types)
+	assert.True(t, IsTemplateChannelType("feishu"))
+	assert.True(t, IsTemplateChannelType("dingtalk"))
+	assert.True(t, IsTemplateChannelType("wecom"))
+	assert.False(t, IsTemplateChannelType("webhook"))
 }

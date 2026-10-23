@@ -18,7 +18,7 @@
  * 看渠道列表时无从判断。三态严格区分「已接管」（Tag「兜底」）与「平台建议值」（Tag「建议兜底」），
  * 绝不把建议值说成已接管（§11.9 契约）。
  */
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   App,
@@ -26,43 +26,23 @@ import {
   Card,
   ConfigProvider,
   Empty,
-  Modal,
   Space,
   Table,
   Tag,
-  Tooltip,
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { Link, useNavigate } from 'react-router-dom'
-import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
+import { Link } from 'react-router-dom'
+import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { triggerAlertmanagerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import type { CreateNotifyChannelPayload, NotifyChannel, UpdateNotifyChannelPayload } from '../../types/alertmanager'
 import { useNotifyChannels } from './useNotifyChannels'
-import { useDerivedReceivers, type DerivedReceiverRow } from './useDerivedReceivers'
-import { useNotifyTemplates } from './useNotifyTemplates'
 import { NotifyChannelDrawer } from './NotifyChannelDrawer'
-import { ReceiverSnippetDrawer } from './ReceiverSnippetDrawer'
-import {
-  ALERT_CONFIG_PATH,
-  CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE,
-  CHANNEL_DERIVED_RECEIVER_EMPTY,
-  CHANNEL_DERIVED_RECEIVER_FORBIDDEN,
-  CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING,
-  CHANNEL_FALLBACK_COLUMN_TITLE,
-  CHANNEL_FALLBACK_SUGGESTED_TAG,
-  CHANNEL_FALLBACK_TAG,
-  CHANNEL_TEMPLATE_BIND_NONE_PREFIX,
-  CONFIG_PREVIEW_PATH,
-  notifyChannelTypeColor,
-  notifyChannelTypeLabel,
-} from './alertmanagerConstants'
-import { useRouteSetting } from './useRouteSetting'
+import { ROUTES_PATH, notifyChannelTypeColor, notifyChannelTypeLabel } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -72,39 +52,11 @@ function formatTime(iso?: string): string {
 }
 
 export function NotifyChannelsPage() {
-  const { message } = App.useApp()
-  const navigate = useNavigate()
+  const { message, modal } = App.useApp()
   const { channels, loading, error, permissionDenied, reload, create, update, remove } = useNotifyChannels()
-  // 派生接收人（平台为已启用渠道自动生成的 receiver）：原在告警配置页只读面板，
-  // 2026-10-02 迁入本页作为表格列。取数含 403 降级（非管理员看不到片段内容）。
-  const {
-    rows: derivedRows,
-    loading: derivedLoading,
-    permissionDenied: derivedForbidden,
-  } = useDerivedReceivers()
-  // dev-feedback #32：列内需展示每渠道绑定的通知模板，消除「模板没被纳入派生」的错觉。
-  // 模板列表含内置模板，用于把 default_template_id 解析为模板名；无权限时降级为仅显示模板 ID。
-  const { templates, permissionDenied: tplForbidden } = useNotifyTemplates()
-  const templateNameById = useMemo(
-    () => new Map(templates.map((t) => [t.id, t.name] as const)),
-    [templates],
-  )
-  // 2026-10-13（提案 §2.1 / §4.2）：「哪个渠道是兜底渠道」此前只能在路由规则页的下拉框里反推，
-  // 看渠道列表时无从判断。新增「兜底渠道」列就地标识；设定源与路由规则页同一个 hook（同源，单一口径）。
-  const { setting: routeSetting } = useRouteSetting()
-
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerSeq, setDrawerSeq] = useState(0)
   const [editing, setEditing] = useState<NotifyChannel | null>(null)
-  const [snippetOpen, setSnippetOpen] = useState(false)
-  const [snippetSeq, setSnippetSeq] = useState(0)
-  const [snippetChannel, setSnippetChannel] = useState<NotifyChannel | null>(null)
-
-  /** 已启用渠道 ID → 派生接收人行（列渲染 O(1) 查表） */
-  const derivedByChannelId = useMemo(
-    () => new Map(derivedRows.map((r) => [r.channelId, r] as const)),
-    [derivedRows],
-  )
 
   const openCreate = () => {
     setEditing(null)
@@ -118,130 +70,42 @@ export function NotifyChannelsPage() {
     setDrawerOpen(true)
   }
 
-  /** 打开「接收人配置」抽屉：每次打开都换 key 重挂，避免上一条渠道的片段残留 */
-  const openSnippet = (record: NotifyChannel) => {
-    setSnippetChannel(record)
-    setSnippetSeq((s) => s + 1)
-    setSnippetOpen(true)
-  }
-
   /**
-   * 渠道写路径（新增 / 编辑 / 删除）保存成功后同步触发配置变更单生成。
-   * 渠道变更归属中心直连域（管理域，草稿 146/147 实测口径），与告警配置页一致。
-   * 中心直连域未登记时不发请求，给出“先去网域管理登记”的明确提示。
-   * 缺此调用时只能等 watcher 最长 30s 兜底（实测删除 → 草稿延迟 15s），
-   * 体感「M09 立刻就能删、没有需要确认的配置变更单」（2026-10-14 用户反馈）。
+   * 删除渠道前先看路由引用：被引用时后端会拒绝，这里前置提示，避免用户白点。
+   * 未被引用时删除不会影响 alertmanager.yml（未引用的渠道本来就不会物化）。
    */
-  const triggerDraft = (prefix: string) => {
-    void triggerAlertmanagerConfigDrafts({ prefix, onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
-  }
-
   const handleDelete = (record: NotifyChannel) => {
-    Modal.confirm({
+    const refCount = record.route_reference_count ?? 0
+    if (refCount > 0) {
+      modal.warning({
+        title: '渠道正在被路由规则引用',
+        content: (
+          <span>
+            该渠道正被 {refCount} 条路由规则引用。请先到
+            <Link to={ROUTES_PATH}>路由规则</Link>
+            页改绑或删除引用，再回来删除。
+          </span>
+        ),
+        okText: '知道了',
+      })
+      return
+    }
+    modal.confirm({
       title: `删除通知渠道「${record.name}」？`,
-      content: '删除后，引用该渠道的告警分派将无法送达；下一次配置变更会同步移除其接收人；该操作不可恢复。',
+      content: '删除后该渠道不再可用，且操作不可恢复。',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
       async onOk() {
-        await remove(record.id)
-        message.success('通知渠道已删除')
-        triggerDraft('通知渠道已删除')
-        reload()
+        try {
+          await remove(record.id)
+          message.success('通知渠道已删除')
+          reload()
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
+        }
       },
     })
-  }
-
-  /**
-   * 「平台接收人」列的模板绑定展示（dev-feedback #32 口径随区块迁入本页）：
-   * - 已绑定且能解析出模板名 → 模板：<模板名>；
-   * - 已绑定但模板列表无权限（tplForbidden）/ 本地列表未命中 → 「模板 #<id>」，不阻断整列；
-   * - 未绑定（缺省 / 0）→「回落 <渠道类型中文名> 内置默认模板」。
-   */
-  const renderTemplateBind = (row: DerivedReceiverRow) => {
-    const bound = row.defaultTemplateId != null && row.defaultTemplateId !== 0
-    if (!bound) {
-      const typeLabel = row.channelType ? notifyChannelTypeLabel[row.channelType] : '该渠道'
-      return `${CHANNEL_TEMPLATE_BIND_NONE_PREFIX}${typeLabel} 内置默认模板`
-    }
-    if (tplForbidden) return `模板 #${row.defaultTemplateId}`
-    const name = templateNameById.get(String(row.defaultTemplateId))
-    return name ? `模板：${name}` : `模板 #${row.defaultTemplateId}`
-  }
-
-  /**
-   * 「平台接收人」列单元格：**只给结论，不重复片段**。
-   * 片段 YAML 与复制仍由行内「接收人配置」抽屉承载（单一来源）。
-   * 停用渠道不参与派生（useDerivedReceivers 只取enabled），故显示「停用后不再生成」。
-   */
-  const renderDerivedReceiver = (record: NotifyChannel) => {
-    if (!record.enabled) {
-      return <Text type="secondary">停用后不再生成</Text>
-    }
-    if (derivedForbidden) {
-      return (
-        <Tooltip title={CHANNEL_DERIVED_RECEIVER_FORBIDDEN}>
-          <Text type="secondary">需管理员权限查看</Text>
-        </Tooltip>
-      )
-    }
-    if (derivedLoading) {
-      return <Text type="secondary">加载中…</Text>
-    }
-    const row = derivedByChannelId.get(record.id)
-    if (!row) {
-      return <Text type="secondary">{CHANNEL_DERIVED_RECEIVER_EMPTY}</Text>
-    }
-    return (
-      <Space direction="vertical" size={2}>
-        <Space size={6} wrap>
-          <Text code>{row.receiverName}</Text>
-          {!row.tokenConfigured && (
-            <Tooltip title={CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING}>
-              <Tag color="warning">暂不可用</Tag>
-            </Tooltip>
-          )}
-        </Space>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {renderTemplateBind(row)}
-        </Text>
-      </Space>
-    )
-  }
-
-  /**
-   * 「兜底渠道」列（2026-10-13，提案 §4.2）：把「哪个渠道是兜底」就地显性化。
-   *
-   * 判定严格按 `effective_source` 三态，避免把「建议值」说成「已接管」（§11.9 契约）：
-   *   - `explicit`           → 你显式选定的渠道 → Tag「兜底」（实色）；
-   *   - `auto_first_enabled` → 平台**仅作建议**的已启用首个渠道 → Tag「建议兜底」（次级色）；
-   *   - `none`               → 不渲染（没有候选渠道）。
-   *
-   * 「显式」分支用 `default_receiver_channel_id` 与行 ID 比对（提案 §4.2 推荐），
-   * **不做名称反查**——渠道名清洗后生成的 receiver 名与渠道名并非一一对应，按名字比对会误判。
-   * 比对前统一转字符串：`NotifyChannel.id` 是十进制字符串（BaseModel.ID），
-   * 而 route-setting 侧是数值 ID，直接 `===` 会恒为 false。
-   * 「建议」分支无显式 ID 可比，改用 `effective_receiver_name` 与本行派生接收人名比对
-   * （两者同源：后端建议值取的就是首个已启用渠道的 receiver 名）。
-   */
-  const renderFallbackChannel = (record: NotifyChannel) => {
-    const setting = routeSetting
-    if (!setting) return null
-    if (setting.effective_source === 'none') return null
-    if (setting.effective_source === 'explicit') {
-      const fallbackId = setting.default_receiver_channel_id
-      if (fallbackId === null || fallbackId === undefined) return null
-      return String(fallbackId) === record.id ? (
-        <Tag color="success" data-testid="channel-fallback-tag">
-          {CHANNEL_FALLBACK_TAG}
-        </Tag>
-      ) : null
-    }
-    const row = derivedByChannelId.get(record.id)
-    if (!row || !setting.effective_receiver_name) return null
-    return row.receiverName === setting.effective_receiver_name ? (
-      <Tag data-testid="channel-fallback-suggested-tag">{CHANNEL_FALLBACK_SUGGESTED_TAG}</Tag>
-    ) : null
   }
 
   const columns: ColumnsType<NotifyChannel> = [
@@ -249,55 +113,26 @@ export function NotifyChannelsPage() {
       title: '渠道名称',
       dataIndex: 'name',
       key: 'name',
-      width: 180,
+      width: 240,
       fixed: 'left',
-      render: (v: string) => <EllipsisText maxWidth={160}>{v}</EllipsisText>,
+      render: (v: string) => <EllipsisText maxWidth={220}>{v}</EllipsisText>,
     },
     {
       title: '渠道类型',
       dataIndex: 'type',
       key: 'type',
-      width: 110,
+      width: 130,
       render: (v: NotifyChannel['type']) => <Tag color={notifyChannelTypeColor[v]}>{notifyChannelTypeLabel[v]}</Tag>,
     },
     {
-      title: '机器人 Webhook',
-      dataIndex: 'webhook_url',
-      key: 'webhook_url',
-      width: 260,
-      // 响应已脱敏（scheme://host/***），原值不回显
-      render: (v: string) => <EllipsisText maxWidth={240}>{v}</EllipsisText>,
-    },
-    {
-      title: '签名密钥',
-      dataIndex: 'secret_set',
-      key: 'secret_set',
-      width: 100,
-      render: (v: boolean) =>
-        v ? <Tag color="processing">已设置</Tag> : <Text type="secondary">未设置</Text>,
-    },
-    {
-      title: '启用状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 100,
-      render: (v: boolean) =>
-        v ? <Tag color="success">启用</Tag> : <Tag color="default">停用</Tag>,
-    },
-    {
-      // 2026-10-13：列位置紧邻「平台接收人」之前，便于左右对照（提案 §4.2）。
-      title: CHANNEL_FALLBACK_COLUMN_TITLE,
-      key: 'fallback_channel',
-      width: 110,
-      render: (_: unknown, r: NotifyChannel) => renderFallbackChannel(r),
-    },
-    {
-      // 2026-10-02：随「平台自动生成的接收人」区块由告警配置页迁入本页。
-      // 列内只展示结论（接收人名 / 模板绑定 / 可用性），片段明细与复制走行内「接收人配置」抽屉。
-      title: CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE,
-      key: 'derived_receiver',
-      width: 220,
-      render: (_: unknown, r: NotifyChannel) => renderDerivedReceiver(r),
+      title: '被引用次数',
+      dataIndex: 'route_reference_count',
+      key: 'route_reference_count',
+      width: 120,
+      render: (v?: number) => {
+        const n = v ?? 0
+        return n > 0 ? <Tag color="blue">{n}</Tag> : <Text type="secondary">0</Text>
+      },
     },
     {
       title: '创建时间',
@@ -309,14 +144,10 @@ export function NotifyChannelsPage() {
     {
       title: '操作',
       key: 'actions',
-      // T08-F15：新增「接收人配置」后操作列共 3 个带图标文字按钮，210 会挤压换行撑高行高，放宽到 240
-      width: 240,
+      width: 160,
       fixed: 'right',
       render: (_: unknown, r: NotifyChannel) => (
         <Space size={0}>
-          <Button size="small" type="link" icon={<SnippetsOutlined />} onClick={() => openSnippet(r)}>
-            接收人配置
-          </Button>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(r)}>
             编辑
           </Button>
@@ -346,7 +177,7 @@ export function NotifyChannelsPage() {
         <PageIntro
           testId="notify-channels-intro"
           title="通知渠道"
-          subtitle="登记告警送达的机器人渠道；告警分派只引用渠道，真实地址仅平台侧存储、列表脱敏展示"
+          subtitle="登记告警送达的渠道；列表只展示通用信息，Webhook、模板、签名等类型独有配置在编辑抽屉中维护"
           extra={
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               新增渠道
@@ -354,17 +185,15 @@ export function NotifyChannelsPage() {
           }
           points={[
             <>
-              本页是告警接收人的来源：已启用的渠道会被平台在下发配置时自动写入
-              <Link to={ALERT_CONFIG_PATH}>「告警配置」</Link>
-              所用 alertmanager.yml 的 receivers（配置即生效），无需手工复制片段。
+              渠道是告警送达的目的地；平台只保存渠道 ID、真实 Webhook 地址和可选签名密钥，告警分派只引用渠道。
             </>,
             <>
-              每个已启用渠道对应一个接收人，接收人名见「{CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE}」列；
-              停用或删除渠道后，下一次配置变更会同步移除。
+              只有被路由规则引用的渠道才会写入 alertmanager.yml（接收人名恒为 notify-&lt;渠道ID&gt;）；
+              未被路由引用的渠道不会物化，也不会收到告警。
             </>,
             <>
-              需要自定义接收人时，点行内「接收人配置」查看该渠道的片段作参考；
-              请勿手写与自动生成同名（含渠道名归一化后同名）的接收人，重名会导致配置校验失败。
+              删除被路由引用的渠道会被阻止，请先到路由规则页改绑；改名、改 Webhook、换绑模板都不会影响
+              alertmanager.yml，模板保存后立即生效。
             </>,
           ]}
         />
@@ -398,20 +227,12 @@ export function NotifyChannelsPage() {
           onClose={() => setDrawerOpen(false)}
           onCreate={async (payload: CreateNotifyChannelPayload) => {
             await create(payload)
-            triggerDraft('通知渠道已创建')
           }}
           onUpdate={async (id: string, payload: UpdateNotifyChannelPayload) => {
             await update(id, payload)
-            triggerDraft('通知渠道已更新')
           }}
         />
 
-        <ReceiverSnippetDrawer
-          key={`snippet-${snippetSeq}`}
-          open={snippetOpen}
-          channel={snippetChannel}
-          onClose={() => setSnippetOpen(false)}
-        />
       </ConfigProvider>
     </MainLayout>
   )

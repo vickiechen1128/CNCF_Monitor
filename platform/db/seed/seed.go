@@ -54,6 +54,11 @@ func Run(db *gorm.DB) error {
 	if err := runScrapeJobMetricsPathBackfill(db); err != nil {
 		return fmt.Errorf("backfill scrape job metrics_path: %w", err)
 	}
+	// M08：没有已生效告警配置时写入平台默认配置（与磁盘 seed 同源），
+	// 使路由页读到的是一份真实配置，而不是前端合成占位。
+	if err := EnsureDefaultAlertmanagerConfig(db); err != nil {
+		return fmt.Errorf("seed default alertmanager config: %w", err)
+	}
 	return nil
 }
 

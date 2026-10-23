@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,7 +97,6 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
 		// 最小运行骨架自动布缆（Module_08 决策 113）：管理域单例根兜底接管设定
-		&models.AlertmanagerRouteSetting{},
 	))
 	require.NoError(t, seed.Run(db))
 	// 方案 A：中心直连域不再由 seed 预置，集成测试显式登记一次（模拟用户首装后
@@ -159,10 +159,7 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// Module 08 收口（T08-05）：告警收敛——alertmanager.yml 挂载/留痕 + 静默代理，
 	// 指向测试内启动的 fake Alertmanager（见 fakeAlertmanager）。
 	amURL := fakeAlertmanager(t).URL
-	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL, notify.ReceiverSnippetConfig{
-		BridgeURL:   "http://127.0.0.1:8080",
-		BridgeToken: integrationBridgeToken,
-	}))
+	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
 
 	// M02 采集状态路由收口（决策 47 / T02-03）：与生产 main.go（registerPlatformConfigRoutes
 	// 上方的 apiV1 组）保持一致，M02 目标/覆盖端点挂在 /api/v1 组下（仅全局认证、不授权），
@@ -176,15 +173,12 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	apiV1 := r.Group("/api/v1")
 	query.RegisterRoutes(apiV1, db, promURL)
-	// M08 PL-3 通知渲染桥：与生产 main.go 一致，挂 /api/v1/webhooks/notify（不入平台
-	// 用户认证态，由桥 handler 自校验内网调用令牌）。
-	notify.RegisterBridgeRoutes(apiV1, db, notify.BridgeConfig{Token: integrationBridgeToken})
+	// M08 PL-3 通知渲染桥：与生产 main.go 一致，挂 /api/v1/webhooks/notify
+	// （不入平台用户认证态，访问控制由部署层承担）。
+	notify.RegisterBridgeRoutes(apiV1, db, notify.BridgeConfig{})
 
 	return r, db
 }
-
-// integrationBridgeToken 是集成测试用通知渲染桥内网调用令牌。
-const integrationBridgeToken = "integration-bridge-token"
 
 // injectSeededAdmin 以测试中间件把 seed 预置的初始管理员（seed.AdminUsername）解析
 // 进 gin context 的 ContextUserKey，模拟真实 AuthMiddleware 的最小解析语义，使挂接
@@ -221,28 +215,6 @@ func (c *apiClient) json(method, path, body string) (int, map[string]interface{}
 	req := httptest.NewRequest(method, "http://mc.local"+path, reader)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
-	}
-	w := httptest.NewRecorder()
-	c.r.ServeHTTP(w, req)
-	var out map[string]interface{}
-	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	return w.Code, out
-}
-
-// jsonAuth 发送带 Authorization: Bearer 令牌的 JSON 请求（M08 PL-3 桥端点 H-1：令牌走
-// 请求头，不落 URL query）。
-func (c *apiClient) jsonAuth(method, path, token, body string) (int, map[string]interface{}) {
-	c.t.Helper()
-	var reader io.Reader
-	if body != "" {
-		reader = strings.NewReader(body)
-	}
-	req := httptest.NewRequest(method, "http://mc.local"+path, reader)
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	w := httptest.NewRecorder()
 	c.r.ServeHTTP(w, req)
@@ -1285,15 +1257,18 @@ func TestEndToEndAlertmanagerSmoke(t *testing.T) {
 	r, dbm := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
-	// 1. config：当前生效为空（未挂载）→ 200。
+	// 1. config：seed 已写入平台默认配置 → 当前生效非空，且标记为 system 已生效。
 	code, out := c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
 	require.Equal(t, http.StatusOK, code, "current 应可读：%v", out)
-	assert.Equal(t, "", out["data"].(map[string]interface{})["content"])
+	currentData := out["data"].(map[string]interface{})
+	assert.Contains(t, currentData["content"], "receiver: 'default'")
+	assert.Equal(t, "system", currentData["applied_by"])
+	assert.NotEmpty(t, currentData["applied_at"], "默认配置应标记已生效")
 
-	// 2. config：版本列表为空 → 200 total 0。
+	// 2. config：版本列表含 seed 默认版本 → total 1。
 	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/versions", "")
 	require.Equal(t, http.StatusOK, code, "versions 应可读：%v", out)
-	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"])
 
 	// 3. 挂载合法 alertmanager.yml：amtool 不可调用 → 校验失败不落库（决策 60），
 	//    返回 bad_request 且 data.items 带行级错误（印证路由 + 校验短路 + 不落库）；
@@ -1645,8 +1620,11 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "notify-templates 应可读：%v", out)
 	tplItems := out["data"].(map[string]interface{})["items"].([]interface{})
 	require.NotEmpty(t, tplItems, "内置默认模板应已 seed")
+	tplIDStr, _ := tplItems[0].(map[string]interface{})["id"].(string)
+	tplID, err := strconv.Atoi(tplIDStr)
+	require.NoError(t, err)
 
-	// 1. 建一个指向「假机器人地址」的通知渠道。
+	// 1. 建一个指向「假机器人地址」的通知渠道（IM 类型要求绑定模板）。
 	rec := &bridgeReceiver{}
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		b, _ := io.ReadAll(req.Body)
@@ -1656,7 +1634,10 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	t.Cleanup(recv.Close)
 
 	code, out = c.json("POST", "/api/v2/platform/alertmanager/notify-channels",
-		mustJSON(t, map[string]interface{}{"name": "SRE 飞书", "type": "feishu", "webhook_url": recv.URL}))
+		mustJSON(t, map[string]interface{}{
+			"name": "SRE 飞书", "type": "feishu", "webhook_url": recv.URL,
+			"default_template_id": tplID,
+		}))
 	require.Equal(t, http.StatusOK, code, "创建渠道应成功：%v", out)
 	chID := out["data"].(map[string]interface{})["id"].(string)
 	require.NotEmpty(t, chID)
@@ -1671,40 +1652,23 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 		}},
 	})
 
-	// 2. 桥端点无令牌 → 401（证明已挂载且令牌门生效）。
-	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID, payload)
-	require.Equal(t, http.StatusUnauthorized, code, "缺令牌应 401：%v", out)
-	assert.Equal(t, "unauthorized", out["errorType"])
-
-	// 3. SSRF：请求方自带目标地址参数 → 拒绝，且不向任何地址出站。
-	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID+"&url=https://evil.example/hook",
-		integrationBridgeToken, payload)
+	// 2. SSRF：请求方自带目标地址参数 → 拒绝，且不向任何地址出站。
+	code, out = c.json("POST", "/api/v1/webhooks/notify?id="+chID+"&url=https://evil.example/hook", payload)
 	require.Equal(t, http.StatusBadRequest, code, "携带目标地址参数应 400：%v", out)
 	assert.Equal(t, "bad_request", out["errorType"])
 
-	// 4. 正常：Bearer 令牌 + 已登记 channel → 渲染并转投假机器人。
-	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID, integrationBridgeToken, payload)
+	// 3. 正常：已登记 channel → 渲染并转投假机器人（桥端点不再校验内部令牌）。
+	code, out = c.json("POST", "/api/v1/webhooks/notify?id="+chID, payload)
 	require.Equal(t, http.StatusOK, code, "桥端点应成功：%v", out)
 	assert.EqualValues(t, 1, out["data"].(map[string]interface{})["success"])
 	require.Len(t, rec.snapshot(), 1, "应向已登记渠道出站一次")
 
-	// 5. 渠道列表可读且响应脱敏。
+	// 4. 渠道列表可读且响应脱敏。
 	code, out = c.json("GET", "/api/v2/platform/alertmanager/notify-channels", "")
 	require.Equal(t, http.StatusOK, code)
 	chRows := out["data"].(map[string]interface{})["items"].([]interface{})
 	require.Len(t, chRows, 1)
 	assert.Contains(t, chRows[0].(map[string]interface{})["webhook_url"].(string), "***")
-
-	// 6. T08-12 接收人配置片段：admin 生成片段，URL 指向桥且带真实 channel ID（令牌走
-	// http_config.authorization，不落 URL query，H-1），片段含 send_resolved: true。
-	code, out = c.json("GET", "/api/v2/platform/alertmanager/notify-channels/"+chID+"/receiver-snippet", "")
-	require.Equal(t, http.StatusOK, code, "接收人片段应可生成：%v", out)
-	snip := out["data"].(map[string]interface{})
-	assert.Equal(t, true, snip["token_configured"])
-	assert.Contains(t, snip["url"].(string), "channel="+chID)
-	assert.NotContains(t, snip["url"].(string), "token=", "令牌绝不落 URL query（H-1）")
-	assert.Contains(t, snip["snippet"].(string), "send_resolved: true")
-	assert.Contains(t, snip["snippet"].(string), "authorization:")
 }
 
 // bridgeReceiver 记录通知渲染桥出站请求体（并发安全）。
