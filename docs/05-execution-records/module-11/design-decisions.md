@@ -46,6 +46,21 @@
 
 ---
 
+### 决策 102：回传链路可观测与远程指令通道——force_restart 边界翻转（F-39 / F-40 / F-42 / F-43，2026-10-13~15）
+
+- **问题**：M09 dev-feedback 四项均触及 M11 契约：①F-39 心跳缺回传观测字段，回传丢弃 / 重试 / 积压口径不统一（`queue_backlog_bytes` 原为单分片磁盘队列口径，内存缓冲积压不可见）；②F-40 采集状态只有 up/down 二态，回传积压场景（如 2.8h 级积压）被误判为 down、误导用户查采集配置；③F-42 回传参数 `maxDiskUsagePerURL` 无产品化配置入口，老默认 20GB 过小；④中心无任何远程干预手段，积压 / 卡死只能上机处理。M11 §1.2 原边界明写「中心远程重启边缘进程指令通道**不做**」。
+- **决策**：
+  1. **F-39 心跳回传观测**：`HeartbeatRequest` 新增 `remote_write_dropped_total` / `remote_write_retries_total`（counter 求和、`omitempty` 向后兼容）；`queue_backlog_bytes` 升级为 **max 口径**（`max(内存缓冲, 磁盘持久队列)`，gauge 跨分片取 max）；`AgentView` 透出（离线保留）。心跳保存时对指令位六字段 **Omit 防覆盖**——指令位只由管理面接口写入。
+  2. **F-40 回传延迟列**：节点列表新增「回传延迟」列 = `AgentView.remote_write_lag_seconds`，中心侧按 `max by (network_domain_id) (time() - timestamp(last_over_time(up[24h])))` 计算（24h 窗口覆盖小时级积压），30s TTL 缓存 + 3s 超时降级；三档着色 <5min / 5–30min / ≥30min，nil 展 `-`。M01 侧同步落三态 stale 口径（聚合 `online > down > stale > pending`），拨测 blackbox 不产 stale。
+  3. **F-42 回传参数产品化 + 远程重启**：`maxDiskUsagePerURL` 分层默认（平台硬兜底 1–2GB / 生产 50GB，PM 拍板）；配置入口 = 网域详情 / 纳管抽屉「回传参数」分组；经 `metadata.json` 下发（复用 `remote_write_url` 四档解析先例）；supervisor diff **滚动重启 vmagent** 生效（agent 本体不重启、`tmpDataPath` 不变队列不丢），老版本 agent 不识别新字段维持默认。重启指令走 **seq 机制**：`PUT /api/v2/platform/edge-agents/:id/restart` → `vmagent_restart_seq` +1 → 心跳响应透传 → agent 本地持久化已执行 seq、**更大值才执行**（天然幂等，无 pending/回报状态机）。
+  4. **F-43 清空回传积压**：`PUT /api/v2/platform/edge-agents/:id/flush-backlog` → `flush_backlog_seq` +1；agent 执行 **Stop vmagent → 删持久队列目录（从 `-remoteWrite.tmpDataPath` 推导，回落 `EDGE_WAL_DIR` / `vmagent-cache`）→ Start**；中心仅 `status=online` 可下发（400）+ RequireAdmin + 前端 danger 二次确认展示积压量（「永久丢弃，无法恢复」）；效果由下轮心跳 backlog 归零反映。
+- **边界翻转说明（推翻 §1.2 已落版表述）**：原「中心远程重启边缘进程指令通道不做」→ 改为 **seq 心跳透传机制**。**安全边界不变**：中心仍**不主动入站**，指令只经心跳响应由边缘拉取（outbound-only）；翻转的仅是「是否有远程干预手段」，不是「中心能否连入边缘」。agent 本体重启仍不做（归人工 / systemd）。
+- **理由**：①seq 单调递增天然幂等，重复响应不重复执行，比「指令 + 回报状态机」少一整套状态与竞态处理；②清空积压是破坏性操作，Stop→删→Start 全程在 agent 本地完成，中心只发「意图」，离线节点直接 400 拒发避免指令悬挂；③滚动重启 vmagent 而非 agent，保住 `tmpDataPath` 队列数据——参数变更与数据安全解耦；④outbound-only 边界维持，与决策 1（G1）remote-write 接收端安全、决策 100/101 地址语义正交。
+- **落地**：PRD（M11 v0.8→v0.9）§1.2 / §3.1 / §3.2 / §5.2 / §5.3 / §6.2 / §6.3 / §6.4.1 / §6.5 / §9 / §11.4；M01 v3.51→v3.52 §5.10 三态口径；M09 v2.2→v2.3 §6.4.1。**原型本轮不同步**（待后续原型轮承接：节点列表回传延迟列、行内「更多」菜单、网域「回传参数」分组）。
+- **影响范围**：`platform/models`（EdgeAgent / EdgeHeartbeat 指令位与观测字段）/ `platform/edge`（心跳透传 + Omit 防覆盖）/ `platform/admin`（restart / flush-backlog 端点，RequireAdmin）/ `ui-custom/web`（M09 节点列表 + M01 实例状态）；M11 / M09 / M01 三份 PRD 同步升版；代码实现已在 M09 dev-feedback 标记已实现（2026-10-13）。
+
+---
+
 ### Change Log（完整历史）
 
 > 主 PRD `Module_11_Edge_Access_and_Agent_Delivery.md` 的 Change Log 仅保留最近 3 版，更早版本迁至此表。
@@ -55,3 +70,7 @@
 | v0.2 | 2026-09-17 | 修订 | 语义保真回填：Token 完全脱敏口径、agent_type 枚举（prometheus-agent）、人工兜底不自动 reconcile、unknown 运行态；补默认网域处理、多网域能力开关、删除级联清退、网域编辑、三档聚合、成因三档引导、心跳 RTT / RW 队列字段、诊断看板占位 | §3 / §5 / §8 / §9 | 不变 | 设计中 |
 | v0.3 | 2026-09-20 | 修订 | 四轮讨论结论回填：部署形态方案 A 入 §1.2（中心 + UI 同址 G2、A2 形态、UI 外移降级为演进备选）；MVP 不引入 PostgreSQL；采集器强制 vmagent 单一化；契约字段 `wal_backlog_bytes` → `queue_backlog_bytes`；发送队列落盘持久参数；中心 remote_write 接收端（{v0.2} 前置）；§9 验收补接收通路与断流续传 | §1.2 / §3.1 / §5 / §6.4 / §7.2 / §9 / §10 / §11.4 | MVP 不变；{v0.2} 微调 | 设计中 |
 | v0.4 | 2026-09-20 | 修订 | 第五轮拍板回填：Agent 自升级由「不做」改为 {v0.3} 拉模式自升级（默认关闭 + 规模门槛 + 验签 / 原子回滚 / 按网域灰度）；§4.4 升级流程补自升级链路；§6.1 补中继选型一句话约束（应用层反代 + 存储转发、禁 L4/TCP） | §3.3 / §4.4 / §6.1 | {v0.3} | 设计中 |
+| v0.5 | 2026-09-25 | 修订 | 吸收 dev-feedback F-7/F-15/F-16/F-17/F-21/F-22 与 design-proposal config-sync-stall（Track B，已 merged）：① 网域运行态枚举对齐四档（online→normal，新增 partial），由 offline_detector 聚合（§5.1 / §8.2）；② 边缘进程守护新增父死子亡机制（Linux Pdeathsig + systemd KillMode=control-group 兜底），心跳超时组件状态统一降级「未知」（§6.4.2 / §11.4）；③ 配置同步新增「同步中」（pull_pending，蓝）中间态与「同步失败」（apply_failed，红）终态，心跳契约新增 config_apply_error / config_apply_failed_version 可选字段，pull_pending 仅在节点存活时成立、离线 / 退纳管失效回落未同步（§5.2 / §5.3 / §6.2 / §8.1 / §11.4）；④ last_config_pull 写入口径（版本推进 / 应用失败留痕，同版本不刷新）与抽屉「最后心跳 / 最后配置拉取」展示（§5.2 / §11.4） | §5.1 / §5.2 / §5.3 / §6.2 / §6.4.2 / §8.1 / §8.2 / §9 / §11.4 | {v0.2} 微调 | 设计中 |
+| v0.6 | 2026-09-25 | 修订 | 吸收 dev-feedback F-29/F-30：① 下载入口改为 agent_pull 网域行内「更多 → 下载安装包」，中心直连域（local）行不出现下载入口、页面顶部常驻「中心直连域无需部署采集节点」提示置于折叠区外、折叠标题限定为「边缘域接入操作流程（安装指引）」；② 安装指引 Steps 扩为 5 步、首步「复制并保存接入 Token」，Token 严格仅纳管 / 重置单次展示、不新增二次查看明文入口 | §3.1 / §3.3 / §9.1 / §11.3 | {v0.2} 微调 | 设计中 |
+| v0.7 | 2026-09-25 | 修订 | 地址语义收敛（消除 PRD/实现脱节）：① §5.1 `center_endpoint` 由「agent_pull 必填、供合成下载地址」改为 {v0.4+} 网闸映射场景预留、当前不消费；② §6.2 `config_download_url` 合成规则由「center_endpoint + 路径」改为「请求来源 authority + 路径」；③ §6.4 第 1 条补 `CENTER_ENDPOINT` 环境变量（Agent 心跳地址 + 回传地址方案 A 兜底推导），补掉决策 73 遗留的地址传递机制缺口（2026-10-23 v0.11 落版后自 PRD Change Log 轮转迁入） | §5.1 / §6.2 / §6.4 | 实现对齐（不改契约） | 设计中 |
+| v0.8 | 2026-09-30 | 修订 | 吸收 M09 dev-feedback 补录（F-26 / F-27 / F-37）：① `center_endpoint` 由「{v0.4+} 预留、不消费」**回归为优先消费**——配置包下载地址优先取网域 `center_endpoint`（取 `scheme://host`，空 / 非法回落请求来源 authority），与 Agent `CENTER_ENDPOINT` 同源、中心地址变更只需改此字段（§5.1 / §3.1 / §6.2 / §9.2 / §10）；② 新增「网域详情抽屉（采集节点情况）」区块（4 行，local 恒 `-`，纯前端信息补全）（§3.1 / §11.3 / §9.1）；③ 安装指引按接入方式双分支（中心直连域明示免部署可跳过；采集节点域 4 步动线 + Edge Sync Agent {v0.2} 交付口径）（§3.1 / §11.3 / §9.1）（2026-10-23 v0.11 落版后自 PRD Change Log 轮转迁入） | §3.1 / §5.1 / §6.2 / §9.1 / §9.2 / §10 / §11.3 | {v0.2} 微调 | 设计中 |
