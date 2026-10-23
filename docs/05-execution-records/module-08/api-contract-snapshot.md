@@ -13,7 +13,7 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-29（**新增 §11**：PL-3 通知渲染桥与渠道 / 模板管理全部端点 + 字段 + 鉴权 + B 路线 M09 物化行为，决策 74 方案 B；H-1 令牌改 `Authorization: Bearer` 请求头、M-2 webhook 私网拒绝）叠加 v2026-09-18（§10.4 补登 `GET /api/v1/alerts/history` 请求参数与 envelope + 「7d 窗口 × 默认步长」点数上限约束，决策 90）叠加 v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 版本    | v2026-10-23（**§11 as-landed 同步（dev-feedback #45–#52）**：默认 alertmanager.yml seed 入库、新增 `POST /routes` 后端整份生成（`base_checksum` + route_tree）、接收人合法集合 = `default` ∪ `notify-<ID>`、模板改可变实体并退出 yml（`?id=` 单参数）、只物化被路由引用渠道、去 `enabled` / 去内部桥令牌 / 去 receiver-snippet / 去 route-setting / 去导入与重挂端点、新增 `webhook` 渠道类型 + IM 模板必填 + 钉钉加签补实现、`BuildAlertmanagerConfig` 唯一生成规则）叠加 v2026-09-29（**新增 §11**：PL-3 通知渲染桥与渠道 / 模板管理全部端点 + 字段 + 鉴权 + B 路线 M09 物化行为，决策 74 方案 B；H-1 令牌改 `Authorization: Bearer` 请求头、M-2 webhook 私网拒绝）叠加 v2026-09-18（§10.4 补登 `GET /api/v1/alerts/history` 请求参数与 envelope + 「7d 窗口 × 默认步长」点数上限约束，决策 90）叠加 v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
 | 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛；2026-09-29 开发侧补登 PL-3 端点与物化行为，决策 74）                                                                                                                                                                                                                                |
 | 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61/74 + 分轨判定记录 2026-09-08；`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`security-review-pl3.md`；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
@@ -62,18 +62,11 @@
 
 | 方法   | 路径                                                           | Query / 请求体                                                       | 响应 data                                                                      | 业务错误                                                             | PRD 源       |
 | ---- | ------------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------- |
-| POST | `/api/v2/platform/alertmanager/config`                       | body `{ content: '<alertmanager.yml 全文>', uploaded_by?: string }` | 校验通过：写入的 `AlertmanagerConfigVersion`；M09 侧管理域变更单号 `source_change_no`（若本轮已生成，**状态为 pending、待人工确认**） | `bad_request`：`amtool check-config` 校验失败（返回行级错误集合，**不落库、不进流水线**） | §5.1 / §9.2 |
 | GET  | `/api/v2/platform/alertmanager/config/current`               | —                                                                 | 当前生效 `AlertmanagerConfigVersion`（最近一条 applied；无则 `{ content: '' }`）          | —                                                                | §6.6        |
 | GET  | `/api/v2/platform/alertmanager/config/versions`              | Query: `page`、`page_size`                                         | `{ items: [AlertmanagerConfigVersionListItem], total }`                      | —                                                                | §6.6        |
 | GET  | `/api/v2/platform/alertmanager/config/versions/{id}`         | —                                                                 | `AlertmanagerConfigVersion` 完整（含 `content` 只读视图）                             | `not_found`                                                      | §6.6        |
-| POST | `/api/v2/platform/alertmanager/config/versions/{id}/remount` | body `{ uploaded_by?: string }`                                   | 重新挂载后的最新版本（再次走校验 + M09 变更单，P0 回滚动线）                                          | `bad_request`：校验失败；`not_found`                                   | §9.1 P0     |
 
-> **⚠️ `.../{id}/remount` 已无前端调用方（2026-10-02，dev-feedback #39）**：告警配置页按用户意见移除了「重新挂载此版本」入口——
-> 重新提交历史配置改走「`GET .../versions/{id}` 看内容 → 改 → `POST /config` 导入」，与本表第 1 行同一条调用链，
-> 专用端点属过度设计。后端实现**保留不动、不下线**（用户 2026-10-02 拍板：契约 §3 保留至 v0.3 再决定）；
-> 前端 `api/alertmanager.ts` 的 `alertmanagerConfigApi.remount` 作为**契约镜像**保留并标 `@deprecated`。
-> ⚠️ **勿与 `POST /api/v2/platform/alertmanager/notify-templates/{id}/remount`（§11.1）混淆**：后者是**通知模板版本回滚**，
-> 语义完全不同、**仍在用**，不得一并下线。
+> **⚠️ 导入 / 重新挂载入口已删除（2026-10-23，dev-feedback #51 / #52）**：alertmanager.yml 收敛为**唯一生成规则**（`generator.BuildAlertmanagerConfig`，见 §11.6）后，配置唯一写入口 = **路由规则页保存（`POST /routes`）**；本表原「`POST /config` 导入整份」与「`POST .../versions/{id}/remount` 重新挂载」两行端点整体删除，前端对应方法一并删除。内部 `config.Submit` 保留，仅作为路由保存链路的「amtool 校验 + 版本留痕 + 触发 M09」工序，不再对外暴露。2026-10-02「remount 已无前端调用方、保留不下线、`POST /config` 导入」的过渡口径随之废止。
 
 ### AlertmanagerConfigVersion（当前生效 / 详情）
 
@@ -334,60 +327,60 @@
 
 | 方法 | 路径 | 请求体 / Query | 响应 data | 鉴权 | 业务错误 |
 | ---- | ---- | -------------- | --------- | ---- | -------- |
-| GET | `/api/v2/platform/alertmanager/notify-channels` | — | `{ items: [ChannelView] }` | 全局认证（读） | — |
-| POST | `/api/v2/platform/alertmanager/notify-channels` | `{ name, type, webhook_url, secret?, enabled?, default_template_id? }` | `ChannelView` | `RequireAdmin` | `bad_request`：名称空 / 类型非法 / webhook 非法（含私网、环回、link-local、云元数据地址，见 §11.5）/ 绑定模板不存在或类型与渠道不一致（见 §11.3、§11.8） |
-| PUT | `/api/v2/platform/alertmanager/notify-channels/{id}` | 同 POST，字段**指针语义**（仅更新显式提供项；`webhook_url`/`secret` 留空表示不改）；`default_template_id` 不传=保留原绑定 / `0`=解绑（回落内置默认）/ `>0`=改绑 | `ChannelView` | `RequireAdmin` | `bad_request`；`not_found` |
-| DELETE | `/api/v2/platform/alertmanager/notify-channels/{id}` | — | `{}` | `RequireAdmin` | `not_found` |
-| GET | `/api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet` | — | `ReceiverSnippet`（见 §11.4） | `RequireAdmin` | `not_found` |
+| GET | `/api/v2/platform/alertmanager/notify-channels` | — | `{ items: [ChannelView] }`（含 `route_reference_count`，#46） | 全局认证（读） | — |
+| POST | `/api/v2/platform/alertmanager/notify-channels` | `{ name, type, webhook_url, secret?, default_template_id? }`（`type` 含新增 `webhook` 自定义渠道，#48；**无 `enabled`**，#46） | `ChannelView` | `RequireAdmin` | `bad_request`：名称空 / 类型非法 / webhook 非法（含私网、环回、link-local、云元数据地址，见 §11.5）/ **IM 类型模板必填**（缺省且无内置默认时拒绝，#48）/ `webhook` 类型禁止绑定模板（#48） |
+| PUT | `/api/v2/platform/alertmanager/notify-channels/{id}` | 字段**指针语义**（仅更新显式提供项）；编辑回填**脱敏**值（IM：`webhook_url`=`scheme://host/***`、`secret`=`***`），**保持原值=不修改、显式提交空串=清空并触发必填校验**（#48）；签名开关关闭 = 显式提交 `secret: ""` 清空已存密钥（#47）；`channel_type` 切换时关闭签名并清空旧密钥（#47） | `ChannelView` | `RequireAdmin` | `bad_request`；`not_found` |
+| DELETE | `/api/v2/platform/alertmanager/notify-channels/{id}` | — | `{}` | `RequireAdmin` | `not_found`；**`409`：被当前生效 / 待确认路由树引用时拒绝删除**，须先到路由规则页改绑（#46 删除保护；`route_reference_count` 供前端前置提示） |
 | GET | `/api/v2/platform/alertmanager/notify-templates` | — | `{ items: [TemplateView] }` | 全局认证（读） | — |
-| POST | `/api/v2/platform/alertmanager/notify-templates` | `{ name, channel_type, content }` | `TemplateView` | `RequireAdmin` | `bad_request`：Go template 语法校验失败 / 渠道类型非法 |
-| POST | `/api/v2/platform/alertmanager/notify-templates/{id}/remount` | — | `TemplateView`（回滚后的新版本） | `RequireAdmin` | `bad_request`；`not_found` |
-| POST | `/api/v1/webhooks/notify` | Query `channel`（必需，真实数字渠道 ID）；`template`（可选，模板数字 ID）；body = AM 原生 webhook 载荷 | `{ success, fail }` | **内网令牌**（`Authorization: Bearer <token>`，见 §11.2） | `unauthorized`（缺 / 错令牌）；`bad_request`（渠道缺失或禁用 / 携带请求方目标地址参数 / 模板与渠道类型不匹配）；`not_found`（渠道未登记）；`bad_gateway`（出站失败） |
-| GET | `/api/v2/platform/alertmanager/route-setting` | — | `RouteSettingView`（见 §11.9） | 全局认证（读） | — |
-| PUT | `/api/v2/platform/alertmanager/route-setting` | `{ default_receiver_channel_id: number\|null }` | `RouteSettingView` | `RequireAdmin` | `bad_request`：目标渠道不存在 / 未启用；`unauthorized`：未认证；`forbidden`：非管理员 |
-| GET | `/api/v2/platform/alertmanager/routes` | — | 成功 `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver] }`；解析失败 **200** `{ mode, parse_error, raw_yaml }`（见 §11.9） | 全局认证（只读、无写能力） | —（解析失败仍 200，非 500） |
+| POST | `/api/v2/platform/alertmanager/notify-templates` | `{ name, channel_type, content }` | `TemplateView` | `RequireAdmin` | `bad_request`：Go template 语法校验失败 / 渠道类型非法 / 名称重复（#46） |
+| PUT | `/api/v2/platform/alertmanager/notify-templates/{id}` | `{ name?, content? }`（`channel_type` **创建后锁定不可改**，#46） | `TemplateView` | `RequireAdmin` | `bad_request`：语法失败；内置模板只读不可编辑 |
+| DELETE | `/api/v2/platform/alertmanager/notify-templates/{id}` | — | `{}` | `RequireAdmin` | `bad_request`：被渠道绑定引用、须先改绑（#46）；内置模板不可删除 |
+| POST | `/api/v1/webhooks/notify` | Query `id`（必需，真实数字渠道 ID；原 `channel` / `template` 参数随 #46 退出）；body = AM 原生 webhook 载荷 | `{ success, fail }` | **无内部令牌**（2026-10-23 #47 起删除令牌校验，访问安全由部署层网络限制承载，见 §11.2；生产必须做网络层限制） | `bad_request`（渠道缺失 / 携带请求方目标地址参数 / 模板与渠道类型不匹配）；`not_found`（渠道未登记）；`bad_gateway`（出站失败） |
+| GET | `/api/v2/platform/alertmanager/routes` | — | 成功 `{ items: [RouteNode], declared_receivers: [string], effective_checksum: string, pending: { change_no, created_at }\|null }`；解析失败 **200** `{ parse_error, raw_yaml, declared_receivers, effective_checksum, pending }`（见 §11.9；`mode` / `dead_receivers` 字段已删除，#45/#46） | 全局认证（只读） | —（解析失败仍 200，非 500） |
+| POST | `/api/v2/platform/alertmanager/routes` | `{ base_checksum: string, route_tree: [RouteEditNode] }`（`base_checksum` = 进入编辑时 `GET /routes` 回传的 `effective_checksum`，仅作乐观锁） | `{ version: AlertmanagerConfigVersion, change_no? }`——**YAML 由后端生成**（#45）：树 / 接收人校验 → `GenerateRouteSection` → `BuildAlertmanagerConfig`（#51 唯一规则） → `config.Submit`（amtool 校验 + 落版本 + 触发 M09 变更单，`pending` 待人工确认） | `RequireAdmin` | `409` 乐观锁冲突；`bad_request`：树校验失败 / `receiver_dangling`（合法集合 = `default` ∪ `notify-<ID>`） |
 
-> 注：`/route-setting` 与 `/routes` 的字段表、鉴权语义与 `/routes` **数据源口径**见 §11.9；`route` / `receivers` 归属边界表见 §11.10。
+> 注：`/routes` 字段表与数据源口径见 §11.9；`route` / `receivers` 归属边界（2026-10-23 起收敛为「平台唯一作者」）见 §11.10。
+>
+> **以下端点已删除（2026-10-22/23）**：`GET /notify-channels/{id}/receiver-snippet`（#47 去「接收人配置」）、`GET|PUT /route-setting`（#45 删根兜底接管设定）、`POST /notify-templates/{id}/remount`（#46 模板改可变实体去版本留痕）、`POST /config`（导入整份）与 `POST /config/versions/{id}/remount`（#52，见 §3）。
 
-### 11.2 桥端点鉴权（H-1 修订，2026-09-29）
+### 11.2 桥端点鉴权
 
-- 调用方为**中心 Alertmanager**，凭据为平台内部通知桥令牌，由 `--notify.bridge-token`（env 覆盖 `NOTIFY_BRIDGE_TOKEN`）注入；**令牌为空时桥端点一律 401**（安全默认，不开放匿名转发）。
-- **令牌经请求头 `Authorization: Bearer <token>` 传递，绝不写入 URL query**（`gin.Default()` 访问日志会明文落盘 RawQuery；此项为 security-reviewer H-1 必修）。AM 侧对应 `webhook_configs.http_config.authorization`（`type: Bearer` + `credentials`），由 M09 物化或用户手写片段产出。
-- 常量时间比较校验令牌；鉴权失败不产生任何出站。
+> **2026-10-23（#47）：内部桥令牌整体删除。** 移除 `NOTIFY_BRIDGE_TOKEN` / `--notify.bridge-token` 启动配置、`/api/v1/webhooks/notify` 的 Bearer 校验、M09 receiver `http_config.authorization` 写入、Makefile / 交付包 env.sh 的令牌配置。桥端点访问安全改由**部署层承载**（同机部署 / 内网防火墙限制）。**⚠️ 安全提示**：任何能访问 `/api/v1/webhooks/notify` 的人都能伪造通知，生产部署必须做网络层访问限制。
+>
+> ———— 以下为 2026-09-29 H-1 令牌口径，**已废止，仅留档** ————
+
+- 【留档·已废止】调用方为**中心 Alertmanager**，凭据为平台内部通知桥令牌，由 `--notify.bridge-token`（env 覆盖 `NOTIFY_BRIDGE_TOKEN`）注入；**令牌为空时桥端点一律 401**（安全默认，不开放匿名转发）。
+- 【留档·已废止】**令牌经请求头 `Authorization: Bearer <token>` 传递，绝不写入 URL query**（`gin.Default()` 访问日志会明文落盘 RawQuery；此项为 security-reviewer H-1 必修）。AM 侧对应 `webhook_configs.http_config.authorization`（`type: Bearer` + `credentials`），由 M09 物化或用户手写片段产出。
+- 【留档·已废止】常量时间比较校验令牌；鉴权失败不产生任何出站。
 
 ### 11.3 ChannelView / TemplateView
 
 | ChannelView 字段 | 类型 | 说明 |
 | ---------------- | ---- | ---- |
 | `id` | string | 渠道 ID（**数字串**；桥 URL query 与物化 receiver 均引用此值） |
-| `name` | string | 渠道名（用户可见；平台派生 receiver 名由此归一，见 §11.6） |
-| `type` | enum | `feishu` / `dingtalk` / `wecom` |
-| `webhook_url` | string | **脱敏**为 `scheme://host/***`，绝不回显完整地址与 token |
-| `secret_set` | bool | 是否已设置加签密钥（**不回显 secret**） |
-| `enabled` | bool | 是否启用（仅 enabled 渠道参与 M09 物化） |
-| `default_template_id` | number? | 绑定的通知模板 ID（**缺省/`null` = 用该渠道类型的内置默认模板**）；非空须与渠道类型一致。经 M09 物化写进 receiver URL 的 `&template=<ID>`，是「渠道 ↔ 模板一等绑定」的载体（见 §11.8） |
+| `name` | string | 渠道名（用户可见；receiver 名与渠道名**解耦**——恒 `notify-<ID>`，#46） |
+| `type` | enum | `feishu` / `dingtalk` / `wecom` / `webhook`（自定义 Webhook，#48） |
+| `webhook_url` | string | IM 类型**脱敏**回填 `scheme://host/***`（绝不回显完整地址与 token）；`webhook` 类型**明文**返回（#48）——用户能看到「已配置」 |
+| `secret_set` | bool | 是否已设置加签密钥（**不回显 secret**，展示 `***` 占位）；`webhook` 类型无签名概念 |
+| `default_template_id` | number? | 绑定的通知模板 ID（**缺省/`null` = 用该渠道类型的内置默认模板**）；**IM 类型必填**（飞书自动选中内置「飞书卡片-默认」；钉钉 / 企微无内置模板、必须选自定义模板，#48）；`webhook` 类型禁止绑定。桥投递时按渠道 ID 实时读 DB——写进 / 换绑 / 改模板内容**不进 yml、不触发 M09**（#46） |
+| `route_reference_count` | int | 被当前生效 / 待确认路由树引用的次数（删除保护前置提示；`0` = 未被引用，为正常状态不打标记，#46） |
 | `created_at` | datetime | 创建时间 |
+
+> **2026-10-22/23（#46/#47）**：`enabled` 字段删除（渠道无启停概念，启动迁移显式 DROP `notify_channels.enabled`）；前端列表收敛为五列通用列——渠道名称 / 渠道类型 / 被引用次数（0 显示 0）/ 创建时间 / 操作（编辑、删除）；Webhook、签名、模板等类型独有字段只在编辑抽屉；「接收人配置」能力删除（见 §11.4）。
 
 | TemplateView 字段 | 类型 | 说明 |
 | ----------------- | ---- | ---- |
-| `id` / `name` | string | 模板 ID / 名称 |
-| `channel_type` | enum | 适用渠道类型（渲染时须与渠道类型一致，否则桥 400） |
+| `id` / `name` | string | 模板 ID / 名称（名称唯一，#46） |
+| `channel_type` | enum | 适用渠道类型（渲染时须与渠道类型一致，否则桥 400）；**创建后锁定不可改**（#46） |
 | `content` | string | Go `text/template` 内容（白名单 FuncMap，含 `jsonStr` 等） |
-| `is_builtin` | bool | 是否内置（内置模板不可删除；模板为 append-only，无删除端点） |
-| `checksum` | string | 内容 sha256（版本留痕；**UI 不展示**） |
-| `status` | enum | 版本状态（`applied` 等） |
+| `is_builtin` | bool | 是否内置（**内置模板置顶只读**：仅可查看 / 复制，不可编辑删除；飞书有内置默认模板，钉钉 / 企微暂无内置模板，#47） |
 | `created_at` | datetime | 创建时间 |
+
+> **2026-10-23（#46）：模板是可变实体、不是版本留痕。** `checksum` / `status` / 版本历史 / remount 端点全部删除；新建、编辑、复制、删除均**原地生效**——改模板内容立即生效（桥投递时实时读 DB），不产生 M09 变更单、不 reload。原「append-only + checksum/status 版本留痕」口径废止。
 
 ### 11.4 ReceiverSnippet（手写自定义 receiver 的参考片段）
 
-| 字段 | 类型 | 说明 |
-| ---- | ---- | ---- |
-| `receiver_name` | string | 建议接收人名（渠道名归一为安全字符集；为空回落 `notify-<ID>`） |
-| `url` | string | 桥地址 + 真实数字渠道 ID（`?channel=<id>`；渠道绑定了模板时附 `&template=<id>`；**不含令牌**） |
-| `snippet` | string | 可参考的 `receivers:` YAML 片段，内含 `webhook_configs.url` + `send_resolved` + `http_config.authorization`（`type: Bearer`） |
-| `token_configured` | bool | 桥令牌是否已配置；`false` 时 UI 必须显式告警（片段不可直接使用） |
-
-> 令牌未配置时 credentials 用醒目占位符（`REPLACE_WITH_BRIDGE_TOKEN`），不伪装为可用值。
+> **已删除（#47，2026-10-23）**：「接收人配置」能力与 `GET /notify-channels/{id}/receiver-snippet` 端点**整体移除**——receiver 名已恒为 `notify-<ID>` 且 URL 由唯一生成器统一产出（`NotifyBridgeURL` + `?id=<渠道ID>`，#51），参考片段失去存在意义（保留 `DeriveBridgeBaseURL` 仅供 M09 物化使用）。原字段表（`receiver_name` 归一 / `?channel=` / `?template=` / 令牌占位 `REPLACE_WITH_BRIDGE_TOKEN` 等）语义均已演进或废止，仅属历史留档，不再赘述。
 
 ### 11.5 渠道 webhook 地址校验（M-2 修订）
 
@@ -395,47 +388,29 @@
 - **默认拒绝**私网（`10./172.16-31./192.168.`）、环回（`127.0.0.1` / `localhost` / `[::1]`）、link-local、未指定（`0.0.0.0`）、云元数据（`169.254.169.254`）地址——SSRF 防护（AGENTS.md §9）。
 - 内网自建机器人属业务例外，提供**显式允许开关**（进程内 `SetAllowPrivateWebhookTargets`，测试 / 内网部署显式开启）。
 
-### 11.6 B 路线：M09 物化 receivers + 根 route.receiver 单键（决策 74 定稿 + 决策 113 口径 C）
+### 11.6 alertmanager.yml 唯一生成规则 + receivers 物化（2026-10-22/23 收口：#45 / #46 / #51 / #52）
 
-管理域（`default`）存在已留痕的 `alertmanager.yml` 时，M09 配置生成（`ConfigDraft` 生成与「重新校验」两条路径）执行（第 1–6 条为 receivers 物化；**在其之后、Checksum 之前**执行第 7 条的根兜底单键替换，见 `platform/configcenter/draft/service.go::buildArtifacts`）：
+M09 管理域生成与路由保存共用**同一套唯一生成器** `generator.BuildAlertmanagerConfig(AlertmanagerConfigInput)`——全局任何重新生成路径（保存路由 / M09 生成 / 重校）输出**同一份完整 `alertmanager.yml`**，不存在模板 / 骨架内的局部 patch：
 
-1. 读**已启用**通知渠道（`enabled=true`，按 id 升序，保证 checksum 可复现）；
-2. 为每个渠道追加一个 receiver：`name` = 渠道名归一（`[^a-z0-9]+`→`-`，空则 `notify-<ID>`），`webhook_configs[].url` = 桥地址 + `?channel=<真实数字ID>`（+ 可选 `&template=<模板ID>`），令牌走 `http_config.authorization`（令牌为空则**不写**该段，绝不伪造占位值）；
-3. **用户手写 receivers 原样保留**；
-4. **重名即失败**（绝不静默覆盖 / 合并）：平台名与手写名冲突、或平台内部两条渠道归一后同名 → 整体不写入，草稿校验置 `failed` / `validation_cause=user_config`，附 `alertmanager.yml` **行级错误**（`{file, line, message}`，同 §3 校验失败返回）；
-5. **幂等与地址演进（L2，决策 74 定稿补充）**：平台槽位以「receiver 名 ∈ 平台 `ReceiverName()` 集合（= 各已启用渠道名归一结果）」判定，不再依赖「名称 + 桥 URL 全等」。同名且 URL 属平台桥地址形态（`/api/v1/webhooks/notify` 路径）者视为平台自身产物：URL 相同 → 跳过（幂等）；URL 不同（桥地址演进，如 host/端口变化）→ **原地更新**该 receiver 的 `url` 与 `http_config.authorization`，**不报重名冲突**，变更由下游 diff 记入 `alertmanager_config` 变更项（保证「重新校验」从草稿产物复现同一结论）。同名但 URL **非**平台桥地址形态（确系用户手写、指向别处）者，仍按第 4 条 `failed + user_config` + 行级错误处理（决策 74「绝不静默覆盖/合并」语义不变）；
-6. 渠道 / 模板变更纳入 M09 源数据版本聚合（`NotifyChannel` / `NotifyTemplate` 进 `sourceTableScopes`），触发重算与变更检测。
-7. **根兜底单键替换（决策 113 口径 C，T08-09 / T08-10）**：在 receivers 物化**之后**，按管理域单例设定（默认接收人，`AlertmanagerRouteSetting{NetworkDomainID=default, DefaultReceiverChannelID *uint}`，`*nil = 不接管`）执行生成器纯函数 `MaterializeRootRouteReceiver(baseYAML, RootRouteInput{Enabled, DefaultReceiver, PlatformReceiverNames})`（`platform/configcenter/generator/notify_route_skeleton.go`）：
-   - **开关开启**（用户已选定默认接收人）且目标 receiver 名 **∈ 可达集合**（文件既有 `receivers[].name` ∪ 本次平台物化名）→ **原地替换**根 `route.receiver` 这**一个标量键**；
-   - 目标 **不在可达集合** / YAML 非法 / 无 `route` 节点 / 根 route 无 `receiver` 标量 → **跳过 + 诊断**（**不返回 error**、不阻断挂载路径，避免 amtool 校验整单 `failed`）；
-   - 根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue` 及**所有 `route.routes[]`** 逐字保留（注释 / 节点顺序 / 样式不变）；
-   - **幂等**：值已等于目标时原样返回，连跑两次输出字节一致（保证 Checksum 可复现）；
-   - **开关关闭**（`DefaultReceiverChannelID=nil`）或目标渠道被禁用 / 删除 → 产物**字节级不变**（护栏③，语义见下方注）。
+- **产物结构（#51）**：`global.resolve_timeout: 5m`（平台固定）+ `route`（输入段）+ `receivers` = 内置空 `default` + route 引用渠道的 `notify-<渠道ID>`（按渠道 ID 升序）。
+- **两入口只做输入转换**（#51）：保存路由 = `GenerateRouteSection(路由树)` → `BuildAlertmanagerConfig`；M09 生成 / 重校 = `ExtractRouteSection(存量 yml)` → `BuildAlertmanagerConfig`（共用装配 `generator.LoadAlertmanagerConfigInput`：加载渠道 + 入口地址，避免口径漂移）。
+- **桥地址与 URL（#46/#52）**：`webhook_configs[].url` = `NotifyBridgeURL`（generator 运行时配置，启动注入，保存 / 生成两入口同值）+ `?id=<渠道ID>` ——**保存期直接写完整 URL，不再「先 name 占位、下发再补全」**；原 `?channel=` / `?template=` 参数、`http_config.authorization` 令牌段全部退出。
+- **只物化被路由引用的渠道**（#46）：渠道本身不写 yml；新增渠道不产生 receiver、未被引用的渠道不物化；**路由引用集合变化才触发 yml / M09 变更单**；`NotifyChannel` / `NotifyTemplate` 移出 M09 `sourceTableScopes`——渠道 / 模板 CRUD 不再空跑变更检测（改模板 / 换绑模板经桥实时读 DB、即时生效）。
+- **receiver 名恒为 `notify-<渠道ID>`**（#46）：不再按渠道名归一、不接受覆盖；渠道改名 / 改 webhook / 改类型 / 换绑模板均不影响 yml。
+- **不再保留任何非 route 输入的旧段**（#51）：旧 `receivers`（含手写同名 receiver，被平台产物**直接覆盖**）/ `inhibit_rules` / `templates` / `mute_time_intervals` 一律不保留；`NotifyReceiverConflict` 重名失败、`MergeRouteSection` / `EnsureReceiverNames` / `MaterializeNotifyReceivers` / 根兜底单键替换等**旁路纯函数与冲突校验全部删除**。`inhibit_rules` / `templates` 能力尚未 UI 化，未来接入时在唯一生成规则内统一增加生成。
+- **写入口唯一化（#45/#52）**：配置唯一写入口 = `POST /routes`（路由规则页，`base_checksum` 仅乐观锁）；M09 变更单经 `config.Submit` 生成后**待人工确认**（2026-10-09 起不自动确认下发）。
+- **接收人合法集合（#45 落地、#46/#47 收窄）**：`default ∪ notify-<全量渠道ID>`（后端 `route/validate.go` 与前端下拉双端同源）；悬空接收人 `receiver_dangling` 阻断保存；“已启用渠道”限定随 #46 删除启停概念而改为全量渠道。
 
-> **护栏③语义（以决策 114 第 1 条为准）**：关闭接管 = 平台**停止替换**、不主动改写 / 回滚文件；此后若发生**自然重算**（源数据变更触发的生成下发），产物根 `receiver` 会回落为用户手写值——这是「停止替换」的必然结果，而非平台主动删除动作。平台**不引入「最后写入值」的额外持久化状态**（保持实现最简、无新增状态机）。决策 113 原文「不删最后写入的值」易被误读为「永久保留已写入值」，本注为准。
+> **已被替代的历史口径（留档索引）**：①「决策 74 B 路线逐槽位物化」——`?channel=` / `?template=` / 令牌 `http_config.authorization`、手写 receiver 原样保留、重名即 `failed + user_config` + 行级错误、平台槽位「地址演进原地更新」；②「根 `route.receiver` 单键接管」——`AlertmanagerRouteSetting` 模型 / `GET|PUT /route-setting` / `notify_route_skeleton.go::MaterializeRootRouteReceiver` / `SeedManagedRoutePreset` 预置示例，随 #45 整体删除，根兜底接收人现由**路由树根节点的 `receiver` 字段**直接承载（根节点也是 `POST /routes` 的 route_tree 输入之一）。配套的护栏③ / 「mode 不判」注 / 死接收人提示逻辑一并失效（`dead_receivers` 字段自 `GET /routes` 删除，#46：未被引用是正常状态）。历史细节见 git 历史与 dev-feedback #38–#44 对应补登。
 
-> **⚠️ 关键非直觉事实：根兜底接管「不判 `mode`」（2026-10-02 显式补登，dev-feedback #38 / 提案 §6.3）**
-> 第 7 条的门禁**只判 `Enabled && DefaultReceiver != ""`，与路由模式 `mode` 无关**——代码级依据：
-> `platform/configcenter/generator/notify_route_skeleton.go::MaterializeRootRouteReceiver`（`if !in.Enabled || in.DefaultReceiver == ""` 即返回，函数签名内**无 `mode` 入参**）；
-> `platform/configcenter/draft/service.go`（`buildArtifacts` 调用点不判 mode）；`platform/models/alertmanager_route_setting.go::EffectiveDefaultReceiver` 同样不判 mode。
-> ⇒ **即使 `mode=handwritten`（路由规则由用户手写维护），只要开关开启，平台仍会替换根 `route.receiver` 这一个键。**
-> 「手写模式」不等于「平台零写入」——它只保证平台不写 `route.routes[]`（§11.10 显式红线），**不**豁免根兜底单键。
-> 对照：完整预置种子 `SeedManagedRoutePreset`（dev-feedback #33）**有** managed 门禁（`platform/configcenter/draft/service.go`），两者不可类比。
-> **消费侧要求**：任何 UI / 文档表述不得据此声称「手写模式下平台不接管」；告警配置页 `policySummary` 与 §6.3 回归用例即为此护栏。
-> **若将来给该函数补 `mode` 门禁**，属契约变更：须同步 §11.10 归属边界表、告警配置页状态句口径与 `AlertConfigPage.test.tsx` 的「§6.3」用例。
+### 11.7 渠道 ↔ 模板绑定（演进后口径：绑定不进 yml，桥投递时实时解析，#46/#48）
 
-> **UI 口径（2026-10-02 更新，dev-feedback #39）**：「平台自动生成的接收人」只读预览已**由告警配置页迁至「通知渠道」页**（作为渠道表格「平台接收人」列，列内只给结论；片段 YAML 与复制仍由该页行内「接收人配置」抽屉承载，单一来源）。告警配置页不再展示派生产物预览，仅保留前往渠道页的链接。
-
-### 11.7 渠道 ↔ 模板一等绑定（dev-feedback #30 增量，2026-09-30）
-
-把桥早已支持的 `?template=` 从「隐藏 query」升级为**渠道属性**，让「复制并自定义模板 → 渠道绑定 → 真正生效」形成闭环：
-
-- **数据**：`NotifyChannel.default_template_id`（`null` / 缺省 = 用内置默认模板，存量零影响；迁移为 SQLite ADD COLUMN nullable，不回填）。渠道 CRUD 前置校验「模板存在 + `channel_type` 与渠道一致」，否则 `bad_request`（见 §11.1）。
-- **桥选模板优先级**：显式 `?template=` > 渠道 `default_template_id` > 该渠道类型的内置默认模板。第 2 级**优雅回落**——绑定指向已删/类型不符/脏数据时记 warning 并回落内置默认，**不返回 4xx**（绑定失效不应让该渠道告警整体投递失败、令 AM 无限重试）。
-- **M09 物化**：`bridgeReceiverURL` 对已绑定渠道输出 `?channel=<ID>&template=<ID>`；绑定变化由 §11.6 第 5 条的「平台 receiver 地址演进原地更新」承载，因此**绑定随物化持久、不被重算覆写**。
-- **接收人片段**：§11.4 的 `url` / `snippet` 与 M09 物化同源，绑定时同样带 `&template=<ID>`（避免「参考片段」与实际下发口径漂移）。
-- **前端**：渠道新增/编辑抽屉在「渠道类型」与「机器人 Webhook」之间提供「通知模板」下拉（仅列该渠道类型的模板，内置置顶标注「平台内置默认」；切换类型重置该下拉）；模板页内置区补「复制出的模板需在通知渠道中绑定才会生效」引流链接（双向引流）。
-- **来源**：设计提案 `design-proposals/notify-template-channel-binding.md`（方案 B）。
+- **数据**：`NotifyChannel.default_template_id`（`null` / 缺省 = 用该渠道类型的内置默认模板；迁移为 SQLite ADD COLUMN nullable，不回填）。渠道 CRUD 前置校验「模板存在 + `channel_type` 与渠道一致」，否则 `bad_request`（见 §11.1）。
+- **选模板优先级**（桥投递时**实时读 DB**，#46）：渠道 `default_template_id` → 该渠道类型的内置默认模板。第 2 级**优雅回落**——绑定指向已删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回 4xx**（绑定失效不应拖垮该渠道整条投递、令 AM 无限重试）。
+- **URL 口径（#46）**：receiver `webhook_configs.url` **只带 `?id=<渠道ID>`**——原 `?channel=` / `&template=` 参数退出，模板不再进 yml；换绑模板 / 改模板内容**立即生效**，不产生 M09 变更单、不 reload。`webhook` 类型不涉及模板（#48 禁止绑定，IM 切到 `webhook` 自动清空）。
+- **模板规则（#48）**：IM 类型（飞书 / 钉钉 / 企业微信）创建 / 编辑**必须绑定模板**——飞书自动选中内置「飞书卡片-默认」；钉钉 / 企业微信无内置模板（#47 拍板不新增），必须选自定义模板，否则前端 / 后端均拒绝；贴图模板改绑时同样执行上述校验。
+- **前端**：渠道编辑抽屉「通知模板」下拉只列该渠道类型的模板（内置置顶标注「平台内置默认」；切换类型重置该下拉并按 #48 必填规则执行）；模板页内置区保留「复制出的模板需在通知渠道中绑定才会生效」引流（双向引流保留）。
+- **来源**：设计提案 `design-proposals/notify-template-channel-binding.md`（方案 B，`?template=` 隐藏阶段）+ 2026-10-22/23 #46/#48 收口。
 
 ### 11.8 与既有章节的 diff
 
@@ -449,35 +424,20 @@
   - §3 标注 `POST .../config/versions/{id}/remount` **已无前端调用方**（保留不下线，v0.3 再决定），并显式区分 §11.1 的模板 remount（语义不同、仍在用）。
   - §11.6 UI 口径更新：派生产物预览由告警配置页迁至通知渠道页。
   - **端点 / 字段 / 鉴权全部零变更**，纯口径补登。
+- **2026-10-22/23 as-landed 同步（dev-feedback #45–#52，端点 / 字段 / 鉴权大变更）**：§3 / §11.1 / §11.2 / §11.3 / §11.4 / §11.6 / §11.7 / §11.9 / §11.10 已按 as-landed 契约全面重写——①默认配置 seed 入库（`seed.EnsureDefaultAlertmanagerConfig`），路由页只读 / 编辑同源，删除「未配置」合成占位；②`POST /routes` 后端生成 YAML，删前端生成链路与「重新载入当前配置」；③接收人合法集合 = `default` ∪ `notify-<ID>`；④模板改可变实体（去 checksum / status / remount）并退出 yml（`?id=` 单参数）；⑤只物化被路由引用渠道、去 `enabled`、去 `dead_receivers` 提示；⑥渠道五列通用化 + 删除保护（409）+ 去内部桥令牌 + 钉钉加签补实现；⑦`webhook` 渠道类型 + IM 模板必填 + 脱敏回填；⑧`BuildAlertmanagerConfig` 唯一生成规则 + 删导入 / 重挂端点（§3）。被替代的历史口径在各节以「留档 / 已废止」标注保留（2026-10-02「无端点变更」补登中的护栏③ / mode 注 / dead_receivers 口径随之失效）。
 - **待设计侧回写**：本节为开发空间契约快照补登；PRD `Module_08_Alertmanager_Notification_Management.md`（`docs/02-product-requirements/`，开发 Agent 不可写）的 §3.3.5 / §5 / §6 需由 design 侧（prototype-designer / Orchestrator）同步 PL-3 端点与 B 路线物化行为。
 
-### 11.9 路由设定与只读路由视图端点（决策 113 口径 C / 决策 114）
+### 11.9 路由视图与保存端点（`POST /routes` 收口 #45；只读视图字段更新）
 
-**`GET|PUT /api/v2/platform/alertmanager/route-setting`**（`platform/alertmanager/route/setting_handler.go`；注册 `platform/alertmanager/register.go`）——默认接收人 = 授权平台接管根兜底 `route.receiver` 单键。
-
-`RouteSettingView`（响应 `data`）：
-
-| 字段 | 类型 | 说明 |
-| ---- | ---- | ---- |
-| `enabled` | bool | 平台当前是否**正在接管**根兜底（= `effective_source == explicit`） |
-| `default_receiver_channel_id` | number? | 持久化的设定值（**`null` = 不接管**；显式设定的渠道被停用 / 删除后**原值保留、不回写库**） |
-| `effective_receiver_name` | string | 实际（或建议）写入根 `route.receiver` 的 AM receiver 名（`NotifyChannel.ReceiverName()`，与 §11.6 receivers 物化同源） |
-| `effective_source` | enum | `explicit` / `auto_first_enabled` / `none`（见下） |
-
-- **GET（仅全局认证）**：派生三态——
-  - `explicit`：已显式设定且目标渠道存在且 `enabled=true` → `enabled=true`，平台接管中；
-  - `auto_first_enabled`：**未设定**但存在已启用渠道 → 取已启用渠道按 id 升序第一个作 `effective_receiver_name`，**仅 UI 建议**，`enabled=false`（**产物字节不变**）；
-  - `none`：无生效接收人（显式目标渠道停用 / 删除，或平台无任何已启用渠道）。
-  - **响应不含桥令牌等敏感值**。
-- **PUT（挂 `RequireAdmin`）**：收 `{ default_receiver_channel_id: number | null }`；`null` = 关闭接管（护栏③）；非 `null` 时校验目标渠道存在且已启用，否则 `bad_request`；未认证 `401` / 非 admin `403`。写入后**与挂载同构**（触发 M09 管理域变更重算 → 产出 pending 变更单）；**2026-10-09 起不再自动确认下发**（与路由结构调整同一口径，改兜底接收人属高危变更，须经 M09 人工确认），**响应不含下发状态**（决策 60 冻结：M08 不驱动下发状态）。
+> 历史 **`GET|PUT /route-setting`**（根兜底接管设定，决策 113 口径 C / 决策 114）已随 #45 **整体删除**——根 `route.receiver` 由路由树根节点的 `receiver` 字段直接承载（同属 `POST /routes` 的 route_tree 输入），不再有独立接管开关；`AlertmanagerRouteSetting` 模型、`setting_handler.go` 一并删除。原 `RouteSettingView` 字段表与 `explicit` / `auto_first_enabled` / `none` 三态派生口径仅属历史留档，不再赘述。
 
 **`GET /api/v2/platform/alertmanager/routes`**（`platform/alertmanager/route/handler.go`；仅全局认证、**只读、无写能力**）：
 
-- 成功 → `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver], declared_receivers: [string] }`；`mode ∈ { handwritten, managed }`（取自 `AlertmanagerRouteSetting.mode` 持久化值，存量未设定行归一为 `handwritten`）。
-- 解析失败 / 非常规结构 → **200** + `{ mode, parse_error, raw_yaml, declared_receivers }`（前端降级为原文只读展示，**绝不 500、不白屏**）。`declared_receivers` 与 route 解析**相互独立**，故降级分支同样携带。
-- `items` 为**前序扁平数组**，`items[0]` 恒为根路由。
-
-> **`mode` 的用户可见词 ≠ 枚举值**（2026-10-08 修订，枚举值不变，仅 UI 措辞变）：`handwritten` 在界面上呈现为**「我来编辑」**（路由规则页可写，用户在页面逐条增删改）；`managed` 呈现为**「平台生成」**（路由规则页只读，整份配置由用户在告警配置页高级区手写）。旧措辞「我手写 / 平台管理」被实测判为歧义——「我手写」天然承诺"我在页面里写"，而其实际含义是"平台别生成路由段、我自己去高级区手写 YAML"，该层含义只写在二次确认弹窗里，用户选后见页面变只读即判为功能故障。契约的 `mode` 语义（单一作者：route 段要么平台生成、要么用户手写，二者互斥）**未变**。
+- 成功 → `{ items: [RouteNode], declared_receivers: [string], effective_checksum: string, pending: { change_no, created_at } | null }`；
+- 解析失败 / 非常规结构 → **200** + `{ parse_error, raw_yaml, declared_receivers, effective_checksum, pending }`（前端降级为原文只读展示，**绝不 500、不白屏**）——`declared_receivers` 与 route 解析**相互独立**，降级分支同样携带；
+- `items` 为**前序扁平数组**，`items[0]` 恒为根路由；响应不含 webhook URL / 桥凭据等敏感值。
+- **新增字段（#45）**：`effective_checksum` = 当前产物 `alertmanager.yml` 的 checksum（进入编辑时由前端保存为 `base_checksum`，提交 `POST /routes` 作乐观锁基线）；`pending` 非空 = 管理域存在存活 pending 变更单 → 前端展示「**当前显示的是待确认版本**」横幅。
+- **删除字段**：`mode`（`handwritten` / `managed` 随 `AlertmanagerRouteSetting` 删除；2026-10-08 用户可见词「我来编辑 / 平台生成」失去枚举对应，随节留档失效）；`dead_receivers`（#46：未被路由引用是正常状态，不再提示「渠道开了却无规则指向」，字段与前端卡片一同删除——2026-10-08「`declared_receivers` 与 `dead_receivers` 口径故意不同」注随之失效）。
 
 `RouteNode` 字段：
 
@@ -494,38 +454,30 @@
 | `order` | int | 同级 `routes[]` 下标（0-based；根恒 0） |
 | `locked` | bool | 根路由 `true`（不可删、不可移） |
 
-`declared_receivers`：**生效配置 `receivers:` 段已声明的接收人名全集**（按声明顺序、去重；解析实现 `platform/alertmanager/route/declared_receivers.go::ParseDeclaredReceivers`）。含**用户手写** receiver。非敏感：只回显 AM 里本就公开的标识符，**不含 webhook URL / 桥令牌**，故与本端点「仅全局认证」的鉴权级别相符。
+`declared_receivers`：**生效配置 `receivers:` 段已声明的接收人名全集**（按声明顺序、去重；解析实现 `platform/alertmanager/route/declared_receivers.go::ParseDeclaredReceivers`）。非敏感：只回显 AM 里本就公开的标识符，**不含 webhook URL / 桥凭据**。
 
-> **关键非直觉事实：`declared_receivers` 与 `dead_receivers` 口径故意不同，勿混淆、勿合并**（2026-10-08 缺陷修复）：
->
-> | 字段 | 集合 | 用途 | 是否含手写 receiver |
-> | ---- | ---- | ---- | ---- |
-> | `declared_receivers` | 文件 `receivers:` 段声明名**全集** | 判「路由引用的接收人是否**悬空**」 | **含** |
-> | `dead_receivers` | 平台命名空间（已启用渠道 `ReceiverName()`）**子集** | 提示「渠道开了却无任何规则指向它」 | **不含** |
->
-> - 修复前，前端保存前预检的 `knownReceivers` **只取平台物化名**，把用户手写在 `receivers:` 段里的 receiver 判为悬空。实测：生效配置中手写 `feishu`（指向用户自建通知脚本地址）与平台物化 `notify-1` 共存，而根路由 + 4 条子路由**全部引用 `feishu`** → 5 个节点全命中 `receiver_dangling`，页面进入「不能新建也不能保存」的死锁（保存被预检阻断，而新建按钮又依赖编辑态）。
-> - 修复后前端 `knownReceivers` = `declared_receivers` ∪ 平台物化名，与 §11.6 生成侧早已存在的「**可达 receiver 集合 = 文件 `receivers` ∪ `PlatformReceiverNames`**」（`generator/notify_route_skeleton.go::RootRouteInput` 注释）**完全对齐**——此前前端是该口径的唯一例外，属口径漂移。
-> - **平台物化名必须并入**：渠道已启用但配置尚未重新生成时，名字此刻还没落盘，否则会误判悬空。
-> - `dead_receivers` **不**纳入 `declared` 集合：用户手写 receiver 的存废归用户，平台无权判其为死配置（dev-feedback #26 边界）。
-> - 任一来源取数失败即降级为空；两者皆空时前端**不判悬空**（不阻断）。
+> **接收人悬空判定合法集合（#45 / #46 收口后）**：`default` ∪ 全量渠道 `notify-<ID>`——后端 `route/validate.go` / `save_handler.go` 与前端接收人下拉、保存预检**双端同源**；悬空 `receiver_dangling` 阻断保存。2026-10-08「knownReceivers = `declared_receivers` ∪ 平台物化名」口径废止——#51 唯一生成规则下产物 `receivers:` 段恒为 `default` + 平台物化名，**不再存在手写 receiver**（历史手写名由整份重建覆盖移除），声明集合与合法集合天然一致；2026-10-08 的手写 receiver 误判死锁属已被根因消除的历史缺陷，dev-feedback #26「手写 receiver 存废」边界一并失效。
 
-> **数据源口径（决策 114 第 3 条，缺陷修复）**：`/routes` 的**数据源为「平台最新产物视图」**，按新鲜度解析——管理域最近一条**未废弃草稿**产物 → 管理域最近一条 `ConfigVersion` 产物 → 两者取新 → 都无时退化为 M08 挂载留痕（`platform/alertmanager/route/handler.go::effectiveAlertmanagerYAML`）。**不是**挂载留痕原文——留痕原文既不含 receivers 物化、也不含根兜底接管结果，会让页面根 `receiver` 与磁盘实际生效配置（`config-output/alertmanager.yml`）不一致，并把**已被根路由引用的平台 receiver 误报为死配置**（与原实现缺陷、与本功能立身点「消解死接收人」直接相冲）。教训：「当前生效」必须锚定 M09 **产物**，而非 M08 **挂载留痕**。
+> **数据源口径（决策 114 第 3 条，保留）**：`/routes` 的数据源为「**平台最新产物视图**」，按新鲜度解析——管理域最近一条**未废弃草稿**产物 → 管理域最近一条 `ConfigVersion` 产物 → 两者取新 → 都无时退化到 **seed 默认配置**（#45 起 `seed.EnsureDefaultAlertmanagerConfig` 在无 applied 版本时写入与 `deploy/alertmanager/alertmanager.yml` 一致的默认根路由——默认配置入库，磁盘文件退出运行时事实源；路由页删除「未配置」标签与 `emptyRouteTree()` 合成占位；M08 挂载留痕原文仅作末端兜底）（`platform/alertmanager/route/handler.go::effectiveAlertmanagerYAML`）。教训不变：「当前生效」必须锚定 M09 **产物**，而非 M08 **挂载留痕**。
 
-> **前端编辑态：首屏自动导入（2026-10-08 缺陷修复）**——`RoutesPage` 的「新建路由规则」/「保存并提交变更」按钮均为 `disabled={!editing}`（`editing = importState !== 'empty'`）。此前 `importState` 恒从 `'empty'` 起步 ⇒ 两个主按钮**首屏恒灰**，用户必须先点「从当前配置导入」才进入编辑态，而该按钮在首屏语境下更像「可选的导入动作」而非「开始编辑的前置步骤」，于是「新建按钮永远是灰的」成为实测阻断缺陷。现改为：只读树加载完成（`useRoutes().ready`）且**解析成功** → `useRouteEditor` 自动导入（`autoImportedRef` 幂等锁，只触发一次，不冲掉用户正在进行的编辑）。**解析失败时刻意不自动导入**——降级为「部分导入 + 手动校正」是用户需知晓的事实，静默塞一棵空白树会让降级不可见。用户后续点同一按钮 = 显式「重新载入」，且经 `confirmReload` 二次确认（丢弃未保存编辑属破坏性操作，不做静默覆盖）。
+> **前端交互流（#45，取代 2026-10-08「首屏自动导入」口径）**：路由页**默认只读**，仅保留「编辑路由」入口；进入编辑先刷新 `GET /routes` 并以回传的最新数据载入；编辑态只保留「新建 / 保存 / 放弃」，删除「重新载入当前配置」按钮与 `confirmReload` 二次确认；保存成功回只读态并提示待确认；`pending` 非空时展示「当前显示的是待确认版本」横幅，变更单确认 / 废弃后横幅自动消失。「新建 / 保存按钮首屏恒灰」的历史缺陷随交互流重做一并消除。
 
-### 11.10 归属边界表（对齐 PRD §4.1.1 权威规则表，决策 113）
+**`POST /api/v2/platform/alertmanager/routes`**（`platform/alertmanager/route/save_handler.go`；`RequireAdmin`，#45 新增）：
 
-> **前置事实**：平台恒只写 `config-output/alertmanager.yml` **一个文件**（`platform/configcenter/deployment/service.go`）；Alertmanager 顶层键仅 `global / route / inhibit_rules / receivers / templates / mute_time_intervals / time_intervals`，**无 `route_files`**（`upstream/alertmanager/config/config.go`）。故 PRD 早期「手写模式经 `route_files` 合并平台片段」表述在现网形态下不可实现，已废；正确落点为「开关开启时原地替换根 `route.receiver` 单键」。
+- 请求 `{ base_checksum: string, route_tree: [RouteEditNode] }`——**前端不再生成任何 YAML**（原前端 `routeTree.ts::generateRouteSection` / `mergeRouteSection` 退出保存链路，仅保留为与 Go 生成器对齐的纯函数测试镜像），只提交树 + 乐观锁基线。
+- 后端链路（#51 定稿）：乐观锁校验（`base_checksum` ≠ 当前生效 checksum → **409** 冲突，提示刷新后重试）→ 树 / 接收人校验（合法集合见上，`receiver_dangling` 阻断）→ `generator.GenerateRouteSection` → `generator.BuildAlertmanagerConfig`（#51 唯一规则）→ `config.Submit`（`amtool check-config` 校验 + 版本落库留痕 + 触发 M09 管理域变更单，状态 `pending` **待人工确认**，不自动确认下发）。
+- 响应 `{ version: <AlertmanagerConfigVersion>, change_no? }`；校验失败 → `bad_request` + amtool 行级错误（同 §3「校验失败返回」口径）。
+- 历史「前端生成 YAML 整份提交 `POST /config` 导入」保存链路废止（端点本身随 #52 删除）。
+
+### 11.10 归属边界表（2026-10-23 起收敛为「平台唯一作者」，#51 / #52）
+
+> **前置事实**：平台恒只写 `config-output/alertmanager.yml` **一个文件**（`platform/configcenter/deployment/service.go`）；Alertmanager 顶层键仅 `global / route / inhibit_rules / receivers / templates / mute_time_intervals / time_intervals`，**无 `route_files`**（`upstream/alertmanager/config/config.go`），PRD 早期「手写模式经 `route_files` 合并平台片段」表述早已不可实现。**2026-10-23（#51）**：alertmanager.yml 收敛为**唯一生成规则**——任何重新生成路径都输出同一份完整文件，「手写段保留 / 根 receiver 单键替换」历史口径废止，`mode` 单一作者模型随之删除；告警配置唯一写入口 = 路由规则页（导入 / 重新挂载端点已删，#52，见 §3）。
 
 | 段 | 作者 | 平台行为 | 用户行为 | 冲突处理 |
 | ---- | ---- | ---- | ---- | ---- |
-| `global` | 平台 | 生成 | 只读 | 手改被平台下次生成覆盖（仅限平台拥有的键） |
-| `route` | **单一作者**（模式决定） | 平台模式：整棵生成；手写模式：**仅原地替换根 `route.receiver` 单键** | 手写模式：整棵手写；平台模式：只读 | 由模式决定，**不存在同时写** |
-| `receivers` | **双作者**（命名空间区分） | 追加 / 更新**平台槽位** | 手写自有 receiver | 平台槽位：**原地更新**（地址演进不算冲突）；非平台槽位同名 → `failed + user_config` + 行级错误，**绝不覆盖** |
-| `inhibit_rules` | 平台 | 自动生成（网域离线场景） | 可手写追加 | 现状不变 |
-| `templates` / `mute_time_intervals` | 用户 | 不触碰 | 手写 | — |
+| `global` | 平台 | 生成（当前固定 `resolve_timeout: 5m`） | 只读 | 不存在冲突——整份重建即覆盖 |
+| `route` | **平台唯一作者** | 保存 / 生成两入口统一经 `BuildAlertmanagerConfig` 整棵生成 | 经路由规则页编辑（唯一写入口） | 手改磁盘文件只维持到下次重算即被整份覆盖（决策 114 挂载留痕不追认） |
+| `receivers` | **平台唯一作者** | `default`（空）+ 被路由引用渠道 `notify-<ID>`（按渠道 ID 升序，完整桥 URL） | 无 | 历史手写同名 receiver 由平台产物直接覆盖（#51 同步删除「绝不覆盖」冲突校验与行级错误分支） |
+| `inhibit_rules` / `templates` / `mute_time_intervals` | — | 不生成（能力未 UI 化，未来接入时在唯一生成规则内统一增加） | 无 | 存量内容在整份重建中丢弃（#51；升级前已存在的 pending 单需重新保存） |
 
-- **根兜底归属**：具体分流 `route.routes[]` = 用户（平台管理模式 = 前端表单生成；手写模式 = 手写）；**根兜底 `route.receiver`** 在用户选定默认接收人（开关开启）后由平台接管。
-  - ⚠️ **该接管不判 `mode`**（显式声明见 §11.6 护栏③之后的「关键非直觉事实」注）：**手写模式下开关开启，平台同样替换根 `route.receiver`**。
-    本表 `route` 行「手写模式：仅原地替换根 `route.receiver` 单键」即此意——手写模式**保留**这一项替换，**不是**「平台完全不写 route」。
-- **显式红线（不可越）**：平台**绝不写 `route.routes[]`**、绝不触碰根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue`；**仅替换根 `receiver`**。变更单会明示「根兜底被平台重建」（护栏②，复用 §4.5 既有「route 被外部改动不静默」机制，不新增机制）。
+- 历史口径（留档废止）：「route / receivers 双作者 + 根兜底单键替换 + 手写段保留」——随 #45（删 route-setting / mode）与 #51（唯一生成规则）失效；「绝不写 `route.routes[]`」「该接管不判 `mode`」两条显式红线注随之作废（平台现在整棵写 `route`，这正是「平台唯一作者」收口的目的）。
