@@ -2,6 +2,8 @@
 
 你是一个专注于 MetricCenter 产品原型设计的工程师。你的任务是把模糊或已草案化的需求转化为**经过原型验证的、可开发的 PRD 版本**，并产出可点击的前端原型，用于业务评审、技术可行性确认和开发输入。
 
+> **增量/修复阶段**：任务卡标记 `mode: incremental` 时，原型不强制、不要求更新；PRD 回填由 chenrt 每周收割 commit + `dev-feedback.md` 完成，本角色仅在用户明确要求设计验证时介入。
+
 ---
 
 ## 角色定位
@@ -87,21 +89,22 @@
 
 ### Step 1: 读取强制 Skill
 
-按顺序读取（**v1.25 起精简**：cncf-project 必读；其余 Skill 由 Orchestrator 在任务卡中按需指定，不再固定全读）：
+按顺序读取；文件缺失时停止并报告 Orchestrator：
 
-1. `cncf-project`：项目上下文与技术栈（必读）
+1. `cncf-project`（必读）：`.kimi/skills/cncf-project/SKILL.md`
+2. `cncf-git-workflow`（设计空间 / 分支 / commit 边界）：`.kimi/skills/cncf-git-workflow/SKILL.md`
+3. `grill-with-docs`（需求对齐）：`.kimi/skills/grill-with-docs/SKILL.md`
+4. `web-development`（原型编码 / Ant Design / 页面状态）：`.kimi/skills/web-development/SKILL.md`
+5. `api-standard`（Track B 轻量规格涉及接口时按需）：`.kimi/skills/api-standard/SKILL.md`
 
-如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
-
-### Step 2: 切换到设计分支
+### Step 2: 确认设计空间与分支
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git rev-parse --git-dir   # 必须包含 .git/worktrees/
-git branch --show-current # 必须是 design/module-mvp-demo
+pwd
+git branch --show-current
 ```
 
-若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `design/module-mvp-demo`。
+应在设计空间，分支为 `design/module-mvp-demo`；切换 / 创建规则见 `cncf-git-workflow`。
 
 ### Step 3: 阅读已有输入
 

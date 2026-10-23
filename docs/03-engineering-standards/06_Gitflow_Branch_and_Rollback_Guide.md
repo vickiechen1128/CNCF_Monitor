@@ -393,7 +393,7 @@ git checkout -b hotfix/vX.Y.Z baseline/v0.1-mvp
 ### 7.2 feat/module-XX 合并条件
 
 1. zhangwq（SRE 工程师 / 工程质量 Owner）完成代码 Review 并确认通过
-2. 提交前验证全部通过（`go test` / `go vet` / `pnpm test` / `pnpm lint` / 服务启动）
+2. 提交前验证全部通过（按 `04_Testing_Standard.md` §4 与 `testing-tdd` §6；前端全量 `pnpm test` 仅在 `testing-tdd` §4.2 适用时执行）
 3. 变更范围符合 Module 文档和 `docs/prototypes/module-XX/` 原型，未混入其他模块改动
 4. commit message 符合规范，并关联执行记录
 5. 预览环境部署成功，chenrt / zhaohy / guixm 通过预览链接验收
@@ -419,7 +419,7 @@ zhangwq 提交的合并申请应包含：
 **来源原型**：docs/prototypes/module-XX/
 **预览链接**：https://...
 **变更范围**：列出新增/修改文件
-**测试结果**：go test / go vet / pnpm test / pnpm lint 结果
+**测试结果**：按 `testing-tdd` §6 的测试 / lint / 服务验证结果，并注明是否执行全量 `pnpm test` 及理由
 **服务验证**：后端/前端服务启动验证结果
 **Review 结论**：自查通过 / 问题已修复
 **业务验收**：zhaohy / guixm / chenrt 已 Approve
@@ -441,7 +441,7 @@ zhangwq 提交的合并申请应包含：
 
 ### 8.2 Commit 规范
 
-> **v1.25 去重**：Commit 规范的**唯一权威定义在 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §3.6**（design/ 与 feat/ 提交格式、示例）。本文件不再重复，提交时以 05 §3.6 为准。
+> **v1.28 去重**：Commit 格式、类型、scope、task id 与提交单元的权威定义在 `.kimi/skills/cncf-git-workflow/SKILL.md` §4 / §5；人视角示例见 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §3.6。本文件不再重复。
 
 关键要求速查：每个 feat 提交必须对应到某个 Agent 的一次执行记录（`docs/05-execution-records/module-XX/<agent>.md`），格式 `feat(module-XX): <动作> - <简短描述>`。
 

@@ -24,7 +24,7 @@ Orchestrator 接收需求
     ├──► Planner 输出模块任务规划（明确 feature/module-XX-<功能名> 分支）
     ├──► [开发空间] Backend / Frontend Developer TDD 开发（提交到 feat/module-XX-<功能名>）
     ├──► Reviewer 代码审查（如 REQUEST_CHANGES，返回 Developer 修复）
-    ├──► [开发空间] 验证运行状态（后端 go test/vet+接口；前端 pnpm test/lint+dev server）
+    ├──► [开发空间] 验证运行状态（按 testing-tdd 矩阵；后端接口 200 / 前端 dev server 200）
     ├──► Orchestrator 将 feat 分支 --no-ff 合并到 develop
     ├──► 在 develop 环境中再次验证运行状态（如失败回退或修复）
     └──► 开发空间保留，切换到下一模块 feat 分支
@@ -80,7 +80,8 @@ Orchestrator 接收需求
 
 | 文档 | 用途 |
 |------|------|
-| `.kimi/agents/*.md` | **Agent 行为规则唯一权威**（工作流 / 调用规范 / 验收要求） |
+| `.kimi/agents/*.md` | **Agent 角色、边界、权限与专属流程**（工作流 / 调用规范 / 验收要求） |
+| `.kimi/skills/` | **通用规范单一源**（Gitflow / 目录 / API / TDD / R1–R4 / 审查）；`.agents/skills/` 为生成镜像 |
 | `.kimi/AGENTS.md` | Agent 角色与标准工作流总览 |
 | `docs/02-product-requirements/Modules/Module_XX_*.md` | 模块需求（PRD） |
 | `docs/03-engineering-standards/00_Engineering_Standard.md` | 目录结构和技术栈 |
@@ -117,28 +118,21 @@ Orchestrator 接收需求
 
 ### 3.5 提交前必须验证运行状态
 
-- 后端：除 `go test`/`go vet` 外，必须启动服务验证关键接口返回 200
-- 前端：除 `pnpm test`/`pnpm lint` 外，必须启动 dev server 验证页面返回 200
-- 验证完成后必须停止服务并释放端口
-- 详细命令见 [`04_Testing_Standard.md`](04_Testing_Standard.md)
+- 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.kimi/skills/testing-tdd/SKILL.md` §6 的验证矩阵执行。
+- 后端：目标包测试 + `go vet`，并启动服务验证关键接口返回 200。
+- 前端：单文件 / 变更范围回归 + `pnpm lint`，并启动 dev server 验证页面返回 200；全量 `pnpm test` 仅在 `testing-tdd` §4.2 允许的情形下执行。
+- 验证完成后必须停止服务并释放端口。
 
 ### 3.6 Commit 规范
+
+Commit 格式、类型、scope、task id、执行记录关联与提交单元的权威定义在 `.kimi/skills/cncf-git-workflow/SKILL.md` §4 / §5；本节只保留人视角示例。
 
 每次 commit 必须能对应到某个 Agent 的一次执行记录：
 
 ```
-<模块>: <动作> - <简短描述>
+feat(module-07): 实现资源 CRUD API（T07-05）
 
-- 关联执行记录: docs/05-execution-records/module-XX-<功能名>/<agent>.md
-- 变更范围: platform/xxx, ui-custom/web/xxx
-```
-
-示例：
-
-```
-module-07-resource-management: 实现资源 CRUD API
-
-- 关联执行记录: docs/05-execution-records/module-07-resource-management/backend-developer.md
+- 关联执行记录: docs/05-execution-records/module-07/backend-developer.md
 - 变更范围: platform/config/resource/
 ```
 

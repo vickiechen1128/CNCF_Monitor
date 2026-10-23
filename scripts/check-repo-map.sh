@@ -6,8 +6,7 @@
 #
 # 退出码：0 = 新鲜；1 = 过期/缺失/环境不可用。
 #
-# 调用方：git pre-commit hook、CI（check-repo-map.yml）、review-precheck.sh、
-# 以及手动执行 `make check-repo-map`。
+# 调用方：手动执行 `make check-repo-map`（可选；不再作为 git hook / CI 门禁）。
 
 set -euo pipefail
 

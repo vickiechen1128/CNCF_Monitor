@@ -1,0 +1,36 @@
+name: Check Skills Sync
+
+# 校验 .agents/skills 与单一源 .kimi/skills 保持一致。
+# 单一源：.kimi/skills/
+# 共享镜像：.agents/skills/（OpenCode / Trae / Kimi Code CLI 自动发现）
+
+on:
+  pull_request:
+    paths:
+      - '.kimi/skills/**'
+      - '.agents/skills/**'
+      - 'scripts/sync-skills.sh'
+      - '.github/workflows/check-skills-sync.yml'
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - '.kimi/skills/**'
+      - '.agents/skills/**'
+      - 'scripts/sync-skills.sh'
+      - '.github/workflows/check-skills-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  skills-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check skills mirror
+        run: bash scripts/sync-skills.sh check

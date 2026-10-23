@@ -3,8 +3,8 @@
 > 文档类型：工程标准
 > **目标读者**：后端开发工程师、前端开发工程师（编码前必读）、技术架构师（质量门禁 / 覆盖率评估）
 > 目标：建立后端与前端的测试规范，确保改造后的 Prometheus 稳定可靠。
-> **权威定位（v1.25）**：本文档 §4「提交前验证清单」为测试 / lint / 服务启动验证的**唯一权威**，其他标准（01 §5、02 §6）只做引用。
-> 更新日期：2026-08-22（v1.26 新增前端单文件测试粒度与 flaky 处理原则）
+> **权威定位（v1.27）**：本文档 §4「提交前验证清单」是工程标准层面的最低提交门禁；可执行命令、测试范围分级、全量测试适用条件与 flaky 细则以 [`.kimi/skills/testing-tdd/SKILL.md`](../../.kimi/skills/testing-tdd/SKILL.md) 为准，两者冲突时执行更严格者。其他标准（01 §5、02 §6）只做引用。
+> 更新日期：2026-10-23（v1.27 对齐 `testing-tdd`：前端全量测试不再作为默认收尾动作）
 
 ---
 
@@ -73,11 +73,25 @@
 
 ### 4.1 静态检查
 
-- [ ] 通过 `go test ./platform/...`
+- [ ] 后端开发中通过目标包测试：`go test ./platform/<pkg>/...`
+- [ ] 后端 Phase 收尾 / 合并前通过全量：`go test ./platform/...`
 - [ ] 通过 `go vet ./platform/...`
 - [ ] 前端通过 `pnpm lint`
-- [ ] 前端单任务验证通过 `pnpm vitest run <具体测试文件>`（开发期每个任务必须）
-- [ ] 前端全量回归通过 `pnpm test`（仅在 Phase 收尾、合并前、CI 中执行）
+- [ ] 前端单任务验证通过：`pnpm vitest run <具体测试文件>`（开发期每个任务必须）
+- [ ] 前端 Phase 收尾 / 合并前通过变更范围回归：
+  ```bash
+  cd ui-custom/web
+  pnpm run typecheck:test
+  pnpm vitest run --changed ../origin/develop
+  pnpm lint
+  pnpm build
+  ```
+- [ ] 全量 `pnpm test` 仅在以下情形执行，并在执行记录说明理由：
+  1. 用户明确要求；
+  2. 合并 / 发 PR 前最终把关，或 CI 全量回归；
+  3. 改动跨 ≥3 个顶层目录，或触及 `src/api/`、`src/types/`、`src/test/` 等共享层。
+
+> 全量前端测试在 8 GB 机型实测约 17 分钟（94 文件 / 915 用例），慢在文件数 × 模块转换开销。禁止为提速调高 `maxWorkers`、改 `pool`、删测试或加 `.skip`；详见 `testing-tdd` §4.2。
 
 ### 4.2 服务启动验证
 

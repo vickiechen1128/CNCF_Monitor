@@ -151,10 +151,11 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 
 > **v1.25 去重**：测试 / lint / dev server 启动验证的完整命令与流程见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4（前端部分）；本节仅保留要点提醒。
 
-- 除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问（`curl` 首页返回 200）；
+- 测试与 lint 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.kimi/skills/testing-tdd/SKILL.md` §6 执行：单任务默认单文件 / 目录测试；Phase 收尾用 `typecheck:test` + `--changed` + `lint`；全量 `pnpm test` 仅 `testing-tdd` §4.2 三种情形；
+- 必须验证前端 dev server 能实际启动并访问（`curl` 首页返回 200）；
 - 如果模块新增/修改了页面，必须额外访问对应路由验证；
 - 验证完成后必须停止服务，避免端口占用；
-- 完整命令见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4.2。
+- 完整命令见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4.2 与 `testing-tdd` §6.2。
 
 ## 7. 与 Prometheus UI 的关系
 
@@ -253,11 +254,13 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 
 | 层 | 载体 | 覆盖 |
 | --- | --- | --- |
-| 本地单测 | `pnpm test`（= `typecheck:test` + `vitest run`） | 全量类型 + 单测 |
+| 本地单测（增量） | `pnpm vitest run <目标文件>` + `pnpm run typecheck:test` | 目标行为 + 测试类型 |
+| 本地变更范围回归 | `pnpm vitest run --changed ../origin/develop` + `pnpm lint` | Phase 收尾 / 合并前 |
+| 全量回归（按需） | `pnpm test`（= `typecheck:test` + `vitest run`） | 仅 `testing-tdd` §4.2 三种情形；CI 不跑全量 |
 | 本地构建 | `pnpm build` | 生产 tsc + vite 打包 |
 | 远端 CI | `.github/workflows/check-frontend.yml` | `typecheck:test` + `build`（刻意不含全量 vitest，见 workflow 内注释） |
 
-`scripts/git-hooks/pre-commit` **不**包含前端类型门禁：单次 tsc 约 20~40 秒，与既有的秒级 `check-repo-map` 体验差异过大，且只护本地、不构成最终防线。最终防线以 CI 为准。
+`scripts/git-hooks/pre-commit` **不**包含前端类型门禁：单次 tsc 约 20~40 秒，远慢于本地提交所需的秒级反馈，且只护本地、不构成最终防线。最终防线以 CI 为准。
 
 **ESLint 配套（v1.33 起，跨模块强制）**：`eslint.config.js` 必须与 tsconfig 排除口径一致，否则类型感知 lint 会对被排除的测试文件报 `The file was not found in any of the provided project(s)`。规则：
 

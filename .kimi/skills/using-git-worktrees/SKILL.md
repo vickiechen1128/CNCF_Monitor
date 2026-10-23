@@ -1,3 +1,8 @@
+---
+name: using-git-worktrees
+description: "Git worktree 使用规范：如何创建、切换、清理 worktree，以支持多 Agent 并行开发与隔离"
+---
+
 # Git Worktree 使用规范
 
 ## 为什么使用 Worktree
