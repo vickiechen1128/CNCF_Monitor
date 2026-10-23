@@ -12,12 +12,13 @@
 //  4. `repeat_interval` 不是 `group_interval` 的整数倍时 AM 会**向上取整**（官方口径），
 //     故本函数只给 **warning**，绝不阻断保存（提案 §3.4 / §6 验收 6）。
 //
-// 校验纯函数不触碰外部二进制：生成物的 `amtool check-config` 等价校验走
-// generator.ValidateRouteSectionWithAmtool（同语义、可注入，避免测试依赖 PATH）。
+// 校验纯函数不触碰外部二进制：生成物的 `amtool check-config` 校验由保存链路
+// （config.Submit 对唯一生成规则产出的整份 alertmanager.yml）承担。
 //
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §5.2（Route 数据模型）/ §5.5（Matcher）/ §9.2；
-//   docs/05-execution-records/module-08/design-proposals/alert-route-frontend-editor.md §3.4 / §6。
+//
+//	§5.2（Route 数据模型）/ §5.5（Matcher）/ §9.2；
+//	docs/05-execution-records/module-08/design-proposals/alert-route-frontend-editor.md §3.4 / §6。
 package route
 
 import (

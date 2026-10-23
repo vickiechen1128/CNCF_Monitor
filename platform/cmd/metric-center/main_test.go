@@ -289,7 +289,7 @@ func resourcePayload(category string, overrides map[string]interface{}) map[stri
 		"app_code": "app",
 		"cluster":  "cluster-1",
 		"owner":    "ops",
-		"env": "PRD",
+		"env":      "PRD",
 		"status":   "online",
 	}
 	switch category {
@@ -682,7 +682,7 @@ func hostRows(ip, name, status string) [][]string {
 		"instance_ip":    ip,
 		"os_type":        "Linux",
 		"biz_code":       "authorized-ops",
-		"env": "PRD",
+		"env":            "PRD",
 		"owner":          "ops",
 		"status":         status,
 	})
@@ -1247,11 +1247,9 @@ func writeAMJSON(w http.ResponseWriter, v interface{}) {
 
 // TestEndToEndAlertmanagerSmoke 覆盖 T08-05 端到端冒烟：经真实路由注册串联验证
 // Module_08 告警收敛主链路——
-//   - 当前生效 / 版本列表（DB 只读端点，不依赖 amtool）初始为空；
-//   - 挂载 alertmanager.yml：amtool 在本环境不可调用，按决策 60 校验失败不落库、
-//     bad_request 且 data 带行级错误 items（印证路由已注册 + 校验短路 + 不落库）；
-//   - 直写一条 applied 留痕后当前生效可读回（config 挂载管道与 amtool 解耦，
-//     DB 是唯一事实源）；
+//   - 当前生效 / 版本列表（DB 只读端点，不依赖 amtool）；
+//   - 导入整份配置 / 重新挂载入口已删除（2026-10-23），写入口仅剩路由保存；
+//   - 直写一条 applied 留痕后当前生效可读回（DB 是唯一事实源）；
 //   - 静默列表 / 创建 / 删除：经 fake Alertmanager 代理串通（决策 56 授权收敛放行）。
 func TestEndToEndAlertmanagerSmoke(t *testing.T) {
 	r, dbm := buildIntegrationEngine(t)
@@ -1270,22 +1268,12 @@ func TestEndToEndAlertmanagerSmoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "versions 应可读：%v", out)
 	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"])
 
-	// 3. 挂载合法 alertmanager.yml：amtool 不可调用 → 校验失败不落库（决策 60），
-	//    返回 bad_request 且 data.items 带行级错误（印证路由 + 校验短路 + 不落库）；
-	//    amtool 若恰好可用（CI 注入）则版本成功留痕，两种分支均接受。
-	code, out = c.json("POST", "/api/v2/platform/alertmanager/config",
-		`{"content":"route:\n  receiver: default\nreceivers:\n  - name: default\n","uploaded_by":"admin"}`)
-	if code == http.StatusOK {
-		assert.NotEmpty(t, out["data"].(map[string]interface{})["id"], "amtool 可用时应留痕返回版本")
-	} else {
-		require.Equal(t, http.StatusBadRequest, code, "amtool 不可用应按决策 60 返回 bad_request：%v", out)
-		assert.Equal(t, "bad_request", out["errorType"])
-		items, ok := out["data"].(map[string]interface{})["items"].([]interface{})
-		require.True(t, ok, "校验失败应带行级错误 items")
-		require.NotEmpty(t, items)
-	}
+	// 3. 导入整份配置入口已删除：POST /config 不再存在（404）。
+	code, _ = c.json("POST", "/api/v2/platform/alertmanager/config",
+		`{"content":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}`)
+	assert.Equal(t, http.StatusNotFound, code, "导入整份配置入口应已删除")
 
-	// 4. 直写一条 applied 留痕（绕过 amtool 的一次确定性挂载），当前生效可读回。
+	// 4. 直写一条 applied 留痕，当前生效可读回。
 	amContent := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
 	cfg := &models.AlertmanagerConfigVersion{
 		Content:   amContent,

@@ -1,6 +1,7 @@
 package route
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
@@ -77,15 +78,17 @@ func TestSaveRoutes_RejectsDanglingReceiver(t *testing.T) {
 	assert.Equal(t, RouteIssueCodeReceiverDangling, treeErr.Issues[0].Code)
 }
 
-func TestSaveRoutes_GeneratesRouteAndPreservesOtherSections(t *testing.T) {
+func TestSaveRoutes_RebuildsWholeConfig(t *testing.T) {
 	db := newRoutesDB(t)
 	ch := seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/A")
 	base := `global:
-  resolve_timeout: 5m
+  resolve_timeout: 30s
 route:
   receiver: default
 receivers:
   - name: default
+    webhook_configs:
+      - url: 'https://example.com/default'
   - name: team-a
 inhibit_rules:
   - source_matchers: ['severity="critical"']
@@ -97,13 +100,13 @@ inhibit_rules:
 	tree := []generator.RouteEditNode{
 		rootEditNode("default"),
 		{
-			ID:            "root/0",
-			ParentID:      "root",
-			Name:          "严重告警",
-			Receiver:      ch.ReceiverName(),
-			Matchers:      []generator.RouteEditMatcher{{Name: "severity", Value: "critical", IsEqual: true}},
-			GroupWait:     "15s",
-			GroupInterval: "3m",
+			ID:             "root/0",
+			ParentID:       "root",
+			Name:           "严重告警",
+			Receiver:       ch.ReceiverName(),
+			Matchers:       []generator.RouteEditMatcher{{Name: "severity", Value: "critical", IsEqual: true}},
+			GroupWait:      "15s",
+			GroupInterval:  "3m",
 			RepeatInterval: "1h",
 		},
 	}
@@ -115,17 +118,42 @@ inhibit_rules:
 	require.NoError(t, err)
 	require.NotNil(t, result.Version)
 
-	// 非 route 段逐字保留。
+	// 整份重建：global 用平台固定值，旧文件的 receivers / inhibit_rules 不再保留。
 	assert.Contains(t, *captured, "resolve_timeout: 5m")
-	assert.Contains(t, *captured, "inhibit_rules:")
-	assert.Contains(t, *captured, "name: team-a")
-	// 路由引用的渠道 receiver 尚未物化时补空占位，保证 amtool 校验闭合
+	assert.NotContains(t, *captured, "resolve_timeout: 30s")
+	assert.NotContains(t, *captured, "inhibit_rules:")
+	assert.NotContains(t, *captured, "name: team-a")
+	assert.NotContains(t, *captured, "example.com/default")
+	// receivers = 内置 default + 路由引用的渠道（保存期先写 name 占位）。
+	assert.Contains(t, *captured, "name: default")
 	assert.Contains(t, *captured, "name: "+ch.ReceiverName())
 	// route 段由后端按树生成。
 	assert.Contains(t, *captured, "receiver: 'default'")
-	assert.Contains(t, *captured, ch.ReceiverName())
 	assert.Contains(t, *captured, `severity="critical"`)
 	assert.Contains(t, *captured, "# 路由名称: 严重告警")
+}
+
+// TestSaveRoutes_WritesFullBridgeURL 保存期也直接写完整平台入口地址：
+// 与 M09 生成使用同一运行时配置，不再「先占位、后补全」。
+func TestSaveRoutes_WritesFullBridgeURL(t *testing.T) {
+	db := newRoutesDB(t)
+	ch := seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/A")
+	base := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
+	seedAppliedConfig(t, db, base)
+	captured := stubSubmitRoutes(t)
+
+	oldURL := generator.NotifyBridgeURL
+	generator.NotifyBridgeURL = "http://127.0.0.1:8080"
+	t.Cleanup(func() { generator.NotifyBridgeURL = oldURL })
+
+	_, err := SaveRoutes(db, SaveRoutesRequest{
+		BaseChecksum: models.AlertmanagerConfigChecksum(base),
+		RouteTree:    []generator.RouteEditNode{rootEditNode(ch.ReceiverName())},
+	}, "tester")
+	require.NoError(t, err)
+	assert.Contains(t, *captured,
+		"http://127.0.0.1:8080/api/v1/webhooks/notify?id="+strconv.FormatUint(uint64(ch.ID), 10))
+	assert.Contains(t, *captured, "send_resolved: true")
 }
 
 func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T) {

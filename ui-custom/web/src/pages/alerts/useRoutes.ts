@@ -24,7 +24,6 @@ import {
   removeSubtree,
   reorderSibling,
   upsertNode,
-  validateRouteReceivers,
   validateRouteTree,
   type RouteEditNode,
   type RouteIssue,
@@ -385,7 +384,7 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
 
   const issues = useMemo(() => {
     if (tree.length === 0) return [] as RouteIssue[]
-    return [...validateRouteTree(tree), ...validateRouteReceivers(tree, knownReceivers)]
+    return validateRouteTree(tree, knownReceivers)
   }, [tree, knownReceivers])
 
   const blocking = useMemo(() => issues.filter((i) => i.level === 'error'), [issues])
@@ -405,9 +404,7 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
       setSaveResult({ ok: false, message: '请先新建路由规则，或点「载入当前配置」后再保存。' })
       return false
     }
-    const errors = [...validateRouteTree(tree), ...validateRouteReceivers(tree, knownReceivers)].filter(
-      (i) => i.level === 'error',
-    )
+    const errors = validateRouteTree(tree, knownReceivers).filter((i) => i.level === 'error')
     if (errors.length > 0) {
       setSaveResult({ ok: false, message: `保存前预检未通过（${errors.length} 项）：${errors[0].message}` })
       return false

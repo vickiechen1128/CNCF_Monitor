@@ -1,11 +1,11 @@
 // save_handler.go 实现路由树保存端点：POST /api/v2/platform/alertmanager/routes。
 //
-// 2026-10-22 架构收口：前端不再生成/合并 alertmanager.yml，只提交编辑态路由树；
-// 后端负责：
+// 2026-10-23 架构收口：前端只提交编辑态路由树，后端**整份重建** alertmanager.yml：
 //  1. 乐观锁：base_checksum 必须与当前生效产品视图一致（防止覆盖他人改动）；
 //  2. 树校验：根接收人 / 根 matchers / matcher 与时长 / 接收人可达性；
-//  3. 生成 route 段并合并进当前整份配置（其余段保留）；
-//  4. 复用 config.Submit：补内置 default 接收人 + amtool 校验 + 落版本 + 触发 M09。
+//  3. 整份重建 global + route + receivers（旧手写配置段不再保留，见
+//     generator.BuildAlertmanagerConfig）；
+//  4. 复用 config.Submit：amtool 校验 + 落版本 + 触发 M09。
 package route
 
 import (
@@ -75,25 +75,15 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 		return nil, ErrRoutesConflict
 	}
 
-	// 接收人可达集合 = 平台内置 default ∪ 全部通知渠道的稳定 receiver 名（notify-<id>）。
-	// 历史手写 / 不属于平台渠道的残留 receiver 不再合法。
-	channels, err := generator.LoadNotifyChannels(db)
-	if err != nil {
-		return nil, err
-	}
-	allowedReceivers := make([]string, 0, len(channels)+1)
-	allowedReceivers = append(allowedReceivers, generator.DefaultReceiverName)
-	for i := range channels {
-		allowedReceivers = append(allowedReceivers, channels[i].ReceiverName())
-	}
-
+	// 路由树结构校验（不依赖渠道）。
 	issues := ValidateRouteTree(req.RouteTree)
-	issues = append(issues, ValidateRouteReceivers(req.RouteTree, allowedReceivers)...)
 	if HasBlockingIssue(issues) {
 		return nil, &ErrRouteTreeInvalid{Issues: issues}
 	}
 
-	routeYAML, err := generator.GenerateRouteSection(req.RouteTree)
+	// 整份重建（global + route + receivers）：旧文件中的手写 receivers / inhibit_rules
+	// 等段落不再保留。输入由共用装配函数加载（渠道 + 平台入口地址），两个入口口径一致。
+	routeSection, err := generator.GenerateRouteSection(req.RouteTree)
 	if err != nil {
 		return nil, &ErrRouteTreeInvalid{Issues: []RouteIssue{{
 			Level:   RouteIssueLevelError,
@@ -101,35 +91,39 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 			Message: "生成路由配置失败：" + err.Error(),
 		}}}
 	}
-	merged, err := generator.MergeRouteSection(baseYAML, routeYAML)
+	input, err := generator.LoadAlertmanagerConfigInput(db, routeSection)
 	if err != nil {
-		return nil, fmt.Errorf("merge route section: %w", err)
+		return nil, err
 	}
 
-	// 路由引用的渠道 receiver 此刻可能尚未物化进 YAML（真实 webhook 由 M09 生成时补齐），
-	// 先补空 receiver 占位，保证 amtool 的「receiver 必须已声明」校验通过。
-	referenced := make([]string, 0, len(req.RouteTree))
-	seen := make(map[string]bool, len(req.RouteTree))
-	for i := range req.RouteTree {
-		name := req.RouteTree[i].Receiver
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		referenced = append(referenced, name)
+	// 接收人可达集合 = 平台内置 default ∪ 全部通知渠道的稳定 receiver 名（notify-<id>）。
+	// 历史手写 / 不属于平台渠道的残留 receiver 不再合法。
+	allowedReceivers := make([]string, 0, len(input.Channels)+1)
+	allowedReceivers = append(allowedReceivers, generator.DefaultReceiverName)
+	for i := range input.Channels {
+		allowedReceivers = append(allowedReceivers, input.Channels[i].ReceiverName())
 	}
-	merged, err = generator.EnsureReceiverNames(merged, referenced)
-	if err != nil {
-		return nil, fmt.Errorf("ensure receiver stubs: %w", err)
+	issues = append(issues, ValidateRouteReceivers(req.RouteTree, allowedReceivers)...)
+	if HasBlockingIssue(issues) {
+		return nil, &ErrRouteTreeInvalid{Issues: issues}
 	}
 
-	// 复用挂载链路：EnsureDefaultReceiver + amtool 校验 + 落版本 + 触发 M09。
-	version, submitErr := submitRoutesConfig(db, merged, uploadedBy)
+	configYAML, err := generator.BuildAlertmanagerConfig(input)
+	if err != nil {
+		return nil, &ErrRouteTreeInvalid{Issues: []RouteIssue{{
+			Level:   RouteIssueLevelError,
+			Code:    "route_generate_failed",
+			Message: "生成路由配置失败：" + err.Error(),
+		}}}
+	}
+
+	// 复用挂载链路：amtool 校验 + 落版本 + 触发 M09。
+	version, submitErr := submitRoutesConfig(db, configYAML, uploadedBy)
 	if version == nil {
 		return nil, submitErr
 	}
 	if submitErr != nil {
-		// errChangeTrigger 等降级：版本已落库成功，仅记录日志（与 SubmitHandler 同口径）。
+		// errChangeTrigger 等降级：版本已落库成功，仅记录日志（与配置落库工序同口径）。
 		log.Printf("[alertmanager-route] routes persisted but post-submit step failed: %v", submitErr)
 	}
 

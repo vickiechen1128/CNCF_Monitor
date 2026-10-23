@@ -367,8 +367,8 @@ func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
-	assert.Equal(t, "route:\n  receiver: default\nreceivers:\n  - name: default\n", d.AlertmanagerYml,
-		"草稿须持久化 alertmanager_yml 供预览（含平台内置空接收人 default）")
+	assert.Equal(t, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\nreceivers:\n  - name: default\n", d.AlertmanagerYml,
+		"草稿须持久化 alertmanager_yml 供预览（唯一生成规则：global + route + default）")
 
 	var items []models.ConfigChangeItem
 	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))
@@ -1153,20 +1153,22 @@ func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T) {
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 
-	oldURL := NotifyBridgeURL
-	NotifyBridgeURL = "http://127.0.0.1:8080"
-	t.Cleanup(func() { NotifyBridgeURL = oldURL })
+	oldURL := generator.NotifyBridgeURL
+	generator.NotifyBridgeURL = "http://127.0.0.1:8080"
+	t.Cleanup(func() { generator.NotifyBridgeURL = oldURL })
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
 	assert.Contains(t, d.AlertmanagerYml, "name: "+receiver, "被路由引用的渠道须物化为 receiver")
 	assert.Contains(t, d.AlertmanagerYml, "?id="+fmt.Sprint(ch.ID), "url 须带真实 channel ID")
-	assert.Contains(t, d.AlertmanagerYml, "name: default", "用户手写 receiver 原样保留")
+	assert.Contains(t, d.AlertmanagerYml, "name: default")
+	assert.NotContains(t, d.AlertmanagerYml, "https://example.com/default",
+		"receivers 整段重建：旧手写 default 配置须被清掉")
 }
 
-// TestGenerateDraftNotifyReceiverConflictFails 覆盖决策 74 定稿第 1 条：平台 receiver 名
-// 与用户手写 receiver 重名 → 草稿校验 failed + user_config，附 alertmanager.yml 行级错误。
-func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
+// TestGenerateDraftOverridesHandwrittenSameNameReceiver 平台命名空间 notify-<id> 归平台独占：
+// 历史手写同名 receiver 不再判冲突，生成时直接被平台产物覆盖（2026-10-23 整段重建收口）。
+func TestGenerateDraftOverridesHandwrittenSameNameReceiver(t *testing.T) {
 	db := newMemDB(t)
 	require.NoError(t, db.Create(&models.NetworkDomain{
 		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
@@ -1177,7 +1179,7 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 	require.NoError(t, db.Create(ch).Error)
 	receiver := ch.ReceiverName()
 
-	// 手写 receiver 与平台稳定名 notify-<id> 重名（且 URL 非平台桥地址形态）→ 冲突。
+	// 手写 receiver 与平台稳定名 notify-<id> 重名（URL 非平台桥地址形态）。
 	amContent := fmt.Sprintf("route:\n  receiver: %s\nreceivers:\n  - name: %s\n    webhook_configs:\n      - url: 'https://handwritten.example/hook'\n", receiver, receiver)
 	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
 		Content:  amContent,
@@ -1185,25 +1187,21 @@ func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
 		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 
-	oldURL := NotifyBridgeURL
-	NotifyBridgeURL = "http://127.0.0.1:8080"
-	t.Cleanup(func() { NotifyBridgeURL = oldURL })
+	oldURL := generator.NotifyBridgeURL
+	generator.NotifyBridgeURL = "http://127.0.0.1:8080"
+	t.Cleanup(func() { generator.NotifyBridgeURL = oldURL })
 
 	d, err := GenerateDraft(db, "default")
 	require.NoError(t, err)
-	assert.Equal(t, string(models.ValidationStatusFailed), d.ValidationStatus)
-	assert.Equal(t, string(models.ValidationCauseUserConfig), d.ValidationCause)
-	var details []models.ValidationDetail
-	require.NoError(t, json.Unmarshal([]byte(d.ValidationDetails), &details))
-	require.Len(t, details, 1)
-	assert.Equal(t, "alertmanager.yml", details[0].File)
-	assert.Contains(t, details[0].Message, receiver)
-
-	// 重校须复现同一 failed 结论（不得因重校静默放行未消除的冲突）。
-	rd, rerr := RevalidateDraft(db, d.ChangeNo)
-	require.ErrorIs(t, rerr, ErrValidationStillFailed)
-	assert.Equal(t, string(models.ValidationStatusFailed), rd.ValidationStatus)
+	assert.NotEqual(t, string(models.ValidationStatusFailed), d.ValidationStatus,
+		"手写同名 receiver 不再阻塞草稿")
+	assert.Contains(t, d.AlertmanagerYml,
+		"http://127.0.0.1:8080/api/v1/webhooks/notify?id="+fmt.Sprint(ch.ID),
+		"同名 receiver 须被平台桥地址覆盖")
+	assert.NotContains(t, d.AlertmanagerYml, "https://handwritten.example/hook")
+	assert.Equal(t, 1, strings.Count(d.AlertmanagerYml, "name: "+receiver))
 }
+
 // TestGenerateDraftDiscardsOrphanPendings 覆盖 2026-10-12 诊断：历史竞态遗留多份并存
 // pending（孤儿）时，取代生成新单须把全域其余活 pending 一并废弃，使「同域至多一张活
 // pending」约束可自愈收敛。

@@ -39,8 +39,8 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import {
   DEFAULT_RECEIVER_NAME,
   parseRouteDuration,
-  validateRouteNodeFields,
-  validateRouteReceivers,
+  ROUTE_NODE_ISSUE_CODES,
+  validateRouteNode,
   type RouteEditNode,
   type RouteIssue,
 } from './routeTree'
@@ -102,7 +102,7 @@ export interface RouteEditorDrawerProps {
   /**
    * 已启用通知渠道派生的接收人名（`ReceiverName()`，与 `useRouteEditor.knownReceivers` 同源）。
    * F13：下拉数据源 + 悬空判定基准；缺省回落 `receiverOptions`。
-   * 取不到清单（非管理员）时传空数组 → **不判定、不阻断**（沿用 validateRouteReceivers 口径）。
+   * 取不到清单（非管理员）时传空数组 → **不判定、不阻断**（沿用 validateRouteNode 口径）。
    */
   knownReceivers?: string[]
   /**
@@ -205,7 +205,7 @@ export function RouteEditorDrawer({
     () => (knownReceivers ?? receiverOptions ?? []).map((n) => (n ?? '').trim()).filter((n) => n.length > 0),
     [knownReceivers, receiverOptions],
   )
-  /** 清单为空 = 取不到（如非管理员）→ 不判定悬空（与 validateRouteReceivers 同口径） */
+  /** 清单为空 = 取不到（如非管理员）→ 不判定悬空（与 validateRouteNode 同口径） */
   const canJudgeReceiver = enabledReceiverNames.length > 0
   const enabledReceiverSet = useMemo(() => new Set(enabledReceiverNames), [enabledReceiverNames])
 
@@ -214,20 +214,19 @@ export function RouteEditorDrawer({
   const draftIssues = useMemo(() => {
     const values = watched ?? {}
     const draft = toRouteEditNode(node, { ...values, name: values.name ?? node?.name ?? '' })
-    return [...validateRouteNodeFields(draft), ...validateRouteReceivers([draft], enabledReceiverNames)]
+    return validateRouteNode(draft, {
+      knownReceivers: enabledReceiverNames,
+      isRoot: node?.parent_id === '',
+    })
   }, [watched, node, enabledReceiverNames])
 
   const liveIssues = useMemo(() => {
-    const merged = [...nodeIssues]
-    const seen = new Set(merged.map((i) => `${i.code}:${i.field}`))
-    for (const i of draftIssues) {
-      const key = `${i.code}:${i.field}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        merged.push(i)
-      }
-    }
-    return merged
+    // draft 会重新校验这些 code；树上同 code 的旧结论必须整体丢弃，
+    // 否则用户把悬空接收人改选为有效渠道后，旧的 receiver_dangling 仍残留，
+    // 抽屉保存按钮被永久锁死（生产 2026-10-23 实测）。
+    // 其余 tree 级结论（根接收人必填 / 根 matchers 禁止）继续保留。
+    const stale = nodeIssues.filter((i) => !ROUTE_NODE_ISSUE_CODES.has(i.code))
+    return [...stale, ...draftIssues]
   }, [nodeIssues, draftIssues])
 
   const blocking = liveIssues.filter((i) => i.level === 'error')

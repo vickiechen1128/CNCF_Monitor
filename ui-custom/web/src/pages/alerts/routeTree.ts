@@ -56,6 +56,17 @@ export const ROUTE_ISSUE_CODES = {
   receiverDangling: 'receiver_dangling',
 } as const
 
+/** validateRouteNode 可能产出的全部 code（抽屉清理树上旧结论时使用）。 */
+export const ROUTE_NODE_ISSUE_CODES: ReadonlySet<string> = new Set([
+  ROUTE_ISSUE_CODES.rootReceiverRequired,
+  ROUTE_ISSUE_CODES.rootMatchersForbidden,
+  ROUTE_ISSUE_CODES.matcherNameEmpty,
+  ROUTE_ISSUE_CODES.matcherRegexInvalid,
+  ROUTE_ISSUE_CODES.durationInvalid,
+  ROUTE_ISSUE_CODES.repeatNotMultiple,
+  ROUTE_ISSUE_CODES.receiverDangling,
+])
+
 /** 单条校验结论（字段名对齐后端 `RouteIssue`，snake_case） */
 export interface RouteIssue {
   level: RouteIssueLevel
@@ -119,40 +130,56 @@ const DURATION_FIELDS: { key: 'group_wait' | 'group_interval' | 'repeat_interval
   { key: 'repeat_interval', label: '重复间隔' },
 ]
 
+/** 节点校验上下文：平台渠道清单（空 = 不判定悬空）+ 是否为根节点。 */
+export interface RouteNodeValidationContext {
+  knownReceivers: string[]
+  isRoot: boolean
+}
+
+/**
+ * 单个路由节点的统一校验器——页面整树校验与抽屉实时校验共用同一实现。
+ *
+ * 通用规则（所有节点）：matcher / 时长 / 接收人悬空；
+ * 根节点额外规则：receiver 必填、matchers 必须为空。
+ *
+ * 与后端 `route/validate.go` 逐条对齐；根/子差异只由 `isRoot` 分支体现。
+ */
+export function validateRouteNode(node: RouteEditNode, ctx: RouteNodeValidationContext): RouteIssue[] {
+  const issues = validateRouteNodeFields(node)
+  if (ctx.isRoot) {
+    if (!(node.receiver ?? '').trim()) {
+      issues.push({
+        level: 'error',
+        code: ROUTE_ISSUE_CODES.rootReceiverRequired,
+        node_id: node.id,
+        field: 'receiver',
+        message: '根路由必须指定兜底接收人（Alertmanager 要求 root route must specify a default receiver）',
+      })
+    }
+    if ((node.matchers ?? []).length > 0) {
+      issues.push({
+        level: 'error',
+        code: ROUTE_ISSUE_CODES.rootMatchersForbidden,
+        node_id: node.id,
+        field: 'matchers',
+        message: '根路由不得设置匹配条件（Alertmanager 要求 root route must not have any matchers）',
+      })
+    }
+  }
+  const dangling = receiverDanglingIssue(node, ctx.knownReceivers)
+  if (dangling) issues.push(dangling)
+  return issues
+}
+
 /**
  * 校验编辑态路由树，返回结论集合（**不阻断**：由调用方按 level 决定处置）。
- *
- * 与后端逐条对齐：
- * - 根路由必须有兜底 receiver / 不得带 matchers（error）；
- * - matcher 标签名空 / 正则值非法（error）——正则用 `RegExp` 预编译校验；
- * - 时长非法（error）；
- * - `repeat_interval` 不是 `group_interval` 整数倍 → **warning**（AM 会向上取整，不阻断保存）。
+ * 传入 knownReceivers 时同时校验接收人悬空（页面整树保存用）。
  */
-export function validateRouteTree(nodes: RouteEditNode[]): RouteIssue[] {
-  const issues: RouteIssue[] = []
-  if (!nodes || nodes.length === 0) return issues
-
-  const root = nodes.find((n) => n.parent_id === '') ?? nodes[0]
-  if (!root.receiver.trim()) {
-    issues.push({
-      level: 'error',
-      code: ROUTE_ISSUE_CODES.rootReceiverRequired,
-      node_id: root.id,
-      field: 'receiver',
-      message: '根路由必须指定兜底接收人（Alertmanager 要求 root route must specify a default receiver）',
-    })
-  }
-  if (root.matchers.length > 0) {
-    issues.push({
-      level: 'error',
-      code: ROUTE_ISSUE_CODES.rootMatchersForbidden,
-      node_id: root.id,
-      field: 'matchers',
-      message: '根路由不得设置匹配条件（Alertmanager 要求 root route must not have any matchers）',
-    })
-  }
-  for (const node of nodes) issues.push(...validateRouteNodeFields(node))
-  return issues
+export function validateRouteTree(nodes: RouteEditNode[], knownReceivers: string[] = []): RouteIssue[] {
+  if (!nodes || nodes.length === 0) return []
+  return nodes.flatMap((node) =>
+    validateRouteNode(node, { knownReceivers, isRoot: node.parent_id === '' }),
+  )
 }
 
 /** 单节点字段校验（matchers + 三个时长字段 + 整除警告） */
@@ -224,19 +251,26 @@ export function validateRouteReceivers(
   knownReceivers: string[],
 ): RouteIssue[] {
   if (knownReceivers.length === 0) return []
-  const issues: RouteIssue[] = []
-  for (const node of nodes ?? []) {
-    const receiver = (node.receiver ?? '').trim()
-    if (!receiver || knownReceivers.includes(receiver)) continue
-    issues.push({
-      level: 'error',
-      code: ROUTE_ISSUE_CODES.receiverDangling,
-      node_id: node.id,
-      field: 'receiver',
-      message: `接收人「${receiver}」未定义（对应通知渠道未启用或已删除），告警将无处可发`,
-    })
+  return (nodes ?? [])
+    .map((node) => receiverDanglingIssue(node, knownReceivers))
+    .filter((issue): issue is RouteIssue => issue !== null)
+}
+
+/** 单节点接收人悬空结论；knownReceivers 为空时不判定（避免误伤平台未知的手写 receiver）。 */
+function receiverDanglingIssue(
+  node: RouteEditNode,
+  knownReceivers: string[],
+): RouteIssue | null {
+  if (knownReceivers.length === 0) return null
+  const receiver = (node.receiver ?? '').trim()
+  if (!receiver || knownReceivers.includes(receiver)) return null
+  return {
+    level: 'error',
+    code: ROUTE_ISSUE_CODES.receiverDangling,
+    node_id: node.id,
+    field: 'receiver',
+    message: `接收人「${receiver}」未定义（对应通知渠道未启用或已删除），告警将无处可发`,
   }
-  return issues
 }
 
 function isCompilableRegex(value: string): boolean {

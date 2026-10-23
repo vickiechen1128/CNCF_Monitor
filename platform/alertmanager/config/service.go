@@ -1,7 +1,11 @@
-// Package config 实现 Module_08 告警配置（alertmanager.yml）文件挂载服务：
+// Package config 实现 Module_08 告警配置的校验与留痕工序：
 // 校验（amtool check-config 等价）+ 版本留痕落库 + 触发 M09 管理域变更检测。
+//
+// 2026-10-23 起不再提供「导入整份 alertmanager.yml」与「重新挂载历史版本」入口：
+// 配置内容只能由唯一生成规则产出，本包的 Submit 仅作为路由保存链路的内部落库工序。
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §5.1（文件挂载契约）/ §6.6 / §9.1 / §9.2；design-decisions.md 决策 59/60。
+//
+//	§5.1 / §6.6 / §9.1 / §9.2；design-decisions.md 决策 59/60。
 package config
 
 import (
@@ -113,7 +117,7 @@ func generateOrReusePendingDraft(db *gorm.DB) error {
 	return gErr
 }
 
-// Submit 提交挂载一份 alertmanager.yml：
+// Submit 校验并留痕一份由唯一生成规则产出的 alertmanager.yml（路由保存的内部工序）：
 //
 //   - 空内容 → ErrEmptyContent（bad_request）；
 //   - 先 amtool check-config 等价校验，失败返回 *ErrValidation，不落库、不进 M09
@@ -124,12 +128,6 @@ func generateOrReusePendingDraft(db *gorm.DB) error {
 func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, ErrEmptyContent
-	}
-	// 平台内置空接收人 default：保证 route 引用它时配置闭合（Alertmanager 要求根 route
-	// 必须有 receiver，但接收人可以无任何通知配置）。已在文件内声明时原样返回。
-	content, err := generator.EnsureDefaultReceiver(content)
-	if err != nil {
-		return nil, fmt.Errorf("ensure builtin receiver: %w", err)
 	}
 	checksum := models.AlertmanagerConfigChecksum(content)
 
@@ -142,21 +140,6 @@ func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfig
 		return existing, nil
 	}
 
-	return submitValidated(db, content, checksum, uploadedBy)
-}
-
-// Remount 将历史版本内容重新挂载提交（P0 回滚动线，决策 59）：复用校验工序，
-// **总是写入新版本并重新触发 M09 变更检测**，即便该内容校验和此前已留痕。
-// 返回新写入的版本；校验失败返回 *ErrValidation（不落库）。
-func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error) {
-	if strings.TrimSpace(content) == "" {
-		return nil, ErrEmptyContent
-	}
-	content, err := generator.EnsureDefaultReceiver(content)
-	if err != nil {
-		return nil, fmt.Errorf("ensure builtin receiver: %w", err)
-	}
-	checksum := models.AlertmanagerConfigChecksum(content)
 	return submitValidated(db, content, checksum, uploadedBy)
 }
 
@@ -214,20 +197,10 @@ func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models
 // 变更检测触发异常（可由稳态 watcher 下一轮兜底），handler 据此记录日志而非报错。
 var errChangeTrigger = errors.New("persist ok but trigger change detection failed (watcher will retry)")
 
-// errAutoApply 是自动闭环（生成/确认管理域 default 草稿并下发）失败的哨兵错误：M08 收录
-// 已成功留痕，仅自动下发异常（草稿生成失败 / 校验未过 / confirm 失败等）。与
-// errChangeTrigger 同款降级语义——handler 记录日志而非报错，由稳态 watcher 下一轮或
-// 人工确认兜底重试（dev-feedback §25 方案 A 幂等/降级口径）。
-//
-// 2026-10-09（立场 1，关闭自动闭环）：submitValidated 已不再返回本哨兵（自动确认已移除），
-// 此处保留定义与 handler 降级分支作为防御——若将来重新引入自动确认路径，handler 已能
-// 正确降级而非误报 500。
-var errAutoApply = errors.New("persist ok but auto-apply management domain config failed (watcher or manual confirm will retry)")
-
 // findVersionByChecksum 按校验和查询已留痕版本；无则返回 (nil, nil)。
 // 仅认 status=applied 的留痕（dev-feedback #44）：discarded 是废弃终态（其变更单已废弃、
-// 无活单可确认），**不满足幂等语义**——否则用户重新导入同样内容会被幂等分支静默返回
-// 已废弃版本、既不产新版本也不产新变更单，恢复路径（重新挂载/重新导入）被吞掉。
+// 无活单可确认），**不满足幂等语义**——否则用户重新保存同样内容会被幂等分支静默返回
+// 已废弃版本、既不产新版本也不产新变更单，恢复路径（重新保存路由）被吞掉。
 func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error) {
 	var v models.AlertmanagerConfigVersion
 	err := db.Where("checksum = ? AND status = ?", checksum, models.AlertmanagerConfigStatusApplied).First(&v).Error
@@ -258,7 +231,7 @@ func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error) {
 }
 
 // GetVersionByID 按版本 ID 查询完整留痕版本（含 content 只读视图）；无则 (nil, nil)。
-// 供版本详情与重新挂载（remount）复用（T08-03）。
+// 供版本详情复用（T08-03）。
 func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error) {
 	if id == 0 {
 		return nil, nil

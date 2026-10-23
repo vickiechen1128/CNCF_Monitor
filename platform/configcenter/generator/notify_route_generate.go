@@ -1,6 +1,6 @@
 // 本文件实现 M08「route 前台化」v0.3-b 的**生成器纯函数**（提案 §3.5 / §4.4 / §6 验收 2/3/4/5；
 // task-sequence.yaml T08-13）：把编辑态路由树（RouteEditNode 扁平序列）生成为 alertmanager.yml
-// 的 route 段，并可原地替换回整份配置。
+// 的 route 段。整份配置的重建见 alertmanager_config_build.go。
 //
 // 设计取舍（与 T08-12 解析器 platform/alertmanager/route/parse.go 严格对称）：
 //
@@ -15,10 +15,10 @@
 //     match_re / mute_time_intervals）由上游标 raw（RouteEditNode.RawYAML），生成时
 //     **原样回写**；raw 原文不可解析时显式报错，**绝不静默丢弃**。
 //  4. 只做纯函数：不读库、不写盘、不校验业务可达性（receiver 是否存在由调用方按
-//     receivers 段判定）；产物校验走 ValidateRouteSectionWithAmtool。
+//     receivers 段判定）；产物校验由调用方交给唯一生成规则 + amtool（保存/生成链路）。
 //
-// YAML 处理沿用本包既有范式（notify_receivers.go / notify_route_skeleton.go）：yaml.Node
-// 原地改写，保注释、保手写节点样式、保幂等。
+// YAML 处理沿用本包既有范式（alertmanager_config_build.go）：yaml.Node 构造 / 回读，
+// 保注释与幂等。
 //
 // 注：platform/alertmanager/route 依赖本包（route/handler.go 引用 LoadNotifyChannels），
 // 故本包不得反向 import route（成环），RouteEditMatcher 在此镜像定义，字段口径与
@@ -90,10 +90,6 @@ func NodeEnabled(n RouteEditNode) bool {
 	return n.Enabled == nil || *n.Enabled
 }
 
-// RouteAmtoolChecker 是 amtool check-config 等价校验的调用点（可注入，便于测试不依赖
-// 外部二进制；默认实现复用本包 runAmmtoolCheck，与 ValidateArtifacts 同口径）。
-var RouteAmtoolChecker = func(content string) error { return runAmmtoolCheck(content) }
-
 // GenerateRouteSection 把编辑态路由树生成为 route 段 YAML（含顶层 `route:` 键）。
 //
 //   - routes[] 顺序 = 同层节点的数组顺序（界面顺序）；
@@ -128,61 +124,6 @@ func GenerateRouteSection(tree []RouteEditNode) (string, error) {
 		return "", fmt.Errorf("序列化 route 段失败: %w", err)
 	}
 	return string(out), nil
-}
-
-// MergeRouteSection 把生成的 route 段（generated，含顶层 `route:` 键）原地替换进
-// baseYAML：只替换根 route 节点，其余顶层段（global / receivers / inhibit_rules /
-// templates / mute_time_intervals 等）**逐字保留**（含注释与样式）。
-//
-// baseYAML 无 route 段时（畸形存量文件）追加生成物，而非丢弃生成结果。
-func MergeRouteSection(baseYAML, generated string) (string, error) {
-	route, err := routeSectionNode(generated)
-	if err != nil {
-		return "", err
-	}
-	// 无既有配置（例如全新环境尚未挂载过 alertmanager.yml）：生成物即完整配置，
-	// receivers 由后续 EnsureDefaultReceiver / 渠道物化补齐。
-	if strings.TrimSpace(baseYAML) == "" {
-		return generated, nil
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(baseYAML), &doc); err != nil {
-		return "", fmt.Errorf("解析 base alertmanager.yml 失败: %w", err)
-	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return "", errors.New("base alertmanager.yml 顶层不是映射，无法合并 route 段")
-	}
-	root := doc.Content[0]
-	if vi := mappingValueIndex(root, routeSectionKey); vi >= 0 {
-		root.Content[vi] = route
-	} else {
-		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Value: routeSectionKey}, route)
-	}
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return "", fmt.Errorf("序列化合并后的 alertmanager.yml 失败: %w", err)
-	}
-	return string(out), nil
-}
-
-// ValidateRouteSectionWithAmtool 对生成的 route 段做 amtool check-config 等价校验。
-//
-// amtool 要求「route 引用的 receiver 必须已声明」，故本函数把 route 段包成最小可校验
-// 文档（补 receivers 声明）后再校验；产物缺失根兜底 receiver 时由 amtool 判定失败，
-// 本函数不代为造值。
-func ValidateRouteSectionWithAmtool(routeYAML string) error {
-	names, err := routeSectionReceiverNames(routeYAML)
-	if err != nil {
-		return err
-	}
-	var b strings.Builder
-	b.WriteString(strings.TrimRight(routeYAML, "\n"))
-	b.WriteString("\nreceivers:\n")
-	for _, n := range names {
-		b.WriteString("    - name: '" + n + "'\n")
-	}
-	return RouteAmtoolChecker(b.String())
 }
 
 // routeEditTreeIndex 是编辑态树的索引：节点切片 + 父 ID → 子下标（保序）+ 根下标。
@@ -380,51 +321,4 @@ func appendMappingIfSet(m *yaml.Node, key, value string) {
 		return
 	}
 	appendMapping(m, key, &yaml.Node{Kind: yaml.ScalarNode, Value: value})
-}
-
-// routeSectionNode 从生成的 route 段 YAML 中取出 route 映射节点。
-func routeSectionNode(generated string) (*yaml.Node, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(generated), &doc); err != nil {
-		return nil, fmt.Errorf("解析生成的 route 段失败: %w", err)
-	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, errors.New("生成的 route 段顶层不是映射")
-	}
-	vi := mappingValueIndex(doc.Content[0], routeSectionKey)
-	if vi < 0 || doc.Content[0].Content[vi].Kind != yaml.MappingNode {
-		return nil, errors.New("生成的 route 段缺少 route 映射节点")
-	}
-	return doc.Content[0].Content[vi], nil
-}
-
-// routeSectionReceiverNames 收集 route 段中引用的 receiver 名（按出现顺序去重），
-// 用于补齐 amtool 校验所需的最小 receivers 声明。
-func routeSectionReceiverNames(routeYAML string) ([]string, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(routeYAML), &doc); err != nil {
-		return nil, fmt.Errorf("解析 route 段以收集 receiver 失败: %w", err)
-	}
-	names := []string{}
-	seen := map[string]bool{}
-	var walk func(n *yaml.Node)
-	walk = func(n *yaml.Node) {
-		if n == nil {
-			return
-		}
-		if n.Kind == yaml.MappingNode {
-			if vi := mappingValueIndex(n, "receiver"); vi >= 0 {
-				name := n.Content[vi].Value
-				if name != "" && !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-		for _, c := range n.Content {
-			walk(c)
-		}
-	}
-	walk(&doc)
-	return names, nil
 }

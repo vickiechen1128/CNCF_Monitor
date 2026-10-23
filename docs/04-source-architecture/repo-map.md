@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-23 00:56 · commit: `1dc56b3`
+> 生成时间: 2026-10-23 12:04 · commit: `5aef68a`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -478,7 +478,6 @@
 - `func stubAmtoolFails(t *testing.T)`
 - `func stubAmtoolUnavailable(t *testing.T)`
 - `func stubChangeTrigger(t *testing.T) *int32`
-- `func TestSubmitEnsuresBuiltinDefaultReceiver(t *testing.T)`
 - `func TestSubmitPersistsOnValid(t *testing.T)`
 - `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
 - `func TestSubmitRejectsEmptyContent(t *testing.T)`
@@ -493,12 +492,9 @@
 
 - `func queryPage(c *gin.Context) (page, pageSize int)`
 - `func parseID(c *gin.Context) (uint, error)`
-- `func SubmitHandler(db *gorm.DB) gin.HandlerFunc`
 - `func CurrentHandler(db *gorm.DB) gin.HandlerFunc`
 - `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
 - `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondSubmitError(c *gin.Context, err error)`
 
 ### `platform/alertmanager/config/management_domain_test.go`
 
@@ -522,7 +518,6 @@
 - `func EnsurePendingDraft(db *gorm.DB) error`
 - `func generateOrReusePendingDraft(db *gorm.DB) error`
 - `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
-- `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error)`
 - `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
@@ -566,14 +561,10 @@
 - `func newConfigRouter(db *gorm.DB) *gin.Engine`
 - `func do(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
 - `func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
-- `func TestSubmitEndpointCreatesVersion(t *testing.T)`
-- `func TestSubmitEndpointValidationFails(t *testing.T)`
+- `func seedVersion(t *testing.T, db *gorm.DB, content, user string) *models.AlertmanagerConfigVersion`
 - `func TestCurrentEndpointEmptyThenAfterSubmit(t *testing.T)`
 - `func TestListVersionsEndpointPagination(t *testing.T)`
 - `func TestGetVersionEndpointDetail(t *testing.T)`
-- `func TestRemountEndpointCreatesNewVersion(t *testing.T)`
-- `func TestRemountEndpointNotFound(t *testing.T)`
-- `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
 
 ### `platform/alertmanager/notify/bridge.go`
 
@@ -872,7 +863,8 @@
 - `func TestSaveRoutes_RejectsStaleBaseChecksum(t *testing.T)`
 - `func TestSaveRoutes_RejectsInvalidTree(t *testing.T)`
 - `func TestSaveRoutes_RejectsDanglingReceiver(t *testing.T)`
-- `func TestSaveRoutes_GeneratesRouteAndPreservesOtherSections(t *testing.T)`
+- `func TestSaveRoutes_RebuildsWholeConfig(t *testing.T)`
+- `func TestSaveRoutes_WritesFullBridgeURL(t *testing.T)`
 - `func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T)`
 
 ### `platform/alertmanager/route/validate.go`
@@ -898,10 +890,8 @@
 - `func TestParseRouteDuration(t *testing.T)`
 - `func TestGenerateRouteSection_RoundTripParseGenParse(t *testing.T)`
 - `func TestGenerateRouteSection_RoundTripPreservesInterfaceOrder(t *testing.T)`
-- `func TestMergeRouteSection_KeepsUserSectionsFromRoundTrip(t *testing.T)`
 - `func TestParseRoute_PreservesUnmodeledRouteKeys(t *testing.T)`
 - `func TestValidateRouteTree_SkipsDisabledSubtree(t *testing.T)`
-- `func TestValidateRouteTree_EditNodeThenGenerateAmtoolOK(t *testing.T)`
 - `func TestValidateRouteTree_EditNodeEmptyNameMatcherBlocked(t *testing.T)`
 - `func issueCodes(issues []RouteIssue) []string`
 
@@ -2278,7 +2268,7 @@
 - `func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T)`
 - `func todaySuffix() string`
 - `func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T)`
-- `func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T)`
+- `func TestGenerateDraftOverridesHandwrittenSameNameReceiver(t *testing.T)`
 - `func TestGenerateDraftDiscardsOrphanPendings(t *testing.T)`
 - `func TestGenerateDraftConcurrentSameDomain(t *testing.T)`
 
@@ -2300,7 +2290,7 @@
 - `func lockDomain(domainID string) func()`
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
-- `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
+- `func rebuildAlertmanagerConfig(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
 - `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
 - `func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
@@ -2360,6 +2350,36 @@
 - `func TestShouldSupersedePending_BrokenMetadata(t *testing.T)`
 - `func TestGenerateDraft_RulesOnlyForCenterEvaluator(t *testing.T)`
 
+### `platform/configcenter/generator/alertmanager_config_build.go`
+
+- `type AlertmanagerConfigInput struct`
+- `func BuildAlertmanagerConfig(in AlertmanagerConfigInput) (string, error)`
+- `func ExtractRouteSection(baseYAML string) (string, error)`
+- `func routeNodeFromSection(routeSection string) (*yaml.Node, error)`
+- `func activeNotifyChannels(channels []models.NotifyChannel, referenced map[string]struct{}) []models.NotifyChannel`
+- `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
+- `func platformReceiverNode(name, url string) (*yaml.Node, error)`
+- `type genWebhookConfig struct`
+- `type genReceiver struct`
+- `func receiverNameNode(name string) *yaml.Node`
+- `func defaultReceiverNode() *yaml.Node`
+- `func mappingValueIndex(m *yaml.Node, key string) int`
+- `func encodeDocument(doc *yaml.Node) (string, error)`
+
+### `platform/configcenter/generator/alertmanager_config_build_test.go`
+
+- `func chWithID(id uint, name string) models.NotifyChannel`
+- `func buildTree(receivers ...string) []RouteEditNode`
+- `func routeSectionFor(t *testing.T, tree []RouteEditNode) string`
+- `func setBridgeURL(t *testing.T, url string)`
+- `func TestBuildAlertmanagerConfig_RebuildsWholeConfig(t *testing.T)`
+- `func TestBuildAlertmanagerConfig_WithBridgeURL(t *testing.T)`
+- `func TestBuildAlertmanagerConfig_RejectsInvalidRouteSection(t *testing.T)`
+- `func TestExtractRouteSection_OnlyRouteKept(t *testing.T)`
+- `func TestExtractRouteSection_RejectsMissingRoute(t *testing.T)`
+- `func TestRebuildFromLegacyConfig_DropsHandwrittenReceivers(t *testing.T)`
+- `func TestBuildAlertmanagerConfig_IdempotentThroughExtract(t *testing.T)`
+
 ### `platform/configcenter/generator/change_detect.go`
 
 - `type sourceVersionRow struct`
@@ -2379,28 +2399,9 @@
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
 - `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
+- `func LoadAlertmanagerConfigInput(db *gorm.DB, routeSection string) (AlertmanagerConfigInput, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
-
-### `platform/configcenter/generator/default_receiver.go`
-
-- `func EnsureDefaultReceiver(baseYAML string) (string, error)`
-- `func EnsureReceiverNames(baseYAML string, names []string) (string, error)`
-- `func sortedNames(set map[string]bool) []string`
-- `func receiverNameNode(name string) *yaml.Node`
-- `func defaultReceiverNode() *yaml.Node`
-- `func marshalDocument(doc *yaml.Node, fallback string) (string, error)`
-
-### `platform/configcenter/generator/default_receiver_test.go`
-
-- `func TestEnsureDefaultReceiver_AddsWhenMissing(t *testing.T)`
-- `func TestEnsureDefaultReceiver_AppendsToExistingReceivers(t *testing.T)`
-- `func TestEnsureDefaultReceiver_ExistingDefaultByteIdentical(t *testing.T)`
-- `func TestEnsureDefaultReceiver_Idempotent(t *testing.T)`
-- `func TestEnsureReceiverNames_AppendsMissingStubs(t *testing.T)`
-- `func TestEnsureReceiverNames_NoMissingIsByteIdentical(t *testing.T)`
-- `func TestEnsureReceiverNames_Idempotent(t *testing.T)`
-- `func TestEnsureDefaultReceiver_DegradesWithoutError(t *testing.T)`
 
 ### `platform/configcenter/generator/generator.go`
 
@@ -2491,44 +2492,12 @@
 - `func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string, dicts *labelDictionary) map[s…`
 - `func mergeIntoLabels(system, templateLabels map[string]string) map[string]string`
 
-### `platform/configcenter/generator/notify_receivers.go`
-
-- `type NotifyReceiverInput struct`
-- `type NotifyReceiverConflict struct`
-- `type genWebhookConfig struct`
-- `type genReceiver struct`
-- `func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string, []NotifyReceiverConflict, error)`
-- `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
-- `func platformReceiverNode(name, url string) (*yaml.Node, error)`
-- `func mappingValueIndex(m *yaml.Node, key string) int`
-- `type existingReceiver struct`
-- `func firstWebhookURL(recv *yaml.Node) string`
-- `func receiverNameOnly(recv *yaml.Node) bool`
-- `func isPlatformBridgeURL(u string) bool`
-
-### `platform/configcenter/generator/notify_receivers_test.go`
-
-- `func chWithID(id uint, name string) models.NotifyChannel`
-- `func baseWithReferenced(names ...string) string`
-- `func TestCollectRouteReceiverNames(t *testing.T)`
-- `func TestMaterializeNotifyReceiversOnlyReferenced(t *testing.T)`
-- `func TestMaterializeNotifyReceiversRemovesUnreferencedPlatformReceiver(t *testing.T)`
-- `func TestMaterializeReceiverOmitsTemplateParam(t *testing.T)`
-- `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
-- `func TestMaterializeNotifyReceiversHandwrittenSquatConflicts(t *testing.T)`
-- `func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T)`
-- `func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T)`
-- `func TestMaterializeNotifyReceiversNoop(t *testing.T)`
-- `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
-
 ### `platform/configcenter/generator/notify_route_generate.go`
 
 - `type RouteEditMatcher struct`
 - `type RouteEditNode struct`
 - `func NodeEnabled(n RouteEditNode) bool`
 - `func GenerateRouteSection(tree []RouteEditNode) (string, error)`
-- `func MergeRouteSection(baseYAML, generated string) (string, error)`
-- `func ValidateRouteSectionWithAmtool(routeYAML string) error`
 - `type routeEditTreeIndex struct`
 - `func indexRouteEditTree(tree []RouteEditNode) (*routeEditTreeIndex, error)`
 - `func reachableCount(idx *routeEditTreeIndex) int`
@@ -2539,8 +2508,6 @@
 - `func matcherShorthand(m RouteEditMatcher) string`
 - `func appendMapping(m *yaml.Node, key string, value *yaml.Node)`
 - `func appendMappingIfSet(m *yaml.Node, key, value string)`
-- `func routeSectionNode(generated string) (*yaml.Node, error)`
-- `func routeSectionReceiverNames(routeYAML string) ([]string, error)`
 
 ### `platform/configcenter/generator/notify_route_generate_test.go`
 
@@ -2555,17 +2522,6 @@
 - `func TestGenerateRouteSection_NilEnabledTreatedAsEnabled(t *testing.T)`
 - `func TestGenerateRouteSection_RawSubtreeWrittenBackVerbatim(t *testing.T)`
 - `func TestGenerateRouteSection_RejectsMalformedEditTree(t *testing.T)`
-- `func TestMergeRouteSection_OnlyRouteNodeReplaced(t *testing.T)`
-- `func TestMergeRouteSection_AppendsRouteWhenMissing(t *testing.T)`
-- `func TestMergeRouteSection_EmptyBaseReturnsGenerated(t *testing.T)`
-- `func TestMergeRouteSection_RejectsInvalidInput(t *testing.T)`
-- `func TestValidateRouteSectionWithAmtool_SubmitsCheckableDocument(t *testing.T)`
-- `func TestValidateRouteSectionWithAmtool_RealBinaryIfAvailable(t *testing.T)`
-- `func stubChecker(t *testing.T, fn func(content string) error)`
-- `func locateAmtool(t *testing.T) string`
-- `func runAmtoolCheckConfig(t *testing.T, amtool, content string) error`
-- `type amtoolFailure struct`
-- `method (*amtoolFailure) Error() string`
 - `func collectYAMLKeys(t *testing.T, content string) []string`
 
 ### `platform/configcenter/generator/render.go`
@@ -4917,9 +4873,7 @@
 
 - `function readValidateErrors`
 - `interface AlertmanagerListParams`
-- `interface SubmitAlertmanagerConfigInput`
 - `interface EffectiveAlertmanagerYaml`
-- `interface RemountConfigInput`
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
 - `interface AlertStatusQuery`
@@ -5365,8 +5319,11 @@
 - `const ROUTE_NAME_COMMENT_PREFIX`
 - `type RouteIssueLevel`
 - `const ROUTE_ISSUE_CODES`
+- `const ROUTE_NODE_ISSUE_CODES`
 - `interface RouteIssue`
 - `function parseRouteDuration`
+- `interface RouteNodeValidationContext`
+- `function validateRouteNode`
 - `function validateRouteTree`
 - `function validateRouteNodeFields`
 - `function validateRouteReceivers`
