@@ -216,6 +216,59 @@ func TestSubmitIdempotentOnSameChecksum(t *testing.T) {
 	assert.EqualValues(t, 1, atomic.LoadInt32(calls))
 }
 
+// TestSubmitRevertToHistoricalContentCreatesNewVersion 锁死「改回旧内容」场景：
+// 用户把接收人改了并生效后，再改回原值保存，必须生成**新版本**并再次触发产草稿。
+//
+// 回归背景：幂等查询原先在「任意历史 applied 版本」中按 checksum 命中即返回旧版本，
+// 回退内容 A 必定命中最早那条 A 留痕 → 不落新版本、不触发 M09；而 M09 生成产物读的是
+// LoadLatestAlertmanagerConfigVersion（最新一条 applied，仍是改后的 B），于是回退既
+// 不产新变更单、也不会进入下发视图（用户实测「改不回去」）。
+func TestSubmitRevertToHistoricalContentCreatesNewVersion(t *testing.T) {
+	db := newMemConfigDB(t)
+	stubAmtoolAvailable(t)
+	calls := stubChangeTrigger(t)
+	ensureCalls := stubEnsurePendingDraft(t)
+
+	original := validAMConfig
+	changed := validAMConfig + "\n# 改后的接收人配置\n"
+
+	v1, err := Submit(db, original, "chenrt")
+	require.NoError(t, err)
+	v2, err := Submit(db, changed, "chenrt")
+	require.NoError(t, err)
+	require.NotEqual(t, v1.ID, v2.ID)
+
+	// 改回原值：内容与 v1 相同，但相对当前生效版本 v2 是一次实质变更。
+	v3, err := Submit(db, original, "chenrt")
+	require.NoError(t, err)
+	assert.NotEqual(t, v1.ID, v3.ID, "回退到历史内容不得复用旧版本")
+	assert.NotEqual(t, v2.ID, v3.ID)
+	assert.Equal(t, models.AlertmanagerConfigStatusApplied, v3.Status)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AlertmanagerConfigVersion{}).Count(&count).Error)
+	assert.EqualValues(t, 3, count, "回退须落一条新留痕，供 M09 取到回退后的内容")
+
+	// 回退须再次触发 M09 变更检测 + 产 pending 草稿（否则不会生成下发申请单）。
+	assert.EqualValues(t, 3, atomic.LoadInt32(calls))
+	assert.EqualValues(t, 3, atomic.LoadInt32(ensureCalls))
+
+	// M09 生成产物读取的最新 applied 版本必须是回退后的内容。
+	latest, err := LatestApplied(db)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.Equal(t, v3.ID, latest.ID)
+	assert.Equal(t, original, latest.Content)
+
+	// 连续重复保存当前内容仍幂等：不重复落版本、不重复产草稿。
+	again, err := Submit(db, original, "chenrt")
+	require.NoError(t, err)
+	assert.Equal(t, v3.ID, again.ID)
+	require.NoError(t, db.Model(&models.AlertmanagerConfigVersion{}).Count(&count).Error)
+	assert.EqualValues(t, 3, count)
+	assert.EqualValues(t, 3, atomic.LoadInt32(calls))
+}
+
 // TestSubmitAfterDiscardedVersionCreatesNewVersion（dev-feedback #44 恢复路径）：
 // 留痕被标记 discarded 终态（变更单已废弃）后，重新导入**同样内容**不得再走幂等分支——
 // 否则用户被静默返回已废弃版本、既不产新版本也不产新变更单，「重新导入」这条最自然的
