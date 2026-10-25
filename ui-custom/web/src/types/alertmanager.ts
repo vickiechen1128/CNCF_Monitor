@@ -242,6 +242,54 @@ export interface AlertHistoryData {
 }
 
 // =====================================================================
+// 历史告警事件（Module_08 webhook 留痕 + 对账；与上面的 ALERTS 重建视图不同）
+// =====================================================================
+
+/** 历史告警六态（与后端 models.AlertEventStatus 一一对应） */
+export type AlertEventStatus =
+  | 'firing' // 告警中
+  | 'silenced' // 静默中
+  | 'inhibited' // 抑制中
+  | 'resolved' // 已恢复
+  | 'silenced_closed' // 静默期间结束（恢复通知被静默吞掉，恢复时间未知）
+  | 'lost' // 恢复信息丢失（平台没收到恢复消息，恢复时间未知）
+
+/** 历史告警事件记录（一行 = 一次告警发生，按 fingerprint 合并） */
+export interface AlertEventItem extends AlertInstanceFields {
+  id: number
+  alert_name: string
+  status: AlertEventStatus
+  severity?: string
+  summary?: string
+  description?: string
+  network_domain?: string
+  starts_at?: string
+  ends_at?: string
+  updated_at: string
+  duration_seconds?: number
+  fingerprint?: string
+  labels?: Record<string, string>
+  annotations?: Record<string, string>
+}
+
+/** GET /api/v2/platform/alertmanager/alert-events 响应 data 信封 */
+export interface AlertEventData {
+  list: AlertEventItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** GET /api/v2/platform/alertmanager/alert-events/stats 响应 data */
+export interface AlertEventStats {
+  today_total: number
+  week_total: number
+  open_firing: number
+  open_silenced: number
+  open_inhibited: number
+}
+
+// =====================================================================
 // 通知渲染桥（PL-3，2026-09-28）：通知渠道 + 通知模板
 // 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
 // =====================================================================

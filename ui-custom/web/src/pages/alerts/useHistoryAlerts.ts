@@ -1,28 +1,28 @@
 /**
- * 历史告警页数据 Hook（Module_08 v1.13 MVP 增量，M02 /api/v1/alerts/history）。
- * 基于 Prometheus ALERTS 时间序列重建规则级触发/恢复区间，展示触发时间、恢复时间与持续时长。
- * 默认时间窗 24h，最大 7d；服务端强制注入授权网域过滤，前端 Query 仅作 UX 筛选透传。
+ * 历史告警页数据 Hook（Module_08 历史告警：webhook 留痕 + 分钟级对账）。
+ * 一行 = 一次告警发生（按 fingerprint 合并），支持六态 / 时间范围 / 关键字服务端分页查询。
+ * 数据源：GET /api/v2/platform/alertmanager/alert-events。
  */
 import { useCallback, useEffect, useState } from 'react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { isApiError } from '../../api/client'
-import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
+import { alertStatusApi } from '../../api/alertmanager'
 import { networkDomainApi } from '../../api/domain'
-import type { AlertHistoryItem, AlertHistoryState } from '../../types/alertmanager'
+import type { AlertEventItem, AlertEventStatus } from '../../types/alertmanager'
 
 /** 历史告警查询参数 */
 export interface HistoryAlertsQuery {
   networkDomain: string
-  alertname: string
-  instance: string
-  state: 'all' | AlertHistoryState
+  alertName: string
+  summary: string
+  status: 'all' | AlertEventStatus
   timeRange: [Dayjs, Dayjs]
   page: number
   pageSize: number
 }
 
 export interface HistoryAlertsResult {
-  items: AlertHistoryItem[]
+  items: AlertEventItem[]
   total: number
   page: number
   pageSize: number
@@ -40,13 +40,13 @@ export interface DomainOption {
   name: string
 }
 
-const DEFAULT_PAGE_SIZE = 50
-const MAX_PAGE_SIZE = 200
-const DEFAULT_WINDOW_HOURS = 24
-const MAX_WINDOW_HOURS = 7 * 24
+const DEFAULT_PAGE_SIZE = 20
+const MAX_PAGE_SIZE = 100
+const DEFAULT_WINDOW_HOURS = 7 * 24
+const MAX_WINDOW_HOURS = 30 * 24
 
 export function useHistoryAlerts(q: HistoryAlertsQuery): HistoryAlertsResult {
-  const [items, setItems] = useState<AlertHistoryItem[]>([])
+  const [items, setItems] = useState<AlertEventItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPageState] = useState(q.page)
   const [pageSize, setPageSizeState] = useState(q.pageSize)
@@ -81,23 +81,17 @@ export function useHistoryAlerts(q: HistoryAlertsQuery): HistoryAlertsResult {
     const params: Record<string, string | number | undefined> = {
       page,
       page_size: pageSize,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      // 决策 90：必须显式传步长，取值 30s（PRD 默认细粒度）。窄窗口保持 30s 估算精度；
-      // 拉宽到 7d 时服务端 normalizeHistoryStep 会按窗口抬高（7d → 55s）——
-      // 若不传则服务端按 30s 展开 7d = 20160 点，超过 Prometheus 单序列 11000 点上限
-      // → 上游 400 → 本页整体加载失败。
-      step: ALERT_HISTORY_STEP_SECONDS,
+      starts_from: start.toISOString(),
+      starts_to: end.toISOString(),
+      sort: 'starts_at desc',
     }
-    if (q.networkDomain && q.networkDomain !== 'all') {
-      params.network_domain = q.networkDomain
-    }
-    if (q.alertname) params.alertname = q.alertname
-    if (q.instance) params.instance = q.instance
-    if (q.state !== 'all') params.state = q.state
+    if (q.networkDomain && q.networkDomain !== 'all') params.network_domain = q.networkDomain
+    if (q.alertName.trim()) params.alert_name = q.alertName.trim()
+    if (q.summary.trim()) params.summary = q.summary.trim()
+    if (q.status !== 'all') params.status = q.status
 
     try {
-      const res = await alertStatusApi.getAlertHistory(params)
+      const res = await alertStatusApi.getAlertEvents(params)
       setItems(res.data?.list ?? [])
       setTotal(res.data?.total ?? 0)
       setPageState(res.data?.page ?? page)
@@ -146,13 +140,13 @@ export function useNetworkDomains(): DomainOption[] {
   return domains
 }
 
-/** 初始化默认时间窗：最近 24h */
+/** 初始化默认时间窗：最近 7 天 */
 export function defaultTimeRange(): [Dayjs, Dayjs] {
   const end = dayjs()
   return [end.subtract(DEFAULT_WINDOW_HOURS, 'hour'), end]
 }
 
-/** 限制时间窗不超过 7d，并保证 end >= start */
+/** 限制时间窗不超过 30d，并保证 end >= start */
 function clampTimeRange(range: [Dayjs, Dayjs]): [Dayjs, Dayjs] {
   let [start, end] = range
   if (!start || !end || start.isAfter(end)) {

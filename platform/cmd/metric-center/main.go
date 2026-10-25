@@ -35,6 +35,8 @@ import (
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
 	"github.com/metriccenter/metriccenter/platform/alertmanager"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/history"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
@@ -160,6 +162,14 @@ func main() {
 	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
 	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
 
+	// M08 历史告警对账（webhook 事件流的盲区修复）：以 Alertmanager 活跃告警实况对齐
+	// 静默/抑制状态、补插漏记、关闭已消失行；AM 不可达或刚重启时整轮/关行自动跳过。
+	if amProxy, proxyErr := alerts.NewProxy(*alertmanagerURL); proxyErr != nil {
+		log.Printf("WARN: alert history reconciler disabled: %v", proxyErr)
+	} else {
+		history.NewReconciler(db.DB, history.AMSource{Proxy: amProxy}).Start(ctx)
+	}
+
 	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址默认由本服务监听地址推导，禁止硬编码；
 	// 跨网/边缘域部署时由 --notify.bridge-url（环境变量 NOTIFY_BRIDGE_URL）显式覆盖为中心
 	// 桥公网可达地址，使 UI 接收人片段与 M09 物化的 receiver 指向正确跨网地址而非 127.0.0.1。
@@ -241,6 +251,9 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	// M08 PL-3 通知渲染桥（设计提案 §3.3.3/§3.3.8）：不挂认证态平台组，按 v1 路径装配
 	// （上方 PublicPathPrefixes 已豁免全局用户认证）；访问控制由部署层承担。
 	notify.RegisterBridgeRoutes(apiV1, db.DB, bridgeCfg)
+	// M08 历史告警留痕入口：Alertmanager 通过内置 webhook 推送每条告警变化。
+	// 与通知桥同处 /api/v1/webhooks/（全局用户认证已豁免），访问控制由部署层承担。
+	history.RegisterWebhookRoutes(apiV1, db.DB)
 
 	apiV2 := r.Group("/api/v2")
 	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
@@ -339,6 +352,10 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
 		return fmt.Errorf("register alertmanager routes: %w", err)
 	}
+	// M08 历史告警查询 / 统计（与告警状态页、首页告警卡同源）。
+	history.RegisterManagementRoutes(platform, db.DB, history.Config{
+		Location: loadRenderLocation(*notifyRenderTimezone),
+	})
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。

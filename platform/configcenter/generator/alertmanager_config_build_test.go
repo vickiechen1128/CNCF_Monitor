@@ -95,6 +95,27 @@ func TestBuildAlertmanagerConfig_WithBridgeURL(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out, "name: notify-1"))
 }
 
+// TestBuildAlertmanagerConfig_InjectsHistoryWebhookEveryReceiver 内置历史留痕 webhook
+// 必须挂到每一个 receiver（含 default 兜底接收人）：被静默/未匹配等任何路径命中的告警
+// 都要能留痕；且配置由生成器唯一产出，用户无法删除。
+func TestBuildAlertmanagerConfig_InjectsHistoryWebhookEveryReceiver(t *testing.T) {
+	setBridgeURL(t, "http://127.0.0.1:8080")
+	out, err := BuildAlertmanagerConfig(AlertmanagerConfigInput{
+		RouteSection: routeSectionFor(t, buildTree("notify-1")),
+		Channels:     []models.NotifyChannel{chWithID(1, "SRE")},
+	})
+	require.NoError(t, err)
+
+	historyURL := "http://127.0.0.1:8080/api/v1/webhooks/alerts"
+	assert.Equal(t, 2, strings.Count(out, historyURL),
+		"default + notify-1 两个 receiver 各挂一条内置留痕 webhook")
+	assert.Equal(t, 1, strings.Count(out, "http://127.0.0.1:8080/api/v1/webhooks/notify?id=1"),
+		"用户渠道 webhook 仍只投递一次")
+	assert.Contains(t, out, "max_alerts: 0")
+	assert.Contains(t, out, "timeout: 5s")
+	assert.Contains(t, out, "send_resolved: true")
+}
+
 // TestBuildAlertmanagerConfig_RejectsInvalidRouteSection 空 / 畸形 route 段显式报错，
 // 绝不产出半份配置。
 func TestBuildAlertmanagerConfig_RejectsInvalidRouteSection(t *testing.T) {

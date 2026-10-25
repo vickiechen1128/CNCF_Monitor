@@ -104,6 +104,8 @@ func AutoMigrate() error {
 		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		// 历史告警（Module_08：webhook 事件留痕 + 分钟级对账）
+		&models.AlertEvent{},
 		// 预留
 		&models.BusinessMetric{},
 	); err != nil {
@@ -120,9 +122,18 @@ func AutoMigrate() error {
 
 	// 中心直连域（管理域）全平台唯一：只允许一条未软删的 management 行。
 	// 登记接口在事务内已做应用层校验，这里用 SQLite 部分唯一索引兜底并发写入。
-	return DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_network_domains_single_management
+	if err := DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_network_domains_single_management
 		ON network_domains(domain_type)
-		WHERE domain_type = 'management' AND deleted_at IS NULL`).Error
+		WHERE domain_type = 'management' AND deleted_at IS NULL`).Error; err != nil {
+		return err
+	}
+
+	// 历史告警未结行（firing/silenced/inhibited）按 fingerprint 全库唯一：
+	// webhook 实时推送与对账补插并发写入同一次告警时只落一行。
+	// 终态（resolved/silenced_closed/lost）不参与约束——恢复后再次触发要能插入新行。
+	return DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_open_fingerprint
+		ON alert_events(fingerprint)
+		WHERE fingerprint <> '' AND status IN ('firing','silenced','inhibited') AND deleted_at IS NULL`).Error
 }
 
 // Health checks whether the database connection is alive.

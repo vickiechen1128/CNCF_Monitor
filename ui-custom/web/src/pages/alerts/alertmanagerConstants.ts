@@ -7,6 +7,7 @@
  * M06 用户管理接入后应删除并改用真实登录账号（见设计决策 19），实现 login 前勿新增硬编码凭据/姓名。
  */
 import type {
+  AlertEventStatus,
   AlertHistoryState,
   AlertmanagerConfigStatus,
   NotifyChannelType,
@@ -323,6 +324,30 @@ export function alertMatchKey(alertname?: string, instance?: string): string {
 export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
   firing: 'error',
   resolved: 'success',
+}
+
+/**
+ * 历史告警事件六态展示名（webhook 留痕 + 对账）。
+ * 静默/抑制只掐通知、不改事实；「静默期间结束 / 恢复信息丢失」是恢复通知缺失时的
+ * 如实标记（恢复时间留空，不伪造）。
+ */
+export const alertEventStatusLabel: Record<AlertEventStatus, string> = {
+  firing: '告警中',
+  silenced: '静默中',
+  inhibited: '抑制中',
+  resolved: '已恢复',
+  silenced_closed: '静默期间结束',
+  lost: '恢复信息丢失',
+}
+
+/** 历史告警事件六态 Tag 色（告警中红 / 静默橙 / 抑制蓝 / 已恢复绿 / 缺失类灰红） */
+export const alertEventStatusColor: Record<AlertEventStatus, string> = {
+  firing: 'error',
+  silenced: 'warning',
+  inhibited: 'processing',
+  resolved: 'success',
+  silenced_closed: 'default',
+  lost: 'error',
 }
 
 // =====================================================================
