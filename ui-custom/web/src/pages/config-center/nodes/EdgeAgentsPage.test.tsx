@@ -138,24 +138,6 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(screen.getAllByText('已同步').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('回传延迟列：正常/warning/danger/无数据 四档渲染（F-40 延展）', async () => {
-    const agents: AgentView[] = [
-      agentRow(1, 'edge01', { remote_write_lag_seconds: 42 }), // <60s → 刚刚
-      agentRow(2, 'edge02', { remote_write_lag_seconds: 21 * 60 }), // 21 分钟前 → warning
-      agentRow(3, 'edge03', { remote_write_lag_seconds: 2 * 3600 + 5 * 60 }), // 2 小时 5 分钟前 → danger
-      agentRow(4, 'edge04', {}), // 无数据 → '-'
-    ]
-    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 4, online: 4, partial: 0, offline: 0 } }))
-    renderPage()
-
-    expect(await screen.findByText('edge01')).toBeInTheDocument()
-    expect(screen.getByText('刚刚')).toBeInTheDocument()
-    expect(screen.getByText('21 分钟前')).toBeInTheDocument()
-    expect(screen.getByText('2 小时 5 分钟前')).toBeInTheDocument()
-    // 无数据档显示占位符（其余列也可能有 '-'，放宽断言）
-    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
-  })
-
   it('积压数据龄列：有差分依据展示时长+增速 Tooltip，无数据展示占位（F-40 延展①）', async () => {
     const agents: AgentView[] = [
       agentRow(1, 'edge01', { backlog_age_seconds: 90 * 60, backlog_growth_bytes_per_sec: 2048 }),

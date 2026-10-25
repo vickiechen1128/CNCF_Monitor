@@ -116,7 +116,7 @@ describe('StorageLogPage', () => {
     expect(await screen.findByText('保留策略已保存，待重启 Prometheus 生效')).toBeInTheDocument()
     // 运维重启指引（决策 64：平台不代跑重启）
     expect(screen.getByText(/systemctl restart prometheus/)).toBeInTheDocument()
-    // 变更影响说明（边缘补发不丢 / 查询短暂不可用 / 回传延迟短时变橙）
+    // 变更影响说明（边缘补发不丢 / 查询短暂不可用）
     expect(screen.getByText(/持久化队列补发/)).toBeInTheDocument()
     expect(screen.getByText('待重启生效')).toBeInTheDocument()
     // 无任何越权重启入口

@@ -73,8 +73,6 @@ export interface AgentView {
   remote_write_dropped_total?: number
   /** 累计发送重试次数（F-39）：增速高即回传链路不稳信号 */
   remote_write_retries_total?: number
-  /** 回传延迟（F-40 延展）：中心视角该网域 up 样本距今秒数的 p95 分位（quantile by network_domain_id，反映大部分样本滞后而非仅最新一条）；缺省=无数据（24h 内无样本/中心 Prom 不可用），与 0（新鲜）严格区分 */
-  remote_write_lag_seconds?: number | null
   /** 积压数据龄（F-40 延展①）：当前积压字节 ÷ 近期积压增速（相邻心跳差分）的估算秒数；缺省=无数据（窗口内心跳不足/积压未上涨/心跳过期），与 0 严格区分。网域级派生值，同域节点相同 */
   backlog_age_seconds?: number | null
   /** 近期积压增速（字节/秒，负值表示积压在消化）；缺省=无差分依据。对应「展示心跳中的积压增长趋势」口径 */

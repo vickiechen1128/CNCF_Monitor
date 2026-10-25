@@ -31,12 +31,12 @@ import (
 //
 // 契约：docs/02-product-requirements/Modules/Module_11_.. §4.2/§6。DELETE monitor 与
 // configcenter/domain 已注册的 POST/PUT /network-domains/:id/monitor 仅方法不同，无冲突。
-func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier) {
+func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string) {
 	platform.DELETE("/network-domains/:id/monitor", RetireDomainHandler(db))
 
 	ag := platform.Group("/edge-agents")
-	ag.GET("", ListAgentsHandler(db, lagQuerier))
-	ag.GET("/:id", GetAgentHandler(db, lagQuerier))
+	ag.GET("", ListAgentsHandler(db))
+	ag.GET("/:id", GetAgentHandler(db))
 	// F-42 人工滚动重启 vmagent：写端点挂 RequireAdmin 最小授权门（对齐 deployment
 	// review-fix B 口径）。返回 403 文案「需要管理员权限」。
 	// F-43 清空回传积压（破坏性操作）：同挂 RequireAdmin。
@@ -81,22 +81,20 @@ func respondRetireError(c *gin.Context, err error) {
 }
 
 // ListAgentsHandler 处理 GET /api/v2/platform/edge-agents。
-// lagQuerier 可为 nil（未接线/单测）：此时 AgentView.RemoteWriteLagSeconds 全部缺省。
-func ListAgentsHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc {
+func ListAgentsHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp, err := ListAgents(db, time.Now().UTC(), DefaultOfflineThreshold)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
 		}
-		fillSampleLags(resp.Agents, lagQuerier)
 		fillBacklogInsights(db, resp.Agents, time.Now().UTC())
 		response.OK(c, resp)
 	}
 }
 
 // GetAgentHandler 处理 GET /api/v2/platform/edge-agents/:id。
-func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc {
+func GetAgentHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
@@ -109,7 +107,6 @@ func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc {
 			return
 		}
 		views := []AgentView{*v}
-		fillSampleLags(views, lagQuerier)
 		fillBacklogInsights(db, views, time.Now().UTC())
 		response.OK(c, &views[0])
 	}

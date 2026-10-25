@@ -22,11 +22,9 @@ import {
   formatBacklogAge,
   formatBacklogBytes,
   formatBacklogGrowth,
-  formatSampleLag,
   isConfigSyncApplyFailed,
   outOfSyncCauseAction,
   outOfSyncCauseHint,
-  sampleLagSeverity,
 } from './edgeConstants'
 
 const { Text } = Typography
@@ -264,17 +262,6 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
                 </Text>
               </Text>
             )
-          })()}
-        </Descriptions.Item>
-        {/* F-40 延展：中心视角该网域样本距今的 p95 分位（端到端回传延迟，保守口径），与回传积压交叉定位 */}
-        <Descriptions.Item label="回传延迟">
-          {(() => {
-            const text = formatSampleLag(agent.remote_write_lag_seconds)
-            if (text === '-') return <Text type="secondary">无数据（24h 内无样本或中心 Prom 不可用）</Text>
-            const severity = sampleLagSeverity(agent.remote_write_lag_seconds)
-            if (severity === 'danger') return <Text type="danger">{text}</Text>
-            if (severity === 'warning') return <Text type="warning">{text}</Text>
-            return text
           })()}
         </Descriptions.Item>
         {/* F-39：累计丢块/丢包与累计重试。丢块非零即发生过数据丢失（红色醒目）；重试仅在不为 0 时展示，

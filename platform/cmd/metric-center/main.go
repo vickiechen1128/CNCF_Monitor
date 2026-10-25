@@ -332,7 +332,7 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
 	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
 	// T11-08：edge-packages 读 *edgePackageDir 下的 release_meta.json 并流式下发真实 tar.gz。
-	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir, edge.NewPromSampleLagQuerier(promURL, nil))
+	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir)
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。

@@ -59,7 +59,7 @@ func newManagementRouter(db *gorm.DB) *gin.Engine {
 func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterManagementRoutes(r.Group("/api/v2/platform"), db, packageDir, nil)
+	RegisterManagementRoutes(r.Group("/api/v2/platform"), db, packageDir)
 	return r
 }
 
@@ -125,7 +125,7 @@ func TestRestartAgentEndpoint(t *testing.T) {
 	// admin 注入 → 200，seq+1 且留痕透出；不存在 id → 404。
 	r2 := gin.New()
 	r2.Use(adminInjector())
-	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "", nil)
+	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "")
 
 	w2 := httptest.NewRecorder()
 	r2.ServeHTTP(w2, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/restart", agent.ID), nil))
@@ -217,7 +217,7 @@ func TestFlushBacklogEndpoint(t *testing.T) {
 	// admin 注入 → 200，seq+1 且留痕透出；不存在 id → 404；离线 → 400。
 	r2 := gin.New()
 	r2.Use(adminInjector())
-	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "", nil)
+	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "")
 
 	w2 := httptest.NewRecorder()
 	r2.ServeHTTP(w2, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/flush-backlog", agent.ID), nil))

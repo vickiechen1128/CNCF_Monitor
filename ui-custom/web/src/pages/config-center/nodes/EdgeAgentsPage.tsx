@@ -46,10 +46,7 @@ import {
   formatBacklogAge,
   formatBacklogBytes,
   formatBacklogGrowth,
-  formatSampleLag,
   outOfSyncCauseAction,
-  SAMPLE_LAG_TOOLTIP,
-  sampleLagSeverity,
 } from './edgeConstants'
 
 const { Text } = Typography
@@ -137,7 +134,7 @@ export function EdgeAgentsPage() {
           </p>
           <ul style={{ paddingLeft: 20, margin: 0 }}>
             <li>节点会先停止采集回传，清空 vmagent 持久队列后立即重新拉起；约 30s 内随下次心跳下发执行；</li>
-            <li>适用于积压过大、回传延迟已超出时效容忍的止血场景（当前积压大概率已过时）；</li>
+            <li>适用于积压过大、数据时效已无法容忍的止血场景（当前积压大概率已过时）；</li>
             <li>清空后回传积压归零、新数据实时回传；如需避免再次积压，请调整采集间隔或下发积压磁盘上限。</li>
           </ul>
         </div>
@@ -317,29 +314,6 @@ export function EdgeAgentsPage() {
             <span>{text}</span>
           </Tooltip>
         )
-      },
-    },
-    {
-      // F-40 延展：中心视角网域样本距今的 p95 分位（端到端回传延迟，保守口径反映大部分样本滞后），
-      // 与回传积压/积压数据龄列交叉定位回传通道问题。
-      title: (
-        <Tooltip title={SAMPLE_LAG_TOOLTIP}>
-          <Space size={4}>
-            回传延迟
-            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-          </Space>
-        </Tooltip>
-      ),
-      dataIndex: 'remote_write_lag_seconds',
-      key: 'remote_write_lag_seconds',
-      width: 110,
-      render: (v?: number | null) => {
-        const text = formatSampleLag(v)
-        if (text === '-') return <Text type="secondary">-</Text>
-        const severity = sampleLagSeverity(v)
-        if (severity === 'danger') return <Text type="danger">{text}</Text>
-        if (severity === 'warning') return <Text type="warning">{text}</Text>
-        return text
       },
     },
     {

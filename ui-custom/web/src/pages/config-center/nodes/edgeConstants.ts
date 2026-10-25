@@ -152,34 +152,6 @@ export function formatBacklogBytes(bytes?: number): string {
   return `${v.toFixed(u === 'B' ? 0 : 1)} ${u}`
 }
 
-/** 回传延迟 warning 阈值（秒）：超过即超 F-40 瞬时查询 5min lookback 窗口，列表状态会转为「回传延迟中/未采集」 */
-export const SAMPLE_LAG_WARN_SECONDS = 5 * 60
-/** 回传延迟 danger 阈值（秒）：严重积压，与 9/30 实测 2.8h 级积压场景区分档 */
-export const SAMPLE_LAG_DANGER_SECONDS = 30 * 60
-
-/** 回传延迟列头/抽屉提示（F-40 口径延展，p95 分位口径）：中心视角端到端延迟的保守分位，与回传积压交叉定位 */
-export const SAMPLE_LAG_TOOLTIP =
-  '中心侧该网域监控样本距今时间的 p95 分位（24h 窗口，端到端回传延迟）：反映大部分样本的滞后程度，而非仅最新一条。超过 5 分钟说明样本已超瞬时查询窗口（采集 Job 列表会显示「回传延迟中/未采集」），结合「回传积压」「积压数据龄」列定位回传通道问题，无需排查采集器'
-
-/** 回传延迟格式化（中心视角最新样本距今）：无数据 '-'；<60s「刚刚」；其余「N 分钟前 / N 小时前」 */
-export function formatSampleLag(seconds?: number | null): string {
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '-'
-  if (seconds < 60) return '刚刚'
-  const mins = Math.floor(seconds / 60)
-  if (mins < 60) return `${mins} 分钟前`
-  const hours = Math.floor(mins / 60)
-  const rest = mins % 60
-  return rest > 0 ? `${hours} 小时 ${rest} 分钟前` : `${hours} 小时前`
-}
-
-/** 回传延迟分档：正常（<5min）/ warning（5–30min）/ danger（≥30min） */
-export function sampleLagSeverity(seconds?: number | null): 'normal' | 'warning' | 'danger' {
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return 'normal'
-  if (seconds >= SAMPLE_LAG_DANGER_SECONDS) return 'danger'
-  if (seconds >= SAMPLE_LAG_WARN_SECONDS) return 'warning'
-  return 'normal'
-}
-
 /** 积压数据龄列头/抽屉提示（F-40 延展①）：积压字节 ÷ 近期生产速率的估算口径 */
 export const BACKLOG_AGE_TOOLTIP =
   '按近期积压增速（相邻心跳差分）推算攒出当前积压所需时长，约等于「积压字节 ÷ 近期生产速率」。显示「-」表示 30 分钟窗口内心跳不足、积压未上涨（消化中）或心跳过期；数值越大说明积压越久未被消费'

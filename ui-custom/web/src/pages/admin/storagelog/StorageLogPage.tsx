@@ -222,8 +222,8 @@ export function StorageLogPage() {
                       <code> make run-prometheus</code>。
                     </p>
                     <p style={{ margin: 0 }}>
-                      <b>变更影响：</b>重启窗口内边缘数据由 vmagent 持久化队列补发、不丢失；中心查询短暂不可用；M09
-                      采集节点「回传延迟」列会短时变橙，恢复采集后自动回落，属预期现象。
+                      <b>变更影响：</b>重启窗口内边缘数据由 vmagent 持久化队列补发、不丢失；
+                      中心查询短暂不可用，恢复采集后自动回升，属预期现象。
                     </p>
                   </div>
                 }
