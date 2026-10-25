@@ -94,6 +94,42 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText('CPU 使用率过高')).toBeInTheDocument()
   })
 
+  it('网域列优先展示 network_domain_name 中文名；存量记录按网域 ID 映射名称', async () => {
+    networkDomainApiMock.list.mockResolvedValue({
+      data: {
+        list: [
+          { id: 'gov-cloud-a', name: '政务网A区' },
+          { id: 'default', name: '默认域' },
+        ],
+      },
+    })
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          eventItem({
+            id: 1,
+            alert_name: 'WithName',
+            network_domain: 'gov-cloud-a',
+            labels: { network_domain_name: '政务网A区' },
+          }),
+          eventItem({ id: 2, alert_name: 'Legacy', network_domain: 'default', labels: {} }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderPage()
+    const withNameRow = (await screen.findByText('WithName')).closest('tr')
+    expect(withNameRow).not.toBeNull()
+    expect(within(withNameRow as HTMLElement).getByText('政务网A区')).toBeInTheDocument()
+
+    const legacyRow = screen.getByText('Legacy').closest('tr')
+    expect(legacyRow).not.toBeNull()
+    expect(within(legacyRow as HTMLElement).getByText('默认域')).toBeInTheDocument()
+  })
+
   it('六态按语义展示：告警中 / 静默中 / 抑制中 / 静默期间结束 / 恢复信息丢失', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',

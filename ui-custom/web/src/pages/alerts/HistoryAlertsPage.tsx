@@ -139,6 +139,10 @@ export function HistoryAlertsPage() {
   const { items, total, page, pageSize, loading, error, permissionDenied, reload, setPage, setPageSize } =
     useHistoryAlerts(query)
 
+  // 网域 ID → 名称：优先使用告警标签中的中文展示名 network_domain_name（生成期注入），
+  // 存量记录无该标签时按网域 ID 映射 M06 名称；过滤仍传 ID，不受展示影响。
+  const domainNameById = useMemo(() => new Map(domains.map((d) => [d.id, d.name])), [domains])
+
   const columns: ColumnsType<AlertEventItem> = [
     {
       title: '告警名称',
@@ -162,7 +166,12 @@ export function HistoryAlertsPage() {
       dataIndex: 'network_domain',
       key: 'network_domain',
       width: 120,
-      render: (v: string) => <Text>{v || 'default'}</Text>,
+      render: (_: unknown, record: AlertEventItem) => {
+        const display = record.labels?.network_domain_name
+        if (display) return <Text>{display}</Text>
+        const id = record.network_domain
+        return <Text>{id ? (domainNameById.get(id) ?? id) : 'default'}</Text>
+      },
     },
     {
       title: '实例名',

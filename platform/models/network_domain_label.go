@@ -18,6 +18,14 @@ const (
 	NetworkDomainLabelKey = "network_domain"
 	// NetworkDomainIDLabelKey 是写入侧部署级 external_labels 网域键（M09 决策 19）。
 	NetworkDomainIDLabelKey = "network_domain_id"
+	// NetworkDomainNameLabelKey 是网域中文展示名标签键（target 级 system 注入）。
+	// **仅用于展示**：过滤 / 归属 / 授权仍以 NetworkDomainLabelKey 的 ID 值为准，
+	// 不得用本键替代身份键。
+	NetworkDomainNameLabelKey = "network_domain_name"
+	// CloudNameLabelKey 是云字典中文展示名标签键（target 级 system 注入，仅展示）。
+	CloudNameLabelKey = "cloud_name"
+	// ZoneNameLabelKey 是网络分区中文展示名标签键（target 级 system 注入，仅展示）。
+	ZoneNameLabelKey = "zone_name"
 )
 
 // ResolveNetworkDomain 从指标 / 告警标签解析网域归属，读取顺序：

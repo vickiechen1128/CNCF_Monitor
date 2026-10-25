@@ -116,6 +116,9 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 				models.ResolveNetworkDomain(payload.Alerts[i].Labels),
 			)
 		}
+		// 展示名补齐：优先使用生成期注入的中文展示标签；存量告警 / 聚合告警缺标签时
+		// 按网域、云、区域字典从 DB 回填，保证飞书卡片展示中文而非 code。
+		enrichAlertsDisplayLabels(db, payload.Alerts)
 		// 渲染（时间按渲染时区本地化）。
 		body, err := Render(tpl.Content, payload, cfg.Location)
 		if err != nil {
