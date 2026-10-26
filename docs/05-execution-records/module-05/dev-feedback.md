@@ -778,3 +778,34 @@
 - `tsc -p tsconfig.test.json --noEmit` ✅
 - `vitest run src/pages/home/HomePage.test.tsx` ✅（58 tests）
 - 变更文件 ESLint ✅（全量 lint 仍有 `useRoutes.ts` / `InstanceSelector.tsx` 两处既有问题，与本次无关）
+
+---
+
+## 反馈 13（2026-10-26，M05-PANEL-01）：Grafana 面板挂载与 kiosk 展示
+
+### 用户最新要求与 PRD 差异
+
+用户明确要求在功能管理中填写「面板名称 + Grafana URL」，保存后在首页「自定义大屏」下生成动态菜单，点击后以 iframe 内嵌且仅作展示，URL 带 `kiosk`；并以指定 TenSunS node 完整地址完成实际挂载验收。
+
+该要求早于原 PRD 的 `{v0.3}` 规划落地，且入口采用首页动态子菜单，不采用原 §4.3 的一级「可视化大屏」、预置模板、全屏和告警深链。本次按增量模式实现，PRD 正文不在开发分支修改，后续由设计侧回填。
+
+### 实现范围与架构 checklist
+
+1. 新增一张 `dashboard_panels` 表；migration：`platform/db/migrations/20261026_0002_create_dashboard_panels.sql`。
+2. 触碰 `main.go` / `db.go` 既有注册：能力归属既有 `platform/dashboard` 模块，由 `dashboard.RegisterPanelRoutes` 自注册读/写子路由；未新增顶层模块或通用中央框架。
+3. 未使用 `GetResourceField` / `LegacyFieldMap`。
+4. 请求链路：`handler → panelmount.Service → panelmount.Repository → DB`；写接口挂既有 `RequireAdmin` 组。
+5. 热点文件：`main.go` 仅增加既有 dashboard 模块一行注册，`MainLayout.tsx` 仅将旧禁用占位替换为动态菜单，其余逻辑新增在独立页面/子包。
+
+本次仅包含新增、列表、详情与展示，不包含编辑、删除、Grafana 账号托管或面板编辑。管理页 `/admin/dashboard-panels`，展示页 `/dashboard/panels/:id`；接口事实见本模块 `api-contract-snapshot.md` §5。
+
+### 验证与实际挂载
+
+- `go test ./platform/dashboard/... ./platform/models ./platform/cmd/metric-center -count=1` ✅；`go vet ./platform/...` ✅。
+- 前端相关 Vitest 3 文件 30 用例 ✅；`typecheck:test` ✅；变更范围 ESLint ✅；`pnpm build` ✅。
+- 本地真实服务健康检查 `/health`、`/health/db`、`/status` 均 200；dev server 与一体化托管的管理页/展示页路由均 200。
+- 通过真实登录 + POST API 在默认 `metric_center.db` 创建「节点监控大屏」，`id=1`；详情接口确认 URL 与用户提供长地址逐字一致，iframe 地址为其追加 `&kiosk`。
+- Grafana 目标可达；匿名请求返回 302 登录跳转。实际浏览器展示依赖 Grafana 登录会话及 Grafana 侧 `allow_embedding=true`，平台未绕过这些条件。
+- 验证后已停止本次服务、释放端口并删除临时测试二进制；未提交 commit。
+
+既有全量门禁问题（非本次改动引入）：后端全量测试中 `admin/storagelog` Windows 磁盘统计、`db` 临时文件清理、`strategy/rule` promtool 路径失败；前端全量 lint 仅剩 `pages/strategy/InstanceSelector.tsx:94` 既有 warning；全量 Vitest 在 `ResourcesPage.test.tsx` 两个既有 15 秒超时出现后停止剩余回归。以上均未计为通过。

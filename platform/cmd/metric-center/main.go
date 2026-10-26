@@ -370,6 +370,8 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
 		dashboard.WithUpHealthQuerier(dashboard.NewPromUpHealthQuerier(promURL, nil)),
 	))
+	// Module 05：自定义大屏挂载配置，读接口需登录，新增仅管理员。
+	dashboard.RegisterPanelRoutes(platform, admin, db.DB)
 
 	// Module 06 (F-41): 存储与日志管理——TSDB 保留策略读写（写 config.dir 下
 	// prom-retention.env，重启 Prometheus 生效）+ 磁盘占用 / 日志轮转只读展示。

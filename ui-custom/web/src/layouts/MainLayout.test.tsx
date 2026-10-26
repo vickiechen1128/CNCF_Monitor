@@ -38,15 +38,25 @@ const localStorageMock: Storage = {
 }
 Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
 
+const { listPanelsMock } = vi.hoisted(() => ({ listPanelsMock: vi.fn() }))
+vi.mock('../api/dashboardPanels', () => ({
+  dashboardPanelApi: { list: listPanelsMock },
+}))
+
 describe('MainLayout', () => {
   setupAntdTest()
 
   // 侧栏折叠偏好落在 localStorage（跨模块 / 跨刷新共用），用例间必须清干净，避免相互污染
   beforeEach(() => {
     window.localStorage.clear()
+    listPanelsMock.mockReset()
+    listPanelsMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 100 },
+    })
   })
 
-  it('renders the 首页 secondary nav with 概览 Dashboard and the reserved 自定义大屏 entry', async () => {
+  it('renders the 首页 secondary nav and an empty custom dashboard group', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <Routes>
@@ -55,22 +65,40 @@ describe('MainLayout', () => {
       </MemoryRouter>,
     )
 
-    // 首页补二级导航（此前无左侧栏，与其余模块观感不一致）
     expect(screen.getByText('概览 Dashboard')).toBeInTheDocument()
     const selected = screen
       .getAllByRole('menuitem')
       .find((el) => (el.textContent || '').includes('概览 Dashboard'))
     expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('自定义大屏')).toBeInTheDocument()
+    expect(screen.queryByText('v0.2')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('自定义大屏'))
+    expect(await screen.findByText('暂无挂载面板')).toBeInTheDocument()
+  })
 
-    // v0.2 预留项：可见但 disabled，点击不跳转（仅表达「此处将承载自定义大屏」）
-    const reserved = screen.getByText('自定义大屏')
-    expect(screen.getByText('v0.2')).toBeInTheDocument()
-    const reservedItem = reserved.closest('li') as HTMLElement
-    expect(reservedItem.className).toContain('ant-menu-item-disabled')
-    fireEvent.click(reserved)
-    await waitFor(() => {
-      expect(screen.getByText('home-content')).toBeInTheDocument()
+  it('builds custom dashboard menus from mounted panels and highlights the current panel', async () => {
+    listPanelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 7, name: '节点监控大屏', url: 'http://grafana.example.com/d/node' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
     })
+    render(
+      <MemoryRouter initialEntries={['/dashboard/panels/7']}>
+        <Routes>
+          <Route path="/dashboard/panels/7" element={<MainLayout>panel-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const menuItem = await screen.findByText('节点监控大屏')
+    await waitFor(() => {
+      expect(menuItem.closest('li')?.className ?? '').toContain('ant-menu-item-selected')
+    })
+    expect(screen.getByText('panel-content')).toBeInTheDocument()
   })
 
   it('collapses and expands the sider from the header toggle and persists the preference', () => {

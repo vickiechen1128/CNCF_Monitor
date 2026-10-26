@@ -139,22 +139,27 @@
   outline-offset: 1px;
 }
 
-/* 侧栏预留项（v0.2 自定义大屏）：文案 + 版本标注同排，disabled 态维持弱化观感 */
-.app-sider-reserved-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.app-content.dashboard-panel-content {
+  padding: 0;
 }
 
-.app-sider-reserved-tag {
-  margin: 0;
-  padding: 0 4px;
-  border: none;
-  border-radius: 4px;
-  background: var(--app-border-secondary, #f2f3f5);
-  color: var(--app-text-tertiary, #86909c);
-  font-size: 10px;
-  line-height: 16px;
+.dashboard-panel-page {
+  background: #fff;
+}
+
+.dashboard-panel-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 64px);
+  min-height: 480px;
+  border: 0;
+  background: #fff;
+}
+
+.dashboard-panel-state {
+  display: flex;
+  justify-content: center;
+  padding: 96px 0;
 }
 
 /* 侧栏菜单项副标题（D-1b：「规则编辑 · 含告警规则、记录规则」）：
