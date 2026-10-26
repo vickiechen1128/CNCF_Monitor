@@ -145,7 +145,7 @@ func TestWebhookHandlerAlways2xx(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := newTestDB(t)
 	r := gin.New()
-	r.POST(WebhookPath, WebhookHandler(db))
+	r.POST(WebhookPath, WebhookHandler(NewService(db)))
 
 	payload := testPayload(testAlert("fp-1", "firing"))
 	body, err := json.Marshal(payload)

@@ -17,17 +17,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// Service 是历史告警模块的依赖容器：handler 只依赖 Service，不直接持有 *gorm.DB
+// （后端架构红线 R1）。
+type Service struct {
+	db *gorm.DB
+}
+
+// NewService 创建历史告警服务。
+func NewService(db *gorm.DB) *Service { return &Service{db: db} }
+
 // RegisterWebhookRoutes 挂载 Alertmanager 历史留痕入口（全局用户认证已对
 // /api/v1/webhooks/ 前缀豁免，调用方为中心 Alertmanager，访问控制由部署层承担）。
 func RegisterWebhookRoutes(v1 *gin.RouterGroup, db *gorm.DB) {
-	v1.POST("/webhooks/alerts", WebhookHandler(db))
+	v1.POST("/webhooks/alerts", WebhookHandler(NewService(db)))
 }
 
 // WebhookHandler 处理 POST /api/v1/webhooks/alerts。
 //
 // 对 Alertmanager **永远 2xx**：解码失败 / 落库失败只记日志并返回 200，
 // 避免 AM 对毒消息无限重试（参考实现 §6 / §8）。
-func WebhookHandler(db *gorm.DB) gin.HandlerFunc {
+func WebhookHandler(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodyBytes+1))
 		if err != nil {
@@ -46,12 +55,12 @@ func WebhookHandler(db *gorm.DB) gin.HandlerFunc {
 			c.Status(http.StatusOK)
 			return
 		}
-		if db == nil {
+		if svc == nil || svc.db == nil {
 			log.Printf("[alert-history] webhook ignored: db is nil")
 			c.Status(http.StatusOK)
 			return
 		}
-		res := Ingest(db, p, time.Now().UTC())
+		res := Ingest(svc.db, p, time.Now().UTC())
 		log.Printf("[alert-history] webhook group_key=%q receiver=%q received=%d inserted=%d updated=%d skipped=%d failed=%d",
 			p.GroupKey, p.Receiver, res.Received, res.Inserted, res.Updated, res.Skipped, res.Failed)
 		c.Status(http.StatusOK)
@@ -68,20 +77,21 @@ type Config struct {
 //   - GET /alert-events        服务端分页查询
 //   - GET /alert-events/stats  首页统计（当日 / 近 7 天 / 通知中 / 静默 · 抑制）
 func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, cfg Config) {
+	svc := NewService(db)
 	am := platform.Group("/alertmanager")
-	am.GET("/alert-events", ListEventsHandler(db))
-	am.GET("/alert-events/stats", StatsHandler(db, cfg))
+	am.GET("/alert-events", ListEventsHandler(svc))
+	am.GET("/alert-events/stats", StatsHandler(svc, cfg))
 }
 
 // ListEventsHandler 处理 GET /api/v2/platform/alertmanager/alert-events。
-func ListEventsHandler(db *gorm.DB) gin.HandlerFunc {
+func ListEventsHandler(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q, err := parseListQuery(c)
 		if err != nil {
 			response.BadRequest(c, err)
 			return
 		}
-		views, total, err := ListEvents(db, q)
+		views, total, err := ListEvents(svc.db, q)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
@@ -96,13 +106,13 @@ func ListEventsHandler(db *gorm.DB) gin.HandlerFunc {
 }
 
 // StatsHandler 处理 GET /api/v2/platform/alertmanager/alert-events/stats。
-func StatsHandler(db *gorm.DB, cfg Config) gin.HandlerFunc {
+func StatsHandler(svc *Service, cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		loc := cfg.Location
 		if loc == nil {
 			loc = defaultStatsLocation()
 		}
-		stats, err := ComputeStats(db, time.Now().In(loc), loc)
+		stats, err := ComputeStats(svc.db, time.Now().In(loc), loc)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return

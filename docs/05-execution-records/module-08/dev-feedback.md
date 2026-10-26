@@ -1051,6 +1051,7 @@ L3（纯文案文档）──┘        │
   - 保留清理：默认 180 天，`ALERT_EVENT_RETENTION_DAYS` 可配，未结行不清理。
   - 首页四指标改查 `GET /api/v2/platform/alertmanager/alert-events/stats`（库），删除旧 `week_total` / `open_*` 字段；「正在告警」列表仍查 AM；删除首页 Prometheus 参考行与 `getPromAlerts` 请求；统计失败四格显示 '-'，AM 失败显示列表不可用。
   - 历史页新增 `inhibited_closed`（抑制期间结束）展示与筛选。
-- **验证**：后端 history / alerts / models / cmd 测试通过，`platform/db` 仅剩本机既有基线失败 `TestInitDefaultPath`；前端 `tsc`、`eslint`、首页 / 告警状态 / 历史告警共 89 例通过；后端二进制已重编译。
+  - CI 架构红线收口：`history` 三个 handler 与 `edge` 两个 handler 改为 Service 注入（R1）；新增 `platform/db/migrations/20261026_0001_alert_events_schema.sql` 作为 migration-first 的 schema 记录（R2，运行时仍由 AutoMigrate 维护存量基线）。
+- **验证**：后端 history / alerts / models / cmd 测试通过，`platform/db` 仅剩本机既有基线失败 `TestInitDefaultPath`；前端 `tsc`、`eslint`、首页 / 告警状态 / 历史告警共 89 例通过；后端二进制已重编译；`bash scripts/ci/check-backend-arch.sh` 本地通过。
 - **运维注意**：生产首次启动自动迁移；若存量 `occurrence_key` 有重复，唯一索引创建会失败，需先清理；其他表历史时间不重写。
 - **状态**：**landed（2026-10-26）**
