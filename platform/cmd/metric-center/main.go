@@ -170,6 +170,10 @@ func main() {
 		history.NewReconciler(db.DB, history.AMSource{Proxy: amProxy}).Start(ctx)
 	}
 
+	// M08 历史告警保留清理：默认保留 180 天终态记录（ALERT_EVENT_RETENTION_DAYS 可配），
+	// 未结行永不清理；与 AM 是否可用无关，始终启动。
+	history.StartRetention(ctx, db.DB)
+
 	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址默认由本服务监听地址推导，禁止硬编码；
 	// 跨网/边缘域部署时由 --notify.bridge-url（环境变量 NOTIFY_BRIDGE_URL）显式覆盖为中心
 	// 桥公网可达地址，使 UI 接收人片段与 M09 物化的 receiver 指向正确跨网地址而非 127.0.0.1。

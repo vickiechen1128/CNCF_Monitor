@@ -138,6 +138,7 @@ type EventView struct {
 	NetworkDomain string                  `json:"network_domain,omitempty"`
 	StartsAt      *time.Time              `json:"starts_at,omitempty"`
 	EndsAt        *time.Time              `json:"ends_at,omitempty"`
+	ClosedAt      *time.Time              `json:"closed_at,omitempty"`
 	UpdatedAt     time.Time               `json:"updated_at"`
 	// DurationSeconds 仅终态已恢复有值（真实时长）；未恢复 / 恢复时间未知保持 null。
 	DurationSeconds *int64            `json:"duration_seconds,omitempty"`
@@ -170,17 +171,19 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 	if q.NetworkDomain != "" {
 		base = base.Where("network_domain = ?", q.NetworkDomain)
 	}
+	// 时间筛选边界统一转 UTC+8：表内存的是带偏移文本，边界偏移不同会让 SQLite
+	// 按字符串比较时错位（前端 DatePicker 通常传 Z / UTC）。
 	if q.StartsFrom != nil {
-		base = base.Where("starts_at >= ?", *q.StartsFrom)
+		base = base.Where("starts_at >= ?", models.NormalizeAlertEventTime(*q.StartsFrom))
 	}
 	if q.StartsTo != nil {
-		base = base.Where("starts_at <= ?", *q.StartsTo)
+		base = base.Where("starts_at <= ?", models.NormalizeAlertEventTime(*q.StartsTo))
 	}
 	if q.EndsFrom != nil {
-		base = base.Where("ends_at >= ?", *q.EndsFrom)
+		base = base.Where("ends_at >= ?", models.NormalizeAlertEventTime(*q.EndsFrom))
 	}
 	if q.EndsTo != nil {
-		base = base.Where("ends_at <= ?", *q.EndsTo)
+		base = base.Where("ends_at <= ?", models.NormalizeAlertEventTime(*q.EndsTo))
 	}
 
 	var total int64
@@ -224,6 +227,7 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 			NetworkDomain: rows[i].NetworkDomain,
 			StartsAt:      rows[i].StartsAt,
 			EndsAt:        rows[i].EndsAt,
+			ClosedAt:      rows[i].ClosedAt,
 			UpdatedAt:     rows[i].UpdatedAt,
 			Fingerprint:   rows[i].Fingerprint,
 			Labels:        labels,
@@ -244,48 +248,76 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 
 // Stats 是首页告警卡统计口径（全部来自同一张事件表，避免多数据源打架）。
 //
-// 当日 / 近 7 天按「区间与窗口有交集」计：
-//   - 未结三态（告警中/静默中/抑制中）→ 计入（今天仍在告警）；
-//   - 已恢复 → starts_at 或 ends_at 落在窗口内即计入；
-//   - 恢复信息丢失 / 静默期间结束 → 以 updated_at（发现关行的时刻）近似落在窗口内即计入。
+// 四指标（2026-10-26 用户确认，对齐 MonitorStack 历史告警口径）：
+//   - 今日告警：starts_at 落在今天自然日内的发生数（严格按开始时间，不含昨天开始今天仍在持续的）；
+//   - 今日恢复：closed_at 落在今天的终态数（真实恢复 + 恢复时间未知）；
+//   - 历史遗留告警：当前仍未结束、且 starts_at 早于今天 0 点的积压快照；
+//   - 历史遗留今日恢复：starts_at 早于今天 0 点、closed_at 落在今天的终态数。
+//
+// 所有时间边界先转 UTC+8（与表内存储时区一致）再进 SQL，
+// 避免 SQLite 文本比较因偏移量不同而错位。
 type Stats struct {
-	TodayTotal    int64 `json:"today_total"`
-	WeekTotal     int64 `json:"week_total"`
-	OpenFiring    int64 `json:"open_firing"`
-	OpenSilenced  int64 `json:"open_silenced"`
-	OpenInhibited int64 `json:"open_inhibited"`
+	TodayTotal int64 `json:"today_total"`
+
+	TodayResolvedTotal    int64 `json:"today_resolved_total"`
+	TodayResolvedReal     int64 `json:"today_resolved_real"`
+	TodayResolvedInferred int64 `json:"today_resolved_inferred"`
+
+	LegacyOpenTotal     int64 `json:"legacy_open_total"`
+	LegacyOpenFiring    int64 `json:"legacy_open_firing"`
+	LegacyOpenSilenced  int64 `json:"legacy_open_silenced"`
+	LegacyOpenInhibited int64 `json:"legacy_open_inhibited"`
+
+	LegacyResolvedTodayTotal    int64 `json:"legacy_resolved_today_total"`
+	LegacyResolvedTodayReal     int64 `json:"legacy_resolved_today_real"`
+	LegacyResolvedTodayInferred int64 `json:"legacy_resolved_today_inferred"`
 }
 
 // ComputeStats 计算首页统计。now 应已按 loc 表示。
 func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error) {
 	var st Stats
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	weekStart := dayStart.AddDate(0, 0, -6) // 含今天共 7 个自然日
+	if loc == nil {
+		loc = defaultStatsLocation()
+	}
+	local := now.In(loc)
+	dayStart := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	tomorrowStart := dayStart.AddDate(0, 0, 1)
+
+	// SQLite 存的是带偏移量的文本，边界与存量必须同为 UTC+8 才能正确比较。
+	d0 := models.NormalizeAlertEventTime(dayStart)
+	d1 := models.NormalizeAlertEventTime(tomorrowStart)
 
 	open := models.AlertEventOpenStatuses
-	closedUnknown := []models.AlertEventStatus{
-		models.AlertEventStatusLost,
-		models.AlertEventStatusSilencedClosed,
-	}
-	overlap := func(windowStart time.Time) *gorm.DB {
-		return db.Model(&models.AlertEvent{}).Where(
-			"(status IN ?) OR (status = ? AND (starts_at >= ? OR ends_at >= ?)) OR (status IN ? AND updated_at >= ?)",
-			open, models.AlertEventStatusResolved, windowStart, windowStart, closedUnknown, windowStart,
-		)
+	terminal := models.AlertEventTerminalStatuses
+	inferred := models.AlertEventInferredTerminalStatuses
+
+	base := func() *gorm.DB { return db.Model(&models.AlertEvent{}) }
+	count := func(dest *int64, q *gorm.DB) error {
+		return q.Count(dest).Error
 	}
 
 	queries := []struct {
 		dest *int64
 		q    *gorm.DB
 	}{
-		{&st.TodayTotal, overlap(dayStart)},
-		{&st.WeekTotal, overlap(weekStart)},
-		{&st.OpenFiring, db.Model(&models.AlertEvent{}).Where("status = ?", models.AlertEventStatusFiring)},
-		{&st.OpenSilenced, db.Model(&models.AlertEvent{}).Where("status = ?", models.AlertEventStatusSilenced)},
-		{&st.OpenInhibited, db.Model(&models.AlertEvent{}).Where("status = ?", models.AlertEventStatusInhibited)},
+		// 今日告警：严格按开始时间落在今天自然日内。
+		{&st.TodayTotal, base().Where("starts_at >= ? AND starts_at < ?", d0, d1)},
+		// 今日恢复：终态且关闭时间落在今天。
+		{&st.TodayResolvedTotal, base().Where("status IN ? AND closed_at >= ? AND closed_at < ?", terminal, d0, d1)},
+		{&st.TodayResolvedReal, base().Where("status = ? AND closed_at >= ? AND closed_at < ?", models.AlertEventStatusResolved, d0, d1)},
+		{&st.TodayResolvedInferred, base().Where("status IN ? AND closed_at >= ? AND closed_at < ?", inferred, d0, d1)},
+		// 历史遗留告警：当前未结、开始时间早于今天 0 点。
+		{&st.LegacyOpenTotal, base().Where("status IN ? AND starts_at < ?", open, d0)},
+		{&st.LegacyOpenFiring, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusFiring, d0)},
+		{&st.LegacyOpenSilenced, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusSilenced, d0)},
+		{&st.LegacyOpenInhibited, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusInhibited, d0)},
+		// 历史遗留今日恢复：开始时间早于今天 0 点、关闭时间落在今天。
+		{&st.LegacyResolvedTodayTotal, base().Where("status IN ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", terminal, d0, d0, d1)},
+		{&st.LegacyResolvedTodayReal, base().Where("status = ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", models.AlertEventStatusResolved, d0, d0, d1)},
+		{&st.LegacyResolvedTodayInferred, base().Where("status IN ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", inferred, d0, d0, d1)},
 	}
 	for _, item := range queries {
-		if err := item.q.Count(item.dest).Error; err != nil {
+		if err := count(item.dest, item.q); err != nil {
 			return Stats{}, fmt.Errorf("alert event stats: %w", err)
 		}
 	}

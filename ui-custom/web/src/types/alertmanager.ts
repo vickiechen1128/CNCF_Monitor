@@ -245,13 +245,14 @@ export interface AlertHistoryData {
 // 历史告警事件（Module_08 webhook 留痕 + 对账；与上面的 ALERTS 重建视图不同）
 // =====================================================================
 
-/** 历史告警六态（与后端 models.AlertEventStatus 一一对应） */
+/** 历史告警七态（与后端 models.AlertEventStatus 一一对应） */
 export type AlertEventStatus =
   | 'firing' // 告警中
   | 'silenced' // 静默中
   | 'inhibited' // 抑制中
   | 'resolved' // 已恢复
   | 'silenced_closed' // 静默期间结束（恢复通知被静默吞掉，恢复时间未知）
+  | 'inhibited_closed' // 抑制期间结束（恢复通知被抑制吞掉，恢复时间未知）
   | 'lost' // 恢复信息丢失（平台没收到恢复消息，恢复时间未知）
 
 /** 历史告警事件记录（一行 = 一次告警发生，按 fingerprint 合并） */
@@ -265,6 +266,8 @@ export interface AlertEventItem extends AlertInstanceFields {
   network_domain?: string
   starts_at?: string
   ends_at?: string
+  /** 记录关闭时刻（所有终态都有值；resolved 时等于恢复时间） */
+  closed_at?: string
   updated_at: string
   duration_seconds?: number
   fingerprint?: string
@@ -282,11 +285,21 @@ export interface AlertEventData {
 
 /** GET /api/v2/platform/alertmanager/alert-events/stats 响应 data */
 export interface AlertEventStats {
+  /** 今日告警：今天 0 点后开始触发的发生数（严格按开始时间） */
   today_total: number
-  week_total: number
-  open_firing: number
-  open_silenced: number
-  open_inhibited: number
+  /** 今日恢复：今天关闭的终态数（真实恢复 + 恢复时间未知） */
+  today_resolved_total: number
+  today_resolved_real: number
+  today_resolved_inferred: number
+  /** 历史遗留告警：当前未结且开始时间早于今天 0 点 */
+  legacy_open_total: number
+  legacy_open_firing: number
+  legacy_open_silenced: number
+  legacy_open_inhibited: number
+  /** 历史遗留今日恢复：开始早于今天 0 点且今天关闭 */
+  legacy_resolved_today_total: number
+  legacy_resolved_today_real: number
+  legacy_resolved_today_inferred: number
 }
 
 // =====================================================================

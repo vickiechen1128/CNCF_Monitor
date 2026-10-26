@@ -1039,3 +1039,18 @@ L3（纯文案文档）──┘        │
   3. 保留期清理与 7d 回填未实现（默认不清理、不回填）。
   4. 升级后需保存一次路由或触发一次配置变更，内置留痕 receiver 才会写入 alertmanager.yml 并下发。
 - **状态**：**landed（2026-10-25，未提交）**
+
+## 54. 历史告警模型加固与首屏四指标替换（2026-10-26，用户拍板）
+
+- **类别**：① 设计口径确认 + ③ 技术优化（去重 / 时间口径 / 清理）
+- **背景**：对照 `11.md` 的 MonitorStack 历史告警设计，用户确认：首页旧四指标（当日告警 / 近 7 天告警 / 通知中 / 已静默·已抑制）全部下线，替换为「今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复」，不做兼容；首次触发即被静默/抑制的不补插；首页「最新告警」改名「正在告警」；删除首页 Prometheus 求值参考行；`/alert-status` 页保持不动。
+- **结论 / 落地**：
+  - 表结构：`alert_events` 新增 `closed_at`（所有终态都有值，统计统一用它）、`occurrence_key`（指纹 + UTC 毫秒 starts_at 的 SHA-256；空指纹为空串、不参与唯一约束）、新增 `inhibited_closed` 状态；`alert_events` 时间字段统一按 UTC+8 带偏移存储，迁移只处理本表，其他表历史时间不动。
+  - Webhook：按 occurrence 去重；迟到 firing 只刷新展示字段、不复活；resolved 回填 `ends_at=closed_at`，缺 `endsAt` 不伪造；重复 resolved 幂等；`mutedBy` 与 `silencedBy` 同义归入静默。
+  - 对账：对齐未结三态；恢复被误关的原行；补插只补 `state=active`，首次触发即 suppressed 的不补；关闭写 `closed_at`，抑制中 → `inhibited_closed`；空活跃集连续 2 轮、单轮关闭比例 >50% 且 >10 条时先缓一轮。
+  - 保留清理：默认 180 天，`ALERT_EVENT_RETENTION_DAYS` 可配，未结行不清理。
+  - 首页四指标改查 `GET /api/v2/platform/alertmanager/alert-events/stats`（库），删除旧 `week_total` / `open_*` 字段；「正在告警」列表仍查 AM；删除首页 Prometheus 参考行与 `getPromAlerts` 请求；统计失败四格显示 '-'，AM 失败显示列表不可用。
+  - 历史页新增 `inhibited_closed`（抑制期间结束）展示与筛选。
+- **验证**：后端 history / alerts / models / cmd 测试通过，`platform/db` 仅剩本机既有基线失败 `TestInitDefaultPath`；前端 `tsc`、`eslint`、首页 / 告警状态 / 历史告警共 89 例通过；后端二进制已重编译。
+- **运维注意**：生产首次启动自动迁移；若存量 `occurrence_key` 有重复，唯一索引创建会失败，需先清理；其他表历史时间不重写。
+- **状态**：**landed（2026-10-26）**

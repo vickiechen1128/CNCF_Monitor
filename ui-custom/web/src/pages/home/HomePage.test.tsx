@@ -33,10 +33,11 @@ const renderPage = () =>
   )
 
 const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
-const PROM_ALERTS_PATH = '/api/v1/alerts'
 const AM_ALERTS_PATH = '/api/v2/platform/alertmanager/alerts'
-/** M02 历史告警（决策 73：当日 / 近 7 天计数 + 列表行 2 告警具体内容） */
+/** M02 历史告警（仅用于列表行 2 告警具体内容回查） */
 const HISTORY_PATH = '/api/v1/alerts/history'
+/** M08 历史告警统计（首屏四格：今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复） */
+const STATS_PATH = '/api/v2/platform/alertmanager/alert-events/stats'
 
 /**
  * 已下线的 L0 五张 KPI 卡的 key（反馈 11 已整块删除该区块）。
@@ -85,9 +86,9 @@ function setupMock(byPath: Record<string, unknown>) {
 function setupHomeMock(overrides: Record<string, unknown> = {}) {
   setupMock({
     [DASHBOARD_PATH]: DASHBOARD_OK,
-    [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
     [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
     [HISTORY_PATH]: HISTORY_EMPTY,
+    [STATS_PATH]: STATS_EMPTY,
     ...overrides,
   })
 }
@@ -284,53 +285,6 @@ const DASHBOARD_EMPTY = {
 }
 
 /**
- * Prom 当前告警样例（决策 91 三处「未恢复」数字的唯一取数来源）：
- * firing 共 3 条 = host 1 + database 1（带 `app: payment`）+ 1 条**无
- * `resource_category`**（只进 L1 入口卡附注）；另有 1 条 `pending` **不计入**。
- */
-const PROM_ALERTS_OK = {
-  status: 'success',
-  data: {
-    alerts: [
-      {
-        state: 'firing',
-        labels: { alertname: '主机 CPU 高' },
-        annotations: {},
-        activeAt: '2026-09-14T00:00:00Z',
-        resource_category: 'host',
-      },
-      {
-        state: 'firing',
-        labels: { alertname: '数据库连接数高', app: 'payment' },
-        annotations: {},
-        activeAt: '2026-09-14T00:00:00Z',
-        resource_category: 'database',
-      },
-      {
-        // 拨测 / 聚合规则告警：无 resource_category → 不进任何资源类型卡
-        state: 'firing',
-        labels: { alertname: '拨测失败' },
-        annotations: {},
-        activeAt: '2026-09-14T00:00:00Z',
-      },
-      {
-        // 求值中：不计入任何「未恢复」
-        state: 'pending',
-        labels: { alertname: '磁盘空间不足' },
-        annotations: {},
-        activeAt: '2026-09-14T00:00:00Z',
-        resource_category: 'host',
-      },
-    ],
-  },
-}
-
-const PROM_ALERTS_EMPTY = {
-  status: 'success',
-  data: { alerts: [] },
-}
-
-/**
  * AM 通知状态样例：active 3 / silenced 1 / inhibited 1 / unprocessed 1。
  * starts_at 依次为 5 分钟 / 30 分钟 / 2 小时 / 3 小时 / 1 天前 → 列表（剔除 unprocessed 后）
  * 恰为 5 条且顺序确定；第 4 条 resource_name 为空，用于校验不回落成采集地址。
@@ -442,6 +396,42 @@ const HISTORY_EMPTY = {
   data: { list: [], total: 0, page: 1, page_size: 200 },
 }
 
+/** 历史告警统计空态（首屏四格全 0）。 */
+const STATS_EMPTY = {
+  status: 'success',
+  data: {
+    today_total: 0,
+    today_resolved_total: 0,
+    today_resolved_real: 0,
+    today_resolved_inferred: 0,
+    legacy_open_total: 0,
+    legacy_open_firing: 0,
+    legacy_open_silenced: 0,
+    legacy_open_inhibited: 0,
+    legacy_resolved_today_total: 0,
+    legacy_resolved_today_real: 0,
+    legacy_resolved_today_inferred: 0,
+  },
+}
+
+/** 历史告警统计样例：今日 2 / 今日恢复 3（2 真实 + 1 未知）/ 遗留 1 / 遗留今日恢复 1。 */
+const STATS_OK = {
+  status: 'success',
+  data: {
+    today_total: 2,
+    today_resolved_total: 3,
+    today_resolved_real: 2,
+    today_resolved_inferred: 1,
+    legacy_open_total: 1,
+    legacy_open_firing: 1,
+    legacy_open_silenced: 0,
+    legacy_open_inhibited: 0,
+    legacy_resolved_today_total: 1,
+    legacy_resolved_today_real: 1,
+    legacy_resolved_today_inferred: 0,
+  },
+}
+
 /**
  * 把视口 stub 成窄屏（≤767px）。
  * 只对首页断点查询返回 true——antd 内部的 `(min-width: ...)` 响应式查询仍为 false，
@@ -475,7 +465,7 @@ describe('HomePage', () => {
   })
 
   it('renders the dashboard overview from API response', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -779,7 +769,7 @@ describe('HomePage', () => {
   })
 
   it('renders the 采集健康 panel (four states) in the health-probe row, beside the probe panel', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -857,7 +847,7 @@ describe('HomePage', () => {
 
   it('stacks the cloud rows and the matrix keeps its table on the mobile viewport', async () => {
     stubNarrowViewport()
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -889,7 +879,7 @@ describe('HomePage', () => {
   })
 
   it('renders the L1 coverage table inside the 04 card, one row per category, no entry card or alert capsules', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -1236,12 +1226,12 @@ describe('HomePage', () => {
   })
 
   it('shows a prominent all-clear block in the latest-alert column when nothing needs handling', async () => {
-    // AM 无通知中告警、Prom 无触发，但 history 有近 7 天记录 → 不走空态引导，
-    // 两栏区渲染、右栏「最新告警」为空 → 醒目成功块（不是 12px 灰字一行）
+    // AM 无通知中告警、Prom 无触发，但历史统计有记录 → 不走空态引导，
+    // 两栏区渲染、右栏「正在告警」为空 → 醒目成功块（不是 12px 灰字一行）
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
       [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
       [HISTORY_PATH]: HISTORY_OK,
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
@@ -1345,15 +1335,15 @@ describe('HomePage', () => {
     expect(footnote.textContent).not.toContain('monitored_count')
   })
 
-  it('keeps every alert figure inside the alert card, and shows the Prom firing count only in the reference line', async () => {
+  it('keeps every alert figure inside the alert card', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
 
-    // 等告警卡渲染出最新告警，确保计数已到位
+    // 等告警卡渲染出正在告警，确保计数已到位
     await waitFor(() => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
@@ -1362,12 +1352,11 @@ describe('HomePage', () => {
     const alertCard = screen.getByTestId('alert-status-card')
     expect(screen.queryByTestId('l0-section')).not.toBeInTheDocument()
 
-    // Prometheus firing（=3）降级为告警卡左统计块底部 11px 参考行，不是首页主数字
-    // （第六轮走查：参考行从右栏页脚上移至统计块空挡）
-    expect(screen.getByTestId('prom-reference-line')).toHaveTextContent('已触发 3 · 观察中 1')
-    expect(screen.getByTestId('alert-stat-column')).toContainElement(
-      screen.getByTestId('prom-reference-line'),
-    )
+    // 四格全部在告警卡内：今日 / 今日恢复 / 历史遗留 / 遗留今日恢复
+    expect(within(alertCard).getByTestId('alert-today-count')).toHaveTextContent('2')
+    expect(within(alertCard).getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
+    expect(within(alertCard).getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
+    expect(within(alertCard).getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
     expect(alertCard).toHaveTextContent('通知中')
 
     // 02 云卡与 04 覆盖率区都不得出现任何告警数字（跨区块串味防线）
@@ -1411,21 +1400,6 @@ describe('HomePage', () => {
     expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
     expect(screen.getByTestId('overall-coverage-bar')).toHaveAttribute('aria-valuenow', '0')
     expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
-  })
-
-  it('shows placeholder instead of 0 for the Prom firing reference line when the Prom source fails', async () => {
-    setupHomeMock({
-      [PROM_ALERTS_PATH]: { status: 'error', data: null, error: 'prom unreachable' },
-    })
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('prom-reference-line')).toBeInTheDocument()
-    })
-
-    // 取数失败显示 '-'（0 是「确实没有已触发告警」的有效取值，必须与失败区分）
-    expect(screen.getByTestId('prom-reference-line')).toHaveTextContent('已触发 - · 观察中 -')
   })
 
   it('shows placeholder for the overall coverage figures when dashboard summary fails', async () => {
@@ -1490,8 +1464,9 @@ describe('HomePage', () => {
     expect(params.page_size).toBe(200)
   })
 
-  it('takes the week count from the server window total instead of the page', async () => {
-    // 服务端窗口总量 350 > 单页上限 200：列表被截断，但「近 7 天」以窗口总量为准
+  it('takes the four metrics from the stats endpoint rather than the history list', async () => {
+    // M02 history 列表只用于行 2 摘要回查，不再参与四格计数：
+    // 即使 history 返回 200 条，四格也必须以 stats 接口为准。
     const todayItems = Array.from({ length: 200 }, (_, i) => ({
       alertname: `告警 ${i}`,
       instance: `10.0.0.${(i % 250) + 1}:9100`,
@@ -1507,21 +1482,24 @@ describe('HomePage', () => {
         status: 'success',
         data: { list: todayItems, total: 350, page: 1, page_size: 200, step: 60 },
       },
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('alert-today-count')).toHaveTextContent('200')
+      expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
     })
-    expect(screen.getByTestId('alert-week-count')).toHaveTextContent('350')
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
+    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
+    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
   })
 
   it('renders four-cell alert stat strip and the latest alerts list', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
       [HISTORY_PATH]: HISTORY_OK,
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
@@ -1532,19 +1510,21 @@ describe('HomePage', () => {
 
     const alertCard = screen.getByTestId('alert-status-card')
     const strip = screen.getByTestId('alert-stat-strip')
-    // §2.3 两栏化后：四格统计块在左列、最新告警列表在右列，两者都仍在告警卡内
+    // §2.3 两栏化后：四格统计块在左列、正在告警列表在右列，两者都仍在告警卡内
     expect(screen.getByTestId('alert-stat-column').contains(strip)).toBe(true)
     expect(
       screen.getByTestId('alert-list-column').contains(screen.getByTestId('latest-alert-region')),
     ).toBe(true)
     expect(alertCard.contains(screen.getByTestId('alert-card-columns'))).toBe(true)
-    // 主数字：当日 2 / 近 7 天 3（M02 history 按 fired_at 计数，含已恢复）
+    // 四格全部来自 stats 接口：今日 2 / 今日恢复 3 / 历史遗留 1 / 遗留今日恢复 1
     expect(within(strip).getByTestId('alert-today-count')).toHaveTextContent('2')
-    expect(within(strip).getByTestId('alert-week-count')).toHaveTextContent('3')
-    // 次数字：通知中 = AM active 计数 3；已静默 · 已抑制合并为一格值串 '1 · 1'
-    expect(screen.getByTestId('alert-active-count')).toHaveTextContent('3')
-    expect(screen.getByTestId('alert-governed-count')).toHaveTextContent('1 · 1')
-    for (const label of ['当日告警', '近 7 天告警', '通知中', '已静默 · 已抑制']) {
+    expect(within(strip).getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
+    expect(within(strip).getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
+    expect(within(strip).getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
+    // 通知中/静默/抑制不再进统计条（2026-10-26 用户确认），只出现在正在告警行状态里
+    expect(screen.queryByTestId('alert-active-count')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('alert-governed-count')).not.toBeInTheDocument()
+    for (const label of ['今日告警', '今日恢复', '历史遗留告警', '历史遗留今日恢复']) {
       expect(within(strip).getByText(label)).toBeInTheDocument()
     }
     // 四格数字统一 20px/600（等宽数字）：第七轮走查字号阶梯——
@@ -1555,8 +1535,8 @@ describe('HomePage', () => {
     expect(todayCount.style.fontWeight).toBe('600')
     expect(todayCount.style.fontVariantNumeric).toBe('tabular-nums')
 
-    // 最新告警：近 8 条上限，标题与取数共用常量；两行制不再需要表头
-    expect(within(alertCard).getByText('最新告警')).toBeInTheDocument()
+    // 正在告警：近 8 条上限，标题与取数共用常量；两行制不再需要表头
+    expect(within(alertCard).getByText('正在告警')).toBeInTheDocument()
     // 标题不再带「近 8 条」（第六轮走查：上限是内部实现，标题带条数有歧义）
     expect(within(alertCard).queryByText(/近 8 条/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('latest-alert-header')).not.toBeInTheDocument()
@@ -1584,9 +1564,7 @@ describe('HomePage', () => {
       '另有 1 条告警仍在计算通知状态',
     )
 
-    // Prom 求值态仅作参考小字，且页面不再出现「待处理」歧义词
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('观察中 1')
+    // 页面不再出现「待处理」歧义词
     expect(screen.queryByText(/待处理/)).not.toBeInTheDocument()
 
     // 卡内深链：告警中心入口已由标题右侧「查看全部 →」承担，底部不再重复（用户反馈 2026-09-14）；
@@ -1630,9 +1608,9 @@ describe('HomePage', () => {
 
   it('requests each alert endpoint exactly once for counts and the latest list', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
       [HISTORY_PATH]: HISTORY_OK,
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
@@ -1641,11 +1619,11 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 三条只读链路各只请求一次（数字与列表同源，无重复取数）
+    // 三条只读链路各只请求一次（四格取 stats，正在告警取 AM，摘要回查取 history，无重复取数）
     const paths = mockGet.mock.calls.map((call) => call[0] as string)
     expect(paths.filter((path) => path === AM_ALERTS_PATH)).toHaveLength(1)
-    expect(paths.filter((path) => path === PROM_ALERTS_PATH)).toHaveLength(1)
     expect(paths.filter((path) => path === HISTORY_PATH)).toHaveLength(1)
+    expect(paths.filter((path) => path === STATS_PATH)).toHaveLength(1)
     // 列表首条来自同一份响应
     expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('主机 CPU 使用率过高')
   })
@@ -1672,16 +1650,15 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('alert-unprocessed-note')).toBeInTheDocument()
     })
-    // 仅有 unprocessed 告警时不是空态：主数字 0 + 灰字提示，不得引导「去配置通知规则」
-    expect(screen.getByTestId('alert-active-count')).toHaveTextContent('0')
+    // 仅有 unprocessed 告警时不是空态：四格 0 + 灰字提示，不得引导「去配置通知规则」
+    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
     expect(screen.getByTestId('latest-alert-empty')).toBeInTheDocument()
     expect(screen.queryByText('当前无通知中的告警')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
   })
 
-  it('renders neutral empty guidance linking to /alert-config when both alert sources are empty', async () => {
+  it('renders neutral empty guidance linking to /alert-config when alert sources are empty', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
       [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
     })
 
@@ -1696,10 +1673,10 @@ describe('HomePage', () => {
     )
   })
 
-  it('renders warning but keeps successful data when one alert source fails', async () => {
+  it('renders warning but keeps AM data when the stats source fails', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: Promise.reject(new Error('alerts unreachable')),
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
+      [STATS_PATH]: { status: 'error', data: null, error: 'stats unreachable' },
     })
 
     renderPage()
@@ -1707,18 +1684,18 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByText('部分告警数据加载失败')).toBeInTheDocument()
     })
-    expect(screen.getByText('alerts unreachable')).toBeInTheDocument()
+    expect(screen.getByText('stats unreachable')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
-    // Prom 链路失败，但 AM 已成功的数据仍应展示（局部降级，不整卡报错）
-    expect(screen.getByTestId('alert-active-count')).toHaveTextContent('3')
+    // 统计链路失败，但 AM 已成功的数据仍应展示（局部降级，不整卡报错）
     expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
+    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('-')
   })
 
   it('shows placeholder instead of 0 when the alertmanager source fails', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: Promise.reject(new Error('am down')),
       [HISTORY_PATH]: HISTORY_OK,
+      [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
@@ -1727,23 +1704,18 @@ describe('HomePage', () => {
       expect(screen.getByText('部分告警数据加载失败')).toBeInTheDocument()
     })
 
-    // AM 侧失败 → 通知中 / 已静默 · 已抑制两格显示 '-'，不把失败静默成 0 让用户误当作真实值
-    expect(screen.getByTestId('alert-active-count')).toHaveTextContent('-')
-    expect(screen.getByTestId('alert-governed-count')).toHaveTextContent('-')
+    // AM 侧失败 → 正在告警列表显示不可用提示，不把失败静默成 0
     expect(screen.getByTestId('latest-alert-unavailable')).toBeInTheDocument()
-    // history 侧成功 → 当日 / 近 7 天仍展示真实数字（局部降级不整片归零）
+    // 统计侧成功 → 四格仍展示真实数字（局部降级不整片归零）
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
-    expect(screen.getByTestId('alert-week-count')).toHaveTextContent('3')
-    // Prom 侧成功 → 参考行仍展示真实数字（局部降级不整片归零）
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('观察中 1')
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
   })
 
-  it('shows placeholder instead of 0 for today / week when the history source fails', async () => {
+  it('shows placeholder instead of 0 for the four metrics when the stats source fails', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
-      [HISTORY_PATH]: Promise.reject(new Error('history down')),
+      [HISTORY_PATH]: HISTORY_OK,
+      [STATS_PATH]: Promise.reject(new Error('stats down')),
     })
 
     renderPage()
@@ -1752,19 +1724,20 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // history 取数失败 → 当日 / 近 7 天两格 '-'（不显示 0），不阻塞 AM / Prom 展示
+    // 统计取数失败 → 四格 '-'（不显示 0），AM 正在告警仍展示
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('-')
-    expect(screen.getByTestId('alert-week-count')).toHaveTextContent('-')
-    expect(screen.getByTestId('alert-active-count')).toHaveTextContent('3')
-    expect(screen.getByTestId('alert-governed-count')).toHaveTextContent('1 · 1')
-    expect(screen.getByTestId('prom-reference-line').textContent).toContain('已触发 3')
-    // 历史链路是辅助链路：不并入「告警状态加载失败」整卡错误态
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('-')
+    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('-')
+    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('-')
+    expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
+    // 单条统计链路失败走部分降级，不并入「告警状态加载失败」整卡错误态
+    expect(screen.getByText('部分告警数据加载失败')).toBeInTheDocument()
     expect(screen.queryByText('告警状态加载失败')).not.toBeInTheDocument()
   })
 
-  it('renders placeholder when the history envelope omits the list field', async () => {
+  it('renders placeholder when the stats envelope omits required fields', async () => {
     setupHomeMock({
-      [HISTORY_PATH]: { status: 'success', data: { total: 5, page: 1, page_size: 200 } },
+      [STATS_PATH]: { status: 'success', data: { today_total: 2 } },
     })
 
     renderPage()
@@ -1773,14 +1746,14 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('alert-today-count')).toHaveTextContent('-')
     })
-    expect(screen.getByTestId('alert-week-count')).toHaveTextContent('-')
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('-')
     expect(screen.queryByText('去配置通知规则 →')).not.toBeInTheDocument()
   })
 
   it('renders error state when alert APIs return business error envelopes', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: { status: 'error', data: null, error: 'prom alerts failed' },
       [AM_ALERTS_PATH]: { status: 'error', data: null, error: 'alertmanager unreachable' },
+      [STATS_PATH]: { status: 'error', data: null, error: 'stats unreachable' },
     })
 
     renderPage()
@@ -1790,14 +1763,15 @@ describe('HomePage', () => {
     })
     // 业务错误信封必须显式呈现，不得静默吞成 0 + 空态引导
     expect(screen.getByText(/alertmanager unreachable/)).toBeInTheDocument()
+    expect(screen.getByText(/stats unreachable/)).toBeInTheDocument()
     expect(screen.queryByText('当前无通知中的告警')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
   it('renders alert card error state with retry button', async () => {
     setupHomeMock({
-      [PROM_ALERTS_PATH]: Promise.reject(new Error('alerts unreachable')),
       [AM_ALERTS_PATH]: Promise.reject(new Error('am down')),
+      [STATS_PATH]: Promise.reject(new Error('stats down')),
     })
 
     renderPage()
@@ -1805,7 +1779,8 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByText('告警状态加载失败')).toBeInTheDocument()
     })
-    expect(screen.getByText(/alerts unreachable/)).toBeInTheDocument()
+    expect(screen.getByText(/am down/)).toBeInTheDocument()
+    expect(screen.getByText(/stats down/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
@@ -1868,7 +1843,7 @@ describe('HomePage', () => {
   })
 
   it('renders the overall coverage donut and the 下发 figures from dashboard summary', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -1894,7 +1869,7 @@ describe('HomePage', () => {
   })
 
   it('renders the 04 coverage donut at 24px/500 with the arc and the percent in the brand color', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -2024,15 +1999,12 @@ describe('HomePage', () => {
     expect(alertCard.closest('.ant-col')).toBeNull()
     expect(screen.queryByText('最近下发记录')).not.toBeInTheDocument()
 
-    // 告警卡：卡体为纵向 flex；第六轮起右栏不再有页脚——Prometheus 参考行移到
-    // 左统计块内、margin-top:auto 沉底，吸收卡被拉伸时的残余落差
+    // 告警卡：卡体为纵向 flex；右栏不再有页脚，左栏四格分摊卡高
     const alertBody = alertCard.querySelector('.ant-card-body') as HTMLElement
     expect(alertBody.style.display).toBe('flex')
     expect(alertBody.style.flexDirection).toBe('column')
     expect(screen.queryByTestId('alert-card-footer')).not.toBeInTheDocument()
-    const statColumn = screen.getByTestId('alert-stat-column')
-    expect(statColumn).toContainElement(screen.getByTestId('prom-reference-line'))
-    expect(screen.getByTestId('prom-reference-line').style.marginTop).toBe('auto')
+    expect(screen.getByTestId('alert-stat-column')).toBeInTheDocument()
   })
 
   it('paginates the latest alerts at a fixed page size, independent of the viewport', async () => {
@@ -2085,8 +2057,8 @@ describe('HomePage', () => {
 
   it('adapts to the mobile viewport: cloud compact rows, L1 table rows, matrix keeps its table, stat strip 2×2', async () => {
     stubNarrowViewport()
-    // Prom 有 firing 告警 → 告警卡不落入空态，四格统计条会真实渲染（用于断言 2×2）
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    // 历史统计有数据 → 告警卡不落入空态，四格统计条会真实渲染（用于断言 2×2）
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -2175,7 +2147,7 @@ describe('HomePage', () => {
 
   it('keeps the desktop resource row (02+03), the coverage+alert split and the health-probe row on wide viewports', async () => {
     // 默认 matchMedia 全部 matches:false（setupAntdTest）→ 宽屏分支
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -2231,7 +2203,7 @@ describe('HomePage', () => {
   })
 
   it('splits the coverage card and the alert card evenly, and stretches the health-probe row to full width', async () => {
-    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 

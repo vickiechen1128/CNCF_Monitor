@@ -20,7 +20,7 @@ func TestListActiveAlertsMapsFingerprintAndSuppression(t *testing.T) {
 		_, _ = w.Write([]byte(`[
 			{"fingerprint":"fp-1","labels":{"alertname":"InstanceDown"},"annotations":{"summary":"s"},
 			 "startsAt":"2026-10-25T08:00:00Z","endsAt":"0001-01-01T00:00:00Z",
-			 "status":{"state":"suppressed","silencedBy":["sil-1"],"inhibitedBy":["inh-1"]}}
+			 "status":{"state":"suppressed","silencedBy":["sil-1"],"inhibitedBy":["inh-1"],"mutedBy":["weekends"]}}
 		]`))
 	}))
 	t.Cleanup(srv.Close)
@@ -35,6 +35,7 @@ func TestListActiveAlertsMapsFingerprintAndSuppression(t *testing.T) {
 	assert.Equal(t, "InstanceDown", list[0].Labels["alertname"])
 	assert.Equal(t, []string{"sil-1"}, list[0].SilencedBy)
 	assert.Equal(t, []string{"inh-1"}, list[0].InhibitedBy)
+	assert.Equal(t, []string{"weekends"}, list[0].MutedBy)
 	assert.True(t, list[0].StartsAt.Equal(time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)))
 }
 

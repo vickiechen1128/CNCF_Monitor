@@ -144,6 +144,12 @@ func TestNotifyStatusPriority(t *testing.T) {
 	inhibitedOnly.Status.InhibitedBy = []string{"i1"}
 	assert.Equal(t, NotifyStatusInhibited, normalizeNotifyStatus(inhibitedOnly.Status))
 
+	// mutedBy 是时间区间静音（AM 0.28+），对用户效果等同静默，不能误判成抑制。
+	mutedOnly := amAlert{}
+	mutedOnly.Status.State = "suppressed"
+	mutedOnly.Status.MutedBy = []string{"weekends"}
+	assert.Equal(t, NotifyStatusSilenced, normalizeNotifyStatus(mutedOnly.Status))
+
 	active := amAlert{}
 	active.Status.State = "active"
 	assert.Equal(t, NotifyStatusActive, normalizeNotifyStatus(active.Status))

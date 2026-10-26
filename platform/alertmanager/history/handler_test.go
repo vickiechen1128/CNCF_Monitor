@@ -15,10 +15,18 @@ import (
 	"gorm.io/gorm"
 )
 
-func seedEvent(t *testing.T, db *gorm.DB, fp string, status models.AlertEventStatus, startsAt time.Time, endsAt *time.Time) *models.AlertEvent {
+func seedEvent(
+	t *testing.T,
+	db *gorm.DB,
+	fp string,
+	status models.AlertEventStatus,
+	startsAt time.Time,
+	endsAt, closedAt *time.Time,
+) *models.AlertEvent {
 	t.Helper()
 	ev := &models.AlertEvent{
 		Fingerprint:   fp,
+		OccurrenceKey: models.AlertEventOccurrenceKey(fp, startsAt),
 		AlertName:     "InstanceDown-" + fp,
 		Status:        status,
 		Severity:      "critical",
@@ -27,50 +35,59 @@ func seedEvent(t *testing.T, db *gorm.DB, fp string, status models.AlertEventSta
 		Labels:        `{"alertname":"InstanceDown","severity":"critical","network_domain_id":"mc-test"}`,
 		StartsAt:      &startsAt,
 		EndsAt:        endsAt,
+		ClosedAt:      closedAt,
 	}
 	require.NoError(t, db.Create(ev).Error)
 	return ev
 }
 
-// TestComputeStatsOverlapSemantics 锁定首页统计口径：
-// 当日 / 近 7 天按「区间与窗口有交集」计——昨天触发、今天仍在告警的也必须计入当日，
-// 否则「通知中 4、当日 0」的自相矛盾会再次出现。
-func TestComputeStatsOverlapSemantics(t *testing.T) {
+// TestComputeStatsFourMetrics 锁定首页四指标口径：
+// 今日告警严格按开始时间；今日恢复按 closed_at；历史遗留是当前未结且开始于今天之前；
+// 历史遗留今日恢复 = 开始于今天之前 + 今天关闭。
+func TestComputeStatsFourMetrics(t *testing.T) {
 	db := newTestDB(t)
 	loc := time.FixedZone("UTC+8", 8*3600)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, loc)
+	at := func(day, hour int) time.Time {
+		return time.Date(2026, 10, day, hour, 0, 0, 0, loc)
+	}
 
-	// 1) 昨天触发、现在仍在告警 → 当日 + 近7天
-	seedEvent(t, db, "open-yesterday", models.AlertEventStatusFiring,
-		time.Date(2026, 10, 24, 9, 0, 0, 0, loc), nil)
-	// 2) 今天触发并恢复 → 当日 + 近7天
-	endsToday := time.Date(2026, 10, 25, 9, 0, 0, 0, loc)
-	seedEvent(t, db, "resolved-today", models.AlertEventStatusResolved,
-		time.Date(2026, 10, 25, 8, 0, 0, 0, loc), &endsToday)
-	// 3) 4 天前触发并恢复 → 近7天，不计当日
-	endsWeek := time.Date(2026, 10, 21, 9, 0, 0, 0, loc)
-	seedEvent(t, db, "resolved-week", models.AlertEventStatusResolved,
-		time.Date(2026, 10, 21, 8, 0, 0, 0, loc), &endsWeek)
-	// 4) 窗口外 → 都不计
-	endsOld := time.Date(2026, 10, 10, 9, 0, 0, 0, loc)
-	seedEvent(t, db, "resolved-old", models.AlertEventStatusResolved,
-		time.Date(2026, 10, 10, 8, 0, 0, 0, loc), &endsOld)
-	// 5) 恢复信息丢失，今天发现关行 → 当日 + 近7天
-	lost := seedEvent(t, db, "lost-today", models.AlertEventStatusLost,
-		time.Date(2026, 10, 20, 8, 0, 0, 0, loc), nil)
-	require.NoError(t, db.Exec("UPDATE alert_events SET updated_at = ? WHERE id = ?",
-		time.Date(2026, 10, 25, 7, 0, 0, 0, loc), lost.ID).Error)
-	// 6) 静默中 → 当日 + 近7天
-	seedEvent(t, db, "silenced-open", models.AlertEventStatusSilenced,
-		time.Date(2026, 10, 19, 8, 0, 0, 0, loc), nil)
+	// 1) 昨天触发、现在仍在告警：不算今日告警，算历史遗留。
+	seedEvent(t, db, "open-yesterday", models.AlertEventStatusFiring, at(24, 9), nil, nil)
+	// 2) 今天触发并真实恢复：算今日告警 + 今日恢复（真实）。
+	closedToday := at(25, 9)
+	seedEvent(t, db, "resolved-today", models.AlertEventStatusResolved, at(25, 8), &closedToday, &closedToday)
+	// 3) 4 天前触发并恢复：算近 7 天，不算今日。
+	closedWeek := at(21, 9)
+	seedEvent(t, db, "resolved-week", models.AlertEventStatusResolved, at(21, 8), &closedWeek, &closedWeek)
+	// 4) 窗口外：都不计。
+	closedOld := at(10, 9)
+	seedEvent(t, db, "resolved-old", models.AlertEventStatusResolved, at(10, 8), &closedOld, &closedOld)
+	// 5) 恢复信息丢失、今天发现关闭：算今日恢复（未知）+ 历史遗留今日恢复。
+	closedLost := at(25, 7)
+	seedEvent(t, db, "lost-today", models.AlertEventStatusLost, at(20, 8), nil, &closedLost)
+	// 6) 静默中、昨天开始：算历史遗留。
+	seedEvent(t, db, "silenced-open", models.AlertEventStatusSilenced, at(24, 8), nil, nil)
+	// 7) 抑制期间结束、昨天关闭：不算今日恢复。
+	closedInhibited := at(24, 23)
+	seedEvent(t, db, "inhibited-closed", models.AlertEventStatusInhibitedClosed, at(24, 8), nil, &closedInhibited)
+	// 8) 前天开始、今天真实恢复：历史遗留今日恢复（真实）。
+	closedLegacyReal := at(25, 6)
+	seedEvent(t, db, "legacy-resolved-real", models.AlertEventStatusResolved, at(23, 8), &closedLegacyReal, &closedLegacyReal)
 
 	st, err := ComputeStats(db, now, loc)
 	require.NoError(t, err)
-	assert.EqualValues(t, 4, st.TodayTotal, "open×2 + resolved-today + lost-today")
-	assert.EqualValues(t, 5, st.WeekTotal, "open×2 + 本周 resolved×2 + lost-today")
-	assert.EqualValues(t, 1, st.OpenFiring)
-	assert.EqualValues(t, 1, st.OpenSilenced)
-	assert.EqualValues(t, 0, st.OpenInhibited)
+	assert.EqualValues(t, 1, st.TodayTotal, "只有今天开始的 resolved-today")
+	assert.EqualValues(t, 3, st.TodayResolvedTotal, "resolved-today + lost-today + legacy-resolved-real")
+	assert.EqualValues(t, 2, st.TodayResolvedReal, "resolved-today + legacy-resolved-real")
+	assert.EqualValues(t, 1, st.TodayResolvedInferred, "lost-today")
+	assert.EqualValues(t, 2, st.LegacyOpenTotal, "open-yesterday + silenced-open")
+	assert.EqualValues(t, 1, st.LegacyOpenFiring)
+	assert.EqualValues(t, 1, st.LegacyOpenSilenced)
+	assert.EqualValues(t, 0, st.LegacyOpenInhibited)
+	assert.EqualValues(t, 2, st.LegacyResolvedTodayTotal, "lost-today + legacy-resolved-real")
+	assert.EqualValues(t, 1, st.LegacyResolvedTodayReal)
+	assert.EqualValues(t, 1, st.LegacyResolvedTodayInferred)
 }
 
 // TestListEventsFiltersAndPagination 服务端过滤 / 排序 / 分页。
@@ -78,9 +95,9 @@ func TestListEventsFiltersAndPagination(t *testing.T) {
 	db := newTestDB(t)
 	loc := time.UTC
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, loc)
-	seedEvent(t, db, "a", models.AlertEventStatusFiring, now.Add(-3*time.Hour), nil)
-	seedEvent(t, db, "b", models.AlertEventStatusResolved, now.Add(-2*time.Hour), nil)
-	seedEvent(t, db, "c", models.AlertEventStatusResolved, now.Add(-time.Hour), nil)
+	seedEvent(t, db, "a", models.AlertEventStatusFiring, now.Add(-3*time.Hour), nil, nil)
+	seedEvent(t, db, "b", models.AlertEventStatusResolved, now.Add(-2*time.Hour), nil, nil)
+	seedEvent(t, db, "c", models.AlertEventStatusResolved, now.Add(-time.Hour), nil, nil)
 
 	all, total, err := ListEvents(db, ListQuery{Page: 1, PageSize: 2, Sort: "starts_at desc"})
 	require.NoError(t, err)
@@ -102,6 +119,25 @@ func TestListEventsFiltersAndPagination(t *testing.T) {
 
 	_, _, err = ListEvents(db, ListQuery{Page: 1, PageSize: 20, Status: "bogus"})
 	require.Error(t, err, "非法状态须显式报错")
+}
+
+// TestListEventsNormalizesTimeFiltersToCST 时间筛选边界与表内存储同为 UTC+8：
+// 前端传 UTC（Z）边界时，SQLite 文本比较不能错位。
+func TestListEventsNormalizesTimeFiltersToCST(t *testing.T) {
+	db := newTestDB(t)
+	cst := time.FixedZone("UTC+8", 8*3600)
+	startsAt := time.Date(2026, 10, 25, 0, 30, 0, 0, cst)
+	seedEvent(t, db, "tz-filter", models.AlertEventStatusFiring, startsAt, nil, nil)
+
+	from := startsAt.UTC()
+	_, total, err := ListEvents(db, ListQuery{Page: 1, PageSize: 20, StartsFrom: &from})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+
+	before := startsAt.UTC().Add(-time.Minute)
+	_, total, err = ListEvents(db, ListQuery{Page: 1, PageSize: 20, StartsTo: &before})
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, total)
 }
 
 // TestWebhookHandlerAlways2xx 对 Alertmanager 永远 2xx：合法报文落库，畸形报文也只记日志。

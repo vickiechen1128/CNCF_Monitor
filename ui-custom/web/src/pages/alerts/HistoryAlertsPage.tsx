@@ -4,8 +4,8 @@
  * 一行 = 一次告警发生（按 Alertmanager fingerprint 合并），不是通知流水账：
  * 未恢复期间重复推送不新增行；恢复回填同一行；恢复后再次触发新开一行。
  *
- * 六态：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 恢复信息丢失。
- * 恢复时间只有「已恢复」是真实值；后两类是恢复通知缺失时的如实标记（留空不伪造）。
+ * 七态：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 恢复信息丢失。
+ * 恢复时间只有「已恢复」是真实值；后三类是恢复通知缺失时的如实标记（留空不伪造）。
  *
  * 筛选：网域 / 告警名 / 摘要 / 状态 / 触发时间范围；服务端分页。
  */
@@ -90,14 +90,14 @@ function InstanceAddressTitle() {
 }
 
 /**
- * 「恢复时间」列表头：只有「已恢复」是真实恢复时刻；「静默期间结束 / 恢复信息丢失」
- * 是恢复通知缺失时的如实标记，恢复时间留空（不伪造）。
+ * 「恢复时间」列表头：只有「已恢复」是真实恢复时刻；「静默期间结束 / 抑制期间结束 /
+ * 恢复信息丢失」是恢复通知缺失时的如实标记，恢复时间留空（不伪造）。
  */
 function RecoveryTimeTitle() {
   return (
     <span>
       恢复时间
-      <Tooltip title="仅「已恢复」记录有真实恢复时间；告警被静默吞掉恢复通知、或平台未收到恢复消息时，记录会标记为「静默期间结束 / 恢复信息丢失」，恢复时间留空。">
+      <Tooltip title="仅「已恢复」记录有真实恢复时间；告警被静默/抑制吞掉恢复通知、或平台未收到恢复消息时，记录会标记为「静默期间结束 / 抑制期间结束 / 恢复信息丢失」，恢复时间留空。">
         <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
       </Tooltip>
     </span>
@@ -111,6 +111,7 @@ const STATUS_OPTIONS: Array<{ value: 'all' | AlertEventStatus; label: string }> 
   { value: 'inhibited', label: alertEventStatusLabel.inhibited },
   { value: 'resolved', label: alertEventStatusLabel.resolved },
   { value: 'silenced_closed', label: alertEventStatusLabel.silenced_closed },
+  { value: 'inhibited_closed', label: alertEventStatusLabel.inhibited_closed },
   { value: 'lost', label: alertEventStatusLabel.lost },
 ]
 
@@ -258,7 +259,7 @@ export function HistoryAlertsPage() {
                 <Text>
                   告警触发时留一行；未恢复期间的重复通知不会新增记录；恢复时回填同一行的真实恢复时间。
                   被静默/抑制的告警通知不会发出，由每分钟对账对齐状态；恢复通知缺失时标记「静默期间结束 /
-                  恢复信息丢失」，恢复时间留空。历史记录受保留策略限制，超过保留期的记录无法查询。
+                  抑制期间结束 / 恢复信息丢失」，恢复时间留空。历史记录受保留策略限制，超过保留期的记录无法查询。
                 </Text>
               ),
             },

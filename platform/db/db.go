@@ -112,6 +112,12 @@ func AutoMigrate() error {
 		return err
 	}
 
+	// 历史告警表增量迁移：时间字段统一 UTC+8、回填 closed_at / occurrence_key。
+	// 只处理 alert_events，其他表历史时间不重写（2026-10-26 用户确认）。
+	if err := migrateAlertEvents(); err != nil {
+		return err
+	}
+
 	// 2026-10-22 渠道取消启停状态：GORM AutoMigrate 只增不删，这里显式删除历史列。
 	// 列不存在（新库 / 已迁移）时跳过，幂等。SQLite 3.35+ 支持 DROP COLUMN。
 	if DB.Migrator().HasColumn(&models.NotifyChannel{}, "enabled") {
@@ -130,10 +136,17 @@ func AutoMigrate() error {
 
 	// 历史告警未结行（firing/silenced/inhibited）按 fingerprint 全库唯一：
 	// webhook 实时推送与对账补插并发写入同一次告警时只落一行。
-	// 终态（resolved/silenced_closed/lost）不参与约束——恢复后再次触发要能插入新行。
-	return DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_open_fingerprint
+	// 终态（resolved/silenced_closed/inhibited_closed/lost）不参与约束——
+	// 恢复后再次触发要能插入新行。
+	if err := DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_open_fingerprint
 		ON alert_events(fingerprint)
-		WHERE fingerprint <> '' AND status IN ('firing','silenced','inhibited') AND deleted_at IS NULL`).Error
+		WHERE fingerprint <> '' AND status IN ('firing','silenced','inhibited') AND deleted_at IS NULL`).Error; err != nil {
+		return err
+	}
+
+	// 一次发生（occurrence）全表唯一：webhook 与对账并发、迟到推送、跨库精度差异
+	// 都由该键兜底。无指纹行 occurrence_key 为空，不参与约束。
+	return ensureAlertEventOccurrenceIndex()
 }
 
 // Health checks whether the database connection is alive.

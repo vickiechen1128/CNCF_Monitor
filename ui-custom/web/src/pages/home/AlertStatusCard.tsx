@@ -3,18 +3,17 @@
  *
  * 受控展示型组件：数据由 HomePage 的 useAlertGovernance 单次请求持有，
  * 本组件不再自行取数（避免与首页指标卡重复请求同一接口），只负责渲染：
- *   四格统计条（当日 / 近 7 天为主数字，通知中 / 已静默·已抑制为次）
- *   → 最新告警（近 8 条两行制，行 2 携带告警具体内容）→ Prometheus 原始求值参考行。
+ *   四格历史指标（今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复）
+ *   → 正在告警（近 8 条两行制，行 2 携带告警具体内容）。
  *
  * 版式（design-proposal §2.3，2026-10-17 定稿）：卡体**两栏**——左统计块（220px 固定，
- * 四格**纵排**）/ 右列表（最新告警，flex:1）。整宽单列下四格被拉通全宽
+ * 四格**纵排**）/ 右列表（正在告警，flex:1）。整宽单列下四格被拉通全宽
  * （每格过疏）、告警行宽过长把两行制文案拉薄，故改为两栏；**第五轮走查（方案 A）起与
  * 「采集健康」按 2:1 并排**（不再是独立整宽卡，见 HomePage 的 home-alert-health-row），
  * 2/3 宽度（桌面约 776px+）下两栏结构原样保留。
  * **第六轮走查（2026-10-17）**：改与「监控对象纳管进度」**对分**一行，统计块由 280px
  * 收窄为 **220px**（产品负责人走查：原列宽在 ≈568px 的半幅卡里过宽，压缩后右栏列表
- * 更透气）；Prometheus 求值态参考行由右栏页脚**上移至左统计块底部空挡**
- * （marginTop:auto 沉底）；「配置告警通知」深链按产品负责人要求**移除**
+ * 更透气）；「配置告警通知」深链按产品负责人要求**移除**
  * （通知配置入口收敛到告警状态页 / 使用指引）。
  * 窄屏（≤767px）左栏统计条维持 **2×2** 并与右栏**上下堆叠**。
  *
@@ -29,15 +28,16 @@
  * - 数据池仍为「最新 8 条」（决策 73），因此满池时是「5 行 + 第 2 页 3 行」。
  * 「查看全部 →」指向 /alert-status 兜底；卡内不再重复「查看告警中心」入口（用户反馈 2026-09-14）。
  *
- * 口径（M08 契约 §10.2 四态 + M02 /api/v1/alerts + M02 /api/v1/alerts/history）：
- * - 主数字 = 当日告警 / 近 7 天告警（M02 history 按 fired_at 前端计数，含已恢复，决策 73）；
- * - 次数字 = Alertmanager 治理态「通知中」（notify_status === 'active'，红色语义）与
- *   「已静默 · 已抑制」（合并一格，值串 '3 · 2'）；Prometheus firing / pending 属求值原始
- *   数据，仅作 11px 参考小字；
+ * 口径（M08 历史告警统计 /alert-events/stats + M08 通知状态 + M02 /api/v1/alerts）：
+ * - 四格 = 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复（2026-10-26 用户确认，
+ *   对齐 MonitorStack 历史告警口径；今日告警严格按开始时间，不含昨天开始今天仍在持续的）；
+ * - 今日恢复 / 历史遗留今日恢复悬浮提示拆分为「真实恢复 + 恢复时间未知」；
+ * - 通知中 / 静默 / 抑制不再进统计条（2026-10-26 用户确认），仅保留在「正在告警」行状态里；
+ *   Prometheus 规则求值参考行按用户要求移除，首页告警卡只保留「库四指标 + AM 正在告警」；
  * - AM `unprocessed` 不计数、不进列表（其治理闭环 MVP 未实现），仅在 N > 0 时以一行
  *   灰字提示「另有 N 条告警仍在计算通知状态」，避免「通知中 0」被误读为「真的没告警」；
- * - 空态判定覆盖 AM 四态 + Prom 两态 + 当日 / 近 7 天（history 有告警即不得引导
- *   「尚未挂载通知配置」），且 history 取数失败时判定未知、不误报空态。
+ * - 空态判定覆盖历史四指标 + AM 四态（任一有数据即不得引导
+ *   「尚未挂载通知配置」），且统计取数失败时判定未知、不误报空态。
  *
  * 权威设计：docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §5.2、
  * docs/05-execution-records/module-05/design-decisions.md「决策 73」。
@@ -64,64 +64,59 @@ import { useNarrowLayout } from './homeResponsive'
 import { SurfaceCard } from './SurfaceCard'
 
 export interface AlertCounts {
-  /** 当日告警：今日 0 点起触发过的告警条数（含已恢复；M02 history 按 fired_at 前端计数，决策 73） */
-  today: number
-  /** 近 7 天告警：fired_at ≥ now-7d 的告警条数（含已恢复，决策 73） */
-  week: number
+  /** 今日告警：今天 0 点后开始触发的告警条数（严格按开始时间，不含昨天开始今天仍在持续的） */
+  todayTotal: number
+  /** 今日恢复：今天关闭的终态条数（真实恢复 + 恢复时间未知） */
+  todayResolvedTotal: number
+  todayResolvedReal: number
+  todayResolvedInferred: number
+  /** 历史遗留告警：当前仍未结束、且开始时间早于今天 0 点的积压快照 */
+  legacyOpenTotal: number
+  /** 历史遗留今日恢复：开始时间早于今天 0 点、且今天关闭 */
+  legacyResolvedTodayTotal: number
+  legacyResolvedTodayReal: number
+  legacyResolvedTodayInferred: number
+  /** 以下为 AM 实时计数：不在统计条展示，仅用于空态判断 / 待处理提示 */
   active: number
   silenced: number
   inhibited: number
   /** AM 待处理：刚进入 Alertmanager，尚未完成路由 / 静默 / 抑制计算（契约 §10.2 四态之一） */
   unprocessed: number
-  firing: number
-  pending: number
 }
 
 /**
- * 首页告警卡「最新告警」展示条数（决策 73 §3）：
+ * 首页告警卡「正在告警」展示条数（决策 73 §3）：
  * 由 10 条单行改为 8 条两行制（单条信息量翻倍，总信息量不降，「查看全部 →」兜底）。
  * 由 HomePage 取数时按此上限截断，本组件用它渲染标题（两边不得各写一份数字）。
  */
 export const LATEST_ALERT_LIMIT = 8
 
 /**
- * 最新告警列表标题（2026-10-17 第六轮走查改词）：原「最新告警（近 8 条）」——
- * 池子上限 8 条是内部实现细节，放在标题里既有歧义（读者以为一定有 8 条）、
- * 又与下方「当前没有需要处理的告警」自相矛盾。改为不带条数的「最新告警」，
- * 条数由列表自身与分页器表达。
+ * 正在告警列表标题：数据来自 Alertmanager 当前告警（剔除 unprocessed），
+ * 按开始时间倒序取前 8 条。原文案「正在告警」容易被误解为历史流水；
+ * 2026-10-26 用户确认改名为「正在告警」，与数据语义一致。
  */
-export const LATEST_ALERT_TITLE = '最新告警'
+export const LATEST_ALERT_TITLE = '正在告警'
 
 interface AlertStatusCardProps {
   counts: AlertCounts
-  /** 最新告警（HomePage 已按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条、并剔除 unprocessed） */
+  /** 正在告警（HomePage 已按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条、并剔除 unprocessed） */
   latestAlerts: AmAlertItem[]
   /** 行 2 告警具体内容回查表（key 由 alertMatchKey 生成；M02 history summary 优先） */
   summaryByAlert?: Record<string, string>
   loading?: boolean
-  /** Prometheus 告警链路错误（M02 /api/v1/alerts） */
-  promError?: string | null
   /** Alertmanager 通知链路错误（M08 /alertmanager/alerts） */
   amError?: string | null
   /**
-   * 历史告警链路错误（M02 /api/v1/alerts/history）。
-   * 决策 73 局部降级：当日 / 近 7 天两格显示 '-'，不阻塞 AM / Prom 数据展示，
-   * 也不并入「告警状态加载失败」判定（避免一条辅助链路把整卡打成错误态）。
+   * 历史告警统计链路错误（GET /alert-events/stats）。
+   * 局部降级：四格统计统一显示 '-'，不阻塞 AM 正在告警列表展示，
+   * 也不并入「告警状态加载失败」判定（避免一条统计链路把整卡打成错误态）。
    */
-  historyError?: string | null
+  statsError?: string | null
   onRetry?: () => void
   /** 静态预览环境（无后端）：数据来自注入的 mock，不提供重试动作 */
   isStaticPreview?: boolean
 }
-
-/**
- * 监控规则求值态参考行文案（2026-10-17 走查改口径用词）。
- * 不复用 `promAlertStateLabel`：其 pending 展示名为「待处理」，与 AM `unprocessed` 撞名，
- * 会把已消除的歧义带回首页（§6.2 验收「页面不出现『待处理』字样」）。
- * 改为用户语言「已触发 / 观察中」——领导不必理解 Prometheus 的 firing/pending 术语，
- * 数据来源仍在 Tooltip 内注明（M08 侧对 pending 的统一改名见设计说明 §8.2）。
- */
-const PROM_EVAL_LABEL = { firing: '已触发', pending: '观察中' } as const
 
 interface StatCell {
   key: string
@@ -129,34 +124,30 @@ interface StatCell {
   value: string | number
   label: string
   tip: string
-  /** 数字色：主数字用基础文字色，通知中用告警红，已静默·已抑制用次级文字色 */
+  /** 数字色：今日告警/遗留今日恢复用基础文字色，今日恢复用成功绿，历史遗留用告警红 */
   color: string
 }
 
 /**
- * 告警状态四格统计条（决策 73 §2）：
- * 当日告警 / 近 7 天告警为主数字（24px/700 基础色），通知中（红）/ 已静默 · 已抑制（'3 · 2'）为次，
- * 格间竖分隔线，每格悬浮显示口径注释。
+ * 告警状态四格统计条（2026-10-26 指标替换）：
+ * 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复，格间竖分隔线，每格悬浮显示口径注释。
  *
  * 两种排布（design-proposal §2.3，四格语义 / 取值 / Tooltip / 降级口径三种排布完全一致，
  * 只有几何形态不同）：
  * - `vertical`：宽屏两栏布局的**左栏统计块**——四格纵排（标签左、数字右，行间细分隔线）；
- * - `compact`：窄屏（≤767px）**2×2 两行两格**——「已静默 · 已抑制」这类长标签在窄屏一行四格下
+ * - `compact`：窄屏（≤767px）**2×2 两行两格**——「历史遗留今日恢复」等长标签在窄屏一行四格下
  *   （每格约 75px）必然溢出到相邻格，故仅在此断点换行；分隔线按列位置重排（第 2、4 格带左分隔线）；
  * - 默认：一行四格（横向变体，保留给仍按整宽呈现的场景）。
  */
 export function AlertStatStrip({
   counts,
-  historyUnavailable,
-  amUnavailable,
+  statsUnavailable,
   compact = false,
   vertical = false,
 }: {
   counts: AlertCounts
-  /** history 取数失败：主数字两格显示 '-'（决策 73 局部降级，不显示 0） */
-  historyUnavailable: boolean
-  /** AM 取数失败：治理态两格显示 '-'，不把失败静默成 0 */
-  amUnavailable: boolean
+  /** 统计接口取数失败：四格统一显示 '-'，不把失败静默成 0 */
+  statsUnavailable: boolean
   /** 窄屏两行两格布局（见本组件头注释） */
   compact?: boolean
   /** 纵排变体：四格上下排列（宽屏两栏布局的左统计块） */
@@ -168,34 +159,38 @@ export function AlertStatStrip({
     {
       key: 'today',
       testId: 'alert-today-count',
-      value: historyUnavailable ? '-' : counts.today,
-      label: '当日告警',
-      tip: '今日 0 点起触发过的告警条数（含已恢复）',
+      value: statsUnavailable ? '-' : counts.todayTotal,
+      label: '今日告警',
+      tip: '今天 0 点后开始触发的告警条数（严格按开始时间；昨天开始今天仍在持续的不计入，见「历史遗留告警」）',
       color: token.colorText,
     },
     {
-      key: 'week',
-      testId: 'alert-week-count',
-      value: historyUnavailable ? '-' : counts.week,
-      label: '近 7 天告警',
-      tip: '最近 7 天内触发过的告警条数（含已恢复）',
-      color: token.colorText,
+      key: 'resolved',
+      testId: 'alert-today-resolved-count',
+      value: statsUnavailable ? '-' : counts.todayResolvedTotal,
+      label: '今日恢复',
+      tip: statsUnavailable
+        ? '今天结束的告警条数（真实恢复 + 恢复时间未知）'
+        : `今天结束的告警条数：真实恢复 ${counts.todayResolvedReal} 条 + 恢复时间未知 ${counts.todayResolvedInferred} 条`,
+      color: token.colorSuccess,
     },
     {
-      key: 'active',
-      testId: 'alert-active-count',
-      value: amUnavailable ? '-' : counts.active,
-      label: '通知中',
-      tip: 'Alertmanager 当前仍在通知中的告警条数（已通过路由计算，运维的行动对象）',
+      key: 'legacy',
+      testId: 'alert-legacy-open-count',
+      value: statsUnavailable ? '-' : counts.legacyOpenTotal,
+      label: '历史遗留告警',
+      tip: '现在仍未结束、且开始时间早于今天 0 点的告警条数（当前积压）',
       color: token.colorError,
     },
     {
-      key: 'governed',
-      testId: 'alert-governed-count',
-      value: amUnavailable ? '-' : `${counts.silenced} · ${counts.inhibited}`,
-      label: '已静默 · 已抑制',
-      tip: '被静默规则屏蔽的通知条数 · 被抑制规则抑制（存在根因告警）的条数',
-      color: token.colorTextSecondary,
+      key: 'legacyResolved',
+      testId: 'alert-legacy-resolved-count',
+      value: statsUnavailable ? '-' : counts.legacyResolvedTodayTotal,
+      label: '历史遗留今日恢复',
+      tip: statsUnavailable
+        ? '今天结束、且开始时间早于今天 0 点的告警条数'
+        : `今天结束、且开始时间早于今天 0 点：真实恢复 ${counts.legacyResolvedTodayReal} 条 + 恢复时间未知 ${counts.legacyResolvedTodayInferred} 条`,
+      color: token.colorText,
     },
   ]
 
@@ -323,7 +318,7 @@ function safeTime(iso?: string): string | undefined {
 }
 
 /**
- * 最新告警两行制行（决策 73 §3）：
+ * 正在告警两行制行（决策 73 §3）：
  * 行 1 = 级别浅底 Tag + 告警名 + 相对时间 + 状态；行 2 = 实例名 · 告警具体内容（12px 灰字）。
  * 两行均超长省略并悬浮全文；行间细分隔线（末行不加）。
  */
@@ -453,18 +448,19 @@ export function AlertStatusCard({
   latestAlerts,
   summaryByAlert,
   loading = false,
-  promError = null,
   amError = null,
-  historyError = null,
+  statsError = null,
   onRetry,
   isStaticPreview = false,
 }: AlertStatusCardProps) {
   const { token } = theme.useToken()
   // 窄屏（≤767px）版式开关：四格统计条由一行四格改为 2×2（见 AlertStatStrip 头注释）
   const narrow = useNarrowLayout()
-  const allFailed = !loading && promError !== null && amError !== null
-  const partialError = !loading && !allFailed && (promError !== null || amError !== null)
-  const errorText = [promError, amError].filter(Boolean).join('；')
+  // 首页告警卡只剩两条主链路：AM 正在告警列表 + 历史四指标统计。
+  // 两条都失败才整卡报错；单条失败进入部分降级，另一条仍展示。
+  const allFailed = !loading && amError !== null && statsError !== null
+  const partialError = !loading && !allFailed && (amError !== null || statsError !== null)
+  const errorText = [amError, statsError].filter(Boolean).join('；')
 
   /**
    * 固定分页约束（用户 2026-09-18 二次反馈）：每页行数由常量 ALERT_PAGE_SIZE 决定，
@@ -479,22 +475,22 @@ export function AlertStatusCard({
   const pageOffset = (currentPage - 1) * pageSize
   const visibleAlerts = latestAlerts.slice(pageOffset, pageOffset + pageSize)
 
-  // 空态只在「两条链路均取数成功且全为 0」时引导；部分失败时不误导。
-  // 求和覆盖 AM 四态 + Prom 两态 + 当日 / 近 7 天：仅存在 unprocessed 告警、
-  // 或 7 天内有过已恢复告警时，都不得判为空态（后者的引导文案与实际不符）。
+  // 空态只在「各链路均取数成功且全为 0」时引导；部分失败时不误导。
+  // 求和覆盖历史四指标 + AM 四态：任意一侧有数据都不算空态。
+  // 历史表可能还没写入（AM 已有告警），因此不能只看四格是否为 0。
   const isEmpty =
-    counts.today +
-      counts.week +
+    counts.todayTotal +
+      counts.todayResolvedTotal +
+      counts.legacyOpenTotal +
+      counts.legacyResolvedTodayTotal +
       counts.active +
       counts.silenced +
       counts.inhibited +
-      counts.unprocessed +
-      counts.firing +
-      counts.pending ===
+      counts.unprocessed ===
     0
-  // history 取数失败时当日 / 近 7 天不可知，空态无从判定 → 不引导（宁缺不误导）
-  const historyUnavailable = !loading && historyError !== null
-  const showEmptyGuide = !loading && !allFailed && !partialError && !historyUnavailable && isEmpty
+  // 统计接口取数失败时四格不可知，空态无从判定 → 不引导（宁缺不误导）
+  const statsUnavailable = !loading && statsError !== null
+  const showEmptyGuide = !loading && !allFailed && !partialError && !statsUnavailable && isEmpty
 
   const retryAction = onRetry ? (
     <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>
@@ -505,7 +501,6 @@ export function AlertStatusCard({
   // 按数据源降级：该源取数失败时数字显示 '-'，不把失败静默成 0 让用户误当作真实值
   // （决策 68-2：AM 未挂载时数字恒为 0，必须与「请求失败」区分）。
   const amUnavailable = !loading && amError !== null
-  const promUnavailable = !loading && promError !== null
 
   return (
     <SurfaceCard
@@ -519,7 +514,7 @@ export function AlertStatusCard({
       }
       /* 高度：由内容决定，但**允许被所在行拉伸**（第五轮起与采集健康并排，行内
          align-items: stretch）——告警卡撑满行高，残余落差由页脚 margin-top:auto
-         吸收，落在「最新告警列表」下方（白底），而不是让两卡底边参差。 */
+         吸收，落在「正在告警列表」下方（白底），而不是让两卡底边参差。 */
       style={{
         height: '100%',
         display: 'flex',
@@ -563,7 +558,7 @@ export function AlertStatusCard({
             </Empty>
           ) : (
             /* 卡体两栏（design-proposal §2.3）：左统计块 280px 固定（四格纵排）/
-               右列表 flex:1（最新告警 + Prom 参考行 + 配置深链）。
+               右列表 flex:1（正在告警列表，无页脚）。
                窄屏（≤767px）：统计块维持 2×2，与列表**上下堆叠**（不横向并排）。 */
             <div
               data-testid="alert-card-columns"
@@ -581,18 +576,15 @@ export function AlertStatusCard({
                   flex: narrow ? 'none' : '0 0 220px',
                   width: narrow ? undefined : 220,
                   minWidth: 0,
-                  // 纵向 flex：Prom 参考行 marginTop:auto 沉到统计块底部，填补四格下方
-                  // 的空挡（第六轮走查：参考行从右栏页脚上移至此；窄屏堆叠时 auto 解析
-                  // 为 0，参考行紧贴统计条下方）
+                  // 纵向 flex：四格 flex:1 分摊卡高，统计块被行拉伸时不留白。
                   display: 'flex',
                   flexDirection: 'column',
                 }}
               >
-                {/* 四格统计条：当日 / 近 7 天为主数字，治理态为次（决策 73 §2） */}
+                {/* 四格统计条：今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复 */}
                 <AlertStatStrip
                   counts={counts}
-                  historyUnavailable={historyUnavailable}
-                  amUnavailable={amUnavailable}
+                  statsUnavailable={statsUnavailable}
                   compact={narrow}
                   vertical={!narrow}
                 />
@@ -610,20 +602,6 @@ export function AlertStatusCard({
                   </Typography.Text>
                 )}
 
-                {/* Prometheus 求值态参考行（第六轮走查：从右栏页脚上移至统计块空挡）。
-                    视觉权重明显低于主数字（11px 灰字），口径 Tooltip 保留原样。 */}
-                <Typography.Text
-                  type="secondary"
-                  data-testid="prom-reference-line"
-                  style={{ display: 'block', marginTop: 'auto', paddingTop: 10, fontSize: HOME_FONT.note }}
-                >
-                  <Tooltip title="来自监控规则引擎的求值状态：已触发＝规则已产生告警；观察中＝规则正在判断，尚未达到触发条件（数据源 Prometheus）">
-                    <span>
-                      告警规则 · {PROM_EVAL_LABEL.firing} {promUnavailable ? '-' : counts.firing} ·{' '}
-                      {PROM_EVAL_LABEL.pending} {promUnavailable ? '-' : counts.pending}
-                    </span>
-                  </Tooltip>
-                </Typography.Text>
               </div>
 
               <div
@@ -651,7 +629,7 @@ export function AlertStatusCard({
                       data-testid="latest-alert-unavailable"
                       style={{ display: 'block', marginTop: 8, fontSize: HOME_FONT.body }}
                     >
-                      取数失败，暂无法展示最新告警
+                      取数失败，暂无法展示正在告警
                     </Typography.Text>
                   ) : latestAlerts.length === 0 ? (
                     /* 无待处理告警 = 好消息：**醒目的成功态提示块**（原 12px 灰字一行，
@@ -736,10 +714,8 @@ export function AlertStatusCard({
                   )}
                 </div>
 
-                {/* 列表区即卡体结尾：第六轮走查起右栏不再有页脚——Prometheus 参考行
-                    已上移至左统计块空挡，「配置告警通知」深链按产品负责人要求移除
-                    （通知配置入口收敛到告警状态页与首页使用指引）。卡被拉伸时的
-                    残余落差由左栏参考行 marginTop:auto 吸收。 */}
+                {/* 列表区即卡体结尾：右栏无页脚；「配置告警通知」深链按产品负责人要求
+                    移除（通知配置入口收敛到告警状态页与首页使用指引）。 */}
               </div>
             </div>
           )}

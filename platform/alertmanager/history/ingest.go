@@ -1,13 +1,16 @@
 // Package history 实现 Module_08「历史告警」能力：
 //
 //   - webhook 事件流：Alertmanager 每次通知把告警推送至 POST /api/v1/webhooks/alerts，
-//     按 fingerprint 合并为「一行 = 一次告警发生」（firing 判重、resolved 回填、兜底插入）；
+//     按 occurrence（指纹 + 开始时间）合并为「一行 = 一次告警发生」；
 //   - 分钟级对账：以 Alertmanager 活跃告警全集为准，对齐静默/抑制状态、补插漏记、
 //     关闭已消失的未结行（恢复通知被吞的场景只能是近似终态，恢复时间不伪造）；
 //   - 服务端分页查询 + 首页统计。
 //
 // 设计口径对齐参考实现（MonitorStack 历史告警）：webhook 负责真实事件时刻，对账负责
 // 状态快照与缺口修复，两者各补对方盲区。写入权单一：未结三态互跳只由对账写。
+//
+// 时间口径：表内所有时间字段统一按 UTC+8 带偏移存储；occurrence 去重键归一化时
+// 使用 UTC 毫秒（只用于哈希，不落库展示）。
 package history
 
 import (
@@ -79,6 +82,7 @@ const (
 // 纪律（参考实现 §6）：对推送方永远 2xx——单条失败只记日志跳过，不炸整批、不返回
 // 错误给 Alertmanager（避免毒消息无限重试）。故函数不返回 error，失败计入 Failed。
 func Ingest(db *gorm.DB, p Payload, now time.Time) IngestResult {
+	now = models.NormalizeAlertEventTime(now)
 	res := IngestResult{Received: len(p.Alerts)}
 	for i := range p.Alerts {
 		outcome, err := ingestOne(db, p, p.Alerts[i], now)
@@ -104,8 +108,12 @@ func Ingest(db *gorm.DB, p Payload, now time.Time) IngestResult {
 	return res
 }
 
-// ingestOne 处理单条告警：firing 判重 / resolved 回填 / 无指纹原样落库。
-// 返回被唯一索引拦下的并发重复时按 skipped 处理（结果等价于跳过）。
+// ingestOne 处理单条告警：
+//   - 先按 occurrence_key（指纹 + 归一化开始时间）找同一发生；
+//   - 找不到再用 fingerprint 找未结行（兼容 resolved 报文 startsAt 缺失/精度不一致）；
+//   - 仍未命中才插入新行。
+//
+// firing 重复只刷新展示字段与最后通知时间，不改状态；resolved 回填真实恢复时间。
 func ingestOne(db *gorm.DB, group Payload, a PayloadAlert, now time.Time) (ingestOutcome, error) {
 	status := normalizePayloadStatus(a.Status)
 	fingerprint := strings.TrimSpace(a.Fingerprint)
@@ -119,106 +127,200 @@ func ingestOne(db *gorm.DB, group Payload, a PayloadAlert, now time.Time) (inges
 		annotations = map[string]string{}
 	}
 
-	if fingerprint == "" {
-		// 无指纹：无法合并与对账，原样落库（参考实现 §8）。
-		return outcomeInserted, db.Create(
-			buildEvent(group, a, status, nil, labels, annotations, now, sourceWebhook)).Error
-	}
-
+	var endsAt *time.Time
 	if status == models.AlertEventStatusResolved {
-		endsAt := a.EndsAt
-		if endsAt.IsZero() {
-			endsAt = now
+		if a.EndsAt.IsZero() {
+			// 不伪造恢复时间：留给对账按「恢复信息丢失」关闭。
+			log.Printf("[alert-history] resolved webhook without endsAt fingerprint=%q dropped", fingerprint)
+			return outcomeSkipped, nil
 		}
-		return resolveEvent(db, fingerprint, endsAt, now)
+		t := models.NormalizeAlertEventTime(a.EndsAt)
+		endsAt = &t
 	}
 
-	// firing：已有未结行（含被对账改成静默/抑制的行）→ 只刷新最后通知时间，不改状态。
-	// 用 Find + RowsAffected 而非 First，避免「无未结行」这一常态路径打 record not found 日志。
-	var open models.AlertEvent
-	res := db.Where("fingerprint = ? AND status IN ?", fingerprint, models.AlertEventOpenStatuses).
-		Order("id DESC").Limit(1).Find(&open)
-	if res.Error != nil {
-		return outcomeSkipped, fmt.Errorf("load open alert event: %w", res.Error)
+	startsAt := a.StartsAt
+	if startsAt.IsZero() {
+		if endsAt != nil {
+			startsAt = *endsAt
+		} else {
+			startsAt = now
+		}
 	}
-	if res.RowsAffected > 0 {
-		return outcomeSkipped, db.Model(&models.AlertEvent{}).Where("id = ?", open.ID).
-			UpdateColumn("last_notified_at", now).Error
-	}
+	startsAt = models.NormalizeAlertEventTime(startsAt)
+	occurrenceKey := models.AlertEventOccurrenceKey(fingerprint, startsAt)
 
-	// 无未结行 → 新一次发生。唯一索引兜底 webhook 与对账并发双插。
-	err := db.Create(buildEvent(group, a, models.AlertEventStatusFiring, nil, labels, annotations, now, sourceWebhook)).Error
-	if isUniqueViolation(err) {
-		return outcomeSkipped, nil
-	}
-	return outcomeInserted, err
-}
-
-// resolveEvent 将 fingerprint 对应的未结 / 丢失 / 静默结束行回填为已恢复。
-// 无行时兜底插入（触发推送曾丢失，恢复事实同样要留痕）。
-func resolveEvent(db *gorm.DB, fingerprint string, endsAt, now time.Time) (ingestOutcome, error) {
-	resolvable := append([]models.AlertEventStatus{}, models.AlertEventOpenStatuses...)
-	resolvable = append(resolvable, models.AlertEventStatusLost, models.AlertEventStatusSilencedClosed)
-
-	// 最多两轮：第一轮 CAS 撞车（对账并发改状态）或兜底插入撞唯一索引时，
-	// 重新读取一次再回填，避免真实恢复时间因竞态丢失。
-	for attempt := 0; attempt < 2; attempt++ {
+	if occurrenceKey != "" {
 		var ev models.AlertEvent
-		res := db.Where("fingerprint = ? AND status IN ?", fingerprint, resolvable).
-			Order("id DESC").Limit(1).Find(&ev)
+		hit, err := findByOccurrenceKey(db, occurrenceKey, &ev)
+		if err != nil {
+			return outcomeSkipped, fmt.Errorf("load alert event by occurrence: %w", err)
+		}
+		if hit {
+			return applyExisting(db, group, status, &ev, endsAt, now, labels, annotations)
+		}
+	}
+
+	// 指纹回退：occurrence 没命中时，按 fingerprint 找最近未结行，保证恢复事实落到原行。
+	if fingerprint != "" {
+		var open models.AlertEvent
+		res := db.Where("fingerprint = ? AND status IN ?", fingerprint, models.AlertEventOpenStatuses).
+			Order("id DESC").Limit(1).Find(&open)
 		if res.Error != nil {
-			return outcomeSkipped, fmt.Errorf("load alert event to resolve: %w", res.Error)
+			return outcomeSkipped, fmt.Errorf("load open alert event: %w", res.Error)
 		}
 		if res.RowsAffected > 0 {
-			upd := db.Model(&models.AlertEvent{}).
-				Where("id = ? AND status = ?", ev.ID, ev.Status).
-				Updates(map[string]interface{}{
-					"status":           models.AlertEventStatusResolved,
-					"ends_at":          endsAt,
-					"last_notified_at": now,
-				})
-			if upd.Error != nil {
-				return outcomeUpdated, upd.Error
-			}
-			if upd.RowsAffected > 0 {
-				return outcomeUpdated, nil
-			}
-			continue // CAS 输家：状态已被对账改走，重读后再试
+			return applyExisting(db, group, status, &open, endsAt, now, labels, annotations)
 		}
+	}
 
-		// 兜底插入 resolved 行：labels/annotations 缺失也能留下恢复事实。
-		placeholder := PayloadAlert{
-			Status:      "resolved",
-			Labels:      map[string]string{},
-			Annotations: map[string]string{},
-			StartsAt:    endsAt,
-			EndsAt:      endsAt,
-			Fingerprint: fingerprint,
+	// resolved 重复推送兜底：报文缺 startsAt / 精度不一致时 occurrence 会变，
+	// 若同一指纹 + 同一 endsAt 已有真实恢复行，按幂等忽略，不能插出重复发生。
+	if status == models.AlertEventStatusResolved && fingerprint != "" && endsAt != nil {
+		var resolved models.AlertEvent
+		res := db.Where("fingerprint = ? AND status = ? AND ends_at = ?",
+			fingerprint, models.AlertEventStatusResolved, *endsAt).
+			Order("id DESC").Limit(1).Find(&resolved)
+		if res.Error != nil {
+			return outcomeSkipped, fmt.Errorf("load resolved alert event: %w", res.Error)
 		}
-		err := db.Create(buildEvent(Payload{Status: "resolved", GroupKey: ""}, placeholder,
-			models.AlertEventStatusResolved, &endsAt, placeholder.Labels, placeholder.Annotations, now, sourceWebhook)).Error
-		if isUniqueViolation(err) {
-			continue // 并发插入了未结行：重读后回填，别把真实恢复时间丢掉
+		if res.RowsAffected > 0 {
+			return outcomeSkipped, nil
 		}
-		return outcomeInserted, err
+	}
+
+	return insertNew(db, group, status, fingerprint, startsAt, endsAt, now, labels, annotations)
+}
+
+// applyExisting 把推送应用到已存在的发生行。
+func applyExisting(
+	db *gorm.DB,
+	group Payload,
+	status models.AlertEventStatus,
+	ev *models.AlertEvent,
+	endsAt *time.Time,
+	now time.Time,
+	labels, annotations map[string]string,
+) (ingestOutcome, error) {
+	if status != models.AlertEventStatusResolved {
+		return refreshFiring(db, ev, now, group, labels, annotations)
+	}
+	return updateResolved(db, ev, *endsAt, now)
+}
+
+// refreshFiring 处理 firing 推送落到已存在的发生行：
+// 只刷新展示字段与最后通知时间，不改状态、不复活已结束的发生。
+func refreshFiring(
+	db *gorm.DB,
+	ev *models.AlertEvent,
+	now time.Time,
+	group Payload,
+	labels, annotations map[string]string,
+) (ingestOutcome, error) {
+	updates := map[string]interface{}{
+		"last_notified_at": now,
+		"updated_at":       now,
+	}
+	for k, v := range displayUpdates(group, labels, annotations) {
+		updates[k] = v
+	}
+	if err := db.Model(&models.AlertEvent{}).Where("id = ?", ev.ID).Updates(updates).Error; err != nil {
+		return outcomeSkipped, err
 	}
 	return outcomeSkipped, nil
 }
 
-// buildEvent 由推送/实况构造落库模型并做字段截断。
+// updateResolved 回填真实恢复时间：status=resolved、ends_at=closed_at=AM 的 endsAt。
+// 已 resolved 且已有真实恢复时间的重复推送幂等忽略；CAS 撞车时重读重试。
+func updateResolved(
+	db *gorm.DB,
+	ev *models.AlertEvent,
+	endsAt time.Time,
+	now time.Time,
+) (ingestOutcome, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		if ev.Status == models.AlertEventStatusResolved && ev.EndsAt != nil {
+			return outcomeSkipped, nil
+		}
+		res := db.Model(&models.AlertEvent{}).
+			Where("id = ? AND (ends_at IS NULL OR status <> ?)", ev.ID, models.AlertEventStatusResolved).
+			Updates(map[string]interface{}{
+				"status":           models.AlertEventStatusResolved,
+				"ends_at":          endsAt,
+				"closed_at":        endsAt,
+				"last_notified_at": now,
+				"updated_at":       now,
+			})
+		if res.Error != nil {
+			return outcomeUpdated, res.Error
+		}
+		if res.RowsAffected > 0 {
+			return outcomeUpdated, nil
+		}
+		// CAS 输家：对账并发改了状态，重读后再判断。
+		if err := db.Where("id = ?", ev.ID).First(ev).Error; err != nil {
+			return outcomeSkipped, fmt.Errorf("reload alert event %d: %w", ev.ID, err)
+		}
+	}
+	return outcomeSkipped, nil
+}
+
+// insertNew 插入一条新发生。
+func insertNew(
+	db *gorm.DB,
+	group Payload,
+	status models.AlertEventStatus,
+	fingerprint string,
+	startsAt time.Time,
+	endsAt *time.Time,
+	now time.Time,
+	labels, annotations map[string]string,
+) (ingestOutcome, error) {
+	var closedAt *time.Time
+	if status == models.AlertEventStatusResolved {
+		closedAt = endsAt
+	}
+	ev := buildEvent(group, status, fingerprint, startsAt, endsAt, closedAt,
+		labels, annotations, now, sourceWebhook)
+	if err := db.Create(ev).Error; err != nil {
+		if isUniqueViolation(err) {
+			return outcomeSkipped, nil
+		}
+		return outcomeInserted, err
+	}
+	return outcomeInserted, nil
+}
+
+// findByOccurrenceKey 按一次发生的去重键查找记录。
+func findByOccurrenceKey(db *gorm.DB, key string, dest *models.AlertEvent) (bool, error) {
+	res := db.Where("occurrence_key = ?", key).Order("id DESC").Limit(1).Find(dest)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
+// buildEvent 由推送构造落库模型并做字段截断。
 func buildEvent(
 	group Payload,
-	a PayloadAlert,
 	status models.AlertEventStatus,
+	fingerprint string,
+	startsAt time.Time,
 	endsAt *time.Time,
+	closedAt *time.Time,
 	labels, annotations map[string]string,
 	now time.Time,
 	source string,
 ) *models.AlertEvent {
-	startsAt := a.StartsAt
-	if startsAt.IsZero() {
-		startsAt = now
+	startsAt = models.NormalizeAlertEventTime(startsAt)
+	if endsAt != nil {
+		v := models.NormalizeAlertEventTime(*endsAt)
+		endsAt = &v
 	}
+	if closedAt != nil {
+		v := models.NormalizeAlertEventTime(*closedAt)
+		closedAt = &v
+	}
+
 	alertName := strings.TrimSpace(labels["alertname"])
 	if alertName == "" {
 		alertName = alertNamePlaceholder
@@ -226,7 +328,12 @@ func buildEvent(
 	labelsJSON, _ := json.Marshal(labels)
 	annotationsJSON, _ := json.Marshal(annotations)
 	return &models.AlertEvent{
-		Fingerprint:    strings.TrimSpace(a.Fingerprint),
+		BaseModel: models.BaseModel{
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Fingerprint:    fingerprint,
+		OccurrenceKey:  models.AlertEventOccurrenceKey(fingerprint, startsAt),
 		AlertName:      truncateRunes(alertName, 200),
 		Status:         status,
 		Severity:       truncateRunes(labels["severity"], 20),
@@ -237,10 +344,38 @@ func buildEvent(
 		Annotations:    string(annotationsJSON),
 		StartsAt:       &startsAt,
 		EndsAt:         endsAt,
+		ClosedAt:       closedAt,
 		GroupKey:       truncateRunes(group.GroupKey, 200),
 		Receiver:       truncateRunes(group.Receiver, 100),
 		Source:         source,
 		LastNotifiedAt: &now,
+	}
+}
+
+// displayUpdates 是推送可刷新的展示字段集合；labels/annotations 为空时不覆盖存量内容。
+func displayUpdates(
+	group Payload,
+	labels, annotations map[string]string,
+) map[string]interface{} {
+	if len(labels) == 0 && len(annotations) == 0 {
+		return map[string]interface{}{}
+	}
+	alertName := strings.TrimSpace(labels["alertname"])
+	if alertName == "" {
+		alertName = alertNamePlaceholder
+	}
+	labelsJSON, _ := json.Marshal(labels)
+	annotationsJSON, _ := json.Marshal(annotations)
+	return map[string]interface{}{
+		"alert_name":     truncateRunes(alertName, 200),
+		"severity":       truncateRunes(labels["severity"], 20),
+		"summary":        truncateRunes(annotations["summary"], 500),
+		"description":    annotations["description"],
+		"network_domain": models.ResolveNetworkDomain(labels),
+		"labels":         string(labelsJSON),
+		"annotations":    string(annotationsJSON),
+		"group_key":      truncateRunes(group.GroupKey, 200),
+		"receiver":       truncateRunes(group.Receiver, 100),
 	}
 }
 

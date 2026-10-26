@@ -29,6 +29,7 @@ func (s AMSource) ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error) {
 			State:       a.State,
 			SilencedBy:  a.SilencedBy,
 			InhibitedBy: a.InhibitedBy,
+			MutedBy:     a.MutedBy,
 		})
 	}
 	return out, nil

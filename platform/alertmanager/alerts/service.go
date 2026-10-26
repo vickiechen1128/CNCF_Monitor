@@ -21,12 +21,14 @@ const (
 	NotifyStatusUnprocessed = "unprocessed"
 )
 
-// AlertStatus 是契约 §10.2 的 AM 原始状态子集（state/silenced_by/inhibited_by，
-// snake_case；作为输入保留，UI 以 notify_status 为准）。
+// AlertStatus 是契约 §10.2 的 AM 原始状态子集
+// （state/silenced_by/inhibited_by/muted_by，snake_case；作为输入保留，UI 以 notify_status 为准）。
 type AlertStatus struct {
 	State       string   `json:"state"`
 	SilencedBy  []string `json:"silenced_by"`
 	InhibitedBy []string `json:"inhibited_by"`
+	// MutedBy 是时间区间静音命中项（AM 0.28+），语义等同静默。
+	MutedBy []string `json:"muted_by,omitempty"`
 }
 
 // AlertItem 是契约 §10.2 的 AmAlertItem 视图：AM GettableAlert 字段子集 +
@@ -127,6 +129,7 @@ func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) Alert
 			State:       am.Status.State,
 			SilencedBy:  am.Status.SilencedBy,
 			InhibitedBy: am.Status.InhibitedBy,
+			MutedBy:     am.Status.MutedBy,
 		},
 		NotifyStatus:   normalizeNotifyStatus(am.Status),
 		InstanceFields: query.InstanceFieldsOf(am.Labels, identities),
@@ -135,16 +138,19 @@ func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) Alert
 
 // normalizeNotifyStatus 将 AM 原始 status 归一为四态（契约 §10.2）：
 //   - state=unprocessed → unprocessed；
-//   - state=suppressed 且 silencedBy 非空 → silenced（优先级最高）；
+//   - state=suppressed 且 silencedBy / mutedBy 非空 → silenced（优先级最高）；
 //   - state=suppressed 且 inhibitedBy 非空 → inhibited；
-//   - state=suppressed 且两者均空（理论不出现，防御兜底）→ inhibited；
+//   - state=suppressed 且均空（理论不出现，防御兜底）→ inhibited；
 //   - 其余（state=active 或未知值）→ active。
+//
+// mutedBy 是时间区间静音（AM 0.28+），对用户的效果与静默相同：通知被屏蔽，
+// 因此与 silencedBy 合并判定，避免把「周末静音」误报成「被抑制」。
 func normalizeNotifyStatus(st amAlertStatus) string {
 	switch st.State {
 	case "unprocessed":
 		return NotifyStatusUnprocessed
 	case "suppressed":
-		if len(st.SilencedBy) > 0 {
+		if len(st.SilencedBy) > 0 || len(st.MutedBy) > 0 {
 			return NotifyStatusSilenced
 		}
 		return NotifyStatusInhibited

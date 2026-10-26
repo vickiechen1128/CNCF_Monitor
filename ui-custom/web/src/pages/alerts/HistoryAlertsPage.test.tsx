@@ -130,7 +130,7 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(within(legacyRow as HTMLElement).getByText('默认域')).toBeInTheDocument()
   })
 
-  it('六态按语义展示：告警中 / 静默中 / 抑制中 / 静默期间结束 / 恢复信息丢失', async () => {
+  it('七态按语义展示：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 恢复信息丢失', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
@@ -138,10 +138,12 @@ describe('HistoryAlertsPage（历史告警）', () => {
           eventItem({ id: 1, alert_name: 'A', status: 'firing' }),
           eventItem({ id: 2, alert_name: 'B', status: 'silenced' }),
           eventItem({ id: 3, alert_name: 'C', status: 'inhibited' }),
-          eventItem({ id: 4, alert_name: 'D', status: 'silenced_closed' }),
-          eventItem({ id: 5, alert_name: 'E', status: 'lost' }),
+          eventItem({ id: 4, alert_name: 'D', status: 'resolved' }),
+          eventItem({ id: 5, alert_name: 'E', status: 'silenced_closed' }),
+          eventItem({ id: 6, alert_name: 'F', status: 'inhibited_closed' }),
+          eventItem({ id: 7, alert_name: 'G', status: 'lost' }),
         ],
-        total: 5,
+        total: 7,
         page: 1,
         page_size: 20,
       },
@@ -151,7 +153,9 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText('告警中')).toBeInTheDocument()
     expect(screen.getByText('静默中')).toBeInTheDocument()
     expect(screen.getByText('抑制中')).toBeInTheDocument()
+    expect(screen.getByText('已恢复')).toBeInTheDocument()
     expect(screen.getByText('静默期间结束')).toBeInTheDocument()
+    expect(screen.getByText('抑制期间结束')).toBeInTheDocument()
     expect(screen.getByText('恢复信息丢失')).toBeInTheDocument()
   })
 

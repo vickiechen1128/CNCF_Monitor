@@ -41,29 +41,53 @@ func seedOpenEvent(t *testing.T, db *gorm.DB, fp string, status models.AlertEven
 	return ev
 }
 
+// seedOccurrenceEvent 造一条已结束的 occurrence（对账恢复原行用）。
+func seedOccurrenceEvent(
+	t *testing.T,
+	db *gorm.DB,
+	fp string,
+	status models.AlertEventStatus,
+	startsAt, closedAt time.Time,
+) *models.AlertEvent {
+	t.Helper()
+	ev := &models.AlertEvent{
+		Fingerprint:   fp,
+		OccurrenceKey: models.AlertEventOccurrenceKey(fp, startsAt),
+		AlertName:     "InstanceDown",
+		Status:        status,
+		StartsAt:      &startsAt,
+		ClosedAt:      &closedAt,
+		Labels:        `{"alertname":"InstanceDown"}`,
+	}
+	require.NoError(t, db.Create(ev).Error)
+	return ev
+}
+
 func newFixedReconciler(db *gorm.DB, src AlertSource, now time.Time) *Reconciler {
 	r := NewReconciler(db, src)
 	r.now = func() time.Time { return now }
 	return r
 }
 
-// TestReconcilerAlignsSilencedAndInhibited 活跃集对齐：静默优先于抑制。
+// TestReconcilerAlignsSilencedAndInhibited 活跃集对齐：静默/时间静音优先于抑制。
 func TestReconcilerAlignsSilencedAndInhibited(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
 	seedOpenEvent(t, db, "fp-silenced", models.AlertEventStatusFiring, now.Add(-10*time.Minute))
 	seedOpenEvent(t, db, "fp-inhibited", models.AlertEventStatusFiring, now.Add(-10*time.Minute))
+	seedOpenEvent(t, db, "fp-muted", models.AlertEventStatusFiring, now.Add(-10*time.Minute))
 
 	src := &fakeSource{
 		startedAt: now.Add(-time.Hour),
 		active: []ActiveAlert{
-			{Fingerprint: "fp-silenced", SilencedBy: []string{"silence-1"}, InhibitedBy: []string{"inhibit-1"}},
-			{Fingerprint: "fp-inhibited", InhibitedBy: []string{"inhibit-1"}},
+			{Fingerprint: "fp-silenced", State: "suppressed", SilencedBy: []string{"silence-1"}, InhibitedBy: []string{"inhibit-1"}},
+			{Fingerprint: "fp-inhibited", State: "suppressed", InhibitedBy: []string{"inhibit-1"}},
+			{Fingerprint: "fp-muted", State: "suppressed", MutedBy: []string{"weekends"}},
 		},
 	}
 	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 2, summary.Aligned)
+	assert.Equal(t, 3, summary.Aligned)
 
 	var silenced models.AlertEvent
 	require.NoError(t, db.Where("fingerprint = ?", "fp-silenced").First(&silenced).Error)
@@ -72,6 +96,10 @@ func TestReconcilerAlignsSilencedAndInhibited(t *testing.T) {
 	var inhibited models.AlertEvent
 	require.NoError(t, db.Where("fingerprint = ?", "fp-inhibited").First(&inhibited).Error)
 	assert.Equal(t, models.AlertEventStatusInhibited, inhibited.Status)
+
+	var muted models.AlertEvent
+	require.NoError(t, db.Where("fingerprint = ?", "fp-muted").First(&muted).Error)
+	assert.Equal(t, models.AlertEventStatusSilenced, muted.Status, "时间区间静音按静默处理")
 }
 
 // TestReconcilerSilenceEndedReturnsToFiring 静默解除且告警仍在 → 回到告警中。
@@ -82,7 +110,7 @@ func TestReconcilerSilenceEndedReturnsToFiring(t *testing.T) {
 
 	src := &fakeSource{
 		startedAt: now.Add(-time.Hour),
-		active:    []ActiveAlert{{Fingerprint: "fp-1"}},
+		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active"}},
 	}
 	_, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
 	require.NoError(t, err)
@@ -92,8 +120,9 @@ func TestReconcilerSilenceEndedReturnsToFiring(t *testing.T) {
 	assert.Equal(t, models.AlertEventStatusFiring, ev.Status)
 }
 
-// TestReconcilerClosesDisappearedRows 消失的行按原状态区分终态：
-// 静默中 → 静默期间结束；其余 → 恢复信息丢失；恢复时间留空不伪造。
+// TestReconcilerClosesDisappearedRows 消失的行按原状态区分终态，并写 closed_at：
+// 静默中 → 静默期间结束；抑制中 → 抑制期间结束；其余 → 恢复信息丢失。
+// 空活跃集需要连续两轮确认，故跑两轮。
 func TestReconcilerClosesDisappearedRows(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
@@ -102,7 +131,13 @@ func TestReconcilerClosesDisappearedRows(t *testing.T) {
 	seedOpenEvent(t, db, "fp-inhibited", models.AlertEventStatusInhibited, now.Add(-10*time.Minute))
 
 	src := &fakeSource{startedAt: now.Add(-time.Hour)}
-	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	r := newFixedReconciler(db, src, now)
+
+	first, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, first.Closed, "空活跃集第一轮只确认，不关行")
+
+	summary, err := r.RunOnce(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 3, summary.Closed)
 
@@ -110,11 +145,19 @@ func TestReconcilerClosesDisappearedRows(t *testing.T) {
 	require.NoError(t, db.Where("fingerprint = ?", "fp-silenced").First(&silenced).Error)
 	assert.Equal(t, models.AlertEventStatusSilencedClosed, silenced.Status)
 	assert.Nil(t, silenced.EndsAt)
+	require.NotNil(t, silenced.ClosedAt)
 
 	var firing models.AlertEvent
 	require.NoError(t, db.Where("fingerprint = ?", "fp-firing").First(&firing).Error)
 	assert.Equal(t, models.AlertEventStatusLost, firing.Status)
 	assert.Nil(t, firing.EndsAt)
+	require.NotNil(t, firing.ClosedAt)
+
+	var inhibited models.AlertEvent
+	require.NoError(t, db.Where("fingerprint = ?", "fp-inhibited").First(&inhibited).Error)
+	assert.Equal(t, models.AlertEventStatusInhibitedClosed, inhibited.Status)
+	assert.Nil(t, inhibited.EndsAt)
+	require.NotNil(t, inhibited.ClosedAt)
 }
 
 // TestReconcilerDoesNotCloseDuringAMRestart AM 启动不足 3 分钟时只对齐不关行。
@@ -145,7 +188,7 @@ func TestReconcilerDoesNotCloseYoungRow(t *testing.T) {
 	assert.Zero(t, summary.Closed)
 }
 
-// TestReconcilerBackfillsMissingRows 活跃集中有、库里没有的告警补插一行。
+// TestReconcilerBackfillsMissingRows 活跃集中有、库里没有的 active 告警补插一行。
 func TestReconcilerBackfillsMissingRows(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
@@ -153,10 +196,10 @@ func TestReconcilerBackfillsMissingRows(t *testing.T) {
 		startedAt: now.Add(-time.Hour),
 		active: []ActiveAlert{{
 			Fingerprint: "fp-new",
+			State:       "active",
 			Labels:      map[string]string{"alertname": "InstanceDown", "severity": "warning", "network_domain_id": "mc-test"},
 			Annotations: map[string]string{"summary": "补插"},
 			StartsAt:    now.Add(-5 * time.Minute),
-			SilencedBy:  []string{"silence-1"},
 		}},
 	}
 	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
@@ -166,10 +209,122 @@ func TestReconcilerBackfillsMissingRows(t *testing.T) {
 	var ev models.AlertEvent
 	require.NoError(t, db.First(&ev).Error)
 	assert.Equal(t, "fp-new", ev.Fingerprint)
-	assert.Equal(t, models.AlertEventStatusSilenced, ev.Status, "静默期间诞生的直接落静默中")
+	assert.Equal(t, models.AlertEventStatusFiring, ev.Status, "只有 active 漏记才补插，补插即告警中")
 	assert.Equal(t, "mc-test", ev.NetworkDomain)
 	assert.Equal(t, sourceReconcile, ev.Source)
 	assert.Nil(t, ev.EndsAt)
+	assert.Nil(t, ev.ClosedAt)
+	assert.NotEmpty(t, ev.OccurrenceKey)
+	_, offset := ev.StartsAt.Zone()
+	assert.Equal(t, 8*3600, offset)
+}
+
+// TestReconcilerSkipsSuppressedBackfill 首次触发就被静默/抑制的告警不补插。
+func TestReconcilerSkipsSuppressedBackfill(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	src := &fakeSource{
+		startedAt: now.Add(-time.Hour),
+		active: []ActiveAlert{{
+			Fingerprint: "fp-silenced",
+			State:       "suppressed",
+			SilencedBy:  []string{"silence-1"},
+			Labels:      map[string]string{"alertname": "InstanceDown"},
+			StartsAt:    now.Add(-5 * time.Minute),
+		}},
+	}
+	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, summary.Backfilled)
+	assert.EqualValues(t, 0, countEvents(t, db))
+}
+
+// TestReconcilerRestoresClosedRow 对账判定关闭后重新活跃 → 原行恢复未结束状态并清空 closed_at。
+func TestReconcilerRestoresClosedRow(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	startsAt := now.Add(-time.Hour)
+	ev := seedOccurrenceEvent(t, db, "fp-1", models.AlertEventStatusLost, startsAt, now.Add(-30*time.Minute))
+
+	src := &fakeSource{
+		startedAt: now.Add(-2 * time.Hour),
+		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active", StartsAt: startsAt}},
+	}
+	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Restored)
+	assert.Zero(t, summary.Backfilled)
+
+	var got models.AlertEvent
+	require.NoError(t, db.First(&got, ev.ID).Error)
+	assert.Equal(t, models.AlertEventStatusFiring, got.Status)
+	assert.Nil(t, got.ClosedAt)
+	assert.Nil(t, got.EndsAt)
+}
+
+// TestReconcilerDoesNotRestoreResolvedRow 已真实恢复的 occurrence 不复活，也不另插新行。
+func TestReconcilerDoesNotRestoreResolvedRow(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	startsAt := now.Add(-time.Hour)
+	endsAt := now.Add(-30 * time.Minute)
+	ev := seedOccurrenceEvent(t, db, "fp-1", models.AlertEventStatusResolved, startsAt, endsAt)
+
+	src := &fakeSource{
+		startedAt: now.Add(-2 * time.Hour),
+		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active", StartsAt: startsAt}},
+	}
+	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, summary.Restored)
+	assert.Zero(t, summary.Backfilled)
+
+	var got models.AlertEvent
+	require.NoError(t, db.First(&got, ev.ID).Error)
+	assert.Equal(t, models.AlertEventStatusResolved, got.Status)
+	assert.EqualValues(t, 1, countEvents(t, db))
+}
+
+// TestReconcilerEmptyActiveSetNeedsTwoRounds 空活跃集第一轮不关、第二轮才关。
+func TestReconcilerEmptyActiveSetNeedsTwoRounds(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, now.Add(-10*time.Minute))
+
+	src := &fakeSource{startedAt: now.Add(-time.Hour)}
+	r := newFixedReconciler(db, src, now)
+
+	first, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, first.Closed)
+
+	second, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Closed)
+}
+
+// TestReconcilerCloseRatioGuard 单轮关闭占比过高时先缓一轮，连续两轮确认后才关。
+func TestReconcilerCloseRatioGuard(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		seedOpenEvent(t, db, "fp-"+string(rune('a'+i)), models.AlertEventStatusFiring, now.Add(-10*time.Minute))
+	}
+
+	src := &fakeSource{startedAt: now.Add(-time.Hour)}
+	r := newFixedReconciler(db, src, now)
+
+	first, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, first.Closed, "空活跃集第一轮只确认")
+
+	second, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, second.Closed, "关闭比例异常第一轮只确认")
+
+	third, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 12, third.Closed, "连续两轮确认后才执行关闭")
 }
 
 // TestReconcilerSkipsYoungBackfill 刚诞生不足 2 分钟的告警不补（别抢跑出重复行）。
@@ -180,6 +335,7 @@ func TestReconcilerSkipsYoungBackfill(t *testing.T) {
 		startedAt: now.Add(-time.Hour),
 		active: []ActiveAlert{{
 			Fingerprint: "fp-new",
+			State:       "active",
 			Labels:      map[string]string{"alertname": "InstanceDown"},
 			StartsAt:    now.Add(-30 * time.Second),
 		}},
@@ -196,7 +352,7 @@ func TestReconcilerSkipsEmptyFingerprint(t *testing.T) {
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
 	src := &fakeSource{
 		startedAt: now.Add(-time.Hour),
-		active:    []ActiveAlert{{Fingerprint: "", Labels: map[string]string{"alertname": "X"}, StartsAt: now.Add(-time.Hour)}},
+		active:    []ActiveAlert{{Fingerprint: "", State: "active", Labels: map[string]string{"alertname": "X"}, StartsAt: now.Add(-time.Hour)}},
 	}
 	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
 	require.NoError(t, err)

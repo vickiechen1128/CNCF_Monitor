@@ -183,7 +183,7 @@ export const alertStatusApi = {
   getAlertEvents(params?: AlertEventQuery): Promise<ApiResponse<AlertEventData>> {
     return apiClient.get<AlertEventData>('/api/v2/platform/alertmanager/alert-events', { params })
   },
-  /** 历史告警统计（首页告警卡；当日/近7天/通知中/静默·抑制同源） */
+  /** 历史告警统计（首页四格：今日告警/今日恢复/历史遗留告警/历史遗留今日恢复） */
   getAlertEventStats(): Promise<ApiResponse<AlertEventStats>> {
     return apiClient.get<AlertEventStats>('/api/v2/platform/alertmanager/alert-events/stats')
   },
