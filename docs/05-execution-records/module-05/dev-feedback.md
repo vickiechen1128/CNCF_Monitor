@@ -802,10 +802,10 @@
 ### 验证与实际挂载
 
 - `go test ./platform/dashboard/... ./platform/models ./platform/cmd/metric-center -count=1` ✅；`go vet ./platform/...` ✅。
-- 前端相关 Vitest 3 文件 30 用例 ✅；`typecheck:test` ✅；变更范围 ESLint ✅；`pnpm build` ✅。
+- 前端相关 Vitest 3 文件 30 用例 ✅；后续大屏目录增量测试 2 文件 4 用例 ✅；`typecheck:test` ✅；变更范围 ESLint ✅；`pnpm build` ✅。
 - 本地真实服务健康检查 `/health`、`/health/db`、`/status` 均 200；dev server 与一体化托管的管理页/展示页路由均 200。
-- 通过真实登录 + POST API 在默认 `metric_center.db` 创建「节点监控大屏」，`id=1`；详情接口确认 URL 与用户提供长地址逐字一致，iframe 地址为其追加 `&kiosk`。
+- 通过真实登录 + POST API 在默认 `metric_center.db` 创建「节点监控大屏」，`id=1`；详情接口确认 URL 与用户提供长地址逐字一致，iframe 地址为其追加 `&kiosk&hideLogo=true`。
 - Grafana 目标可达；匿名请求返回 302 登录跳转。实际浏览器展示依赖 Grafana 登录会话及 Grafana 侧 `allow_embedding=true`，平台未绕过这些条件。
-- 验证后已停止本次服务、释放端口并删除临时测试二进制；未提交 commit。
+- 功能 commit：`4a58a77`（`feat(module-05): add grafana panel mounting (M05-PANEL-01)`）。
 
 既有全量门禁问题（非本次改动引入）：后端全量测试中 `admin/storagelog` Windows 磁盘统计、`db` 临时文件清理、`strategy/rule` promtool 路径失败；前端全量 lint 仅剩 `pages/strategy/InstanceSelector.tsx:94` 既有 warning；全量 Vitest 在 `ResourcesPage.test.tsx` 两个既有 15 秒超时出现后停止剩余回归。以上均未计为通过。
