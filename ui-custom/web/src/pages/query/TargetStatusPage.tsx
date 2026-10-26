@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Badge, Button, Card, Empty, Input, Select, Table, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
@@ -36,6 +36,8 @@ export function TargetStatusPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([])
+  // 网域 ID → 名称：后端仍以 ID 过滤，展示层统一显示中文名，避免用户看到原始 code。
+  const domainNameById = useMemo(() => new Map(domains.map((d) => [d.id, d.name])), [domains])
   /**
    * 深链预筛（2026-10-17 第六轮走查）：首页拨测卡的「查看异常拨测目标 →」带
    * `?health=down` 进来，落页即只看异常节点，不必再手动点一次筛选。
@@ -108,7 +110,7 @@ export function TargetStatusPage() {
       title: '所属网域',
       dataIndex: 'network_domain',
       key: 'network_domain',
-      render: (v?: string) => v || 'default',
+      render: (v?: string) => (v ? (domainNameById.get(v) ?? v) : 'default'),
     },
     {
       title: '采集状态',

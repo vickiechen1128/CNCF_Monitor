@@ -351,3 +351,15 @@
   - **兼容**：新中心对旧 agent 下发含 `scrape_configs: []` 的合法包；旧中心对新 agent 仅表现为等待态，不再熔断。
 - **验证**：`platform/configcenter/generator`、`platform/configcenter/draft`、`platform/edge` Go 测试通过（含新增引导版本、心跳集成、Ready、不熔断、复位用例）；agent 模块 `supervisor`、`cmd` 测试通过；`go vet` 与 `go build ./platform/...` 通过。`internal/deployer` 在本机 Windows 因 symlink 权限（`A required privilege is not held by the client`）失败，属既有环境限制，与本次改动无关。
 - **遗留（登记，不在本条修）**：黑盒启停生命周期——删除全部拨测任务后，已在运行的 blackbox 进程不会被主动停止，需后续按配置包重新核对守护清单并停止不再需要的组件；`docs/04-source-architecture/repo-map.md` 未随本次改动更新（按本次要求不改 md），提交前需运行 `make repo-map` 补齐。
+
+### F-24：采集节点「回传延迟」指标口径失真（无积压却显示 23 小时前），整列移除（① 设计缺口，2026-10-25，已实现）
+
+- **现象**：线上采集节点列表两行（`iZet201gl0yvr1k5y2t3lmZ` / `mc-7e6af3fd`、`GL-OPS-MONITOR-02-X86` / `mc-55b56127`）「回传延迟」同时显示「23 小时 9 分钟前」红色；同行回传积压 `-`（0 字节）、积压数据龄 `-`、最后心跳「刚刚」、采集器「运行中」、配置同步「已同步」。
+- **根因**：`remote_write_lag_seconds` 由中心 Prometheus 按 `quantile by (network_domain_id) (0.95, time() - ts_of_last_over_time(up[24h]))` 计算，取的是**数据时间戳**而非通道耗时。Job / 目标被删除或改名后 `up` 序列停更，但最后样本仍在 24h 窗口内；p95 在序列数 ≤ 20 时退化为最大值（`rank = 0.95 × (n-1)`），一条僵尸序列即可把整个网域拉红。回传积压来自 Agent 心跳的发送队列，0 只表示「没有待发数据」，不表示「有数据在实时回传」；无数据可采时该延迟值随时间单调增长，语义实为「最后一条数据有多旧」，不是「回传延迟」。
+- **处置（用户决策：整列删除，不新增指标）**：
+  - 后端删除 `platform/edge/remote_write_lag.go` 及测试；移除 `AgentView.RemoteWriteLagSeconds`、`fillSampleLags`、`RegisterManagementRoutes` / `ListAgentsHandler` / `GetAgentHandler` 的 `SampleLagQuerier` 参数与 `main.go` 接线。
+  - 前端删除节点列表「回传延迟」列、节点详情抽屉对应行、`formatSampleLag` / `sampleLagSeverity` / `SAMPLE_LAG_*`、`types/edge.ts` 字段；存储与日志管理页影响文案去除该列引用。
+  - 保留回传积压、积压数据龄、积压增速、通道异常、累计丢块 / 丢包 / 重试；M01 采集 Job 列表按 Job 判定的 stale「回传延迟中」（`up[1h]`）为另一套口径，未动。
+- **验证**：`go build ./platform/...`、`go vet`、`go test ./platform/edge/... ./platform/cmd/metric-center/...` 通过；前端 `tsc --noEmit`、受影响 4 个测试文件 53 例、改动文件 eslint 通过；本地 5 服务拉起验证页面无该列。
+- **PRD / 契约回写建议（供 design 条线合入 M11 PRD）**：M11 §3.2 / §5.2 / §11.4 与 Modules/README 删除「回传延迟列」及 `remote_write_lag_seconds` 字段；design-decisions 决策 102 第 2 条保留为历史，建议新增「撤回回传延迟列」决策；如 `api-contract-snapshot.md` 含该字段一并删除。
+- **备注**：按本次要求除本反馈外不修改其他 md 文档（`repo-map.md` 未刷新），后续如允许需运行 `make repo-map` 补齐。

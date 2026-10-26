@@ -58,9 +58,10 @@ const BuiltinFeishuCardTemplateName = "飞书卡片-默认"
 //   - header：`{🟢|🔴} {恢复|告警}: {alertname}`，模板色由 status 决定（firing=红 / resolved=绿）；
 //   - 字段：状态 / 主机 / **网域** / 区域 / 级别，再按需追加 摘要 / 详情 / 开始 / 恢复（空则省略）。
 //
-// 「网域」相对用户原脚本为**新增字段**（M08 §10.2 与前端告警列表同口径）：桥层已把写入侧
-// network_domain_id 经 ResolveNetworkDomain 归一为消费侧 network_domain 并回写标签，故此处置前
-// 读 network_domain、再兜底 network_domain_id。时间字段已由渲染层本地化
+// 「网域」相对用户原脚本为**新增字段**（M08 §10.2 与前端告警列表同口径）：优先读
+// target 级展示标签 network_domain_name（中文），缺失时回退消费侧 network_domain
+// （网域 ID）与写入侧 network_domain_id。区域同理优先 zone_name；桥层渲染前还会按
+// 网域字典补齐展示标签，覆盖存量告警与聚合告警。时间字段已由渲染层本地化
 // （RenderAlert.StartsAtLocal / EndsAtLocal），不依赖宿主机时区。用户零模板即可接入。
 const BuiltinFeishuCardTemplate = `{{- $resolved := eq .Status "resolved" -}}
 {{- $color := "red" -}}{{- $icon := "🔴" -}}{{- $verb := "告警" -}}
@@ -79,10 +80,13 @@ const BuiltinFeishuCardTemplate = `{{- $resolved := eq .Status "resolved" -}}
     "elements": [
 {{- range $i, $a := .Alerts }}
 {{- if $i }},{{ end }}
-{{- $nd := index $a.Labels "network_domain" -}}
+{{- $nd := index $a.Labels "network_domain_name" -}}
+{{- if not $nd }}{{- $nd = index $a.Labels "network_domain" -}}{{- end -}}
 {{- if not $nd }}{{- $nd = index $a.Labels "network_domain_id" -}}{{- end -}}
 {{- if not $nd }}{{- $nd = "-" -}}{{- end -}}
-{{- $zone := index $a.Labels "zone" -}}{{- if not $zone }}{{- $zone = "-" -}}{{- end -}}
+{{- $zone := index $a.Labels "zone_name" -}}
+{{- if not $zone }}{{- $zone = index $a.Labels "zone" -}}{{- end -}}
+{{- if not $zone }}{{- $zone = "-" -}}{{- end -}}
 {{- $inst := index $a.Labels "instance" -}}{{- if not $inst }}{{- $inst = "-" -}}{{- end -}}
 {{- $sev := index $a.Labels "severity" -}}{{- if not $sev }}{{- $sev = "-" -}}{{- end -}}
 {{- $st := "告警中" -}}{{- if eq $a.Status "resolved" -}}{{- $st = "已恢复" -}}{{- end -}}

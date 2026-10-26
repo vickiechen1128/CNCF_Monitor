@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TargetStatusPage } from './TargetStatusPage'
 
@@ -65,6 +65,22 @@ describe('TargetStatusPage', () => {
     expect(screen.getByText('在线')).toBeInTheDocument()
     expect(screen.getByText('离线')).toBeInTheDocument()
     expect(targetsListMock).toHaveBeenCalled()
+  })
+
+  it('网域列展示 M06 中文名称而非网域 ID', async () => {
+    domainListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ id: 'default', name: '默认域' }], total: 1, page: 1, page_size: 100 },
+    })
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [target('res-1', 'up')], droppedTargets: [], targetsByJob: {} },
+    })
+    renderPage()
+    const row = (await screen.findByText('10.0.0.1:9104')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row as HTMLElement).getByText('默认域')).toBeInTheDocument()
+    expect(within(row as HTMLElement).queryByText('default')).toBeNull()
   })
 
   it('renders empty state', async () => {

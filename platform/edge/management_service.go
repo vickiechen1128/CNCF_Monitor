@@ -1,7 +1,6 @@
 package edge
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -106,11 +105,6 @@ type AgentView struct {
 	RemoteWriteDroppedTotal int64  `json:"remote_write_dropped_total,omitempty"`
 	RemoteWriteRetriesTotal int64  `json:"remote_write_retries_total,omitempty"`
 	RemoteWriteLastError    string `json:"remote_write_last_error,omitempty"`
-	// RemoteWriteLagSeconds 是中心视角该网域 up 样本距今秒数的 p95 分位（F-40 口径
-	// 延展：quantile by (network_domain_id) (0.95, time() - ts_of_last_over_time(up[24h]))）。
-	// nil 表示无数据（24h 内无样本 / 中心 Prom 不可用 / 未配置查询器 / 中心 Prom 未开
-	// promql-experimental-functions），与 0（新鲜）严格区分。
-	RemoteWriteLagSeconds *int64 `json:"remote_write_lag_seconds,omitempty"`
 	// BacklogAgeSeconds 是「积压数据龄」估算（F-40 延展①）：当前积压字节 ÷ 近期积压
 	// 增速（相邻心跳差分），即按近期速率攒出当前积压所需时长。nil 表示无数据
 	//（30min 窗口内心跳不足 / 积压未上涨 / 心跳过期），与 0 严格区分。网域级派生值，
@@ -328,28 +322,6 @@ func normThreshold(t time.Duration) time.Duration {
 	return t
 }
 
-// fillSampleLags 把网域级「中心视角样本滞后秒数」就地写入各 AgentView（F-40 延展）。
-// lag 富化是显式组合步骤而非 ListAgents 内置逻辑：querier 为 nil（未接线/单测）或查询
-// 失败（中心 Prom 不可用）时整体跳过，视图保持 nil（前端显示「无数据」），不阻塞列表。
-// 一个网域可有多个采集节点，remote_write 走同一网域通道，网域级 max 滞后对同域节点相同。
-func fillSampleLags(views []AgentView, q SampleLagQuerier) {
-	if q == nil || len(views) == 0 {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	lags, err := q.QueryDomainLags(ctx)
-	if err != nil {
-		return // 降级为无数据：观测增强不应拖垮节点列表
-	}
-	for i := range views {
-		if secs, ok := lags[views[i].NetworkDomainID]; ok {
-			v := secs
-			views[i].RemoteWriteLagSeconds = &v
-		}
-	}
-}
-
 // 回传通道洞察（F-40 延展①③）：从 edge_heartbeats 相邻心跳差分估算积压增速与
 // 「积压数据龄」，并联动 F-39 的 remote_write_last_error / remote_write_retries_total
 // 判定通道异常态——回应「回传延迟显示『刚刚』但积压持续上涨」的口径盲区：延迟 p95
@@ -372,8 +344,8 @@ const (
 const ChannelStatusAbnormal = "abnormal"
 
 // fillBacklogInsights 就地写入积压数据龄 / 增速 / 通道异常态（F-40 延展①③）。
-// 与 fillSampleLags 同为显式组合步骤：db 为 nil、查询失败或窗口内无心跳时保持缺省
-// （前端显示「-」），不阻塞节点列表。
+// 显式组合步骤：db 为 nil、查询失败或窗口内无心跳时保持缺省（前端显示「-」），
+// 不阻塞节点列表。
 func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time) {
 	if db == nil || len(views) == 0 {
 		return

@@ -6,6 +6,9 @@
 import { apiClient, isApiError } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
+  AlertEventData,
+  AlertEventStats,
+  AlertEventStatus,
   AlertHistoryData,
   AlertmanagerConfigVersion,
   AlertmanagerConfigVersionListItem,
@@ -142,6 +145,23 @@ export interface AlertHistoryQuery extends Record<string, string | number | bool
   page_size?: number
 }
 
+/** 历史告警事件查询参数（webhook 留痕 + 对账） */
+export interface AlertEventQuery extends Record<string, string | number | undefined> {
+  page?: number
+  page_size?: number
+  status?: AlertEventStatus
+  severity?: string
+  alert_name?: string
+  summary?: string
+  network_domain?: string
+  starts_from?: string
+  starts_to?: string
+  ends_from?: string
+  ends_to?: string
+  /** 触发时间排序：starts_at asc / starts_at desc（默认 desc） */
+  sort?: string
+}
+
 /**
  * 告警状态查看 API（v1.12 MVP 增量，契约快照 §10，Track B+；两条均为只读代理）。
  * 授权过滤由服务端强制注入（决策 56），前端 Query 仅作 UX 筛选透传，不构成权限依据。
@@ -155,9 +175,17 @@ export const alertStatusApi = {
   getAlertmanagerAlerts(params?: AlertStatusQuery): Promise<ApiResponse<AmAlertsData>> {
     return apiClient.get<AmAlertsData>('/api/v2/platform/alertmanager/alerts', { params })
   },
-  /** 历史告警（M02 v1.13 新增）：基于 ALERTS 时间序列重建规则级触发/恢复区间（含已恢复） */
+  /** 历史告警（旧 ALERTS 重建视图；首页计数暂用，后续随口径调整下线） */
   getAlertHistory(params?: AlertHistoryQuery): Promise<ApiResponse<AlertHistoryData>> {
     return apiClient.get<AlertHistoryData>('/api/v1/alerts/history', { params })
+  },
+  /** 历史告警事件（M08 webhook 留痕 + 对账，一行=一次告警发生） */
+  getAlertEvents(params?: AlertEventQuery): Promise<ApiResponse<AlertEventData>> {
+    return apiClient.get<AlertEventData>('/api/v2/platform/alertmanager/alert-events', { params })
+  },
+  /** 历史告警统计（首页四格：今日告警/今日恢复/历史遗留告警/历史遗留今日恢复） */
+  getAlertEventStats(): Promise<ApiResponse<AlertEventStats>> {
+    return apiClient.get<AlertEventStats>('/api/v2/platform/alertmanager/alert-events/stats')
   },
 }
 

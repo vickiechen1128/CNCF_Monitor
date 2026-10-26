@@ -113,6 +113,42 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(screen.queryByText('接收人')).toBeNull()
   })
 
+  it('网域列优先展示 network_domain_name；无展示标签时按 ID 映射 M06 名称', async () => {
+    useNetworkDomainsMock.mockReturnValue([{ id: 'default', name: '默认域' }])
+    useAmAlertsMock.mockReturnValue(
+      amState({
+        items: [
+          amRow({
+            labels: {
+              alertname: 'WithName',
+              severity: 'critical',
+              network_domain: 'gov-cloud-a',
+              network_domain_name: '政务网A区',
+              instance: '10.0.0.1:9100',
+            },
+          }),
+          amRow({
+            labels: {
+              alertname: 'Legacy',
+              severity: 'critical',
+              network_domain: 'default',
+              instance: '10.0.0.2:9100',
+            },
+          }),
+        ],
+      }),
+    )
+    renderPage()
+
+    const withNameRow = (await screen.findByText('WithName')).closest('tr')
+    expect(withNameRow).not.toBeNull()
+    expect(within(withNameRow as HTMLElement).getByText('政务网A区')).toBeInTheDocument()
+
+    const legacyRow = screen.getByText('Legacy').closest('tr')
+    expect(legacyRow).not.toBeNull()
+    expect(within(legacyRow as HTMLElement).getByText('默认域')).toBeInTheDocument()
+  })
+
   it('决策 70：AM 视图「实例名」由 resource_name 回填，「采集地址」展示 instance_address', async () => {
     useAmAlertsMock.mockReturnValue(
       amState({ items: [amRow({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' })] }),

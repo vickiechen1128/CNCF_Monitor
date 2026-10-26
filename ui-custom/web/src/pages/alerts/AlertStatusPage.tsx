@@ -79,6 +79,19 @@ function labelOf(item: { labels: Record<string, string> }, key: string): string 
 }
 
 /**
+ * 网域展示名：优先生成期注入的中文展示标签 network_domain_name；
+ * 存量告警无该标签时按网域 ID 映射 M06 网域名称，字典未命中回退 ID。
+ * 过滤仍以 labels.network_domain 的 ID 为准，本函数只负责展示。
+ */
+function domainNameOf(item: { labels: Record<string, string> }, domains: DomainOption[]): string {
+  const display = item.labels['network_domain_name']
+  if (display) return display
+  const id = item.labels['network_domain']
+  if (!id) return '-'
+  return domains.find((d) => d.id === id)?.name ?? id
+}
+
+/**
  * 实例名展示（M08 v1.15 决策 70）：M01 资源清单口径，由后端按告警标签 resource_id
  * 回连资源表回填。无 resource_id（拨测 / 聚合 / 自写规则）时显示 '-'——
  * **不回落成地址**，否则与「采集地址」列同值，复刻旧毛病。
@@ -252,7 +265,7 @@ function AmAlertsView({
       title: '网域',
       key: 'network_domain',
       width: 110,
-      render: (_, r) => <Text>{labelOf(r, 'network_domain')}</Text>,
+      render: (_, r) => <Text>{domainNameOf(r, domains)}</Text>,
     },
     {
       title: '实例名',
@@ -353,7 +366,7 @@ function PromAlertsView({
       title: '网域',
       key: 'network_domain',
       width: 110,
-      render: (_, r) => <Text>{labelOf(r, 'network_domain')}</Text>,
+      render: (_, r) => <Text>{domainNameOf(r, domains)}</Text>,
     },
     {
       title: '实例名',

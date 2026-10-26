@@ -16,6 +16,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// ManagementService 是 edge 管理面的依赖容器：handler 只依赖 Service，不直接持有
+// *gorm.DB（后端架构红线 R1）。
+type ManagementService struct {
+	db *gorm.DB
+}
+
+// NewManagementService 创建 edge 管理面服务。
+func NewManagementService(db *gorm.DB) *ManagementService {
+	return &ManagementService{db: db}
+}
+
 // RegisterManagementRoutes 将 Module_11 管理面接口挂到 /api/v2/platform 直接子组。
 // 与 edge 协议组（/edge/*，edge-token 鉴权 + 全局 auth 豁免，D1）分离：本组走全局
 // 用户认证（au-02），不附加 edge-token 中间件。
@@ -31,12 +42,13 @@ import (
 //
 // 契约：docs/02-product-requirements/Modules/Module_11_.. §4.2/§6。DELETE monitor 与
 // configcenter/domain 已注册的 POST/PUT /network-domains/:id/monitor 仅方法不同，无冲突。
-func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier) {
+func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string) {
+	svc := NewManagementService(db)
 	platform.DELETE("/network-domains/:id/monitor", RetireDomainHandler(db))
 
 	ag := platform.Group("/edge-agents")
-	ag.GET("", ListAgentsHandler(db, lagQuerier))
-	ag.GET("/:id", GetAgentHandler(db, lagQuerier))
+	ag.GET("", svc.ListAgentsHandler())
+	ag.GET("/:id", svc.GetAgentHandler())
 	// F-42 人工滚动重启 vmagent：写端点挂 RequireAdmin 最小授权门（对齐 deployment
 	// review-fix B 口径）。返回 403 文案「需要管理员权限」。
 	// F-43 清空回传积压（破坏性操作）：同挂 RequireAdmin。
@@ -81,36 +93,33 @@ func respondRetireError(c *gin.Context, err error) {
 }
 
 // ListAgentsHandler 处理 GET /api/v2/platform/edge-agents。
-// lagQuerier 可为 nil（未接线/单测）：此时 AgentView.RemoteWriteLagSeconds 全部缺省。
-func ListAgentsHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc {
+func (s *ManagementService) ListAgentsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		resp, err := ListAgents(db, time.Now().UTC(), DefaultOfflineThreshold)
+		resp, err := ListAgents(s.db, time.Now().UTC(), DefaultOfflineThreshold)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
 		}
-		fillSampleLags(resp.Agents, lagQuerier)
-		fillBacklogInsights(db, resp.Agents, time.Now().UTC())
+		fillBacklogInsights(s.db, resp.Agents, time.Now().UTC())
 		response.OK(c, resp)
 	}
 }
 
 // GetAgentHandler 处理 GET /api/v2/platform/edge-agents/:id。
-func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc {
+func (s *ManagementService) GetAgentHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
 			response.BadRequest(c, fmt.Errorf("invalid edge agent id: %s", c.Param("id")))
 			return
 		}
-		v, err := GetAgent(db, uint(id), time.Now().UTC(), DefaultOfflineThreshold)
+		v, err := GetAgent(s.db, uint(id), time.Now().UTC(), DefaultOfflineThreshold)
 		if err != nil {
 			respondAgentError(c, err)
 			return
 		}
 		views := []AgentView{*v}
-		fillSampleLags(views, lagQuerier)
-		fillBacklogInsights(db, views, time.Now().UTC())
+		fillBacklogInsights(s.db, views, time.Now().UTC())
 		response.OK(c, &views[0])
 	}
 }

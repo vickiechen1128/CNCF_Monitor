@@ -37,6 +37,10 @@ func newNotifyDB(t *testing.T) *gorm.DB {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.AlertmanagerConfigVersion{},
+		// 通知渲染前补齐网域 / 云 / 区域中文展示名。
+		&models.NetworkDomain{},
+		&models.CloudDict{},
+		&models.ZoneType{},
 	))
 	return db
 }
@@ -427,6 +431,7 @@ func TestChannelHandlerTemplateBinding(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)
 }
+
 // TestChannelHandlerWebhookType 自定义 Webhook：无模板可创建且地址明文回显；
 // 带模板 → 400。
 func TestChannelHandlerWebhookType(t *testing.T) {

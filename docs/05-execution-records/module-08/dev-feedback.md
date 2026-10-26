@@ -1014,3 +1014,44 @@ L3（纯文案文档）──┘        │
   - 测试：`save_handler_test.go` 新增「保存期写完整入口地址」用例；`main_test.go` 冒烟改为验证导入入口已删除（404）。
 - **运维注意**：升级前已存在的 pending 草稿仍可能是旧内容，不要直接确认；重新保存一次路由，让新单取代旧单。
 - **状态**：**landed（2026-10-23，未提交）**
+
+## 53. 历史告警能力重建：Alertmanager webhook 事件留痕 + 分钟级对账（2026-10-25，用户拍板）
+
+- **类别**：① 设计缺口（原实现是 ALERTS 序列反推的求值视图，不是告警事件历史）+ ② 实现缺口（无指纹合并、无静默/抑制、恢复时间估算、7d 窗口）
+- **背景**：线上首页出现「通知中 4、当日告警 0」——现历史告警由 Prometheus `ALERTS` 采样区间反推，`fired_at` 是区间起点且受重启/reload 与 7d 窗口影响，与 Alertmanager 的 `starts_at` 口径不一致。用户要求按另一项目 MonitorStack 的模型重做：内置 webhook 留痕 + 对账 + 事件表。
+- **结论**：
+  - 一行 = 一次告警发生，按 Alertmanager `fingerprint` 合并；未恢复重复推送不新增行，resolved 回填同一行，恢复后再次触发新开一行。
+  - 六态：`firing` 告警中 / `silenced` 静默中 / `inhibited` 抑制中 / `resolved` 已恢复 / `silenced_closed` 静默期间结束 / `lost` 恢复信息丢失。恢复时间只有 resolved 落真实值，其余留空不伪造。
+  - 内置留痕联络点：**不能**加一条 match-all 子路由（Alertmanager 根 route 仅在无子路由匹配时生效，会吞掉默认接收人）。改为由唯一生成规则给**每一个 receiver**（含 default）追加第二条 `webhook_configs`，URL = `NOTIFY_BRIDGE_URL + /api/v1/webhooks/alerts`；用户无法删除/编辑。
+  - 写入权单一：webhook 只做「插 firing / 回填 resolved」；未结三态互跳（静默/抑制/解除）只由对账写。
+  - 对账每分钟拉 AM `/api/v2/alerts`（含 silencedBy/inhibitedBy）+ `/api/v2/status` uptime：对齐状态、补插漏记、关闭消失行；静默中的消失标「静默期间结束」，其余标「恢复信息丢失」；AM 启动不足 3 分钟只对齐/补插不关行，AM 不可达整轮跳过。
+- **落地**：
+  - 新增 `platform/models/alert_event.go`、`platform/db/db.go`（AutoMigrate + 未结行 fingerprint 部分唯一索引）。
+  - 新增 `platform/alertmanager/history/`：`ingest.go`（webhook 合并/兜底/resolved 回填，对 AM 永远 2xx）、`reconciler.go`（六态对账 + 重启宽限 + 补插）、`handler.go`（服务端分页查询 + stats，当日/近7天按区间与窗口有交集计）、`source.go`（AM 适配）。
+  - `platform/alertmanager/alerts/proxy.go`：`amAlert` 补 `fingerprint`；新增 `ListActiveAlerts` / `AlertmanagerStartedAt`。
+  - `platform/configcenter/generator/alertmanager_config_build.go`：每个 receiver 追加内置历史留痕 webhook（`max_alerts: 0` / `timeout: 5s` / `send_resolved: true`）。
+  - `platform/cmd/metric-center/main.go`：注册 `POST /api/v1/webhooks/alerts`、`GET /api/v2/platform/alertmanager/alert-events[/stats]`；启动对账任务。
+  - 前端 `HistoryAlertsPage` / `useHistoryAlerts` 切换到事件接口，六态 Tag、恢复时间口径、服务端分页；`types/alertmanager.ts` / `api/alertmanager.ts` 增加事件类型与接口。
+- **验证**：`go build ./platform/...`、`go vet`、受影响 Go 包测试全过；生成配置经 `amtool check-config` 通过（2 receivers）；本地端到端冒烟：重复 firing 只落 1 行、resolved 回填真实 ends_at、stats 正确；`tsc --noEmit`、历史告警页 12 例、首页/告警状态/冒烟 84 例全过；改动文件 eslint 通过。
+- **遗留 / 需 follow-up**：
+  1. 首页告警卡仍用旧 `/api/v1/alerts/history` 计数（用户表示「当日」口径后续沟通再处理）；新 stats 接口已就绪。
+  2. 旧 `/api/v1/alerts/history` 未下线（首页仍消费），待口径确定后删除。
+  3. 保留期清理与 7d 回填未实现（默认不清理、不回填）。
+  4. 升级后需保存一次路由或触发一次配置变更，内置留痕 receiver 才会写入 alertmanager.yml 并下发。
+- **状态**：**landed（2026-10-25，未提交）**
+
+## 54. 历史告警模型加固与首屏四指标替换（2026-10-26，用户拍板）
+
+- **类别**：① 设计口径确认 + ③ 技术优化（去重 / 时间口径 / 清理）
+- **背景**：对照 `11.md` 的 MonitorStack 历史告警设计，用户确认：首页旧四指标（当日告警 / 近 7 天告警 / 通知中 / 已静默·已抑制）全部下线，替换为「今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复」，不做兼容；首次触发即被静默/抑制的不补插；首页「最新告警」改名「正在告警」；删除首页 Prometheus 求值参考行；`/alert-status` 页保持不动。
+- **结论 / 落地**：
+  - 表结构：`alert_events` 新增 `closed_at`（所有终态都有值，统计统一用它）、`occurrence_key`（指纹 + UTC 毫秒 starts_at 的 SHA-256；空指纹为空串、不参与唯一约束）、新增 `inhibited_closed` 状态；`alert_events` 时间字段统一按 UTC+8 带偏移存储，迁移只处理本表，其他表历史时间不动。
+  - Webhook：按 occurrence 去重；迟到 firing 只刷新展示字段、不复活；resolved 回填 `ends_at=closed_at`，缺 `endsAt` 不伪造；重复 resolved 幂等；`mutedBy` 与 `silencedBy` 同义归入静默。
+  - 对账：对齐未结三态；恢复被误关的原行；补插只补 `state=active`，首次触发即 suppressed 的不补；关闭写 `closed_at`，抑制中 → `inhibited_closed`；空活跃集连续 2 轮、单轮关闭比例 >50% 且 >10 条时先缓一轮。
+  - 保留清理：默认 180 天，`ALERT_EVENT_RETENTION_DAYS` 可配，未结行不清理。
+  - 首页四指标改查 `GET /api/v2/platform/alertmanager/alert-events/stats`（库），删除旧 `week_total` / `open_*` 字段；「正在告警」列表仍查 AM；删除首页 Prometheus 参考行与 `getPromAlerts` 请求；统计失败四格显示 '-'，AM 失败显示列表不可用。
+  - 历史页新增 `inhibited_closed`（抑制期间结束）展示与筛选。
+  - CI 架构红线收口：`history` 三个 handler 与 `edge` 两个 handler 改为 Service 注入（R1）；新增 `platform/db/migrations/20261026_0001_alert_events_schema.sql` 作为 migration-first 的 schema 记录（R2，运行时仍由 AutoMigrate 维护存量基线）。
+- **验证**：后端 history / alerts / models / cmd 测试通过，`platform/db` 仅剩本机既有基线失败 `TestInitDefaultPath`；前端 `tsc`、`eslint`、首页 / 告警状态 / 历史告警共 89 例通过；后端二进制已重编译；`bash scripts/ci/check-backend-arch.sh` 本地通过。
+- **运维注意**：生产首次启动自动迁移；若存量 `occurrence_key` 有重复，唯一索引创建会失败，需先清理；其他表历史时间不重写。
+- **状态**：**landed（2026-10-26）**

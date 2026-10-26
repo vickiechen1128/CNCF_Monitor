@@ -58,8 +58,8 @@
  * - 04 标题「纳管进度」→「纳管完成率」（进度是过程量、完成率是结果量）；「已下发 /
  *   未下发」→「已配置采集 / 未配置采集」（下发什么说不清）；纳管率列去行内进度条、
  *   资源类型收窄，使纳管率列在 1440 半幅卡内完整可见；口径注解定稿在卡底左对齐；
- * - 告警卡 Prometheus 参考行从右栏页脚移到左统计块空挡，统计块 280 → 220px，
- *   「配置告警通知」深链移除；矩阵脚注两句合并为一行、末行/末列「合计」统一命名。
+ * - 告警卡统计块 280 → 220px；Prometheus 参考行与「配置告警通知」深链均已移除，
+ *   首页告警卡只保留「库四指标 + AM 正在告警」；矩阵脚注两句合并为一行、末行/末列「合计」统一命名。
  *
  * 版式约束：
  * - 页面按内容自然排布，**不锁定视口**：不同电脑尺寸/分辨率下版式一致，内容超出即滚动；
@@ -80,7 +80,8 @@
  *   契约保留但前端不再消费）、probe_targets（拨测态势）、collection_health（采集健康）；
  *   by_app + unclassified_* 契约字段保留（应用覆盖明细表已按 design-proposal §2.4 删除，前端不再消费）；
  * - alertStatusApi 三条只读链路**单次请求**由 useAlertGovernance 持有：
- *   Prom 当前告警 + AM 通知状态 + M02 历史告警，全部收敛到告警状态卡。
+ *   AM 通知状态（正在告警列表）+ 历史告警统计（四格）+ M02 历史告警（列表行 2 摘要回查），
+ *   全部收敛到告警状态卡。
  * - 拨测态势实测来自 `dashboard.probe_targets[]`（决策 93 明细），由 HomePage 传入 ProbePanel
  *   受控渲染；静态预览（VITE_STATIC_PREVIEW=true）仍用 DASHBOARD_MOCK 明细与原型对齐。前端排序、分页，
  *   见 ProbePanel 头注释。
@@ -95,11 +96,10 @@ import { useProductName } from '../../skinContext'
 import type { CloudSummary, DashboardSummary } from '../../api/dashboard'
 import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
 import type {
+  AlertEventStats,
   AlertHistoryData,
   AmAlertItem,
   AmAlertsData,
-  PromAlertItem,
-  PromAlertsData,
 } from '../../types/alertmanager'
 import type { ApiResponse } from '../../types/api'
 import { MainLayout } from '../../layouts/MainLayout'
@@ -310,14 +310,18 @@ const DASHBOARD_MOCK: DashboardSummary = {
 }
 
 const ALERT_MOCK: AlertCounts = {
-  today: 12,
-  week: 38,
+  todayTotal: 12,
+  todayResolvedTotal: 9,
+  todayResolvedReal: 8,
+  todayResolvedInferred: 1,
+  legacyOpenTotal: 2,
+  legacyResolvedTodayTotal: 3,
+  legacyResolvedTodayReal: 3,
+  legacyResolvedTodayInferred: 0,
   active: 2,
   silenced: 1,
   inhibited: 0,
   unprocessed: 0,
-  firing: 5,
-  pending: 1,
 }
 
 /**
@@ -419,14 +423,15 @@ const HISTORY_WINDOW_DAYS = 7
 const HISTORY_PAGE_SIZE = 200
 
 /**
- * 历史告警取数参数：窗口按服务端上限 7d（决策 73 只关心当日 / 近 7 天）。
+ * 历史告警取数参数：窗口按服务端上限 7d。
+ *
+ * 2026-10-26 起 M02 history 只用于「最新告警」行 2 的摘要回查（summary 优先），
+ * 不再参与首屏四格计数；四格改由 `/alert-events/stats` 提供。
  *
  * - **必须显式传 `step`（决策 90）**：取 `ALERT_HISTORY_STEP_SECONDS`（30s，PRD 默认细粒度）。
- *   本卡窗口恒为 7d，7d ÷ 30s = 20160 点超过 Prometheus 单序列 11000 点上限 → 上游 400 →
- *   本卡「当日 / 近 7 天告警」两格恒为 0（2026-09-18 实测缺陷）；服务端会按窗口把 30s 抬高到
- *   55s 兜底，但调用侧仍显式传值，避免行为依赖服务端默认；
- * - 窗口直接取整 7d：服务端会把 > 7d 的窗口压缩为 `[end-7d, end]`，故多加容差无实际效果，
- *   反而是让 `total` 与「近 7 天」口径严格一致的前提（见 computeHistoryCounts）。
+ *   7d ÷ 30s = 20160 点超过 Prometheus 单序列 11000 点上限，服务端会按窗口抬高步长兜底，
+ *   但调用侧仍显式传值，避免行为依赖服务端默认；
+ * - 窗口直接取整 7d：服务端会把 > 7d 的窗口压缩为 `[end-7d, end]`。
  */
 function historyQuery(): { start: string; end: string; step: number; page: number; page_size: number } {
   const now = dayjs()
@@ -439,36 +444,47 @@ function historyQuery(): { start: string; end: string; step: number; page: numbe
   }
 }
 
-/** fired_at 时间戳：缺失 / 非法计 0（不落入「今日」或「近 7 天」计数，也不抛错） */
-function firedAt(value?: string): number {
-  if (!value) return 0
-  const d = dayjs(value)
-  return d.isValid() ? d.valueOf() : 0
-}
+/** 首屏四格使用的历史告警统计字段（其余字段保留在接口里供其他消费方使用）。 */
+type AlertStatsCounts = Pick<
+  AlertCounts,
+  | 'todayTotal'
+  | 'todayResolvedTotal'
+  | 'todayResolvedReal'
+  | 'todayResolvedInferred'
+  | 'legacyOpenTotal'
+  | 'legacyResolvedTodayTotal'
+  | 'legacyResolvedTodayReal'
+  | 'legacyResolvedTodayInferred'
+>
 
 /**
- * 历史告警计数（决策 73 §1，决策 90 修订）：当日 = fired_at ≥ 今日 0 点；近 7 天 = 服务端窗口总量。
+ * 历史告警四指标（GET /alert-events/stats）。
  *
- * **「近 7 天」直接取服务端 `total`**：请求窗口与「近 7 天」口径严格一致（7d，服务端裁剪后
- * 亦为 `[end-7d, end]`），`total` 即该窗口内的触发区间总数。原实现把 `total` 与前端**按渲染
- * 时刻**重算边界的 `inWindow` 做大小比较，两个边界不同源（渲染时刻晚于请求时刻），导致 7d
- * 边界外刚过期的记录被计入，与卡片文案「近 7 天」不符 —— 取消该混用。
- * 单页上限（200）截断的只是**列表**且按触发时间倒序（丢的是最旧记录），故 `today` 仍由当前页
- * 统计；`total` 缺失（契约异常）时回落为页内条目数。
- *
- * 字段缺失（无 list）返回 null，由调用方把两格降级为 '-'（不显示 0）。
+ * 口径由服务端按 UTC+8 自然日计算：今日告警严格按 starts_at；今日恢复按 closed_at；
+ * 历史遗留是当前未结且 starts_at 早于今天 0 点。字段缺失（契约异常）返回 null，
+ * 由调用方把四格降级为 '-'（不显示 0）。
  */
-function computeHistoryCounts(
-  res: ApiResponse<AlertHistoryData> | null,
-): { today: number; week: number } | null {
-  const items = res?.data?.list
-  if (!Array.isArray(items)) return null
-
-  const dayStart = dayjs().startOf('day').valueOf()
-  const today = items.filter((item) => firedAt(item.fired_at) >= dayStart).length
-  const total = res?.data?.total
-  const week = typeof total === 'number' ? total : items.length
-  return { today, week }
+function computeAlertStats(res: ApiResponse<AlertEventStats> | null): AlertStatsCounts | null {
+  const d = res?.data
+  if (
+    !d ||
+    typeof d.today_total !== 'number' ||
+    typeof d.today_resolved_total !== 'number' ||
+    typeof d.legacy_open_total !== 'number' ||
+    typeof d.legacy_resolved_today_total !== 'number'
+  ) {
+    return null
+  }
+  return {
+    todayTotal: d.today_total,
+    todayResolvedTotal: d.today_resolved_total,
+    todayResolvedReal: d.today_resolved_real ?? 0,
+    todayResolvedInferred: d.today_resolved_inferred ?? 0,
+    legacyOpenTotal: d.legacy_open_total,
+    legacyResolvedTodayTotal: d.legacy_resolved_today_total,
+    legacyResolvedTodayReal: d.legacy_resolved_today_real ?? 0,
+    legacyResolvedTodayInferred: d.legacy_resolved_today_inferred ?? 0,
+  }
 }
 
 /**
@@ -489,23 +505,31 @@ function buildSummaryMap(res: ApiResponse<AlertHistoryData> | null): Record<stri
   return map
 }
 
-/** 告警计数：AM 通知四态（active / silenced / inhibited / unprocessed）+ Prom 触发态 */
+/** 内部治理态计数：AM 通知四态（active / silenced / inhibited / unprocessed） */
 function computeCounts(
-  promRes: ApiResponse<PromAlertsData> | null,
   amRes: ApiResponse<AmAlertsData> | null,
-): Omit<AlertCounts, 'today' | 'week'> {
-  // promRes / amRes 仅在信封 status === 'success' 时被写入（见 toSourceState），
-  // 业务错误信封不会静默计 0，而是走 promError / amError 呈现。
-  const promAlerts: PromAlertItem[] = promRes?.data?.alerts ?? []
+): Pick<AlertCounts, 'active' | 'silenced' | 'inhibited' | 'unprocessed'> {
+  // amRes 仅在信封 status === 'success' 时被写入（见 toSourceState），
+  // 业务错误信封不会静默计 0，而是走 amError 呈现。
   const amAlerts: AmAlertItem[] = amRes?.data?.items ?? []
   return {
     active: amAlerts.filter((i) => i.notify_status === 'active').length,
     silenced: amAlerts.filter((i) => i.notify_status === 'silenced').length,
     inhibited: amAlerts.filter((i) => i.notify_status === 'inhibited').length,
     unprocessed: amAlerts.filter((i) => i.notify_status === 'unprocessed').length,
-    firing: promAlerts.filter((a) => a.state === 'firing').length,
-    pending: promAlerts.filter((a) => a.state === 'pending').length,
   }
+}
+
+/** 统计接口不可用时的占位值；由 AlertStatusCard 按 statsError 统一渲染 '-'。 */
+const EMPTY_ALERT_STATS: AlertStatsCounts = {
+  todayTotal: 0,
+  todayResolvedTotal: 0,
+  todayResolvedReal: 0,
+  todayResolvedInferred: 0,
+  legacyOpenTotal: 0,
+  legacyResolvedTodayTotal: 0,
+  legacyResolvedTodayReal: 0,
+  legacyResolvedTodayInferred: 0,
 }
 
 interface AlertGovernance {
@@ -515,15 +539,15 @@ interface AlertGovernance {
   /** 行 2 告警具体内容回查表（history summary 优先，AM annotations.summary 兜底） */
   summaryByAlert: Record<string, string>
   loading: boolean
-  promError: string | null
   amError: string | null
-  /** history 链路错误：当日 / 近 7 天两格降级为 '-'，不影响 AM / Prom 展示 */
-  historyError: string | null
+  /** 历史告警统计链路错误：四格降级为 '-'，不影响 AM 正在告警展示 */
+  statsError: string | null
   retry: () => void
 }
 
 /**
- * 首页告警治理态取数（三条只读链路各单次请求持有）。
+ * 首页告警治理态取数（三条只读链路各单次请求持有）：
+ * AM 通知状态（正在告警列表）、历史告警统计（四格）、M02 历史告警（列表行 2 摘要回查）。
  * allSettled：任一端点失败不丢弃其他端点已成功数据，失败源局部降级提示。
  */
 function useAlertGovernance(
@@ -531,12 +555,11 @@ function useAlertGovernance(
   mockCounts: AlertCounts,
   mockLatest: AmAlertItem[],
 ): AlertGovernance {
-  const [promRes, setPromRes] = useState<ApiResponse<PromAlertsData> | null>(null)
   const [amRes, setAmRes] = useState<ApiResponse<AmAlertsData> | null>(null)
   const [historyRes, setHistoryRes] = useState<ApiResponse<AlertHistoryData> | null>(null)
-  const [promError, setPromError] = useState<string | null>(null)
+  const [statsRes, setStatsRes] = useState<ApiResponse<AlertEventStats> | null>(null)
   const [amError, setAmError] = useState<string | null>(null)
-  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [statsError, setStatsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(() => !isStaticPreview)
   const [retryKey, setRetryKey] = useState(0)
 
@@ -546,22 +569,22 @@ function useAlertGovernance(
     }
     let cancelled = false
     Promise.allSettled([
-      alertStatusApi.getPromAlerts(),
       alertStatusApi.getAlertmanagerAlerts(),
       alertStatusApi.getAlertHistory(historyQuery()),
-    ]).then(([prom, am, history]) => {
+      alertStatusApi.getAlertEventStats(),
+    ]).then(([am, history, stats]) => {
       if (cancelled) return
-      const p = toSourceState(prom)
       const a = toSourceState(am)
       const h = toSourceState(history)
-      setPromRes(p.res)
+      const s = toSourceState(stats)
       setAmRes(a.res)
       setHistoryRes(h.res)
-      setPromError(p.error)
+      setStatsRes(s.res)
       setAmError(a.error)
-      // 字段缺失（信封成功但无 list）同样视为不可用：两格显示 '-' 而非 0
-      setHistoryError(
-        h.error ?? (Array.isArray(h.res?.data?.list) ? null : '历史告警响应缺少列表字段'),
+      // history 只用于列表行 2 摘要回查，失败时静默回落 AM summary，不阻塞统计四格。
+      // 统计四格字段缺失（信封成功但字段不全）同样视为不可用：显示 '-' 而非 0。
+      setStatsError(
+        s.error ?? (computeAlertStats(s.res) ? null : '历史告警统计响应缺少字段'),
       )
       setLoading(false)
     })
@@ -574,14 +597,12 @@ function useAlertGovernance(
     if (isStaticPreview) {
       return mockCounts
     }
-    const history = computeHistoryCounts(historyRes)
     return {
-      ...computeCounts(promRes, amRes),
-      // history 不可用时由 AlertStatusCard 按 historyError 渲染 '-'，此处仅提供占位数值
-      today: history?.today ?? 0,
-      week: history?.week ?? 0,
+      ...computeCounts(amRes),
+      // 统计不可用时由 AlertStatusCard 按 statsError 统一渲染 '-'，此处仅提供占位数值
+      ...(computeAlertStats(statsRes) ?? EMPTY_ALERT_STATS),
     }
-  }, [isStaticPreview, mockCounts, promRes, amRes, historyRes])
+  }, [isStaticPreview, mockCounts, amRes, statsRes])
 
   const latestAlerts = useMemo(() => {
     if (isStaticPreview) {
@@ -603,13 +624,12 @@ function useAlertGovernance(
     // 静态预览无后端：effect 提前 return，置 loading 会永久停在加载态，直接短路
     if (isStaticPreview) return
     setLoading(true)
-    setPromError(null)
     setAmError(null)
-    setHistoryError(null)
+    setStatsError(null)
     setRetryKey((k) => k + 1)
   }
 
-  return { counts, latestAlerts, summaryByAlert, loading, promError, amError, historyError, retry }
+  return { counts, latestAlerts, summaryByAlert, loading, amError, statsError, retry }
 }
 
 export function HomePage() {
@@ -640,9 +660,8 @@ export function HomePage() {
     latestAlerts,
     summaryByAlert,
     loading: alertLoading,
-    promError,
     amError,
-    historyError,
+    statsError,
     retry,
   } = useAlertGovernance(IS_STATIC_PREVIEW, ALERT_MOCK, ALERT_MOCK_LATEST)
 
@@ -858,9 +877,8 @@ export function HomePage() {
               latestAlerts={latestAlerts}
               summaryByAlert={summaryByAlert}
               loading={alertLoading}
-              promError={promError}
               amError={amError}
-              historyError={historyError}
+              statsError={statsError}
               onRetry={retry}
               isStaticPreview={IS_STATIC_PREVIEW}
             />

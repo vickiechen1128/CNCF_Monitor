@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,41 @@ func TestHealthWithoutInit(t *testing.T) {
 	// Ensure Health returns an error when DB has not been initialized.
 	DB = nil
 	assert.Error(t, Health())
+}
+
+// TestAlertEventMigrationBackfillsTimesAndKey 存量历史告警迁移：
+// 时间刷成 UTC+8、resolved 回填 closed_at=ends_at、有指纹行补 occurrence_key，
+// 并确保 occurrence 唯一索引存在。
+func TestAlertEventMigrationBackfillsTimesAndKey(t *testing.T) {
+	t.Setenv("METRIC_CENTER_DB_DSN", "file:alert_event_migration?mode=memory&cache=shared")
+	require.NoError(t, Init())
+
+	startsAt := time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)
+	endsAt := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	ev := models.AlertEvent{
+		Fingerprint: "fp-migrate",
+		AlertName:   "InstanceDown",
+		Status:      models.AlertEventStatusResolved,
+		StartsAt:    &startsAt,
+		EndsAt:      &endsAt,
+		Labels:      `{"alertname":"InstanceDown"}`,
+	}
+	require.NoError(t, DB.Create(&ev).Error)
+	require.NoError(t, migrateAlertEvents())
+	require.NoError(t, ensureAlertEventOccurrenceIndex())
+
+	var got models.AlertEvent
+	require.NoError(t, DB.First(&got, ev.ID).Error)
+	assert.NotEmpty(t, got.OccurrenceKey)
+	require.NotNil(t, got.ClosedAt)
+	assert.True(t, got.ClosedAt.Equal(endsAt))
+	_, offset := got.StartsAt.Zone()
+	assert.Equal(t, 8*3600, offset, "存量 starts_at 刷成 UTC+8")
+
+	var cnt int64
+	require.NoError(t, DB.Raw(`SELECT count(*) FROM sqlite_master
+		WHERE type='index' AND name='uq_alert_events_occurrence_key'`).Scan(&cnt).Error)
+	assert.EqualValues(t, 1, cnt)
 }
 
 func TestSharedTablesCreatedAndHealthOK(t *testing.T) {

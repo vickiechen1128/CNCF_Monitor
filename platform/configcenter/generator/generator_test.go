@@ -237,12 +237,22 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 // 并注入 system 层标签 resource_id / network_domain / cloud / zone（与 standard 同源）。
 func TestResolveTargetsBlackboxResourceMode(t *testing.T) {
 	db := newMemDB(t)
-	require.NoError(t, db.AutoMigrate(&models.NetworkDomain{}, &models.InterfaceService{}, &models.LabelTemplate{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.NetworkDomain{}, &models.InterfaceService{}, &models.LabelTemplate{},
+		&models.CloudDict{}, &models.ZoneType{},
+	))
 
 	require.NoError(t, db.Create(&models.NetworkDomain{
 		ID: "bb-nd", Name: "网域一", DomainType: models.DomainTypeEdge,
 		ZoneType: "internet", CloudCode: "aliyun", TenantID: models.PlatformAdminTenantID,
 		Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&models.CloudDict{
+		CloudCode: "aliyun", CloudName: "阿里云", CloudType: models.CloudTypePublic,
+		Carrier: models.CloudCarrierTencent, Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.ZoneType{
+		Code: "internet", DisplayName: "互联网区", Enabled: true,
 	}).Error)
 	require.NoError(t, db.Create(&models.InterfaceService{
 		ResourceBase: models.ResourceBase{
@@ -266,9 +276,30 @@ func TestResolveTargetsBlackboxResourceMode(t *testing.T) {
 	assert.Equal(t, "https://api.example.com/health?token=x", groups[0].Targets[0],
 		"target = 所选字段 api_url 的值（逐字节原样，不拼端口）")
 	assert.Equal(t, "bb-is-1", groups[0].Labels["resource_id"], "system 层身份标签注入")
-	assert.Equal(t, "bb-nd", groups[0].Labels["network_domain"])
-	assert.Equal(t, "aliyun", groups[0].Labels["cloud"])
-	assert.Equal(t, "internet", groups[0].Labels["zone"])
+	assert.Equal(t, "bb-nd", groups[0].Labels["network_domain"], "身份标签保持网域 ID")
+	assert.Equal(t, "aliyun", groups[0].Labels["cloud"], "身份标签保持云编码")
+	assert.Equal(t, "internet", groups[0].Labels["zone"], "身份标签保持区域编码")
+	// 展示名标签：中文仅供展示，不改变上面的身份 code 值。
+	assert.Equal(t, "网域一", groups[0].Labels[models.NetworkDomainNameLabelKey])
+	assert.Equal(t, "阿里云", groups[0].Labels[models.CloudNameLabelKey])
+	assert.Equal(t, "互联网区", groups[0].Labels[models.ZoneNameLabelKey])
+}
+
+// TestLabelDictionaryDisplayNameFallback：云 / 区域字典未命中时展示名回退原始 code，
+// nil 字典同样安全，不阻断目标生成。
+func TestLabelDictionaryDisplayNameFallback(t *testing.T) {
+	dict := &labelDictionary{
+		cloudNames: map[string]string{"PUB-TX": "腾讯云"},
+		zoneNames:  map[string]string{"internet": "互联网区"},
+	}
+	assert.Equal(t, "腾讯云", dict.cloudDisplayName("PUB-TX"))
+	assert.Equal(t, "互联网区", dict.zoneDisplayName("internet"))
+	assert.Equal(t, "unknown-cloud", dict.cloudDisplayName("unknown-cloud"))
+	assert.Equal(t, "unknown-zone", dict.zoneDisplayName("unknown-zone"))
+
+	var nilDict *labelDictionary
+	assert.Equal(t, "PUB-TX", nilDict.cloudDisplayName("PUB-TX"))
+	assert.Equal(t, "internet", nilDict.zoneDisplayName("internet"))
 }
 
 // TestResolveTargetsBlackboxNonInterfaceServiceCategory：**核心判据**——拨测不再与
@@ -1090,7 +1121,7 @@ func TestExpandLabelTemplateDictTransform(t *testing.T) {
 		"app_code":          "ceshi",
 		"biz_code":          "authorized-ops",
 		"platform_code":     "k8s-prod",
-		"env": "PRD",
+		"env":               "PRD",
 		"network_domain_id": "nd-1",
 	}, "10.0.1.1:9100", dict)
 

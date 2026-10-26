@@ -2,20 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HistoryAlertsPage } from './HistoryAlertsPage'
-import { ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
-import type { AlertHistoryItem } from '../../types/alertmanager'
+import type { AlertEventItem } from '../../types/alertmanager'
 
 const alertStatusApiMock = {
   getPromAlerts: vi.fn(),
   getAlertmanagerAlerts: vi.fn(),
   getAlertHistory: vi.fn(),
+  getAlertEvents: vi.fn(),
+  getAlertEventStats: vi.fn(),
 }
 const networkDomainApiMock = {
   list: vi.fn(),
 }
 
 vi.mock('../../api/alertmanager', async (importOriginal) => {
-  // 保留真实导出（含 ALERT_HISTORY_STEP_SECONDS），仅替换 alertStatusApi 的请求方法
   const actual = await importOriginal<typeof import('../../api/alertmanager')>()
   return {
     ...actual,
@@ -23,6 +23,8 @@ vi.mock('../../api/alertmanager', async (importOriginal) => {
       getPromAlerts: (...a: unknown[]) => alertStatusApiMock.getPromAlerts(...a),
       getAlertmanagerAlerts: (...a: unknown[]) => alertStatusApiMock.getAlertmanagerAlerts(...a),
       getAlertHistory: (...a: unknown[]) => alertStatusApiMock.getAlertHistory(...a),
+      getAlertEvents: (...a: unknown[]) => alertStatusApiMock.getAlertEvents(...a),
+      getAlertEventStats: (...a: unknown[]) => alertStatusApiMock.getAlertEventStats(...a),
     },
   }
 })
@@ -33,16 +35,17 @@ vi.mock('../../api/domain', () => ({
 }))
 vi.mock('antd/locale/zh_CN', () => ({ default: {} }))
 
-const historyItem = (over: Partial<AlertHistoryItem> = {}): AlertHistoryItem => ({
-  alertname: 'HighCPU',
-  instance: '10.0.0.1:9100',
+const eventItem = (over: Partial<AlertEventItem> = {}): AlertEventItem => ({
+  id: 1,
+  alert_name: 'HighCPU',
+  status: 'resolved',
   network_domain: 'default',
-  state: 'resolved',
-  fired_at: '2026-09-08T01:00:00Z',
-  resolved_at: '2026-09-08T02:00:00Z',
+  starts_at: '2026-09-08T01:00:00Z',
+  ends_at: '2026-09-08T02:00:00Z',
+  updated_at: '2026-09-08T02:00:00Z',
   duration_seconds: 3600,
   summary: 'CPU 使用率过高',
-  value: '1',
+  labels: { instance: '10.0.0.1:9100' },
   ...over,
 })
 
@@ -56,6 +59,7 @@ function renderPage() {
 
 describe('HistoryAlertsPage（历史告警）', () => {
   beforeEach(() => {
+    alertStatusApiMock.getAlertEvents.mockReset()
     alertStatusApiMock.getAlertHistory.mockReset()
     alertStatusApiMock.getPromAlerts.mockReset()
     alertStatusApiMock.getAlertmanagerAlerts.mockReset()
@@ -63,28 +67,25 @@ describe('HistoryAlertsPage（历史告警）', () => {
     networkDomainApiMock.list.mockResolvedValue({ data: { list: [{ id: 'default', name: '默认域' }] } })
   })
 
-  it('渲染语义折叠栏（默认收起）与「恢复时间（估算）」列头角标，无独立标题卡片', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('渲染语义折叠栏（默认收起）与「恢复时间」列头角标，无独立标题卡片', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     const { container } = renderPage()
-    // 页头独立标题卡片已移除（用户反馈 2026-09-11）；页面以折叠栏 + 列表为主体
-    expect(await screen.findByText(/恢复时间是估算值，仅供参考/)).toBeInTheDocument()
+    expect(await screen.findByText(/一次告警发生只保留一行，恢复时回填/)).toBeInTheDocument()
     expect(container.querySelector('h4.ant-typography')).toBeNull()
-    // 折叠栏指引（默认收起）：仅可见标题，说明内容不在 DOM；点击展开后可见完整说明
-    expect(screen.queryByText(/可能与实际恢复时间略有偏差/)).toBeNull()
-    fireEvent.click(screen.getByText(/恢复时间是估算值，仅供参考/))
-    expect(await screen.findByText(/可能与实际恢复时间略有偏差/)).toBeInTheDocument()
-    // 列头友好化：不再出现「按 Prometheus 求值」技术术语
-    expect(screen.getAllByText(/恢复时间（估算）/).length).toBeGreaterThan(0)
-    expect(screen.queryByText(/按 Prometheus 求值/)).toBeNull()
+    // 折叠栏默认收起：说明正文不在 DOM；展开后可见
+    expect(screen.queryByText(/未恢复期间的重复通知不会新增记录/)).toBeNull()
+    fireEvent.click(screen.getByText(/一次告警发生只保留一行，恢复时回填/))
+    expect(await screen.findByText(/未恢复期间的重复通知不会新增记录/)).toBeInTheDocument()
+    expect(screen.getAllByText(/恢复时间/).length).toBeGreaterThan(0)
   })
 
-  it('渲染历史告警列表：告警名、采集地址、状态、触发/恢复时间、持续时长、摘要', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('渲染历史告警列表：告警名、采集地址、状态、摘要', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [historyItem()], total: 1, page: 1, page_size: 50 },
+      data: { list: [eventItem()], total: 1, page: 1, page_size: 20 },
     })
     renderPage()
     expect(await screen.findByText('HighCPU')).toBeInTheDocument()
@@ -93,14 +94,79 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText('CPU 使用率过高')).toBeInTheDocument()
   })
 
-  it('聚合告警（无实例）展示「全局/聚合」', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('网域列优先展示 network_domain_name 中文名；存量记录按网域 ID 映射名称', async () => {
+    networkDomainApiMock.list.mockResolvedValue({
+      data: {
+        list: [
+          { id: 'gov-cloud-a', name: '政务网A区' },
+          { id: 'default', name: '默认域' },
+        ],
+      },
+    })
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
-        list: [historyItem({ alertname: 'HostTargetsMissing', instance: '', instance_display: '', summary: '目标全部丢失' })],
+        list: [
+          eventItem({
+            id: 1,
+            alert_name: 'WithName',
+            network_domain: 'gov-cloud-a',
+            labels: { network_domain_name: '政务网A区' },
+          }),
+          eventItem({ id: 2, alert_name: 'Legacy', network_domain: 'default', labels: {} }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderPage()
+    const withNameRow = (await screen.findByText('WithName')).closest('tr')
+    expect(withNameRow).not.toBeNull()
+    expect(within(withNameRow as HTMLElement).getByText('政务网A区')).toBeInTheDocument()
+
+    const legacyRow = screen.getByText('Legacy').closest('tr')
+    expect(legacyRow).not.toBeNull()
+    expect(within(legacyRow as HTMLElement).getByText('默认域')).toBeInTheDocument()
+  })
+
+  it('七态按语义展示：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 恢复信息丢失', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          eventItem({ id: 1, alert_name: 'A', status: 'firing' }),
+          eventItem({ id: 2, alert_name: 'B', status: 'silenced' }),
+          eventItem({ id: 3, alert_name: 'C', status: 'inhibited' }),
+          eventItem({ id: 4, alert_name: 'D', status: 'resolved' }),
+          eventItem({ id: 5, alert_name: 'E', status: 'silenced_closed' }),
+          eventItem({ id: 6, alert_name: 'F', status: 'inhibited_closed' }),
+          eventItem({ id: 7, alert_name: 'G', status: 'lost' }),
+        ],
+        total: 7,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('A')).toBeInTheDocument()
+    expect(screen.getByText('告警中')).toBeInTheDocument()
+    expect(screen.getByText('静默中')).toBeInTheDocument()
+    expect(screen.getByText('抑制中')).toBeInTheDocument()
+    expect(screen.getByText('已恢复')).toBeInTheDocument()
+    expect(screen.getByText('静默期间结束')).toBeInTheDocument()
+    expect(screen.getByText('抑制期间结束')).toBeInTheDocument()
+    expect(screen.getByText('恢复信息丢失')).toBeInTheDocument()
+  })
+
+  it('聚合告警（无实例）展示「全局/聚合」', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [eventItem({ alert_name: 'HostTargetsMissing', labels: {}, summary: '目标全部丢失' })],
         total: 1,
         page: 1,
-        page_size: 50,
+        page_size: 20,
       },
     })
     renderPage()
@@ -108,15 +174,16 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText('全局/聚合')).toBeInTheDocument()
   })
 
-  it('决策 70：实例名 / 采集地址拆两列 —— resource_name 回填，无资源时实例名为 -', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('实例名 / 采集地址拆两列：resource_name 回填，无资源时实例名为 -', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
         list: [
-          historyItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' }),
-          historyItem({
-            alertname: 'HostTargetsMissing',
-            instance: '',
+          eventItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' }),
+          eventItem({
+            id: 2,
+            alert_name: 'HostTargetsMissing',
+            labels: {},
             instance_address: '',
             instance_display: '',
             resource_name: '',
@@ -124,7 +191,7 @@ describe('HistoryAlertsPage（历史告警）', () => {
         ],
         total: 2,
         page: 1,
-        page_size: 50,
+        page_size: 20,
       },
     })
     renderPage()
@@ -132,26 +199,26 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(row).not.toBeNull()
     expect(within(row as HTMLElement).getByText('10.0.0.1:9100')).toBeInTheDocument()
 
-    // 无 resource_id 的告警：实例名列 '-'（不回落成地址），采集地址列回退「全局/聚合」
     const aggRow = screen.getByText('HostTargetsMissing').closest('tr')
     expect(aggRow).not.toBeNull()
     expect(within(aggRow as HTMLElement).getByText('-')).toBeInTheDocument()
     expect(within(aggRow as HTMLElement).getByText('全局/聚合')).toBeInTheDocument()
   })
 
-  it('决策 70：实例筛选框提示同时支持实例名与采集地址', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('摘要筛选框与告警名筛选框并存', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
-    expect(await screen.findByPlaceholderText('按实例名或采集地址筛选')).toBeInTheDocument()
+    expect(await screen.findByPlaceholderText('按告警名筛选')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('按摘要关键字筛选')).toBeInTheDocument()
   })
 
-  it('决策 70：「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
     const header = await screen.findByRole('columnheader', { name: /采集地址/ })
@@ -162,19 +229,18 @@ describe('HistoryAlertsPage（历史告警）', () => {
   })
 
   it('空结果展示「暂无历史告警」', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
     expect(await screen.findByText('暂无历史告警')).toBeInTheDocument()
   })
 
-  // PL-1（D-1 方案丙）：未产生过历史告警时，多为「还没写告警规则」，故空态补跨模块引导。
   it('PL-1：空结果额外展示「去写规则」引导，落点为 /rules', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
     const link = await screen.findByRole('link', { name: '去写规则 →' })
@@ -183,39 +249,44 @@ describe('HistoryAlertsPage（历史告警）', () => {
   })
 
   it('PL-1：接口错误时不展示「去写规则」引导（不把失败伪装成无数据）', async () => {
-    alertStatusApiMock.getAlertHistory.mockRejectedValue(new Error('boom'))
+    alertStatusApiMock.getAlertEvents.mockRejectedValue(new Error('boom'))
     renderPage()
     expect(await screen.findByText('历史告警加载失败')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '去写规则 →' })).toBeNull()
   })
 
   it('点击刷新触发重新加载', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
     await screen.findByText('暂无历史告警')
     const refreshBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '刷新')
     expect(refreshBtn).toBeDefined()
     fireEvent.click(refreshBtn as HTMLElement)
-    await waitFor(() => expect(alertStatusApiMock.getAlertHistory).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(alertStatusApiMock.getAlertEvents).toHaveBeenCalledTimes(2))
   })
 
-  it('决策 90：请求显式携带步长（缺省 30s 在 7d 窗口下会超 Prometheus 点数上限）', async () => {
-    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+  it('请求携带触发时间范围与服务端分页参数（不再传 Prometheus 步长）', async () => {
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 50 },
+      data: { list: [], total: 0, page: 1, page_size: 20 },
     })
     renderPage()
     await screen.findByText('暂无历史告警')
 
-    expect(alertStatusApiMock.getAlertHistory).toHaveBeenCalledWith(
+    expect(alertStatusApiMock.getAlertEvents).toHaveBeenCalledWith(
       expect.objectContaining({
-        step: ALERT_HISTORY_STEP_SECONDS,
-        start: expect.any(String),
-        end: expect.any(String),
+        page: 1,
+        page_size: 20,
+        starts_from: expect.any(String),
+        starts_to: expect.any(String),
+        sort: 'starts_at desc',
       }),
+    )
+    expect(alertStatusApiMock.getAlertEvents).not.toHaveBeenCalledWith(
+      expect.objectContaining({ step: expect.anything() }),
     )
   })
 })

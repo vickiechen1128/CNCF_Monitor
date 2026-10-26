@@ -124,15 +124,19 @@ func generateOrReusePendingDraft(db *gorm.DB) error {
 //     （决策 60）；amtool 不可调用同样视为校验失败并在 dev-feedback 登记；
 //   - 校验通过：计算 sha256 写入 AlertmanagerConfigVersion（content/checksum/status=applied）
 //     留痕（决策 59 内容留痕），并触发 M09 管理域变更检测（决策 60）；
-//   - 同 checksum 重复挂载幂等：已存在相同内容版本时直接返回已有版本，不重复生成。
+//   - 与当前生效版本同内容时幂等：直接返回最新 applied 版本，不重复生成；
+//     内容与更早历史版本相同（改回原值）仍落新版本并重新走 M09（见
+//     findLatestAppliedByChecksum）。
 func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, ErrEmptyContent
 	}
 	checksum := models.AlertmanagerConfigChecksum(content)
 
-	// 幂等：已有相同内容已留痕，直接返回该版本，不重复生成（MVP 保留版本历史供回滚）。
-	existing, err := findVersionByChecksum(db, checksum)
+	// 幂等：仅当内容与**当前生效版本**（最新 applied 留痕）相同才复用，不重复生成。
+	// 若内容只与更早的历史版本相同（用户把配置改回原值），必须落新版本——否则最新
+	// applied 仍是改后的内容，M09 看不到回退（详见 findLatestAppliedByChecksum）。
+	existing, err := findLatestAppliedByChecksum(db, checksum)
 	if err != nil {
 		return nil, fmt.Errorf("check existing config version: %w", err)
 	}
@@ -197,18 +201,32 @@ func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models
 // 变更检测触发异常（可由稳态 watcher 下一轮兜底），handler 据此记录日志而非报错。
 var errChangeTrigger = errors.New("persist ok but trigger change detection failed (watcher will retry)")
 
-// findVersionByChecksum 按校验和查询已留痕版本；无则返回 (nil, nil)。
+// findLatestAppliedByChecksum 取「当前生效版本」（最新一条 applied 留痕），仅当内容与
+// checksum 一致时返回它；内容不同（包括与更早的历史版本相同）返回 (nil, nil)，
+// 由调用方落一条新版本。
+//
+// 为什么不能按 checksum 在全部历史版本里查（2026-10-23 用户实测「改不回去」）：
+// 用户改接收人生效（版本 B）后改回原值保存（内容 A）时，A 必定命中最初那条历史版本；
+// 旧实现直接返回旧版本、不落新留痕、不触发 M09。而 M09 生成产物按
+// LoadLatestAlertmanagerConfigVersion 取最新 applied（仍是 B），于是回退既不产新变更单、
+// 也不会进入下发视图。回退是相对当前生效版本的实质变更，必须落新版本。
+// 幂等语义只对「与当前生效版本相同」成立——连续重复保存同内容不产生噪声版本。
+//
 // 仅认 status=applied 的留痕（dev-feedback #44）：discarded 是废弃终态（其变更单已废弃、
 // 无活单可确认），**不满足幂等语义**——否则用户重新保存同样内容会被幂等分支静默返回
 // 已废弃版本、既不产新版本也不产新变更单，恢复路径（重新保存路由）被吞掉。
-func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error) {
+func findLatestAppliedByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error) {
 	var v models.AlertmanagerConfigVersion
-	err := db.Where("checksum = ? AND status = ?", checksum, models.AlertmanagerConfigStatusApplied).First(&v).Error
+	err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&v).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if v.Checksum != checksum {
+		return nil, nil
 	}
 	return &v, nil
 }

@@ -10,8 +10,9 @@
 //	route:
 //	  <路由段>
 //	receivers:
-//	  - name: default               # 内置空接收人（不通知）
+//	  - name: default               # 内置兜底接收人（不通知用户，仅历史留痕）
 //	  - name: notify-<id>           # 仅 route 引用的渠道，按渠道 ID 升序
+//	    webhook_configs:            # 用户渠道 + 内置历史留痕（每个 receiver 各一条）
 //
 // 未来告警抑制能力接入时，在此规则的输入/输出上增加 inhibit_rules 生成即可，
 // 所有调用方自动获得该能力，不另开旁路。
@@ -29,11 +30,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultReceiverName 是平台内置的空接收人（兜底占位）名。
+// DefaultReceiverName 是平台内置的兜底接收人名。
 //
-// Alertmanager 要求根 route 必须指定 receiver（`root route must specify a default receiver`），
-// 但接收人本身可以不挂任何通知配置——命中它的告警会被静默丢弃。平台把它作为「默认（不通知）」
-// 选项提供给路由树，使新环境在尚未配置任何通知渠道时也能保存一份合法配置。
+// Alertmanager 要求根 route 必须指定 receiver（`root route must specify a default receiver`）。
+// 平台把它作为「默认（不通知用户）」选项提供给路由树；生成器会为它挂上**内置历史留痕
+// webhook**（不向任何用户渠道通知），因此命中它的告警仍会进入历史告警表。
 const DefaultReceiverName = "default"
 
 // alertmanagerGlobalResolveTimeout 是生成规则中固定的 global.resolve_timeout。
@@ -45,6 +46,14 @@ const alertmanagerGlobalResolveTimeout = "5m"
 // platform/alertmanager/notify/bridge.go 的 RegisterBridgeRoutes（/api/v1/webhooks/notify）
 // 严格一致；变更时两处同步。
 const bridgeEndpointPath = "/api/v1/webhooks/notify"
+
+// historyEndpointPath 是历史告警留痕 webhook 的固定路径。口径必须与
+// platform/alertmanager/history/ingest.go 的 WebhookPath 严格一致；变更时两处同步。
+const historyEndpointPath = "/api/v1/webhooks/alerts"
+
+// historyWebhookTimeout 是留痕 webhook 的单次投递超时：平台端点必须快速返回，
+// 避免 AM 通知流水线被留痕链路拖慢（FanoutStage 并发，但仍应限时）。
+const historyWebhookTimeout = "5s"
 
 // NotifyBridgeURL 是平台通知入口（渲染桥）的基础地址，由 cmd/metric-center 在启动时
 // 从监听地址 / NOTIFY_BRIDGE_URL 注入（形如 http://127.0.0.1:8080，不含路径）。
@@ -82,15 +91,28 @@ func BuildAlertmanagerConfig(in AlertmanagerConfigInput) (string, error) {
 		return "", err
 	}
 
+	// 内置历史留痕 webhook：挂到**每一个** receiver（含 default 兜底接收人）。
+	// 不能只加一条匹配所有子路由：Alertmanager 的根 route 仅在「没有子路由匹配」时
+	// 生效（dispatch/route.go），match-all 子路由会让根接收人永远收不到未匹配告警。
+	// 逐 receiver 追加则保持路由语义完全不变，且平台生成的配置无法被用户删除。
+	historyURL := ""
+	if strings.TrimSpace(NotifyBridgeURL) != "" {
+		historyURL = strings.TrimRight(NotifyBridgeURL, "/") + historyEndpointPath
+	}
+
 	receivers := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	receivers.Content = append(receivers.Content, defaultReceiverNode())
+	defaultNode, err := defaultReceiverNode(historyURL)
+	if err != nil {
+		return "", err
+	}
+	receivers.Content = append(receivers.Content, defaultNode)
 	for _, ch := range activeNotifyChannels(in.Channels, referenced) {
 		name := ch.ReceiverName()
 		if strings.TrimSpace(NotifyBridgeURL) == "" {
 			receivers.Content = append(receivers.Content, receiverNameNode(name))
 			continue
 		}
-		node, err := platformReceiverNode(name, bridgeReceiverURL(NotifyBridgeURL, ch))
+		node, err := platformReceiverNode(name, bridgeReceiverURL(NotifyBridgeURL, ch), historyURL)
 		if err != nil {
 			return "", err
 		}
@@ -184,10 +206,15 @@ func bridgeReceiverURL(base string, ch models.NotifyChannel) string {
 }
 
 // platformReceiverNode 构造单个平台 receiver 的 yaml.Node。receiver 名恒为 notify-<id>。
-func platformReceiverNode(name, url string) (*yaml.Node, error) {
+// historyURL 非空时追加内置历史留痕 webhook（用户渠道通知 + 留痕并行投递）。
+func platformReceiverNode(name, url, historyURL string) (*yaml.Node, error) {
+	configs := []genWebhookConfig{{URL: url, SendResolved: true}}
+	if historyURL != "" {
+		configs = append(configs, historyWebhookConfigNode(historyURL))
+	}
 	raw, err := yaml.Marshal(genReceiver{
 		Name:           name,
-		WebhookConfigs: []genWebhookConfig{{URL: url, SendResolved: true}},
+		WebhookConfigs: configs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal generated receiver %q: %w", name, err)
@@ -204,13 +231,27 @@ func platformReceiverNode(name, url string) (*yaml.Node, error) {
 
 // genWebhookConfig / genReceiver 是平台 receiver 的 YAML 结构（仅本文件使用）。
 type genWebhookConfig struct {
-	URL          string `yaml:"url"`
-	SendResolved bool   `yaml:"send_resolved"`
+	URL          string  `yaml:"url"`
+	SendResolved bool    `yaml:"send_resolved"`
+	Timeout      string  `yaml:"timeout,omitempty"`
+	MaxAlerts    *uint64 `yaml:"max_alerts,omitempty"`
 }
 
 type genReceiver struct {
 	Name           string             `yaml:"name"`
 	WebhookConfigs []genWebhookConfig `yaml:"webhook_configs"`
+}
+
+// historyWebhookConfigNode 构造内置留痕 webhook 配置：不截断告警（max_alerts=0），
+// 5s 超时；resolved 必须投递（恢复时间是历史告警的核心事实）。
+func historyWebhookConfigNode(url string) genWebhookConfig {
+	unlimited := uint64(0)
+	return genWebhookConfig{
+		URL:          url,
+		SendResolved: true,
+		Timeout:      historyWebhookTimeout,
+		MaxAlerts:    &unlimited,
+	}
 }
 
 // receiverNameNode 构造只有 name 的空 receiver 占位节点（保存期 amtool 校验用）。
@@ -220,9 +261,27 @@ func receiverNameNode(name string) *yaml.Node {
 	return item
 }
 
-// defaultReceiverNode 构造空接收人节点：只有 name，不挂任何通知配置。
-func defaultReceiverNode() *yaml.Node {
-	return receiverNameNode(DefaultReceiverName)
+// defaultReceiverNode 构造内置兜底接收人：historyURL 非空时挂内置留痕 webhook
+// （仍不向任何用户渠道通知，历史留痕属于平台自身能力）。
+func defaultReceiverNode(historyURL string) (*yaml.Node, error) {
+	if historyURL == "" {
+		return receiverNameNode(DefaultReceiverName), nil
+	}
+	raw, err := yaml.Marshal(genReceiver{
+		Name:           DefaultReceiverName,
+		WebhookConfigs: []genWebhookConfig{historyWebhookConfigNode(historyURL)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal default receiver: %w", err)
+	}
+	var n yaml.Node
+	if err := yaml.Unmarshal(raw, &n); err != nil {
+		return nil, fmt.Errorf("build default receiver node: %w", err)
+	}
+	if n.Kind != yaml.DocumentNode || len(n.Content) == 0 {
+		return nil, fmt.Errorf("build default receiver node: 非法节点")
+	}
+	return n.Content[0], nil
 }
 
 // mappingValueIndex 返回映射节点中键 key 对应的值节点下标（无则 -1）。
