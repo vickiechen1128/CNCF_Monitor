@@ -106,6 +106,8 @@ func AutoMigrate() error {
 		&models.NotifyTemplate{},
 		// 历史告警（Module_08：webhook 事件留痕 + 分钟级对账）
 		&models.AlertEvent{},
+		// 自定义大屏（Module_05：Grafana iframe 挂载配置）
+		&models.DashboardPanel{},
 		// 预留
 		&models.BusinessMetric{},
 	); err != nil {

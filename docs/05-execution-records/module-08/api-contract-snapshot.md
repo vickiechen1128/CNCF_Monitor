@@ -481,3 +481,41 @@ M09 管理域生成与路由保存共用**同一套唯一生成器** `generator.
 | `inhibit_rules` / `templates` / `mute_time_intervals` | — | 不生成（能力未 UI 化，未来接入时在唯一生成规则内统一增加） | 无 | 存量内容在整份重建中丢弃（#51；升级前已存在的 pending 单需重新保存） |
 
 - 历史口径（留档废止）：「route / receivers 双作者 + 根兜底单键替换 + 手写段保留」——随 #45（删 route-setting / mode）与 #51（唯一生成规则）失效；「绝不写 `route.routes[]`」「该接管不判 `mode`」两条显式红线注随之作废（平台现在整棵写 `route`，这正是「平台唯一作者」收口的目的）。
+
+---
+
+## 12. 告警抑制规则（2026-10-26，M08-INHIBIT-01）
+
+### 12.1 数据对象与页面
+
+```ts
+interface InhibitionRule {
+  id: string
+  name: string
+  source_matchers: RouteEditMatcher[]
+  target_matchers: RouteEditMatcher[]
+  equal: string[]
+  enabled: boolean
+}
+```
+
+独立页面 `/inhibitions`（「告警收敛与通知管理 → 告警抑制」），初始只读；编辑后可新增、编辑、删除、启停，支持保存提交和放弃编辑。禁用项与编辑态 ID 不进入 YAML，名称以 `# 抑制规则名称: ...` 注释保留。
+
+### 12.2 独立 API、共用生成与下发
+
+| 方法 | 路径 | 权限 | 请求 / 响应 |
+|------|------|------|-------------|
+| GET | `/api/v2/platform/alertmanager/inhibitions` | 已登录 | `data={items,effective_checksum,pending}` |
+| POST | `/api/v2/platform/alertmanager/inhibitions` | 管理员 | 请求 `{base_checksum,inhibit_rules}`；响应 `{version,change_no?}` |
+
+- `/routes` 请求契约不变，仍为 `{base_checksum,route_tree}`；`/inhibitions` 不接收路由树。
+- 底层共用 `route.SaveAlertmanagerConfig(routeTree,inhibitRules,...)`：保存路由时使用修改后路由并保留当前抑制；保存抑制时保留当前路由并使用修改后抑制。
+- 保存路由时 `inhibit_rules=nil` 表示保留当前规则；共享函数收到显式空数组表示清空。M09 草稿生成/重校同样提取并保留抑制规则。
+- 两端都经 `generator.BuildAlertmanagerConfig` 整份生成 `global + route + inhibit_rules + receivers`，然后复用 `config.Submit` 的 amtool、版本留痕和 M09 人工确认下发链，不即时生效。
+- 源/目标 matcher 均至少一条，标签名和值非空，正则合法，equal 标签非空且不重复；失败返回 400 `bad_request`，checksum 冲突返回 409 `conflict`，非管理员写入返回 403。
+
+本节取代 §11.10 中 `inhibit_rules`「未 UI 化、不生成」的旧口径；`templates` / `mute_time_intervals` 仍不生成。
+
+### 12.3 分配置段的 pending 提示
+
+`pending` 增加 `route_changed` / `inhibit_rules_changed` 布尔字段，由后端比较当前 pending 与上一确认版本的对应配置段。路由页仅在 `route_changed !== false` 时显示待确认提示，抑制页仅在 `inhibit_rules_changed !== false` 时显示；两段都变化则两页都显示。字段缺省兼容旧客户端按 true 处理。变更单仍只有一个，确认仍针对完整 YAML。

@@ -1,8 +1,8 @@
 // 本文件是 alertmanager.yml 的**唯一生成规则**。
 //
-// 2026-10-23 用户裁决：告警配置的唯一作者是平台（路由树 + 通知渠道）。任何需要
-// 重新生成 alertmanager.yml 的链路（路由保存、M09 草稿生成 / 重校、未来接入的
-// 告警抑制）都必须走 BuildAlertmanagerConfig，禁止在各处写「合并进旧文件 / 保留
+// 2026-10-23 用户裁决：告警配置的唯一作者是平台（路由树 + 通知渠道 + 抑制规则）。
+// 任何需要重新生成 alertmanager.yml 的链路（路由保存、抑制保存、M09 草稿生成 / 重校）
+// 都必须走 BuildAlertmanagerConfig，禁止在各处写「合并进旧文件 / 保留
 // 某些段 / 逐项归一化」的适配逻辑：
 //
 //	global:
@@ -14,8 +14,7 @@
 //	  - name: notify-<id>           # 仅 route 引用的渠道，按渠道 ID 升序
 //	    webhook_configs:            # 用户渠道 + 内置历史留痕（每个 receiver 各一条）
 //
-// 未来告警抑制能力接入时，在此规则的输入/输出上增加 inhibit_rules 生成即可，
-// 所有调用方自动获得该能力，不另开旁路。
+// inhibit_rules 与 route 由同一输入生成，路由 / 抑制保存及 M09 重算不另开旁路。
 package generator
 
 import (
@@ -71,12 +70,14 @@ type AlertmanagerConfigInput struct {
 	RouteSection string
 	// Channels 是平台全部通知渠道；只有被 route 段引用到的渠道才会生成 receiver。
 	Channels []models.NotifyChannel
+	// InhibitRules 是与路由共用版本和变更单的告警抑制规则。
+	InhibitRules []InhibitionRule
 }
 
 // BuildAlertmanagerConfig 按唯一生成规则整份重建 alertmanager.yml。
 //
-// 旧文件中的手写 receivers / global / inhibit_rules / templates / mute_time_intervals
-// 等段落不再保留（手写能力已下线，用户 2026-10-23 裁决）。receivers 恒为
+// 旧文件中的手写 receivers / global / templates / mute_time_intervals 不保留；
+// route 与 inhibit_rules 使用输入中的当前产品化数据重建。receivers 恒为
 // 「default + route 引用的渠道」，旧 receiver 一律丢弃，不做重名冲突判定。
 //
 // route 段生成失败（空段 / 畸形树 / 多根 / 环等）返回 error，由调用方转为校验错误，
@@ -123,9 +124,16 @@ func BuildAlertmanagerConfig(in AlertmanagerConfigInput) (string, error) {
 		{Kind: yaml.ScalarNode, Tag: "!!str", Value: "resolve_timeout"},
 		{Kind: yaml.ScalarNode, Tag: "!!str", Value: alertmanagerGlobalResolveTimeout},
 	}}
+	inhibitRules, err := inhibitRulesNode(in.InhibitRules)
+	if err != nil {
+		return "", err
+	}
 	root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	appendMapping(root, "global", global)
 	appendMapping(root, routeSectionKey, routeNode)
+	if len(inhibitRules.Content) > 0 {
+		appendMapping(root, "inhibit_rules", inhibitRules)
+	}
 	appendMapping(root, "receivers", receivers)
 
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}

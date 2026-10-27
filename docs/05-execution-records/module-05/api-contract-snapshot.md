@@ -343,3 +343,49 @@ interface PromQueryResponse {
   - 若 `dashboard/summary` 分组字段口径调整（如 M07 资源类型 / 应用归属枚举变化），需同步更新 `src/api/dashboard.ts`、L1/L2 组件与「六类之和 = 总数」自洽校验，并与 M07 采集覆盖率页对齐（见 `design-decisions.md` 决策 72-3 / 91）。
   - **不变量红线**：`by_category` 之和 === `resource_count`；`by_app` + `unclassified_*` 之和 === `resource_count`；`monitored_count ≤ resource_count`；`probe_target_*` 永不进入 `resource_count` 与覆盖率；**`by_platform_app` 各行 `host_count` 之和 === 各列之和 === `by_category` 中 `resource_category='host'` 的 `resource_count`**；**`by_cloud` 各行 `resource_count` 之和 === 同上 host 类 `resource_count`**。破坏任一条即属契约回归。
   - 若 M02 `/api/v1/query` 代理形状变化，需同步更新 `QueryPage` 的结果渲染分支。
+
+---
+
+## 5. Grafana 面板挂载增量（2026-10-26，M05-PANEL-01）
+
+> 本节为最新增量契约；§4「不新增接口」仅描述 v1.8 及此前首页改版，不限制本节新增接口。
+
+### 5.1 数据对象
+
+```ts
+interface DashboardPanel {
+  id: number
+  name: string                 // 1~100 个字符，去首尾空白，全库唯一
+  url: string                  // 原始完整 Grafana /d/ 仪表盘 URL，最长 2048 字符
+  created_at: string           // RFC3339
+  updated_at: string           // RFC3339
+}
+
+interface DashboardPanelList {
+  list: DashboardPanel[]
+  total: number
+  page: number
+  page_size: number
+}
+```
+
+### 5.2 接口与权限
+
+| 方法 | 路径 | 权限 | 成功响应 `data` |
+|------|------|------|-----------------|
+| GET | `/api/v2/platform/dashboard/panels` | 已登录用户 | `DashboardPanelList`；支持 `page` / `page_size`，默认 1 / 20，上限 100 |
+| POST | `/api/v2/platform/dashboard/panels` | 管理员 | `DashboardPanel`；请求体仅 `name` / `url` |
+| GET | `/api/v2/platform/dashboard/panels/:id` | 已登录用户 | `DashboardPanel` |
+| PUT | `/api/v2/platform/dashboard/panels/:id` | 管理员 | `DashboardPanel`；请求体仅 `name` / `url`，保留原 ID 与 `created_at` |
+
+- 所有成功/错误响应使用平台统一信封。
+- URL 仅允许 `http` / `https`、非空 host 和 `/d/` 仪表盘路径；后端保存原字符串，不主动请求目标 URL。
+- 非法字段或 ID 返回 400 `bad_request`；名称重复返回 409 `conflict`（编辑时排除当前 ID）；ID 不存在返回 404 `not_found`；非管理员新增/修改返回 403 `forbidden`。
+
+### 5.3 前端路由与 iframe 契约
+
+- 管理页：`/admin/dashboard-panels`，位于「系统与平台管理 → 面板挂载」。
+- 展示页：`/dashboard/panels/:id`，位于「首页 → 自定义大屏」动态子菜单。
+- iframe 保留原始完整 URL 及全部查询参数；若不存在 `kiosk` 参数，追加无值参数 `&kiosk`（无查询串时使用 `?kiosk`），已存在则不重复追加；若不存在 `hideLogo`，追加 `hideLogo=true` 隐藏 Grafana kiosk 品牌页脚。
+- Grafana 身份认证和 `allow_embedding` 由 Grafana 侧负责，平台不代理或绕过。
+- iframe 加载后，同源时通过 `kioskEvents.ts` 在 iframe 文档捕获阶段屏蔽双击和 Escape，其他鼠标/键盘操作不受影响；跨域时安全跳过，生产需经 Nginx 将门户和 Grafana 挂到同一协议/域名/端口后启用该能力。

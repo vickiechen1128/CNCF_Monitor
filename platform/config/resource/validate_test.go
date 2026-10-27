@@ -25,7 +25,7 @@ func validHostInput() *ResourceInput {
 		NetworkDomainID:  "default",
 		BizCode:          "infra",
 		Status:           "online",
-		Env: "PRD",
+		Env:              "PRD",
 		InstanceName:     "web-01",
 		InstanceIP:       "10.0.0.1",
 		OSType:           "Linux",
@@ -111,7 +111,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 			AppCode:         "pay-db",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -180,7 +180,7 @@ func TestValidateResourceInput_Middleware(t *testing.T) {
 			AppCode:         "pay-mq",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			MiddlewareType:  "kafka",
 			InstanceIP:      "10.0.0.11",
 			Port:            9092,
@@ -225,7 +225,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.0.0.20:8080/health",
 			Protocol:        "http",
@@ -238,10 +238,12 @@ func TestValidateResourceInput_Application(t *testing.T) {
 		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, valid(), store, nil, alwaysExists))
 	})
 
-	t.Run("empty health_check_url allowed (可选，仅资源画像与标签来源)", func(t *testing.T) {
+	t.Run("empty health_check_url fails", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "health_check_url")
 	})
 
 	t.Run("missing service_name fails", func(t *testing.T) {
@@ -252,20 +254,11 @@ func TestValidateResourceInput_Application(t *testing.T) {
 		assert.Contains(t, err.Error(), "service_name")
 	})
 
-	t.Run("missing endpoint fails", func(t *testing.T) {
+	t.Run("empty endpoint and zero port allowed", func(t *testing.T) {
 		in := valid()
 		in.Endpoint = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "endpoint")
-	})
-
-	t.Run("missing 采集端口 port fails", func(t *testing.T) {
-		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "port")
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
 	})
 
 	t.Run("port out of range fails", func(t *testing.T) {
@@ -316,7 +309,7 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 			NetworkDomainID: "default",
 			BizCode:         "infra",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			TargetName:      "snmp-switch-01",
 			InstanceIP:      "10.0.0.30",
 			Port:            161,
@@ -384,7 +377,7 @@ func TestValidateResourceInput_InterfaceService(t *testing.T) {
 			BizCode:         "payment",
 			AppCode:         "pay-api",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			APIName:         "支付下单接口",
 			APIURL:          "https://api.example.com/v1/order",
 		}
@@ -536,8 +529,8 @@ func TestDedupKey(t *testing.T) {
 			&ResourceInput{NetworkDomainID: "d1", InstanceIP: "10.0.0.3", Port: 9100},
 			"generic_target|d1|10.0.0.3|9100"},
 		{"application", models.ResourceCategoryApplication,
-			&ResourceInput{NetworkDomainID: "d1", ServiceName: "pay-service", Endpoint: "10.0.0.4:8080"},
-			"application|d1|pay-service|10.0.0.4:8080"},
+			&ResourceInput{NetworkDomainID: "d1", ServiceName: "pay-service", HealthCheckURL: "http://10.0.0.4:8080/health"},
+			"application|d1|pay-service|http://10.0.0.4:8080/health"},
 		{"interface_service", models.ResourceCategoryInterfaceService,
 			&ResourceInput{NetworkDomainID: "d1", APIURL: " https://api.example.com/v1/order "},
 			"interface_service|d1|https://api.example.com/v1/order"},
@@ -568,7 +561,7 @@ func TestGetResourceField(t *testing.T) {
 		BizCode:         "infra",
 		AppCode:         "web",
 		SubAppCode:      "web-cluster",
-		EnvFlag: "PRD",
+		EnvFlag:         "PRD",
 		Status:          "online",
 		PrivateIP:       "10.0.0.1",
 		InstanceName:    "web-01",
@@ -714,7 +707,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "pay-db",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -726,7 +719,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "kafka-app",
 			Cluster:         "kafka",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			MiddlewareType:  "kafka",
 			InstanceIP:      "10.0.0.11",
 			Port:            9092,
@@ -738,7 +731,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.0.0.20:8080/health",
 			Endpoint:        "10.0.0.20",
@@ -749,7 +742,7 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 		return &ResourceInput{
 			NetworkDomainID: "default",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			TargetName:      "snmp-switch-01",
 			InstanceIP:      "10.0.0.30",
 			Port:            161,
@@ -802,7 +795,7 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			AppCode:         "legacy-app", // 停用条目，保留历史值
 			Cluster:         "legacy",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -821,7 +814,7 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			AppCode:         "pay-db", // 启用条目
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			DatabaseType:    "mysql",
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
@@ -840,15 +833,10 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// M07 应用资源字段职责（采集地址拆分）：
-// health_check_url 为可选「应用实际 URL」，采集地址由 endpoint（主机）+ port（采集端口）
-// 构成（M09 generator 拼接口径），二者均必填。
+// M07 应用资源字段职责：health_check_url 是 blackbox 拨测地址且必填；
+// endpoint + port 是 standard 指标采集地址，均可选。
 // ---------------------------------------------------------------------------
 
-// TestValidateApplication_AddressSplit 覆盖字段职责拆分后的校验口径：
-//   - health_check_url 可选（空值通过），但非空非法时仍按原格式错误返回；
-//   - endpoint 必填，缺失报错且文案点明「采集地址主机」；
-//   - port 必填且 1~65535（缺省会让 target 落到默认 80 端口）。
 func TestValidateApplication_AddressSplit(t *testing.T) {
 	store := newBizStore(t)
 	valid := func() *ResourceInput {
@@ -858,7 +846,7 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 			AppCode:         "pay-service",
 			Cluster:         "pay",
 			Status:          "online",
-			Env: "PRD",
+			Env:             "PRD",
 			ServiceName:     "pay-service",
 			HealthCheckURL:  "http://10.10.1.4:8081/actuator/health",
 			Endpoint:        "10.10.1.4",
@@ -867,10 +855,12 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 		}
 	}
 
-	t.Run("empty health_check_url passes", func(t *testing.T) {
+	t.Run("empty health_check_url fails", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "health_check_url")
 	})
 
 	t.Run("invalid health_check_url keeps format error", func(t *testing.T) {
@@ -883,27 +873,16 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 		}
 	})
 
-	t.Run("empty endpoint fails with address purpose message", func(t *testing.T) {
+	t.Run("empty endpoint and zero port pass", func(t *testing.T) {
 		in := valid()
 		in.Endpoint = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "endpoint")
-		assert.Contains(t, err.Error(), "采集地址")
-	})
-
-	t.Run("zero port fails (采集端口必填)", func(t *testing.T) {
-		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "port")
-		assert.Contains(t, err.Error(), "采集端口")
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
 	})
 
-	t.Run("endpoint 参与唯一键", func(t *testing.T) {
+	t.Run("health_check_url participates in dedup key", func(t *testing.T) {
 		in := valid()
-		assert.Equal(t, "application|default|pay-service|10.10.1.4", DedupKey(models.ResourceCategoryApplication, in))
+		assert.Equal(t, "application|default|pay-service|http://10.10.1.4:8081/actuator/health", DedupKey(models.ResourceCategoryApplication, in))
 	})
 }
 
@@ -948,7 +927,7 @@ func platformTestInput(appCode, platformCode string) *ResourceInput {
 		PlatformCode:    platformCode,
 		Cluster:         "pay",
 		Status:          "online",
-		Env: "PRD",
+		Env:             "PRD",
 		DatabaseType:    "mysql",
 		InstanceIP:      "10.0.0.10",
 		Port:            3306,

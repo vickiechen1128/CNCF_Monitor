@@ -84,3 +84,13 @@
 - **已知边界**：边缘快照 / 部分 target 可能缺 `resource_id` 标签，此时实例名为空（前端降级 `-`），只能按 IP 命中。
 - **验证**：`go test ./platform/...` 全通过（新增 7 例 search 用例）、`go vet` 干净、`vitest run src/pages/query/TargetStatusPage.test.tsx` 7 例通过、`tsc --noEmit` / `eslint` 干净、`make check-repo-map` 通过。
 - **状态**：open（后端/前端/契约已落地；PRD 与原型文本待设计侧回填）
+
+---
+
+## 5. 实例采集健康增加“部分采集中”，覆盖率与采集健康分离（2026-10-27，用户拍板）
+
+- **背景**：同一应用服务同时配置 standard / blackbox Job 时，可能一个 Target 成功、另一个失败。旧 coverage 任意 `up=1` 即显示采集中，会掩盖部分失败；旧 `coverage_rate=collecting/total` 又混淆了配置覆盖与采集成功。
+- **决策**：首页和资源页按实例展示 `采集中 / 部分采集中 / 已下发未采到`，未选中为 `未监控`；Target 明细仍在监控目标状态和 Job 详情查看。
+- **实现**：coverage 新增 `partial_collecting` 和 summary 同名计数；首页 `collection_health` 新增 `partial_collecting_count` 与第三段图例，资源页新增 Badge、错误 Tooltip 和筛选。
+- **覆盖率纠偏**：`coverage_rate=(total-not_monitored)/total`，被 ready+enabled Job 选中即覆盖，全部成功、部分成功、全部失败均不影响覆盖率；首页纳管完成率口径不变。
+- **验证**：query/dashboard 测试通过；前端首页、资源页和 coverage API 测试已补第三态。契约快照已更新，PRD 待统一回填。

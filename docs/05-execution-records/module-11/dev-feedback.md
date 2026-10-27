@@ -363,3 +363,16 @@
 - **验证**：`go build ./platform/...`、`go vet`、`go test ./platform/edge/... ./platform/cmd/metric-center/...` 通过；前端 `tsc --noEmit`、受影响 4 个测试文件 53 例、改动文件 eslint 通过；本地 5 服务拉起验证页面无该列。
 - **PRD / 契约回写建议（供 design 条线合入 M11 PRD）**：M11 §3.2 / §5.2 / §11.4 与 Modules/README 删除「回传延迟列」及 `remote_write_lag_seconds` 字段；design-decisions 决策 102 第 2 条保留为历史，建议新增「撤回回传延迟列」决策；如 `api-contract-snapshot.md` 含该字段一并删除。
 - **备注**：按本次要求除本反馈外不修改其他 md 文档（`repo-map.md` 未刷新），后续如允许需运行 `make repo-map` 补齐。
+
+### F-25：Target 状态统一展示拨测目标，心跳留痕增加保留策略（① 口径调整 + 存储治理，2026-10-26，已实现）
+
+- **发现场景**：用户要求监控目标状态统一承载 standard / blackbox 的 Target 采集状态；首页拨测健康与策略页继续使用 `probe_success` 计算业务拨测结果。同时确认 `edge_heartbeats` 每次心跳新增一行，缺少历史清理会持续增长。
+- **原现状**：`/api/v1/targets` 在融合边缘快照时按 blackbox Job 名主动排除拨测目标，与 local Target 的展示口径不一致；`edge_heartbeats` 仅新增不清理。
+- **处置**：
+  1. 移除 Target 融合链路的 blackbox 黑名单，standard / blackbox 共用资源补全、过滤和 local/edge 去重逻辑；`probe_success` 的首页与策略页消费逻辑保持不变。
+  2. 新增心跳历史保留清理：默认保留 7 天，可通过 `EDGE_HEARTBEAT_RETENTION_DAYS` 调整；启动即清理一次，之后每 24 小时执行；每批物理删除 1000 条。
+  3. 每个网域最多保留最新 100000 条心跳，超限按 ID 从旧到新分批删除；不影响 `edge_agents` 最新状态及 `edge_target_snapshots`。
+  4. 新增 `(network_domain_id, timestamp)` 组合索引及 goose migration `20261026_0003_edge_heartbeats_retention_index.sql`。
+- **影响模块**：`platform/query/targets.go`、`platform/query/targets_test.go`、`platform/edge/retention.go`、`platform/edge/retention_test.go`、`platform/models/edge_heartbeat.go`、`platform/cmd/metric-center/main.go`、`platform/db/migrations/`。
+- **契约 / PRD 偏离**：API 字段及响应结构不变；Target 状态统一表示采集链路状态，不表示拨测业务成功，建议后续将该口径补入 M02/M11 文档。
+- **验证**：相关包测试、全量后端测试、`go vet` 与服务启动验证结果见本次交付汇报；本任务未执行 git commit。

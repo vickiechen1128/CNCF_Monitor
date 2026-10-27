@@ -58,7 +58,7 @@ func baseValues(category models.ResourceCategory) map[string]string {
 		"app_code":       "app",
 		"cluster":        "cluster-1",
 		"owner":          "ops",
-		"env": "PRD",
+		"env":            "PRD",
 		"status":         "运行中",
 	}
 	switch category {
@@ -404,11 +404,10 @@ func TestValidateImportRow_Application(t *testing.T) {
 			makeRow(models.ResourceCategoryApplication, baseValues(models.ResourceCategoryApplication)),
 		})[0]
 		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
-		// 采集地址由台账列 endpoint（主机）+ port（采集端口）直接给出，health_check_url 不参与。
 		assert.Equal(t, "10.0.0.20", row.Input.Endpoint)
 		assert.Equal(t, 8080, row.Input.Port)
 		assert.Equal(t, "http", row.Input.Protocol)
-		assert.Equal(t, "application|default|pay-service|10.0.0.20", row.DedupKey)
+		assert.Equal(t, "application|default|pay-service|http://10.0.0.20:8080/health", row.DedupKey)
 
 	})
 
@@ -426,12 +425,21 @@ func TestValidateImportRow_Application(t *testing.T) {
 		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "health_check_url", "ftp://10.0.0.20:8080/health")
 	})
 
-	t.Run("missing endpoint fails", func(t *testing.T) {
+	t.Run("missing health_check_url fails", func(t *testing.T) {
+		vals := baseValues(models.ResourceCategoryApplication)
+		vals["health_check_url"] = ""
+		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "health_check_url", "")
+	})
+
+	t.Run("missing endpoint and port pass", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryApplication)
 		vals["endpoint"] = ""
+		vals["port"] = ""
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "endpoint", "")
-
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
+		assert.Empty(t, row.Input.Endpoint)
+		assert.Zero(t, row.Input.Port)
 	})
 }
 
@@ -604,7 +612,7 @@ func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T) {
 		{models.ResourceCategoryHost, "host|default|10.0.0.1"},
 		{models.ResourceCategoryDatabase, "database|default|10.0.0.10|3306"},
 		{models.ResourceCategoryMiddleware, "middleware|default|10.0.0.11|9092"},
-		{models.ResourceCategoryApplication, "application|default|pay-service|10.0.0.20"},
+		{models.ResourceCategoryApplication, "application|default|pay-service|http://10.0.0.20:8080/health"},
 		{models.ResourceCategoryGenericTarget, "generic_target|default|10.0.0.30|161"},
 	}
 	for _, tc := range cases {

@@ -140,7 +140,7 @@ func hostBody() map[string]interface{} {
 		"network_domain_id": "default",
 		"biz_code":          "infra",
 		"status":            "online",
-		"env": "PRD",
+		"env":               "PRD",
 		"instance_name":     "web-01",
 		"instance_ip":       "10.0.0.1",
 		"os_type":           "Linux",
@@ -465,12 +465,11 @@ func TestUpdateResource_DomainValidationSameAsPost(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// M07 应用资源字段职责（采集地址拆分）：health_check_url 可选（应用实际 URL），
-// 采集地址由 endpoint（主机）+ port（采集端口）构成，二者必填；无任何派生/覆盖。
+// M07 应用资源字段职责：health_check_url 必填并用于 blackbox 拨测；
+// endpoint + port 用于 standard 指标采集，均可选且无任何派生/覆盖。
 // ---------------------------------------------------------------------------
 
-// appCreateBody 构造通过校验的 application 请求体：采集地址由 endpoint + port 显式给出，
-// health_check_url 是可选的应用实际 URL（不参与采集地址）。
+// appCreateBody 构造通过校验的 application 请求体，同时携带拨测与指标采集地址。
 func appCreateBody() map[string]interface{} {
 	return map[string]interface{}{
 		"resource_category": "application",
@@ -479,7 +478,7 @@ func appCreateBody() map[string]interface{} {
 		"app_code":          "pay-service",
 		"cluster":           "pay-cluster",
 		"status":            "online",
-		"env": "PRD",
+		"env":               "PRD",
 		"service_name":      "pay-service",
 		"endpoint":          "10.10.1.4",
 		"port":              8081,
@@ -516,48 +515,36 @@ func TestCreateResource_Application_AddressSplit(t *testing.T) {
 	assert.Equal(t, "http", a.Protocol)
 }
 
-// TestCreateResource_Application_EmptyHealthCheckURLAccepted 验证 health_check_url 恢复
-// 「可选」（仅作资源画像与标签来源），空值不影响创建。
-func TestCreateResource_Application_EmptyHealthCheckURLAccepted(t *testing.T) {
+// TestCreateResource_Application_EmptyHealthCheckURLRejected 验证拨测地址必填。
+func TestCreateResource_Application_EmptyHealthCheckURLRejected(t *testing.T) {
 	db := openCreateUpdateTestDB(t)
 	r := mountCreateUpdate(t, db)
 
 	body := appCreateBody()
 	delete(body, "health_check_url")
 	w, out := doCreate(t, r, body)
-	require.Equal(t, http.StatusOK, w.Code, "health_check_url 可选，空值应可创建：%s", out.Error)
-
-	resourceID, _ := out.Data["resource_id"].(string)
-	a := loadAppByResourceID(t, db, resourceID)
-	assert.Empty(t, a.HealthCheckURL)
-	assert.Equal(t, "10.10.1.4", a.Endpoint)
-	assert.Equal(t, 8081, a.Port)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "bad_request", out.ErrorType)
+	assert.Contains(t, out.Error, "health_check_url")
 }
 
-// TestCreateResource_Application_MissingAddressRejected 验证采集地址必填：缺 endpoint 或
-// port（0）均被拦为 bad_request，message 点明采集地址语义。
-func TestCreateResource_Application_MissingAddressRejected(t *testing.T) {
+// TestCreateResource_Application_URLOnlyAccepted 验证仅 URL 即可登记，空端点和端口
+// 原样保存，不从 URL 派生 standard 采集地址。
+func TestCreateResource_Application_URLOnlyAccepted(t *testing.T) {
 	db := openCreateUpdateTestDB(t)
 	r := mountCreateUpdate(t, db)
 
-	t.Run("missing endpoint", func(t *testing.T) {
-		body := appCreateBody()
-		delete(body, "endpoint")
-		w, out := doCreate(t, r, body)
-		require.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Equal(t, "bad_request", out.ErrorType)
-		assert.Contains(t, out.Error, "endpoint")
-		assert.Contains(t, out.Error, "采集地址")
-	})
+	body := appCreateBody()
+	delete(body, "endpoint")
+	delete(body, "port")
+	w, out := doCreate(t, r, body)
+	require.Equal(t, http.StatusOK, w.Code, "仅 URL 应可创建：%s", out.Error)
 
-	t.Run("zero port", func(t *testing.T) {
-		body := appCreateBody()
-		body["port"] = 0
-		w, out := doCreate(t, r, body)
-		require.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Equal(t, "bad_request", out.ErrorType)
-		assert.Contains(t, out.Error, "port")
-	})
+	resourceID, _ := out.Data["resource_id"].(string)
+	a := loadAppByResourceID(t, db, resourceID)
+	assert.Equal(t, "http://10.10.1.4:8081/actuator/health", a.HealthCheckURL)
+	assert.Empty(t, a.Endpoint)
+	assert.Zero(t, a.Port)
 }
 
 // TestUpdateResource_Application_AddressPersistsAsGiven 验证更新时 endpoint/port 整体替换

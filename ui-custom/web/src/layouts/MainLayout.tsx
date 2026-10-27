@@ -21,6 +21,7 @@ import {
   PartitionOutlined,
   RadarChartOutlined,
   SendOutlined,
+  StopOutlined,
   TagsOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
@@ -35,6 +36,7 @@ import {
   writeSiderCollapsed,
 } from './siderPreference'
 import { useProductName } from '../skinContext'
+import { dashboardPanelApi, type DashboardPanel } from '../api/dashboardPanels'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
@@ -74,16 +76,13 @@ interface ModuleDef {
 const ACCESS_PLANE_KEY = 'access-plane'
 const DELIVERY_PLANE_KEY = 'delivery-plane'
 
-/** 首页二级导航中「自定义大屏」的占位 key（v0.2 预留，非可跳转路由） */
-const RESERVED_DASHBOARD_KEY = 'reserved-custom-dashboard'
-
-/** 预留项版本标注：口径待与 M05 PRD 收敛（用户侧提法 v0.2，PRD 现写 v0.3），集中一处便于改口径 */
-const RESERVED_DASHBOARD_VERSION = 'v0.2'
+const CUSTOM_DASHBOARD_KEY = 'custom-dashboards'
 
 /** 可折叠子菜单组定义：key 与归属路由（用于首次进入自动展开判断） */
 const COLLAPSIBLE_GROUPS = [
   { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status', '/targets'] },
   { key: DELIVERY_PLANE_KEY, routes: ['/config-preview', '/deployments'] },
+  { key: CUSTOM_DASHBOARD_KEY, routes: ['/dashboard/panels'] },
 ]
 
 const MODULES: ModuleDef[] = [
@@ -91,26 +90,8 @@ const MODULES: ModuleDef[] = [
     key: 'home',
     label: '首页',
     path: '/',
-    /**
-     * 首页二级导航（用户 2026-09-18 反馈）：首页此前无左侧栏，与其余模块观感不一致，
-     * 且 v0.2「自定义可视化大屏」需要一个落位处，故补齐二级导航。
-     * 预留项 disabled（不可跳转、不新增路由），仅表达「此处将承载大屏」；
-     * 是否解除豁免需与 M05 PRD §3.1「MVP 不提供可视化大屏入口」一并收敛（见模块 dev-feedback）。
-     */
     subItems: [
       { key: '/', label: '概览 Dashboard', icon: <DashboardOutlined /> },
-      {
-        key: RESERVED_DASHBOARD_KEY,
-        label: (
-          // 版本标签与文案同排：一眼看出「已规划但未开放」，避免用户反复点击无效入口
-          <span className="app-sider-reserved-label">
-            自定义大屏
-            <Tag className="app-sider-reserved-tag">{RESERVED_DASHBOARD_VERSION}</Tag>
-          </span>
-        ),
-        icon: <FundProjectionScreenOutlined />,
-        disabled: true,
-      },
     ],
   },
   {
@@ -202,6 +183,7 @@ const MODULES: ModuleDef[] = [
       { key: '/notify-templates', label: '通知模板', icon: <FileTextOutlined /> },
       // M08 v0.3-a：「路由规则」只读路由树（T08-F10），与「告警配置」同组（模式开关落在该页）
       { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
+      { key: '/inhibitions', label: '告警抑制', icon: <StopOutlined /> },
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
@@ -220,12 +202,34 @@ const MODULES: ModuleDef[] = [
       // 落在「系统与平台管理」而非顶栏——观感配置是低频设置项，不该占用高频操作区，
       // 与租户 / 用户 / 登录日志等平台级设置同属一处。
       { key: '/admin/appearance', label: '外观设置', icon: <BgColorsOutlined /> },
+      { key: '/admin/dashboard-panels', label: '面板挂载', icon: <FundProjectionScreenOutlined /> },
       // 存储与日志管理（M06 F-41）：TSDB 保留策略（写 env，重启生效）+ 磁盘占用 /
       // 日志轮转只读展示——同属平台级低频设置，置于「系统与平台管理」末尾。
       { key: '/admin/storage-logs', label: '存储与日志管理', icon: <HddOutlined /> },
     ],
   },
 ]
+
+function homeSubItems(panels: DashboardPanel[], state: 'loading' | 'ready' | 'error'): MenuProps['items'] {
+  let children: MenuProps['items'] = panels.map((panel) => ({
+    key: `/dashboard/panels/${panel.id}`,
+    label: panel.name,
+  }))
+  if (state === 'loading') children = [{ key: 'panels-loading', label: '面板加载中…', disabled: true }]
+  if (state === 'error') children = [{ key: 'panels-error', label: '面板加载失败', disabled: true }]
+  if (state === 'ready' && panels.length === 0) {
+    children = [{ key: 'panels-empty', label: '暂无挂载面板', disabled: true }]
+  }
+  return [
+    ...(MODULES[0].subItems ?? []),
+    {
+      key: CUSTOM_DASHBOARD_KEY,
+      label: '自定义大屏',
+      icon: <FundProjectionScreenOutlined />,
+      children,
+    },
+  ]
+}
 
 /** 收集 Sider 菜单所有叶子 key（含嵌套一级菜单组的子项） */
 function collectLeafKeys(items?: MenuProps['items']): string[] {
@@ -291,6 +295,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/alert-history') ||
     locationPath.startsWith('/notify-channels') ||
     locationPath.startsWith('/notify-templates') ||
+    locationPath.startsWith('/inhibitions') ||
     locationPath.startsWith('/routes')
   )
     return findModuleByKey('alert')
@@ -304,7 +309,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
  *
  * 侧栏折叠（用户 2026-09-18 反馈）：Sider 支持用户折叠/展开，偏好持久化到
  * localStorage（跨模块、跨刷新共用一份），折叠后仅保留图标列（56px），为内容区让出
- * 宽度——既是首页「为 v0.2 自定义大屏预留」的前置能力，也服务后续宽表/大屏页面。
+ * 宽度——同时服务自定义大屏 iframe 与既有宽表页面。
  * 折叠开关放在顶部栏品牌左侧（Sider 自带底部 trigger 会跟随菜单高度浮动，
  * 页面滚动时位置不稳定，故关闭自带 trigger 改用固定位置开关）。
  *
@@ -323,7 +328,28 @@ export function MainLayout({ children }: MainLayoutProps) {
   // 品牌位文案随「外观设置 · 产品名称」变化（用户 2026-09-18 补充，见 productNamePreference.ts）
   const { productName } = useProductName()
   const active = resolveActiveModule(location.pathname)
-  const leafKeys = collectLeafKeys(active.subItems)
+  const [panels, setPanels] = useState<DashboardPanel[]>([])
+  const [panelMenuState, setPanelMenuState] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  useEffect(() => {
+    if (active.key !== 'home') return
+    let cancelled = false
+    dashboardPanelApi.list()
+      .then((res) => {
+        if (cancelled) return
+        setPanels(res.data.list)
+        setPanelMenuState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setPanelMenuState('error')
+      })
+    return () => { cancelled = true }
+  }, [active.key])
+
+  const activeSubItems = active.key === 'home'
+    ? homeSubItems(panels, panelMenuState)
+    : active.subItems
+  const leafKeys = collectLeafKeys(activeSubItems)
   const selectedSubKey = leafKeys.some((k) => location.pathname.startsWith(k))
     ? location.pathname
     : leafKeys[0]
@@ -344,7 +370,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       return !prev
     })
 
-  const hasSider = Boolean(active.subItems && active.subItems.length > 0)
+  const hasSider = Boolean(activeSubItems && activeSubItems.length > 0)
 
   // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠，
   // 激活路由归属的折叠组自动展开，并尊重用户手动开合（点击折叠按钮即可收起）。
@@ -451,10 +477,10 @@ export function MainLayout({ children }: MainLayoutProps) {
               openKeys={collapsed ? [] : openKeys}
               onOpenChange={(keys) => setUserOpenKeys(keys)}
               onClick={({ key }) => navigate(key)}
-              items={active.subItems as MenuProps['items']}
+              items={activeSubItems}
             />
           </Sider>
-          <Content className="app-content">
+          <Content className={`app-content${location.pathname.startsWith('/dashboard/panels/') ? ' dashboard-panel-content' : ''}`}>
             {children}
           </Content>
         </Layout>

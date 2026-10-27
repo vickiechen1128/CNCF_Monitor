@@ -274,8 +274,8 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 }
 
 // rebuildAlertmanagerConfig 在存在 alertmanager.yml 产物时，用**唯一生成规则**
-// （generator.BuildAlertmanagerConfig）整份重建产物：提取存量 route 段 + 当前渠道，
-// 重新生成 global / route / receivers（旧手写、未引用、已删渠道 receiver 全部丢弃）。
+// （generator.BuildAlertmanagerConfig）整份重建产物：提取存量 route / inhibit_rules + 当前渠道，
+// 重新生成 global / route / inhibit_rules / receivers（旧手写、未引用、已删渠道 receiver 全部丢弃）。
 // AlertmanagerYML 为空（非管理域 / 无告警配置）时直接返回。
 func rebuildAlertmanagerConfig(db *gorm.DB, artifacts *generator.ConfigArtifacts) error {
 	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
@@ -286,6 +286,10 @@ func rebuildAlertmanagerConfig(db *gorm.DB, artifacts *generator.ConfigArtifacts
 		return err
 	}
 	input, err := generator.LoadAlertmanagerConfigInput(db, routeSection)
+	if err != nil {
+		return err
+	}
+	input.InhibitRules, err = generator.ParseInhibitRules(artifacts.AlertmanagerYML)
 	if err != nil {
 		return err
 	}

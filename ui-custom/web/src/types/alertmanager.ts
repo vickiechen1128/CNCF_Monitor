@@ -492,6 +492,8 @@ export interface RouteTreeData {
   pending?: {
     change_no: string
     created_at: string
+    route_changed?: boolean
+    inhibit_rules_changed?: boolean
   } | null
   /** 生效配置 `receivers:` 段已声明的接收人名（全集，含手写）；解析失败时仍可能存在 */
   declared_receivers?: string[]
@@ -513,4 +515,24 @@ export interface SaveRoutesResult {
   version: AlertmanagerConfigVersion
   /** 本次生成的 pending 变更单号（无则缺省） */
   change_no?: string
+}
+
+export interface InhibitionRule {
+  id: string
+  name: string
+  source_matchers: RouteEditMatcher[]
+  target_matchers: RouteEditMatcher[]
+  equal: string[]
+  enabled: boolean
+}
+
+export interface InhibitionListData {
+  items: InhibitionRule[]
+  effective_checksum: string
+  pending?: RouteTreeData['pending']
+}
+
+export interface SaveInhibitionsPayload {
+  base_checksum: string
+  inhibit_rules: InhibitionRule[]
 }

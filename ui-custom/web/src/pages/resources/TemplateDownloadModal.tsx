@@ -48,9 +48,9 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
     '可留空：版本（version）、负责人（owner）',
   ],
   application: [
-    '必填：服务名（service_name）、采集地址主机（endpoint）、采集端口（port）',
+    '必填：服务名（service_name）、健康检查地址（health_check_url，blackbox 拨测地址）',
     '必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）',
-    '可留空：健康检查地址（health_check_url，业务健康检查用，不作采集地址）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '可留空：采集地址主机（endpoint）、采集端口（port，用于 standard 指标采集）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
     '可留空：负责人（owner）',
   ],
   generic_target: [

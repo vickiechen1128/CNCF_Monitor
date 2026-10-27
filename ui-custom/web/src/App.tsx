@@ -43,6 +43,8 @@ const DeploymentsPage = lazy(() =>
 const TargetStatusPage = lazy(() =>
   import('./pages/query/TargetStatusPage').then((m) => ({ default: m.TargetStatusPage })),
 )
+const DashboardPanelsPage = lazy(() => import('./pages/admin/dashboard-panels/DashboardPanelsPage'))
+const DashboardPanelPage = lazy(() => import('./pages/dashboard/DashboardPanelPage'))
 
 // Module_08 告警收敛与通知管理路由，懒加载
 const AlertConfigPage = lazy(() =>
@@ -71,6 +73,7 @@ const NotifyTemplatesPage = lazy(() =>
 const RoutesPage = lazy(() =>
   import('./pages/alerts/RoutesPage').then((m) => ({ default: m.RoutesPage })),
 )
+const InhibitionsPage = lazy(() => import('./pages/alerts/InhibitionsPage'))
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -107,6 +110,8 @@ function AppRoutes() {
           {/* 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19） */}
           <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
+          <Route path="/admin/dashboard-panels" element={<DashboardPanelsPage />} />
+          <Route path="/dashboard/panels/:id" element={<DashboardPanelPage />} />
           {/* 存储与日志管理页（M06 F-41）：TSDB 保留策略 + 磁盘/日志轮转只读展示 */}
           <Route path="/admin/storage-logs" element={<StorageLogPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
@@ -133,6 +138,7 @@ function AppRoutes() {
           <Route path="/notify-channels" element={<NotifyChannelsPage />} />
           <Route path="/notify-templates" element={<NotifyTemplatesPage />} />
           <Route path="/routes" element={<RoutesPage />} />
+          <Route path="/inhibitions" element={<InhibitionsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

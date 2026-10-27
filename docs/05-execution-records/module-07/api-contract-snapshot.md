@@ -81,7 +81,7 @@
 
 > **云/区派生（决策 103 scheme-B）**：资源列表/详情响应 item 上的 `cloud_code` / `zone_type` 为**派生字段**（非 Resource 落库字段），由 `network_domain_id` 关联网域的 `cloud_code` / `zone_type` 实时批量派生（list.go 一次性映射，禁止 N+1；空网域回退 `""`）。由此派生的 `cloud`（= 网域 `cloud_code`）/ `zone`（= 网域 `zone_type`）是 target 的系统标签（configcenter generator），**资源侧不落、不写 cloud 标签**；`cloud_type`/`carrier` 仅云字典条目描述属性，**绝不**作为独立分类轴或筛选维度（前端红-line ④）。
 
-> **采集状态三态（决策 47-3；口径收敛 2026-09-02，PRD v2.25/v2.30）**：列表「采集状态」列展示三态 badge——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但未采到数据：`down` / 待首次抓取 / **变更未确认下发**）/ `未监控`（未被任何 Job 选中）。数据 = M01 选中关系 `is_monitored`（取 DB 当前 `selected_instance_ids`、ready+enabled Job，**不问 M09 `change_status`、不感知下发时序**）+ M02 健康度/覆盖率 API（`up` 聚合，按 `resource_id` 稳定身份标签回连，MVP 起提供）。**M07 只读消费、不直连时序数据**：列表级查询走 M02 聚合 API 一次性获取，**禁止逐行查询**（TQ-6 N+1 教训）；响应 item 上的采集状态为**派生字段**（如 `collection_status`），非 Resource 落库字段。「待采集 vs 已下发未采到」细分由 M01 Job 回显承担（M01 §5.10/快照 §6）；「未纳入任何 Job」同步可在 M01 实例选择器筛选；异常驱动展示——仅「已下发未采到」高饱和。
+> **实例采集状态（2026-10-27 用户拍板）**：列表展示 `采集中`（全部 Target 成功）/ `部分采集中`（成功与失败 Target 并存）/ `已下发未采到`（全部失败或无成功样本）/ `未监控`（未被任何 Job 选中），并支持对应筛选。数据 = M01 ready+enabled 选中关系 + M02 coverage 按 `resource_id` 聚合；部分成功时 Tooltip 展示最近错误，Target 明细到监控目标状态页查看。覆盖率只表示已被 Job 选中的资源比例，与采集是否成功无关。
 
 ## 4. 资源标签 API
 
@@ -150,7 +150,7 @@
 | PUT | `/service-dict/:service_code` | `{service_name?,description?,enabled?}`（**请求体不接收 service_code**） | 更新后的完整对象 | `bad_request` / `not_found` | §5.22/§6.1 |
 
 - **红线**：①`service_code` 永不可改；②仅 `service_name` / `description` / `status` 可编辑；③停用不删除（无删除入口）；④**资源侧 `service_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**（`svc` label 恒取 `service_code`，禁止以 `service_name` 作标签值或映射来源）。
-- **`service_code` 与资源行 `service_name` 的关系（决策 105）**：资源侧 `service_code` 为**可选字段**（**仅 application / generic_target 适用**，host / database / middleware **不挂**），**留空即纯自由文本、向后兼容**（MVP 存量无需回填）；资源行既有必填 `service_name` **MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`。**软约束**：填 `service_code` 时其 `service_name` 宜与字典展示名一致——**仅软约束、不做强校验**。
+- **`service_code` 与资源行 `service_name` 的关系（决策 105）**：资源侧 `service_code` 为**可选字段**（**仅 application / generic_target 适用**，host / database / middleware **不挂**），**留空即纯自由文本、向后兼容**（MVP 存量无需回填）；资源行既有必填 `service_name` **MVP 不改**，仍参与 application 判重键 `(domain, service_name, health_check_url)`。**软约束**：填 `service_code` 时其 `service_name` 宜与字典展示名一致——**仅软约束、不做强校验**。
 - **展示名解析**：资源列表 / 详情「服务」列展示 `service_name`（前端经 `GET /service-dict` 按 `service_code` 解析）；字典缺条回退显示 `service_code`；停用条目 UI 标识「服务名（已停用）」。
 - **`source` 来源（决策 97 延伸）**：`manual` / `excel-import`；Excel「服务声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
 - **术语可见性（U1）**：`svc` 为**技术术语**，仅出现在折叠区 / 代码注释 / 术语表，**不作 UI 文案**。
@@ -269,7 +269,8 @@
 - **{M07 本轮} `cluster` 必填规则同 `app_code`**：host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 `cluster` 标签）；application / database / middleware 必填。见 §10A。
 - 可选：`owner`、`status`（默认 `online`）、`scrape_port`（{v0.2} 实例级采集端口覆盖，可选；留空由 M09 按「网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → `ExporterTemplate.default_port`」解析，见 Module_01 §5.1 端口一致性）、**`platform_code`（{v2026-09-28 决策 110} 一等字段，可空；留空走所属应用 `app_platform_rel` 主平台兜底，见 §5E；填值须命中未停用平台且与该应用关联平台集合自洽，服务端硬校验）**
 - 服务端固定：`source_type=manual`、`tenant_id=platform_admin`、`resource_id`（M07 生成 uuid）
-- 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`endpoint`/`health_check_url?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
+- 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`health_check_url`/`endpoint?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
+- **application 双地址口径（2026-10-27 用户决策）**：`health_check_url` 必填，作为 blackbox 拨测目标；`endpoint` / `port` 均可选，仅用于 standard 指标采集，`port=0` 表示未设置。判重与 Excel upsert 定位键为 `(network_domain_id, service_name, health_check_url)`；不使用 URL 代填 standard 采集地址。
 
 ### 10.2 资源更新（PUT /resources/:resource_id）
 
@@ -358,7 +359,7 @@
 | `app_code` | 应用 | {v2.41 决策 92} 二元组：选应用字典 `app_code`，回显 `app_name`（字典缺条回退显示 `app_code`）；停用条目「应用名（已停用）」标识；下拉数据来自 `GET /application-dict` |
 | `platform_code` | 平台归属 | {v2026-09-28 决策 110} 登记期可选填写的**一等字段**；下拉数据来自 `GET /platform-dict`（仅启用项）；留空即纯自由文本、向后兼容，空值 `platform` label 经所属应用主平台兜底；填值须命中未停用平台且与该应用关联平台集合自洽（服务端硬校验）。UI 展示回显 `platform_name`（字典缺条回退 `platform_code`，停用标识「平台名（已停用）」） |
 | `platform` | 平台（标签） | {v2026-09-28 决策 110} 资源 `platform` label 取值优先级：资源行 `platform_code` 一等字段 > 所属应用 `app_platform_rel` 主平台兜底；值**恒取 `platform_code`**（非展示名），字典改名不触发标签重算 |
-| `service_code` | 服务编码 | **{v2.45 决策 105} 可选字段**，**仅 application / generic\_target 显示可填**（host / database / middleware **不挂**，避免服务维度污染）；下拉数据来自 `GET /service-dict`（仅启用项）；**留空即纯自由文本、向后兼容**，空值**不注入** `svc` 标签；填值须引用未停用条目。UI 展示回显 `service_name`（字典缺条回退 `service_code`）。资源行既有必填 `service_name`（应用服务名）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`；软约束：填 `service_code` 时 `service_name` 宜与字典展示名一致（**不强校验**） |
+| `service_code` | 服务编码 | **{v2.45 决策 105} 可选字段**，**仅 application / generic\_target 显示可填**（host / database / middleware **不挂**，避免服务维度污染）；下拉数据来自 `GET /service-dict`（仅启用项）；**留空即纯自由文本、向后兼容**，空值**不注入** `svc` 标签；填值须引用未停用条目。UI 展示回显 `service_name`（字典缺条回退 `service_code`）。资源行既有必填 `service_name`（应用服务名）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, health_check_url)`；软约束：填 `service_code` 时 `service_name` 宜与字典展示名一致（**不强校验**） |
 | `app_name` | 应用名（展示名） | {v2.41 决策 92} label 存 `app_code`，`app_name` 仅 UI 展示；改展示名不触发配置重生成 |
 | `env` | 环境 | |
 | `status` | 运行状态 | |
@@ -368,7 +369,7 @@
 | `source_field` / `source_type` | 来源字段 / 来源类型 | |
 | `instance_count` | 关联实例数 | |
 | `scrape_port` | 采集端口 | {v0.2} 实例级采集端口覆盖；留空由 M09 解析链取默认 |
-| `collection_status` | 采集状态 | 三态 badge（采集中 / 已下发未采到 / 未监控，决策 47-3）；「已下发未采到」高饱和展示 |
+| `collection_status` | 采集状态 | 实例状态 badge（采集中 / 部分采集中 / 已下发未采到 / 未监控）；部分成功和全部失败提供异常提示 |
 | `cloud_code` | 云归属 | 资源列表/详情为**派生字段**（经所属网域 `cloud_code` 派生，见 §3 派生注）；前端红-line ④：`cloud_type`/`carrier` 不渲染为独立列/筛选维度 |
 | `zone_type` | 网域类型 | 派生字段（经所属网域 `zone_type`）；与 `network_domain_id` 同源，标识 target `zone` 系统标签 |
 

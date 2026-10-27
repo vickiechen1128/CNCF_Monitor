@@ -116,9 +116,9 @@ func seedHostResource(t *testing.T, db *gorm.DB, resourceID, instanceName, netDo
 		SourceType:       models.SourceTypeManual,
 		ResourceCategory: models.ResourceCategoryHost,
 		NetworkDomainID:  netDomain,
-		BizCode:         "biz-1",
-		ServerID:        "server-" + resourceID, // 唯一索引列，需逐行唯一
-		InstanceName:    instanceName,
+		BizCode:          "biz-1",
+		ServerID:         "server-" + resourceID, // 唯一索引列，需逐行唯一
+		InstanceName:     instanceName,
 		Status:           "running",
 		Region:           "ap-guangzhou",
 		ZoneEnv:          "prod",
@@ -573,28 +573,32 @@ func TestTargetsFusionUpstreamDownStillReturnsEdge(t *testing.T) {
 	require.Equal(t, "up", out.Data.ActiveTargets[0]["health"])
 }
 
-// --- F-11 收尾：融合边缘快照时排除 job_type=blackbox 的 job 快照 ---
+// --- Target 状态统一展示 standard 与 blackbox 采集目标 ---
 //
-// 产品决策：M09「监控目标状态」页定位为拉模型（standard）抓取的排障入口，
-// 拨测类（blackbox）target 状态（probe_success）已由 M01/F-13 承载，混入会
-// 造成语义误导。黑名单口径：ScrapeJob 表 job_type='blackbox' 的 job_name 集合
-// （配置生成器不改写 job 名，render.go jobScrapeConfig 原样透传 JobName），
-// 融合边缘快照时精确匹配排除；仅过滤边缘快照，local targets 侧不变。
+// Target health 只表示采集链路是否正常；拨测业务健康仍由首页/策略页的
+// probe_success 承载，两种语义不混用。
 
-// TestTargetsFusionExcludesBlackboxSnapshots 验证 blackbox job 的边缘快照被排除，
-// local 侧不受影响（仍 4 条）。
-func TestTargetsFusionExcludesBlackboxSnapshots(t *testing.T) {
+// TestTargetsFusionKeepsBlackboxSnapshots 验证 blackbox job 的边缘快照与 local
+// 一样经过统一的资源补全和状态展示链路。
+func TestTargetsFusionKeepsBlackboxSnapshots(t *testing.T) {
 	r, _, db := newTargetsRouter(t)
 	seedScrapeJob(t, db, "job-e", models.JobTypeBlackbox)
 	now := time.Now()
-	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "https://example.com/health", "srv-5", "up", now)
 
 	out := doTargets(t, r, "")
 	require.Equal(t, "success", out.Status)
-	require.Len(t, out.Data.ActiveTargets, 4) // 仅 local
+	require.Len(t, out.Data.ActiveTargets, 5)
+	var target map[string]interface{}
 	for _, a := range out.Data.ActiveTargets {
-		require.NotEqual(t, "10.0.0.5:9100", a["instance"], "blackbox 快照不应出现在结果中")
+		if a["instance"] == "https://example.com/health" {
+			target = a
+		}
 	}
+	require.NotNil(t, target)
+	require.Equal(t, "job-e", target["job"])
+	require.Equal(t, "srv-5", target["resource_id"])
+	require.Equal(t, "up", target["health"])
 }
 
 // TestTargetsFusionKeepsStandardSnapshots 验证 standard job 的边缘快照正常保留。
@@ -616,79 +620,39 @@ func TestTargetsFusionKeepsStandardSnapshots(t *testing.T) {
 	require.Equal(t, "job-e", e1["job"])
 }
 
-// TestTargetsFusionMixedKeepsOnlyStandard 验证同一 domain 下 standard 与 blackbox
-// 混合时，仅保留 standard 快照、排除 blackbox 快照。
-func TestTargetsFusionMixedKeepsOnlyStandard(t *testing.T) {
+// TestTargetsFusionMixedKeepsStandardAndBlackbox 验证同一 domain 下 standard 与
+// blackbox 混合时，两类快照都保留且仍支持 job 过滤。
+func TestTargetsFusionMixedKeepsStandardAndBlackbox(t *testing.T) {
 	r, _, db := newTargetsRouter(t)
 	seedScrapeJob(t, db, "job-e", models.JobTypeStandard)
 	seedScrapeJob(t, db, "job-bb", models.JobTypeBlackbox)
 	now := time.Now()
 	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
-	seedEdgeSnapshot(t, db, "mc-edge", "job-bb", "10.0.0.6:9100", "srv-6", "up", now)
+	seedEdgeSnapshot(t, db, "mc-edge", "job-bb", "https://example.com/health", "srv-6", "down", now)
 
 	out := doTargets(t, r, "?network_domain=mc-edge")
-	require.Len(t, out.Data.ActiveTargets, 1) // 仅 job-e standard 快照
-	require.Equal(t, "job-e", out.Data.ActiveTargets[0]["job"])
-}
+	require.Len(t, out.Data.ActiveTargets, 2)
 
-// TestTargetsFusionNoBlackboxJobsKeepsAll 验证 ScrapeJob 表为空（或未匹配到
-// blackbox job）时行为与现在完全一致：全部边缘快照保留。
-func TestTargetsFusionNoBlackboxJobsKeepsAll(t *testing.T) {
-	r, _, db := newTargetsRouter(t)
-	now := time.Now()
-	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
-
-	out := doTargets(t, r, "")
-	require.Len(t, out.Data.ActiveTargets, 5) // 4 local + 1 边缘快照，全保留
-	var e1 map[string]interface{}
-	for _, a := range out.Data.ActiveTargets {
-		if a["instance"] == "10.0.0.5:9100" {
-			e1 = a
-		}
-	}
-	require.NotNil(t, e1)
-	require.Equal(t, "job-e", e1["job"])
-}
-
-// TestTargetsFusionBlackboxMatchIsExact 验证黑名单匹配是精确匹配（大小写敏感）：
-// 仅与 blackbox job 名完全一致的快照被排除，大小写/空白不一致的不排除，
-// 与配置生成器不改写 job 名的实际规则一致。
-func TestTargetsFusionBlackboxMatchIsExact(t *testing.T) {
-	r, _, db := newTargetsRouter(t)
-	seedScrapeJob(t, db, "Probe-A", models.JobTypeBlackbox)
-	now := time.Now()
-	seedEdgeSnapshot(t, db, "mc-edge", "probe-a", "10.0.0.5:9100", "srv-5", "up", now)
-	seedEdgeSnapshot(t, db, "mc-edge", "Probe-A", "10.0.0.6:9100", "srv-6", "up", now)
-
-	out := doTargets(t, r, "?network_domain=mc-edge")
-	// "probe-a"（小写）与 blackbox job "Probe-A" 不完全一致 → 保留；
-	// "Probe-A" 精确命中黑名单 → 排除。
+	out = doTargets(t, r, "?network_domain=mc-edge&job=job-bb&health=down")
 	require.Len(t, out.Data.ActiveTargets, 1)
-	require.Equal(t, "probe-a", out.Data.ActiveTargets[0]["job"])
-	require.Equal(t, "10.0.0.5:9100", out.Data.ActiveTargets[0]["instance"])
+	require.Equal(t, "job-bb", out.Data.ActiveTargets[0]["job"])
+	require.Equal(t, "https://example.com/health", out.Data.ActiveTargets[0]["instance"])
 }
 
-// TestTargetsFusionBlackboxFilterLocalUntouched 验证黑名单仅过滤边缘快照：
-// job-a 在 ScrapeJob 表为 blackbox 时，local 侧 job-a target 仍正常返回。
-func TestTargetsFusionBlackboxFilterLocalUntouched(t *testing.T) {
+// TestTargetsFusionBlackboxLocalAndEdge 验证 blackbox 的 local/edge 目标均可返回，
+// 不同 instance 不错误去重。
+func TestTargetsFusionBlackboxLocalAndEdge(t *testing.T) {
 	r, _, db := newTargetsRouter(t)
 	seedScrapeJob(t, db, "job-a", models.JobTypeBlackbox)
 	now := time.Now()
-	// 与 local job-a 不同 instance（10.0.0.9），不会被去重，若不排除会出现在结果中。
-	seedEdgeSnapshot(t, db, "mc-edge", "job-a", "10.0.0.9:9100", "srv-9", "up", now)
+	seedEdgeSnapshot(t, db, "mc-edge", "job-a", "https://example.com/health", "srv-9", "up", now)
 
 	out := doTargets(t, r, "")
-	require.Len(t, out.Data.ActiveTargets, 4) // local job-a（t1/t3）仍在，边缘 job-a 快照被排除
-	var t1 map[string]interface{}
+	require.Len(t, out.Data.ActiveTargets, 5)
+	instances := make(map[string]bool)
 	for _, a := range out.Data.ActiveTargets {
-		if a["instance"] == "10.0.0.1:9100" {
-			t1 = a
-		}
+		instances[a["instance"].(string)] = true
 	}
-	require.NotNil(t, t1)
-	require.Equal(t, "job-a", t1["job"])
-	require.Equal(t, "up", t1["health"])
-	for _, a := range out.Data.ActiveTargets {
-		require.NotEqual(t, "10.0.0.9:9100", a["instance"], "blackbox 边缘快照不应出现")
-	}
+	require.True(t, instances["10.0.0.1:9100"])
+	require.True(t, instances["https://example.com/health"])
 }

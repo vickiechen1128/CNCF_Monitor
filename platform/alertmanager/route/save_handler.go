@@ -3,7 +3,7 @@
 // 2026-10-23 架构收口：前端只提交编辑态路由树，后端**整份重建** alertmanager.yml：
 //  1. 乐观锁：base_checksum 必须与当前生效产品视图一致（防止覆盖他人改动）；
 //  2. 树校验：根接收人 / 根 matchers / matcher 与时长 / 接收人可达性；
-//  3. 整份重建 global + route + receivers（旧手写配置段不再保留，见
+//  3. 整份重建 global + route + inhibit_rules + receivers（保留当前抑制规则，见
 //     generator.BuildAlertmanagerConfig）；
 //  4. 复用 config.Submit：amtool 校验 + 落版本 + 触发 M09。
 package route
@@ -57,12 +57,18 @@ type SaveRoutesResult struct {
 	ChangeNo string                            `json:"change_no,omitempty"`
 }
 
-// SaveRoutes 执行「路由树 → route YAML → 整份配置 → M08 版本 → M09 草稿」。
+// SaveRoutes 保存修改后的路由，并保留当前抑制规则。
 func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRoutesResult, error) {
+	return SaveAlertmanagerConfig(db, req.RouteTree, nil, req.BaseChecksum, uploadedBy)
+}
+
+// SaveAlertmanagerConfig 用指定的路由树和抑制规则生成完整配置并提交既有下发链。
+// inhibitRules 为 nil 时保留当前规则；显式空数组表示清空。
+func SaveAlertmanagerConfig(db *gorm.DB, routeTree []generator.RouteEditNode, inhibitRules []generator.InhibitionRule, baseChecksum, uploadedBy string) (*SaveRoutesResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("routes save requires database connection")
 	}
-	if len(req.RouteTree) == 0 {
+	if len(routeTree) == 0 {
 		return nil, &ErrRouteTreeInvalid{}
 	}
 
@@ -71,19 +77,24 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 	if err != nil {
 		return nil, err
 	}
-	if req.BaseChecksum != "" && models.AlertmanagerConfigChecksum(baseYAML) != req.BaseChecksum {
+	if baseChecksum != "" && models.AlertmanagerConfigChecksum(baseYAML) != baseChecksum {
 		return nil, ErrRoutesConflict
 	}
 
 	// 路由树结构校验（不依赖渠道）。
-	issues := ValidateRouteTree(req.RouteTree)
+	issues := ValidateRouteTree(routeTree)
 	if HasBlockingIssue(issues) {
 		return nil, &ErrRouteTreeInvalid{Issues: issues}
 	}
 
-	// 整份重建（global + route + receivers）：旧文件中的手写 receivers / inhibit_rules
-	// 等段落不再保留。输入由共用装配函数加载（渠道 + 平台入口地址），两个入口口径一致。
-	routeSection, err := generator.GenerateRouteSection(req.RouteTree)
+	// 整份重建（global + route + inhibit_rules + receivers）；缺省保存路由时保留抑制规则。
+	if inhibitRules == nil {
+		inhibitRules, err = generator.ParseInhibitRules(baseYAML)
+		if err != nil {
+			return nil, fmt.Errorf("保留抑制规则失败: %w", err)
+		}
+	}
+	routeSection, err := generator.GenerateRouteSection(routeTree)
 	if err != nil {
 		return nil, &ErrRouteTreeInvalid{Issues: []RouteIssue{{
 			Level:   RouteIssueLevelError,
@@ -95,6 +106,7 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 	if err != nil {
 		return nil, err
 	}
+	input.InhibitRules = inhibitRules
 
 	// 接收人可达集合 = 平台内置 default ∪ 全部通知渠道的稳定 receiver 名（notify-<id>）。
 	// 历史手写 / 不属于平台渠道的残留 receiver 不再合法。
@@ -103,7 +115,7 @@ func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRou
 	for i := range input.Channels {
 		allowedReceivers = append(allowedReceivers, input.Channels[i].ReceiverName())
 	}
-	issues = append(issues, ValidateRouteReceivers(req.RouteTree, allowedReceivers)...)
+	issues = append(issues, ValidateRouteReceivers(routeTree, allowedReceivers)...)
 	if HasBlockingIssue(issues) {
 		return nil, &ErrRouteTreeInvalid{Issues: issues}
 	}

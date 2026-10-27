@@ -425,7 +425,7 @@ func TestDownloadTemplateValueSheetRequiredLabel(t *testing.T) {
 		},
 		models.ResourceCategoryApplication: {
 			"biz_code": "必填", "app_code": "必填", "cluster": "必填",
-			"service_name": "必填", "endpoint": "必填", "port": "必填", "env": "必填",
+			"service_name": "必填", "health_check_url": "必填", "endpoint": "可留空", "port": "可留空", "env": "必填",
 		},
 		models.ResourceCategoryGenericTarget: {
 			"biz_code": "二选一", "app_code": "二选一",

@@ -17,11 +17,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// 三态 monitor_state 枚举（决策 47-3 / 契约快照 §2.2.1）。
+// monitor_state 枚举（契约快照 §2.2.1）。
 const (
-	StateCollecting   = "collecting"    // 采集中：被选中且 target up
-	StatePendingDown  = "pending_down"  // 已下发未采到：被选中但 down/unknown/无 up 样本
-	StateNotMonitored = "not_monitored" // 未监控：未被任何 ready+enabled Job 选中
+	StateCollecting        = "collecting"         // 采集中：被选中且所有 target up
+	StatePartialCollecting = "partial_collecting" // 部分采集中：同时存在 up/down target
+	StatePendingDown       = "pending_down"       // 已下发未采到：被选中但全部 down/unknown/无 up 样本
+	StateNotMonitored      = "not_monitored"      // 未监控：未被任何 ready+enabled Job 选中
 )
 
 // 分页常量（契约快照 §2.2）：默认 1/500，上限 1000。
@@ -43,30 +44,31 @@ type CoverageItem struct {
 
 // CoverageSummary 是覆盖率汇总（契约快照 §2.2.2）。
 type CoverageSummary struct {
-	Total        int     `json:"total"`
-	Collecting   int     `json:"collecting"`
-	PendingDown  int     `json:"pending_down"`
-	NotMonitored int     `json:"not_monitored"`
-	CoverageRate float64 `json:"coverage_rate"`
+	Total             int     `json:"total"`
+	Collecting        int     `json:"collecting"`
+	PartialCollecting int     `json:"partial_collecting"`
+	PendingDown       int     `json:"pending_down"`
+	NotMonitored      int     `json:"not_monitored"`
+	CoverageRate      float64 `json:"coverage_rate"`
 }
 
-// coverageResource 是跨五类资源表统一归一化的最小行视图（供三态聚合）。
+// coverageResource 是跨五类资源表统一归一化的最小行视图（供实例状态聚合）。
 type coverageResource struct {
-	ResourceID       string
-	Category         models.ResourceCategory
-	InstanceName     string
+	ResourceID   string
+	Category     models.ResourceCategory
+	InstanceName string
 }
 
-// upAggregation 汇总 Prometheus `up` 聚合结果：any == 存在任意 up 样本；up ==
-// 存在值恰为 1 的样本。均按 resource_id 稳定标签 key。
+// upAggregation 按 resource_id 汇总任意样本、成功样本和失败样本。
 type upAggregation struct {
-	any map[string]bool
-	up  map[string]bool
+	any  map[string]bool
+	up   map[string]bool
+	down map[string]bool
 }
 
 // CoverageHandler 是 GET /api/v1/health/coverage 的 handler（决策 47-3 提前 MVP）。
 //
-// 三态判定（不感知 M09 下发时序，Plan A）：
+// 实例状态判定（不感知 M09 下发时序，Plan A）：
 //   - resource_id ∈ 任一 ready+enabled Job 的 selected_instance_ids 且 up == 1 → collecting；
 //   - ∈ 且 down / unknown / 无 up 样本（待首抓）→ pending_down；
 //   - ∉ 任何 Job → not_monitored；
@@ -257,10 +259,10 @@ func loadSelectedInstances(db *gorm.DB) map[string]bool {
 	return sel
 }
 
-// fetchUpAgg 拉取 Prometheus `up` 并按 resource_id 稳定标签聚合三态依据。
+// fetchUpAgg 拉取 Prometheus `up` 并按 resource_id 稳定标签聚合实例状态依据。
 // 一次查询返回全量 series，O(1) 查表，不逐资源查询（TQ-6 反 N+1）。
 func fetchUpAgg(ctx context.Context, client *http.Client, promURL *url.URL) (*upAggregation, error) {
-	agg := &upAggregation{any: map[string]bool{}, up: map[string]bool{}}
+	agg := &upAggregation{any: map[string]bool{}, up: map[string]bool{}, down: map[string]bool{}}
 
 	series, err := queryInstantVector(ctx, client, promURL, "up")
 	if err != nil {
@@ -274,6 +276,8 @@ func fetchUpAgg(ctx context.Context, client *http.Client, promURL *url.URL) (*up
 		agg.any[rid] = true
 		if s.Value == 1 {
 			agg.up[rid] = true
+		} else {
+			agg.down[rid] = true
 		}
 	}
 	return agg, nil
@@ -304,7 +308,7 @@ func fetchLastErrors(ctx context.Context, client *http.Client, promURL *url.URL)
 	return last
 }
 
-// buildCoverageItems 按三态判定规则构造 item 列表。
+// buildCoverageItems 按实例汇总 Target 状态，构造全部成功、部分成功、全部失败和未监控列表。
 func buildCoverageItems(resources []coverageResource, selected map[string]bool, upState *upAggregation, lastErrors map[string]string) []CoverageItem {
 	items := make([]CoverageItem, 0, len(resources))
 	for _, r := range resources {
@@ -314,15 +318,21 @@ func buildCoverageItems(resources []coverageResource, selected map[string]bool, 
 			InstanceName:     r.InstanceName,
 		}
 		if selected[r.ResourceID] {
-			if upState.up[r.ResourceID] {
+			switch {
+			case upState.up[r.ResourceID] && upState.down[r.ResourceID]:
+				item.MonitorState = StatePartialCollecting
+				h := HealthDown
+				item.Health = &h
+				item.LastError = lastErrors[r.ResourceID]
+			case upState.up[r.ResourceID]:
 				item.MonitorState = StateCollecting
 				h := HealthUp
 				item.Health = &h
-			} else {
+			default:
 				item.MonitorState = StatePendingDown
 				h := HealthDown
 				if !upState.any[r.ResourceID] {
-					h = HealthUnknown // 无 up 样本：待首抓 / 未生效
+					h = HealthUnknown
 				}
 				item.Health = &h
 				item.LastError = lastErrors[r.ResourceID]
@@ -336,7 +346,7 @@ func buildCoverageItems(resources []coverageResource, selected map[string]bool, 
 	return items
 }
 
-// summarize 统计 filtered 资源的覆盖率汇总（coverage_rate 保留 2 位小数，无资源时 0）。
+// summarize 统计资源覆盖与健康：被任一 Job 选中即已覆盖，采集是否成功不影响覆盖率。
 func summarize(items []CoverageItem) CoverageSummary {
 	s := CoverageSummary{}
 	for _, it := range items {
@@ -344,6 +354,8 @@ func summarize(items []CoverageItem) CoverageSummary {
 		switch it.MonitorState {
 		case StateCollecting:
 			s.Collecting++
+		case StatePartialCollecting:
+			s.PartialCollecting++
 		case StatePendingDown:
 			s.PendingDown++
 		default:
@@ -351,7 +363,8 @@ func summarize(items []CoverageItem) CoverageSummary {
 		}
 	}
 	if s.Total > 0 {
-		s.CoverageRate = math.Round(float64(s.Collecting)/float64(s.Total)*100) / 100
+		covered := s.Total - s.NotMonitored
+		s.CoverageRate = math.Round(float64(covered)/float64(s.Total)*100) / 100
 	}
 	return s
 }

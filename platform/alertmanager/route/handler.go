@@ -13,6 +13,7 @@ package route
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
@@ -64,10 +66,7 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 	}, nil
 }
 
-// pendingChangeView 返回管理域当前活 pending 变更单的轻量视图；无则 nil。
-//
-// 路由页据此提示「当前显示的是待确认版本，Alertmanager 仍在运行上一版」，
-// 并给前端保存时使用的 base_checksum 一个可解释的来源。
+// pendingChangeView 返回管理域当前活 pending 变更单及各配置段的变化标记；无则 nil。
 func pendingChangeView(db *gorm.DB) interface{} {
 	if db == nil {
 		return nil
@@ -80,10 +79,38 @@ func pendingChangeView(db *gorm.DB) interface{} {
 	if err != nil || d == nil {
 		return nil
 	}
+	routeChanged, inhibitRulesChanged := pendingChangedSections(db, d.AlertmanagerYml)
 	return gin.H{
-		"change_no":  d.ChangeNo,
-		"created_at": d.CreatedAt,
+		"change_no":             d.ChangeNo,
+		"created_at":            d.CreatedAt,
+		"route_changed":         routeChanged,
+		"inhibit_rules_changed": inhibitRulesChanged,
 	}
+}
+
+func pendingChangedSections(db *gorm.DB, currentYAML string) (routeChanged, inhibitRulesChanged bool) {
+	previousYAML := latestConfirmedAlertmanagerYAML(db)
+	currentRoute, currentErr := generator.ExtractRouteSection(currentYAML)
+	previousRoute, previousErr := generator.ExtractRouteSection(previousYAML)
+	routeChanged = currentErr != nil || previousErr != nil || strings.TrimSpace(currentRoute) != strings.TrimSpace(previousRoute)
+	currentRules, currentErr := generator.ParseInhibitRules(currentYAML)
+	previousRules, previousErr := generator.ParseInhibitRules(previousYAML)
+	inhibitRulesChanged = currentErr != nil || previousErr != nil || !reflect.DeepEqual(currentRules, previousRules)
+	return routeChanged, inhibitRulesChanged
+}
+
+func latestConfirmedAlertmanagerYAML(db *gorm.DB) string {
+	var version models.ConfigVersion
+	err := db.Where("network_domain_id = ?", models.DefaultDomainID).
+		Order("created_at DESC, id DESC").First(&version).Error
+	if err == nil && strings.TrimSpace(version.AlertmanagerYml) != "" {
+		return version.AlertmanagerYml
+	}
+	current, err := config.LatestApplied(db)
+	if err != nil || current == nil {
+		return ""
+	}
+	return current.Content
 }
 
 // effectiveAlertmanagerYAML 返回「平台最新产物视图」对应的 alertmanager.yml，按新鲜度取：

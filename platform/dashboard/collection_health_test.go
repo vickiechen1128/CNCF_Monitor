@@ -25,22 +25,22 @@ func (f *fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error) 
 	return f.idx, nil
 }
 
-// TestClassifyCollectionHealthTwoStates 覆盖两态互斥完备分类（反馈 12，与监控对象页
-// coverage 同口径）：5min 内 up==1 → 采集中；其余（up==0 / 待首抓 / 回传延迟）→ 已下发未采到。
-func TestClassifyCollectionHealthTwoStates(t *testing.T) {
+// TestClassifyCollectionHealthThreeStates 覆盖全部成功、部分成功、全部失败/无样本分类。
+func TestClassifyCollectionHealthThreeStates(t *testing.T) {
 	idx := &UpHealthIndex{
-		upNow:  map[string]bool{"collecting": true, "down": true},
-		upTrue: map[string]bool{"collecting": true},
+		upNow:   map[string]bool{"collecting": true, "partial": true, "down": true},
+		upTrue:  map[string]bool{"collecting": true, "partial": true},
+		upFalse: map[string]bool{"partial": true, "down": true},
 	}
-	got := classifyCollectionHealth([]string{"collecting", "down", "stale", "pending"}, idx)
+	got := classifyCollectionHealth([]string{"collecting", "partial", "down", "stale", "pending"}, idx)
 	require.NotNil(t, got)
 	assert.Equal(t, CollectionHealth{
-		DispatchedCount: 4,
-		CollectingCount: 1,
-		DownCount:       3,
+		DispatchedCount:        5,
+		CollectingCount:        1,
+		PartialCollectingCount: 1,
+		DownCount:              3,
 	}, *got)
-	// 不变量：两态之和 == 已下发数。
-	assert.Equal(t, got.DispatchedCount, got.CollectingCount+got.DownCount)
+	assert.Equal(t, got.DispatchedCount, got.CollectingCount+got.PartialCollectingCount+got.DownCount)
 }
 
 // TestClassifyCollectionHealthNilIndex 未注入 / 查询失败（nil 索引）时返回 nil，不误报 0。
@@ -102,7 +102,8 @@ func TestPromUpHealthQuerierUpHealth(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		assert.Equal(t, upInstantQuery, r.URL.Query().Get("query"))
 		w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
-			{"metric":{"resource_id":"r-up","job":"j"},"value":[1726800000.0,"1"]},
+			{"metric":{"resource_id":"r-up","job":"standard"},"value":[1726800000.0,"1"]},
+			{"metric":{"resource_id":"r-up","job":"blackbox"},"value":[1726800000.0,"0"]},
 			{"metric":{"resource_id":"r-down","job":"j"},"value":[1726800000.0,"0"]},
 			{"metric":{"instance":"no-resource-id"},"value":[1726800000.0,"1"]}
 		]}}`))
@@ -118,6 +119,7 @@ func TestPromUpHealthQuerierUpHealth(t *testing.T) {
 
 	assert.True(t, idx.upNow["r-up"])
 	assert.True(t, idx.upTrue["r-up"])
+	assert.True(t, idx.upFalse["r-up"], "同资源另一 Target up=0 应被记录")
 	assert.True(t, idx.upNow["r-down"])
 	assert.False(t, idx.upTrue["r-down"])
 	assert.False(t, idx.upNow["r-stale"], "5min 内无 up 样本 → 不在实时态")

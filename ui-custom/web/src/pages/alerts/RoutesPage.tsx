@@ -797,7 +797,7 @@ export function RoutesPage() {
           )}
 
           {/* 有 pending 草稿时明确告知：页面展示的是待确认版本，AM 仍在跑上一版 */}
-          {pending && (
+          {pending && pending.route_changed !== false && (
             <Alert
               type="warning"
               showIcon

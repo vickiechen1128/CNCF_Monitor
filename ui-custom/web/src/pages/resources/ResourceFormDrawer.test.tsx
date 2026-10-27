@@ -624,7 +624,7 @@ describe('ResourceFormDrawer', () => {
   it('renders application and generic target differentiated fields', async () => {
     renderDrawer({ category: 'application' })
     expect(screen.getByText('服务名')).toBeInTheDocument()
-    // 采集地址拆分：健康检查 URL（可选）/ 端点 + 端口（采集地址，必填）
+    // 健康检查 URL 必填；端点 + 端口为 standard 指标采集地址，选填
     expect(screen.getByText('健康检查 URL')).toBeInTheDocument()
     expect(screen.getByText('端点（采集地址主机）')).toBeInTheDocument()
     expect(screen.getByText('端口（采集端口）')).toBeInTheDocument()
@@ -638,22 +638,17 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c')).toBeInTheDocument()
   })
 
-  // 采集地址拆分（M07 字段治理）：application 的端点（主机）+ 端口（采集端口）均必填；
-  // health_check_url 恢复为「应用实际访问地址」语义，可选、不参与采集。
-  it('application requires endpoint and port (采集地址拆分)', async () => {
+  it('application requires health check url but not endpoint and port', async () => {
     renderDrawer({ category: 'application' })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
-    // 端点 / 端口为空 → 必填校验拦截且不提交
-    await waitFor(() =>
-      expect(screen.getByText('请输入采集地址主机', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument(),
-    )
-    expect(await screen.findByText('请输入端口', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请输入健康检查 URL', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(screen.queryByText('请输入采集地址主机', { selector: '.ant-form-item-explain-error' })).toBeNull()
+    expect(screen.queryByText('请输入端口', { selector: '.ant-form-item-explain-error' })).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('submits application with endpoint + port and omits empty health_check_url', async () => {
+  it('submits application with url only and omits empty endpoint and port', async () => {
     createMock.mockResolvedValue({ status: 'success', data: {} })
-    // 应用类别 app_code 必填，需字典启用条目（§5.2）
     applicationDictListMock.mockResolvedValue({
       status: 'success',
       data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }], total: 1 },
@@ -670,27 +665,25 @@ describe('ResourceFormDrawer', () => {
     openSelect('请选择应用')
     fireEvent.click(await screen.findByText('订单服务 (order)'))
     fireEvent.change(screen.getByPlaceholderText('例如：order-service'), { target: { value: 'pay-service' } })
-    fireEvent.change(screen.getByPlaceholderText('例如：10.10.1.4'), { target: { value: '10.10.1.4' } })
-    fireEvent.change(screen.getByPlaceholderText('例如：8081'), { target: { value: '8081' } })
-    // 决策 F：application 的 cluster 必填（原特征：本用例只断言 endpoint/port/health_check_url，
-    // 当时前端 cluster 无必填 rules；补录集群后提交才可通过前端校验）
+    fireEvent.change(screen.getByPlaceholderText('例如：http://10.10.1.4:8081/actuator/health'), {
+      target: { value: 'http://10.10.1.4:8081/actuator/health' },
+    })
     fireEvent.change(screen.getByPlaceholderText('请填写集群'), { target: { value: 'bj-01' } })
-    // health_check_url 留空 → 可提交，且不写入请求体
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const input = createMock.mock.calls[0][0]
     expect(input).toMatchObject({
       resource_category: 'application',
       service_name: 'pay-service',
-      endpoint: '10.10.1.4',
-      port: 8081,
+      health_check_url: 'http://10.10.1.4:8081/actuator/health',
     })
-    expect(input.health_check_url).toBeUndefined()
+    expect(input.endpoint).toBeUndefined()
+    expect(input.port).toBeUndefined()
     expect(successMock).toHaveBeenCalled()
     expect(cancelMock).toHaveBeenCalled()
   })
 
-  it('rejects invalid health_check_url format but keeps it optional', async () => {
+  it('rejects invalid health_check_url format', async () => {
     renderDrawer({ category: 'application' })
     fireEvent.change(screen.getByPlaceholderText('例如：http://10.10.1.4:8081/actuator/health'), {
       target: { value: 'not-a-url' },

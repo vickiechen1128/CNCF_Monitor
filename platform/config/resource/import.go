@@ -270,7 +270,7 @@ func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *
 		}
 	case models.ResourceCategoryApplication:
 		var a models.Application
-		result := db.Where("network_domain_id = ? AND service_name = ? AND endpoint = ?", in.NetworkDomainID, in.ServiceName, in.Endpoint).First(&a)
+		result := db.Where("network_domain_id = ? AND service_name = ? AND health_check_url = ?", in.NetworkDomainID, in.ServiceName, in.HealthCheckURL).First(&a)
 		if result.Error == nil {
 			return &a, true, nil
 		}

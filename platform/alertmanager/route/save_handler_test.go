@@ -118,10 +118,11 @@ inhibit_rules:
 	require.NoError(t, err)
 	require.NotNil(t, result.Version)
 
-	// 整份重建：global 用平台固定值，旧文件的 receivers / inhibit_rules 不再保留。
+	// 整份重建：global 用平台固定值，旧 receivers 不保留；缺省保存保留抑制规则。
 	assert.Contains(t, *captured, "resolve_timeout: 5m")
 	assert.NotContains(t, *captured, "resolve_timeout: 30s")
-	assert.NotContains(t, *captured, "inhibit_rules:")
+	assert.Contains(t, *captured, "inhibit_rules:")
+	assert.Contains(t, *captured, `severity="warning"`)
 	assert.NotContains(t, *captured, "name: team-a")
 	assert.NotContains(t, *captured, "example.com/default")
 	// receivers = 内置 default + 路由引用的渠道（保存期先写 name 占位）。
@@ -169,4 +170,15 @@ func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T) {
 	}
 	issues := ValidateRouteReceivers(nodes, []string{"default"})
 	assert.Empty(t, issues, "禁用节点不会被生成，不应判悬空")
+}
+
+func TestSaveRoutes_ExplicitEmptyInhibitRulesClearsSection(t *testing.T) {
+	db := newRoutesDB(t)
+	base := "route:\n  receiver: default\nreceivers:\n  - name: default\ninhibit_rules:\n  - source_matchers: ['severity=\"critical\"']\n    target_matchers: ['severity=\"warning\"']\n"
+	seedAppliedConfig(t, db, base)
+	captured := stubSubmitRoutes(t)
+
+	_, err := SaveAlertmanagerConfig(db, []generator.RouteEditNode{rootEditNode("default")}, []generator.InhibitionRule{}, models.AlertmanagerConfigChecksum(base), "tester")
+	require.NoError(t, err)
+	assert.NotContains(t, *captured, "inhibit_rules:")
 }

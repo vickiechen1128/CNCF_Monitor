@@ -3,10 +3,10 @@
  *
  * 本文件为 module-02 前端独占的权威类型出口（T02-F1）：
  * - TargetItem      ：GET /api/v1/targets 单条 target 对象（§2.1.1，透传 Prometheus + network_domain 补全）
- * - CoverageItem    ：GET /api/v1/health/coverage 三态聚合 item（§2.2.1）
- * - CoverageState   ：三态枚举 collecting / pending_down / not_monitored
+ * - CoverageItem    ：GET /api/v1/health/coverage 实例状态聚合 item（§2.2.1）
+ * - CoverageState   ：实例状态枚举 collecting / pending_down / not_monitored
  * - CoverageSummary ：覆盖率汇总（§2.2.2）
- * 被 module-01（Job 实例采集状态回显）与 module-07（资源列表三态 badge）只读消费。
+ * 被 module-01（Job 实例采集状态回显）与 module-07（资源列表实例状态 badge）只读消费。
  */
 import type { ResourceCategory } from './resource'
 
@@ -48,8 +48,8 @@ export interface TargetsResponse {
   targetsByJob: Record<string, unknown>
 }
 
-/** coverage 三态枚举（§2.2.1：采集中 / 已下发未采到 / 未监控） */
-export type CoverageState = 'collecting' | 'pending_down' | 'not_monitored'
+/** coverage 实例采集状态（全部成功 / 部分成功 / 全部失败 / 未监控） */
+export type CoverageState = 'collecting' | 'partial_collecting' | 'pending_down' | 'not_monitored'
 
 /** GET /api/v1/health/coverage 单条聚合 item（§2.2.1） */
 export interface CoverageItem {
@@ -68,9 +68,10 @@ export interface CoverageItem {
 export interface CoverageSummary {
   total: number
   collecting: number
+  partial_collecting?: number
   pending_down: number
   not_monitored: number
-  /** collecting / total，保留 2 位小数（无资源时 0） */
+  /** 已被 Job 选中的资源 / total，与采集是否成功无关 */
   coverage_rate: number
 }
 

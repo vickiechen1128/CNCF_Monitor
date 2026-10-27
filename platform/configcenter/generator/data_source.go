@@ -192,9 +192,9 @@ func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
 	return channels, nil
 }
 
-// LoadAlertmanagerConfigInput 组装唯一生成规则的完整输入：route 段 + 当前渠道。
+// LoadAlertmanagerConfigInput 组装唯一生成规则的 route 与渠道输入。
+// 抑制规则由路由保存 / 抑制保存 / M09 生成各自从当前产品视图解析后补入。
 // 平台入口地址由生成器运行时配置 NotifyBridgeURL 统一提供，不属于调用方参数。
-// 两个入口（路由保存 / M09 生成）都通过本函数组装，避免各自拼装造成口径漂移。
 func LoadAlertmanagerConfigInput(db *gorm.DB, routeSection string) (AlertmanagerConfigInput, error) {
 	channels, err := LoadNotifyChannels(db)
 	if err != nil {
