@@ -12,6 +12,8 @@
 // 安全阀：
 //   - Alertmanager 启动不足 3 分钟时只对齐/补插、不关行；
 //   - 记录创建不足 2 分钟时不关/不补（webhook 可能还在路上）；
+//   - firing 连续消失 5 分钟后才关 lost，给分组延迟的 resolved 留到达窗口；
+//     同指纹新 occurrence 已活跃时旧行立即关闭，避免阻塞新行补插；
 //   - 活跃集连续 2 轮为空才允许关行；
 //   - 单轮待关闭占比 > 50% 且 > 10 条时本轮跳过，下一轮仍满足才执行。
 package history
@@ -33,6 +35,8 @@ const (
 	reconcileInterval = 60 * time.Second
 	// closeGrace 是「刚写入的行不关/不补」宽限：webhook 可能还在路上。
 	closeGrace = 2 * time.Minute
+	// disappearanceGrace 是 firing 从活跃集消失后的 resolved 到达窗口。
+	disappearanceGrace = 5 * time.Minute
 	// amFreshness 是 Alertmanager 启动后的观察窗口：活跃集仍在重建时不关行。
 	amFreshness = 3 * time.Minute
 	// confirmRounds 是空活跃集 / 异常关闭比例的确认轮数：连续满足后才放行关闭。
@@ -72,11 +76,16 @@ type Reconciler struct {
 	// emptyRounds / suspiciousRounds 是安全阀的连续轮次计数（单 goroutine 内使用）。
 	emptyRounds      int
 	suspiciousRounds int
+	// disappearedSince 记录 firing occurrence 首次离开活跃集的时刻；重新活跃或落终态后清除。
+	disappearedSince map[string]time.Time
 }
 
 // NewReconciler 创建对账任务。
 func NewReconciler(db *gorm.DB, source AlertSource) *Reconciler {
-	return &Reconciler{db: db, source: source, now: time.Now}
+	return &Reconciler{
+		db: db, source: source, now: time.Now,
+		disappearedSince: make(map[string]time.Time),
+	}
 }
 
 // Summary 是一轮对账的结果（仅用于日志观测）。
@@ -143,6 +152,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 	}
 
 	activeByOccurrence := make(map[string]ActiveAlert, len(active))
+	activeFingerprints := make(map[string]struct{}, len(active))
 	youngFingerprints := make(map[string]struct{}, len(active))
 	for _, a := range active {
 		startsAt := a.StartsAt
@@ -155,6 +165,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 			continue
 		}
 		activeByOccurrence[occurrenceKey] = a
+		activeFingerprints[a.Fingerprint] = struct{}{}
 		if now.Sub(startsAt) < closeGrace {
 			youngFingerprints[a.Fingerprint] = struct{}{}
 		}
@@ -202,9 +213,15 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 	}
 
 	// 收集待关闭行：未结、且已不在活跃集；只有 AM 稳定且过了宽限期才进入候选。
+	// firing 连续消失满 disappearanceGrace 才关 lost；同指纹新 occurrence 已活跃时
+	// 旧行立即关闭，给新行补插释放未结指纹唯一索引。静默/抑制不等 resolved。
+	if r.disappearedSince == nil {
+		r.disappearedSince = make(map[string]time.Time)
+	}
 	var candidates []closeCandidate
 	for occurrenceKey, ev := range openByOccurrence {
 		if _, ok := activeByOccurrence[occurrenceKey]; ok {
+			delete(r.disappearedSince, occurrenceKey)
 			continue
 		}
 		if !canClose || now.Sub(ev.CreatedAt) < closeGrace {
@@ -219,10 +236,30 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 		switch ev.Status {
 		case models.AlertEventStatusSilenced:
 			target = models.AlertEventStatusSilencedClosed
+			delete(r.disappearedSince, occurrenceKey)
 		case models.AlertEventStatusInhibited:
 			target = models.AlertEventStatusInhibitedClosed
+			delete(r.disappearedSince, occurrenceKey)
+		default:
+			if _, replaced := activeFingerprints[ev.Fingerprint]; !replaced {
+				first, ok := r.disappearedSince[occurrenceKey]
+				if !ok {
+					r.disappearedSince[occurrenceKey] = now
+					summary.Skipped++
+					continue
+				}
+				if now.Sub(first) < disappearanceGrace {
+					summary.Skipped++
+					continue
+				}
+			}
 		}
 		candidates = append(candidates, closeCandidate{event: ev, target: target})
+	}
+	for occurrenceKey := range r.disappearedSince {
+		if _, ok := openByOccurrence[occurrenceKey]; !ok {
+			delete(r.disappearedSince, occurrenceKey)
+		}
 	}
 
 	if r.mayClose(len(activeByOccurrence), len(openByOccurrence), len(candidates)) {

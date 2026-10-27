@@ -121,8 +121,7 @@ func TestReconcilerSilenceEndedReturnsToFiring(t *testing.T) {
 }
 
 // TestReconcilerClosesDisappearedRows 消失的行按原状态区分终态，并写 closed_at：
-// 静默中 → 静默期间结束；抑制中 → 抑制期间结束；其余 → 恢复信息丢失。
-// 空活跃集需要连续两轮确认，故跑两轮。
+// 静默/抑制不等 resolved，空活跃集两轮确认后立即关闭；firing 另等 5 分钟消失窗口。
 func TestReconcilerClosesDisappearedRows(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
@@ -139,7 +138,7 @@ func TestReconcilerClosesDisappearedRows(t *testing.T) {
 
 	summary, err := r.RunOnce(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 3, summary.Closed)
+	assert.Equal(t, 2, summary.Closed, "静默/抑制终态不等待 resolved")
 
 	var silenced models.AlertEvent
 	require.NoError(t, db.Where("fingerprint = ?", "fp-silenced").First(&silenced).Error)
@@ -147,17 +146,25 @@ func TestReconcilerClosesDisappearedRows(t *testing.T) {
 	assert.Nil(t, silenced.EndsAt)
 	require.NotNil(t, silenced.ClosedAt)
 
-	var firing models.AlertEvent
-	require.NoError(t, db.Where("fingerprint = ?", "fp-firing").First(&firing).Error)
-	assert.Equal(t, models.AlertEventStatusLost, firing.Status)
-	assert.Nil(t, firing.EndsAt)
-	require.NotNil(t, firing.ClosedAt)
-
 	var inhibited models.AlertEvent
 	require.NoError(t, db.Where("fingerprint = ?", "fp-inhibited").First(&inhibited).Error)
 	assert.Equal(t, models.AlertEventStatusInhibitedClosed, inhibited.Status)
 	assert.Nil(t, inhibited.EndsAt)
 	require.NotNil(t, inhibited.ClosedAt)
+
+	var firing models.AlertEvent
+	require.NoError(t, db.Where("fingerprint = ?", "fp-firing").First(&firing).Error)
+	assert.Equal(t, models.AlertEventStatusFiring, firing.Status, "firing 仍在消失窗口内")
+	assert.Nil(t, firing.ClosedAt)
+
+	r.now = func() time.Time { return now.Add(5 * time.Minute) }
+	summary, err = r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Closed)
+	require.NoError(t, db.Where("fingerprint = ?", "fp-firing").First(&firing).Error)
+	assert.Equal(t, models.AlertEventStatusLost, firing.Status)
+	assert.Nil(t, firing.EndsAt)
+	require.NotNil(t, firing.ClosedAt)
 }
 
 // TestReconcilerDoesNotCloseDuringAMRestart AM 启动不足 3 分钟时只对齐不关行。
@@ -285,7 +292,8 @@ func TestReconcilerDoesNotRestoreResolvedRow(t *testing.T) {
 	assert.EqualValues(t, 1, countEvents(t, db))
 }
 
-// TestReconcilerEmptyActiveSetNeedsTwoRounds 空活跃集第一轮不关、第二轮才关。
+// TestReconcilerEmptyActiveSetNeedsTwoRounds 空活跃集连续两轮确认后，
+// firing 仍需满足 5 分钟消失窗口才关闭。
 func TestReconcilerEmptyActiveSetNeedsTwoRounds(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
@@ -300,10 +308,16 @@ func TestReconcilerEmptyActiveSetNeedsTwoRounds(t *testing.T) {
 
 	second, err := r.RunOnce(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 1, second.Closed)
+	assert.Zero(t, second.Closed, "空集确认通过，但消失窗口尚未期满")
+
+	r.now = func() time.Time { return now.Add(5 * time.Minute) }
+	third, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, third.Closed)
 }
 
-// TestReconcilerCloseRatioGuard 单轮关闭占比过高时先缓一轮，连续两轮确认后才关。
+// TestReconcilerCloseRatioGuard 消失窗口期满后，单轮关闭占比过高仍先缓一轮，
+// 连续两轮确认后才关。
 func TestReconcilerCloseRatioGuard(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
@@ -320,11 +334,16 @@ func TestReconcilerCloseRatioGuard(t *testing.T) {
 
 	second, err := r.RunOnce(context.Background())
 	require.NoError(t, err)
-	assert.Zero(t, second.Closed, "关闭比例异常第一轮只确认")
+	assert.Zero(t, second.Closed, "消失窗口尚未期满")
 
+	r.now = func() time.Time { return now.Add(5 * time.Minute) }
 	third, err := r.RunOnce(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 12, third.Closed, "连续两轮确认后才执行关闭")
+	assert.Zero(t, third.Closed, "关闭比例异常第一轮只确认")
+
+	fourth, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 12, fourth.Closed, "连续两轮确认后才执行关闭")
 }
 
 // TestReconcilerSkipsYoungBackfill 刚诞生不足 2 分钟的告警不补（别抢跑出重复行）。
@@ -426,4 +445,101 @@ func TestReconcilerDifferentOccurrenceKeepsYoungBackfillGrace(t *testing.T) {
 	require.NoError(t, db.First(&got, old.ID).Error)
 	assert.Equal(t, models.AlertEventStatusFiring, got.Status)
 	assert.EqualValues(t, 1, countEvents(t, db))
+}
+
+// TestReconcilerFiringWaitsForDisappearanceGrace firing 消失后等待 5 分钟，
+// 给分组延迟的 resolved webhook 留到达窗口；非空活跃集避免叠加空集确认阀。
+func TestReconcilerFiringWaitsForDisappearanceGrace(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 27, 12, 5, 0, 0, time.UTC)
+	ev := seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, now.Add(-10*time.Minute))
+	src := &fakeSource{
+		startedAt: now.Add(-time.Hour),
+		active: []ActiveAlert{{
+			Fingerprint: "fp-other", State: "suppressed", StartsAt: now.Add(-time.Hour), SilencedBy: []string{"silence-1"},
+		}},
+	}
+	r := newFixedReconciler(db, src, now)
+
+	for _, elapsed := range []time.Duration{0, 4 * time.Minute} {
+		r.now = func() time.Time { return now.Add(elapsed) }
+		summary, err := r.RunOnce(context.Background())
+		require.NoError(t, err)
+		assert.Zero(t, summary.Closed, "消失未满 5 分钟不得关 lost")
+		var got models.AlertEvent
+		require.NoError(t, db.First(&got, ev.ID).Error)
+		assert.Equal(t, models.AlertEventStatusFiring, got.Status)
+	}
+
+	r.now = func() time.Time { return now.Add(5 * time.Minute) }
+	summary, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Closed)
+	var got models.AlertEvent
+	require.NoError(t, db.First(&got, ev.ID).Error)
+	assert.Equal(t, models.AlertEventStatusLost, got.Status)
+}
+
+// TestReconcilerResolvedWithinDisappearanceGrace 窗口内 resolved 到达时直接真实恢复，
+// 不经过 lost；超过窗口后的对账也不得再改写终态。
+func TestReconcilerResolvedWithinDisappearanceGrace(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 27, 12, 5, 0, 0, time.UTC)
+	startsAt := now.Add(-10 * time.Minute)
+	ev := seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, startsAt)
+	src := &fakeSource{
+		startedAt: now.Add(-time.Hour),
+		active: []ActiveAlert{{
+			Fingerprint: "fp-other", State: "suppressed", StartsAt: now.Add(-time.Hour), SilencedBy: []string{"silence-1"},
+		}},
+	}
+	r := newFixedReconciler(db, src, now)
+	_, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+
+	endsAt := now.Add(time.Minute)
+	result := Ingest(db, Payload{Alerts: []PayloadAlert{{
+		Status: "resolved", Fingerprint: "fp-1", StartsAt: startsAt, EndsAt: endsAt,
+	}}}, endsAt)
+	assert.Equal(t, 1, result.Updated)
+
+	r.now = func() time.Time { return now.Add(6 * time.Minute) }
+	_, err = r.RunOnce(context.Background())
+	require.NoError(t, err)
+	var got models.AlertEvent
+	require.NoError(t, db.First(&got, ev.ID).Error)
+	assert.Equal(t, models.AlertEventStatusResolved, got.Status)
+	require.NotNil(t, got.EndsAt)
+	assert.True(t, endsAt.Equal(*got.EndsAt))
+}
+
+// TestReconcilerReappearanceResetsDisappearanceGrace 窗口内重新活跃会清除首次消失时间，
+// 再次消失后重新计时，不能沿用上一轮等待。
+func TestReconcilerReappearanceResetsDisappearanceGrace(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 27, 12, 5, 0, 0, time.UTC)
+	startsAt := now.Add(-10 * time.Minute)
+	ev := seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, startsAt)
+	src := &fakeSource{startedAt: now.Add(-time.Hour)}
+	r := newFixedReconciler(db, src, now)
+	_, err := r.RunOnce(context.Background())
+	require.NoError(t, err)
+
+	src.active = []ActiveAlert{{Fingerprint: "fp-1", State: "active", StartsAt: startsAt}}
+	r.now = func() time.Time { return now.Add(time.Minute) }
+	_, err = r.RunOnce(context.Background())
+	require.NoError(t, err)
+
+	src.active = []ActiveAlert{{
+		Fingerprint: "fp-other", State: "suppressed", StartsAt: now.Add(-time.Hour), SilencedBy: []string{"silence-1"},
+	}}
+	for _, elapsed := range []time.Duration{2 * time.Minute, 6 * time.Minute} {
+		r.now = func() time.Time { return now.Add(elapsed) }
+		summary, err := r.RunOnce(context.Background())
+		require.NoError(t, err)
+		assert.Zero(t, summary.Closed, "再次消失后未满 5 分钟不得关闭")
+		var got models.AlertEvent
+		require.NoError(t, db.First(&got, ev.ID).Error)
+		assert.Equal(t, models.AlertEventStatusFiring, got.Status)
+	}
 }
