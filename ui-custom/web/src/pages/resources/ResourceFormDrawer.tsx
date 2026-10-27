@@ -196,14 +196,12 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'application':
-      // 采集地址拆分（M07 字段治理）：endpoint（主机）+ port（采集端口）必填且共同构成采集目标；
-      // health_check_url 为应用实际 URL，可选、不参与采集；protocol 仅资源画像，可选。
       return {
         service_name: String(values.service_name),
-        endpoint: String(values.endpoint),
-        health_check_url: values.health_check_url ? String(values.health_check_url) : undefined,
+        endpoint: values.endpoint ? String(values.endpoint) : undefined,
+        health_check_url: String(values.health_check_url),
         protocol: values.protocol ? String(values.protocol) : undefined,
-        port: Number(values.port),
+        port: values.port ? Number(values.port) : undefined,
       }
     case 'generic_target':
       return {
@@ -307,11 +305,9 @@ const portRules = [
 /** 可选端口校验（应用服务/其他监控目标，port 非必填） */
 const optionalPortRules = [{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]
 
-/**
- * 健康检查 URL 校验（可选）：非空时仅校验为合法 URL（http/https/tcp 且含主机）；
- * 该字段是应用实际访问地址，仅作资源画像 / 标签来源，不参与指标采集与地址派生。
- */
+/** blackbox 拨测 URL：必填，且必须是含主机的 http/https/tcp URL。 */
 const healthCheckUrlRules = [
+  { required: true, message: '请输入健康检查 URL' },
   {
     validator: (_: unknown, value?: string) => {
       if (!value || !value.trim()) return Promise.resolve()
@@ -840,8 +836,6 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
           </>
         )
       case 'application':
-        // 采集地址拆分（M07 字段治理）：端点（主机）+ 端口（采集端口）必填并共同构成采集地址；
-        // health_check_url 恢复为应用实际 URL 语义（可选、不参与采集），协议仅资源画像。
         return (
           <>
             <Form.Item label="服务名" name="service_name" rules={[{ required: true, message: '请输入服务名' }]}>
@@ -850,7 +844,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             <Form.Item
               label="健康检查 URL"
               name="health_check_url"
-              extra="应用的实际访问地址（业务健康检查用），可选；该字段不参与指标采集（采集地址见『端点』+『端口』）"
+              extra="必填，作为 blackbox 拨测目标地址"
               rules={healthCheckUrlRules}
             >
               <Input placeholder="例如：http://10.10.1.4:8081/actuator/health" maxLength={256} />
@@ -860,8 +854,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 <Form.Item
                   label="端点（采集地址主机）"
                   name="endpoint"
-                  extra="采集地址主机，IPv4 或域名；与端口一起构成采集目标"
-                  rules={[{ required: true, message: '请输入采集地址主机' }]}
+                  extra="选填；与端口一起构成 standard 指标采集目标"
                 >
                   <Input placeholder="例如：10.10.1.4" maxLength={128} />
                 </Form.Item>
@@ -870,8 +863,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 <Form.Item
                   label="端口（采集端口）"
                   name="port"
-                  extra="exporter 指标端点监听端口，例如 8081；与端点一起构成采集目标 `端点:端口`"
-                  rules={portRules}
+                  extra="选填；exporter 指标端点监听端口，例如 8081"
+                  rules={optionalPortRules}
                 >
                   <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：8081" />
                 </Form.Item>

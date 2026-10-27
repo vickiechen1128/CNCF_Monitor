@@ -30,10 +30,10 @@ type ResourceInput struct {
 	// platform 标签经所属应用 app_platform_rel 的 is_primary 平台兜底填充。
 	PlatformCode string `json:"platform_code"`
 	Cluster      string `json:"cluster"`
-	Owner            string `json:"owner"`
-	Status           string `json:"status"`
-	Env              string `json:"env"`
-	SourceType       string `json:"source_type"`
+	Owner        string `json:"owner"`
+	Status       string `json:"status"`
+	Env          string `json:"env"`
+	SourceType   string `json:"source_type"`
 
 	// host（§5.6）
 	InstanceName string `json:"instance_name"` // 展示名；host 模板必填，生成 hostname label
@@ -49,14 +49,12 @@ type ResourceInput struct {
 
 	// application（§5.8）
 	ServiceName string `json:"service_name"`
-	// HealthCheckURL 是**应用实际 URL（业务健康检查地址）**，可选，仅作资源画像与
-	// 标签模板来源（label_template 可映射 health_check_url）；**不参与采集地址拼接**。
+	// HealthCheckURL 是 blackbox 拨测目标地址，必填，也可作为标签模板来源。
 	HealthCheckURL string `json:"health_check_url"`
 	// Protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
 	Protocol string `json:"protocol"`
 	// Endpoint（主机，IPv4/域名）与 Port（采集端口，如 exporter 监听端口）共同构成
-	// application 的采集地址 `endpoint:port`（M09 generator targets 拼接口径），二者均必填；
-	// Endpoint 同时参与唯一键 category|domain|service_name|endpoint（DedupKey）。
+	// application 的 standard 采集地址 `endpoint:port`，二者均可选。
 	Endpoint string `json:"endpoint"`
 
 	// generic_target（§5.9）
@@ -82,8 +80,8 @@ type ResourceInput struct {
 // 请求体值与资源当前值相同、且该字典条目已停用时，跳过对应启用态校验（提示并
 // 允许保留历史值）；修改为新值 / 新选用停用条目仍被拒绝。仅更新（PUT）场景注入。
 type KeepDisabledValues struct {
-	BizCode     string // 资源当前 biz_code（停用历史值保留）
-	AppCode     string // 资源当前 app_code（停用历史值保留）
+	BizCode      string // 资源当前 biz_code（停用历史值保留）
+	AppCode      string // 资源当前 app_code（停用历史值保留）
 	PlatformCode string // 资源当前 platform_code（停用 / 历史不自洽值保留，决策 110）
 }
 
@@ -434,23 +432,17 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
-	// health_check_url 保持「可选」且语义为**应用实际 URL（业务健康检查地址）**，
-	// 不是采集地址：M09 生成器对 application 的采集地址取 endpoint（主机）+
-	// port（采集端口）拼接（configcenter/generator/targets.go），采集路径与协议由
-	// M01 采集 Job 的 metrics_path / scheme 决定。非空时仅校验格式（http/https/tcp URL）。
-	if strings.TrimSpace(in.HealthCheckURL) != "" {
-		if err := ValidateHealthCheckURL(in.HealthCheckURL); err != nil {
-			return err
-		}
+	// health_check_url 是 blackbox 拨测目标地址，必填；standard 指标采集仍使用
+	// endpoint + port，不用拨测 URL 代替指标端点。
+	if strings.TrimSpace(in.HealthCheckURL) == "" {
+		return fmt.Errorf("health_check_url 必填（应用拨测 URL）")
 	}
-	// endpoint（主机）与 port（采集端口）是 application 采集地址的唯一来源，均必填：
-	// endpoint 同时参与唯一键 category|domain|service_name|endpoint（DedupKey），不可为空；
-	// port 缺省会让 target 落到默认 80 端口、抓不到 exporter 指标。
-	if strings.TrimSpace(in.Endpoint) == "" {
-		return fmt.Errorf("endpoint 必填（应用采集地址主机，IPv4 或域名）")
+	if err := ValidateHealthCheckURL(in.HealthCheckURL); err != nil {
+		return err
 	}
-	if in.Port < 1 || in.Port > 65535 {
-		return fmt.Errorf("port 必须在 1~65535 之间（应用采集端口，如 exporter 监听端口 8081），当前：%d", in.Port)
+	// endpoint / port 仅服务 standard 指标采集，均可选；port=0 表示未设置。
+	if in.Port < 0 || in.Port > 65535 {
+		return fmt.Errorf("port 必须为 0（未设置）或 1~65535（应用采集端口），当前：%d", in.Port)
 	}
 	// protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
 	if strings.TrimSpace(in.Protocol) != "" && !containsString(models.ValidProtocols, in.Protocol) {
@@ -594,7 +586,7 @@ func ValidateHealthCheckURL(raw string) error {
 //
 //	host                  = (network_domain_id, instance_ip)
 //	database/middleware/generic_target = (network_domain_id, instance_ip, port)
-//	application           = (network_domain_id, service_name, endpoint)
+//	application           = (network_domain_id, service_name, health_check_url)
 //	interface_service     = (network_domain_id, api_url)
 //
 // 该键即导入 upsert 的更新定位键，与 resource_id（服务端 uuid）解耦。
@@ -609,7 +601,7 @@ func DedupKey(category models.ResourceCategory, in *ResourceInput) string {
 	case models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware, models.ResourceCategoryGenericTarget:
 		return fmt.Sprintf("%s|%s|%s|%d", category, domain, strings.TrimSpace(in.InstanceIP), in.Port)
 	case models.ResourceCategoryApplication:
-		return fmt.Sprintf("%s|%s|%s|%s", category, domain, strings.TrimSpace(in.ServiceName), strings.TrimSpace(in.Endpoint))
+		return fmt.Sprintf("%s|%s|%s|%s", category, domain, strings.TrimSpace(in.ServiceName), strings.TrimSpace(in.HealthCheckURL))
 	case models.ResourceCategoryInterfaceService:
 		return fmt.Sprintf("%s|%s|%s", category, domain, strings.TrimSpace(in.APIURL))
 	}

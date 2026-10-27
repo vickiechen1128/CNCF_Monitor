@@ -975,3 +975,14 @@
 | 编号 | 事项 | 落点 | 状态 |
 | --- | --- | --- | --- |
 | F-33 | 拨测 Job 无法查看 / 更换标签模板 | M01 / M07 | ✅ 已实现，待 PRD 回写 |
+
+### F-34. 应用服务登记改为 URL 必填、端点和端口选填（② 用户决策，2026-10-27，已实现）
+
+- **用户决策**：应用服务登记时 `health_check_url` 必填，`endpoint` / `port` 均可选；同时核对双 Job 的 Target 来源和页面展示。
+- **实现**：
+  1. 后端创建/更新与 Excel 导入统一执行新必填规则；`health_check_url` 继续校验 http/https/tcp 和 host，`port=0` 表示未设置。
+  2. 因端点可空，application 判重与 Excel upsert 定位键由 `(domain, service_name, endpoint)` 改为 `(domain, service_name, health_check_url)`，避免空端点误合并。
+  3. 前端 URL 必填，端点/端口选填；Excel 模板及填写提示同步，空端点/端口不提交。
+- **双 Job 口径**：blackbox 应用服务拨测固定使用 `health_check_url`，standard 指标采集使用 `endpoint + port`，不相互覆盖或代填。仅 URL 的资源若配置 standard Job，仍由生成侧 `address_empty` 诊断拦截，不用拨测 URL 冒充指标端点。
+- **页面展示**：资源页分别显示 URL、端点和端口，缺省为 `-`。首页 Job 总数/启用数按 Job 计数；同一资源被 standard 和 blackbox 同时选中，资源覆盖数按 `resource_id` 只计一次；拨测健康按 URL 匹配 `probe_success` 独立展示。
+- **验证**：`platform/config/resource` 全部测试通过；ResourceFormDrawer 与 TemplateDownloadModal 共 63 例通过。契约已同步 `api-contract-snapshot.md`，PRD 待后续统一回填。

@@ -110,7 +110,7 @@ var templateColumnDocs = map[string]templateColumnDoc{
 	"port":             {"端口", "端口，1~65535"},
 	"version":          {"版本", "版本号"},
 	"service_name":     {"服务名", "应用服务名"},
-	"health_check_url": {"健康检查 URL", "业务健康检查地址（非采集地址），协议 http/https/tcp"},
+	"health_check_url": {"健康检查 URL", "blackbox 拨测地址（必填），协议 http/https/tcp"},
 	"protocol":         {"协议", "协议：http/https/tcp"},
 	"endpoint":         {"端点", "应用采集地址主机（IPv4 或域名）"},
 	"target_name":      {"目标名称", "监控目标名称"},
@@ -125,7 +125,7 @@ var templateColumnDocs = map[string]templateColumnDoc{
 // templateOptionalColumns 是**五类通用**的选填列（不随类别变化）。
 var templateOptionalColumns = map[string]bool{
 	"hostname": true, "version": true, "owner": true, "protocol": true,
-	"health_check_url": true, "metrics_path": true, "scheme": true,
+	"metrics_path": true, "scheme": true,
 	"exporter_type": true, "custom_labels": true, "scrape_port": true,
 	"platform_code": true,
 }
@@ -332,8 +332,12 @@ func templateColumnRequiredLabel(category models.ResourceCategory, col string) s
 		default:
 			return "可留空"
 		}
+	case "endpoint":
+		if category == models.ResourceCategoryApplication {
+			return "可留空"
+		}
 	case "port":
-		if category == models.ResourceCategoryGenericTarget {
+		if category == models.ResourceCategoryGenericTarget || category == models.ResourceCategoryApplication {
 			return "可留空"
 		}
 		return "必填（1~65535）"
@@ -382,8 +386,7 @@ func templateExampleRow(category models.ResourceCategory) []string {
 	case models.ResourceCategoryApplication:
 		values["service_name"] = "示例-pay-service"
 		values["biz_code"] = "example-biz"
-		values["endpoint"] = "192.0.2.20"
-		values["port"] = "8081"
+		values["health_check_url"] = "https://app.example.com/health"
 		values["app_code"] = "example-app"
 		values["cluster"] = "示例-cluster"
 	case models.ResourceCategoryGenericTarget:

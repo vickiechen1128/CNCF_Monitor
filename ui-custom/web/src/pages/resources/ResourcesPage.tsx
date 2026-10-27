@@ -892,11 +892,10 @@ export function ResourcesPage() {
         }
         const typeColumns: ColumnsType<ResourceListItem> = [
           {
-            // 健康检查 URL 为应用实际访问地址（业务健康检查用），不参与指标采集
             title: (
               <span>
                 健康检查 URL
-                <Tooltip title="应用的实际访问地址（业务健康检查用），不参与指标采集">
+                <Tooltip title="必填，作为 blackbox 拨测目标地址">
                   <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
                 </Tooltip>
               </span>

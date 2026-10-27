@@ -150,7 +150,7 @@
 | PUT | `/service-dict/:service_code` | `{service_name?,description?,enabled?}`（**请求体不接收 service_code**） | 更新后的完整对象 | `bad_request` / `not_found` | §5.22/§6.1 |
 
 - **红线**：①`service_code` 永不可改；②仅 `service_name` / `description` / `status` 可编辑；③停用不删除（无删除入口）；④**资源侧 `service_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**（`svc` label 恒取 `service_code`，禁止以 `service_name` 作标签值或映射来源）。
-- **`service_code` 与资源行 `service_name` 的关系（决策 105）**：资源侧 `service_code` 为**可选字段**（**仅 application / generic_target 适用**，host / database / middleware **不挂**），**留空即纯自由文本、向后兼容**（MVP 存量无需回填）；资源行既有必填 `service_name` **MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`。**软约束**：填 `service_code` 时其 `service_name` 宜与字典展示名一致——**仅软约束、不做强校验**。
+- **`service_code` 与资源行 `service_name` 的关系（决策 105）**：资源侧 `service_code` 为**可选字段**（**仅 application / generic_target 适用**，host / database / middleware **不挂**），**留空即纯自由文本、向后兼容**（MVP 存量无需回填）；资源行既有必填 `service_name` **MVP 不改**，仍参与 application 判重键 `(domain, service_name, health_check_url)`。**软约束**：填 `service_code` 时其 `service_name` 宜与字典展示名一致——**仅软约束、不做强校验**。
 - **展示名解析**：资源列表 / 详情「服务」列展示 `service_name`（前端经 `GET /service-dict` 按 `service_code` 解析）；字典缺条回退显示 `service_code`；停用条目 UI 标识「服务名（已停用）」。
 - **`source` 来源（决策 97 延伸）**：`manual` / `excel-import`；Excel「服务声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
 - **术语可见性（U1）**：`svc` 为**技术术语**，仅出现在折叠区 / 代码注释 / 术语表，**不作 UI 文案**。
@@ -269,7 +269,8 @@
 - **{M07 本轮} `cluster` 必填规则同 `app_code`**：host / generic_target 可空（设备类无集群归属，强制必填会逼填假数据污染 `cluster` 标签）；application / database / middleware 必填。见 §10A。
 - 可选：`owner`、`status`（默认 `online`）、`scrape_port`（{v0.2} 实例级采集端口覆盖，可选；留空由 M09 按「网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → `ExporterTemplate.default_port`」解析，见 Module_01 §5.1 端口一致性）、**`platform_code`（{v2026-09-28 决策 110} 一等字段，可空；留空走所属应用 `app_platform_rel` 主平台兜底，见 §5E；填值须命中未停用平台且与该应用关联平台集合自洽，服务端硬校验）**
 - 服务端固定：`source_type=manual`、`tenant_id=platform_admin`、`resource_id`（M07 生成 uuid）
-- 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`endpoint`/`health_check_url?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
+- 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`health_check_url`/`endpoint?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
+- **application 双地址口径（2026-10-27 用户决策）**：`health_check_url` 必填，作为 blackbox 拨测目标；`endpoint` / `port` 均可选，仅用于 standard 指标采集，`port=0` 表示未设置。判重与 Excel upsert 定位键为 `(network_domain_id, service_name, health_check_url)`；不使用 URL 代填 standard 采集地址。
 
 ### 10.2 资源更新（PUT /resources/:resource_id）
 
@@ -358,7 +359,7 @@
 | `app_code` | 应用 | {v2.41 决策 92} 二元组：选应用字典 `app_code`，回显 `app_name`（字典缺条回退显示 `app_code`）；停用条目「应用名（已停用）」标识；下拉数据来自 `GET /application-dict` |
 | `platform_code` | 平台归属 | {v2026-09-28 决策 110} 登记期可选填写的**一等字段**；下拉数据来自 `GET /platform-dict`（仅启用项）；留空即纯自由文本、向后兼容，空值 `platform` label 经所属应用主平台兜底；填值须命中未停用平台且与该应用关联平台集合自洽（服务端硬校验）。UI 展示回显 `platform_name`（字典缺条回退 `platform_code`，停用标识「平台名（已停用）」） |
 | `platform` | 平台（标签） | {v2026-09-28 决策 110} 资源 `platform` label 取值优先级：资源行 `platform_code` 一等字段 > 所属应用 `app_platform_rel` 主平台兜底；值**恒取 `platform_code`**（非展示名），字典改名不触发标签重算 |
-| `service_code` | 服务编码 | **{v2.45 决策 105} 可选字段**，**仅 application / generic\_target 显示可填**（host / database / middleware **不挂**，避免服务维度污染）；下拉数据来自 `GET /service-dict`（仅启用项）；**留空即纯自由文本、向后兼容**，空值**不注入** `svc` 标签；填值须引用未停用条目。UI 展示回显 `service_name`（字典缺条回退 `service_code`）。资源行既有必填 `service_name`（应用服务名）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`；软约束：填 `service_code` 时 `service_name` 宜与字典展示名一致（**不强校验**） |
+| `service_code` | 服务编码 | **{v2.45 决策 105} 可选字段**，**仅 application / generic\_target 显示可填**（host / database / middleware **不挂**，避免服务维度污染）；下拉数据来自 `GET /service-dict`（仅启用项）；**留空即纯自由文本、向后兼容**，空值**不注入** `svc` 标签；填值须引用未停用条目。UI 展示回显 `service_name`（字典缺条回退 `service_code`）。资源行既有必填 `service_name`（应用服务名）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, health_check_url)`；软约束：填 `service_code` 时 `service_name` 宜与字典展示名一致（**不强校验**） |
 | `app_name` | 应用名（展示名） | {v2.41 决策 92} label 存 `app_code`，`app_name` 仅 UI 展示；改展示名不触发配置重生成 |
 | `env` | 环境 | |
 | `status` | 运行状态 | |
