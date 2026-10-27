@@ -442,6 +442,27 @@ describe('ResourcesPage', () => {
     expect(screen.getByText('未监控')).toBeInTheDocument()
   })
 
+  it('renders partial collecting badge with diagnostic tooltip', async () => {
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'res-1', resource_category: 'host', instance_name: 'prod-web-01', monitor_state: 'partial_collecting', health: 'down', last_error: 'one target failed' },
+        ],
+        total: 1,
+        summary: { total: 1, collecting: 0, partial_collecting: 1, pending_down: 0, not_monitored: 0, coverage_rate: 1 },
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('部分采集中')).toBeInTheDocument()
+    fireEvent.mouseEnter(screen.getByText('部分采集中'))
+    expect(await screen.findByText('one target failed')).toBeInTheDocument()
+  })
+
   it('degrades collection-status column to "-" when coverage fetch fails, while resource list still renders', async () => {
     // review M1：coverage 接口失败降级为 '-'，不影响资源列表主渲染
     coverageListMock.mockRejectedValue(new Error('coverage upstream down'))

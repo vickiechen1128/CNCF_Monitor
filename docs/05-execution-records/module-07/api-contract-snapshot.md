@@ -81,7 +81,7 @@
 
 > **云/区派生（决策 103 scheme-B）**：资源列表/详情响应 item 上的 `cloud_code` / `zone_type` 为**派生字段**（非 Resource 落库字段），由 `network_domain_id` 关联网域的 `cloud_code` / `zone_type` 实时批量派生（list.go 一次性映射，禁止 N+1；空网域回退 `""`）。由此派生的 `cloud`（= 网域 `cloud_code`）/ `zone`（= 网域 `zone_type`）是 target 的系统标签（configcenter generator），**资源侧不落、不写 cloud 标签**；`cloud_type`/`carrier` 仅云字典条目描述属性，**绝不**作为独立分类轴或筛选维度（前端红-line ④）。
 
-> **采集状态三态（决策 47-3；口径收敛 2026-09-02，PRD v2.25/v2.30）**：列表「采集状态」列展示三态 badge——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但未采到数据：`down` / 待首次抓取 / **变更未确认下发**）/ `未监控`（未被任何 Job 选中）。数据 = M01 选中关系 `is_monitored`（取 DB 当前 `selected_instance_ids`、ready+enabled Job，**不问 M09 `change_status`、不感知下发时序**）+ M02 健康度/覆盖率 API（`up` 聚合，按 `resource_id` 稳定身份标签回连，MVP 起提供）。**M07 只读消费、不直连时序数据**：列表级查询走 M02 聚合 API 一次性获取，**禁止逐行查询**（TQ-6 N+1 教训）；响应 item 上的采集状态为**派生字段**（如 `collection_status`），非 Resource 落库字段。「待采集 vs 已下发未采到」细分由 M01 Job 回显承担（M01 §5.10/快照 §6）；「未纳入任何 Job」同步可在 M01 实例选择器筛选；异常驱动展示——仅「已下发未采到」高饱和。
+> **实例采集状态（2026-10-27 用户拍板）**：列表展示 `采集中`（全部 Target 成功）/ `部分采集中`（成功与失败 Target 并存）/ `已下发未采到`（全部失败或无成功样本）/ `未监控`（未被任何 Job 选中），并支持对应筛选。数据 = M01 ready+enabled 选中关系 + M02 coverage 按 `resource_id` 聚合；部分成功时 Tooltip 展示最近错误，Target 明细到监控目标状态页查看。覆盖率只表示已被 Job 选中的资源比例，与采集是否成功无关。
 
 ## 4. 资源标签 API
 
@@ -369,7 +369,7 @@
 | `source_field` / `source_type` | 来源字段 / 来源类型 | |
 | `instance_count` | 关联实例数 | |
 | `scrape_port` | 采集端口 | {v0.2} 实例级采集端口覆盖；留空由 M09 解析链取默认 |
-| `collection_status` | 采集状态 | 三态 badge（采集中 / 已下发未采到 / 未监控，决策 47-3）；「已下发未采到」高饱和展示 |
+| `collection_status` | 采集状态 | 实例状态 badge（采集中 / 部分采集中 / 已下发未采到 / 未监控）；部分成功和全部失败提供异常提示 |
 | `cloud_code` | 云归属 | 资源列表/详情为**派生字段**（经所属网域 `cloud_code` 派生，见 §3 派生注）；前端红-line ④：`cloud_type`/`carrier` 不渲染为独立列/筛选维度 |
 | `zone_type` | 网域类型 | 派生字段（经所属网域 `zone_type`）；与 `network_domain_id` 同源，标识 target `zone` 系统标签 |
 

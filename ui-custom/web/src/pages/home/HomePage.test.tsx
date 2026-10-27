@@ -255,10 +255,11 @@ const DASHBOARD_OK = {
       { service_name: '大模型应用', platform_names: '私有云A平台、私有云B平台', resource_category: 'application', url: 'http://10.0.0.5/health', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
       { service_name: '网关应用', platform_names: '公有云C平台', resource_category: 'application', url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
-    // 采集健康两态（反馈 12）：分母 = monitored_count = 96，两态之和 = 96
+    // 采集健康三态：分母 = monitored_count = 96
     collection_health: {
       dispatched_count: 96,
-      collecting_count: 88,
+      collecting_count: 80,
+      partial_collecting_count: 8,
       down_count: 8,
     },
   },
@@ -780,9 +781,11 @@ describe('HomePage', () => {
     const panel = screen.getByTestId('collection-health-panel')
     expect(within(panel).getByText('采集健康')).toBeInTheDocument()
 
-    // 两态计数（分母 = 已选中资源数 96，不含「未监控」；反馈 12 与监控对象页同口径）
+    // 三态计数（分母 = 已选中资源数 96，不含「未监控」）
     expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('采集中')
-    expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('88')
+    expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('80')
+    expect(screen.getByTestId('ch-legend-partial_collecting_count')).toHaveTextContent('部分采集中')
+    expect(screen.getByTestId('ch-legend-partial_collecting_count')).toHaveTextContent('8')
     expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('已下发未采到')
     expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('8')
 
@@ -791,9 +794,8 @@ describe('HomePage', () => {
     expect(within(panel).getByTestId('ch-detail-link')).toHaveTextContent('查看资源采集健康状态')
     expect(within(panel).getByTestId('ch-detail-link')).toHaveAttribute('href', '/resources')
 
-    // 反馈 12：图例仅两态（采集中 / 已下发未采到），格子仍按 flex 双向拉伸布局
     expect(screen.getByTestId('ch-legend').style.flexWrap).toBe('wrap')
-    expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(2)
+    expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(3)
 
     // 位置（第六轮走查定）：与拨测态势同处 home-health-probe-row（采集左、拨测右），
     // 整行之上是「04 + 告警」行，整行之下是 06 使用指引
@@ -1030,9 +1032,9 @@ describe('HomePage', () => {
     // 分区标题 + 一句自解释 hint 保留
     const ifaceSection = screen.getByTestId('probe-section-interface_service')
     const appSection = screen.getByTestId('probe-section-application')
-    expect(within(ifaceSection).getByText('接口服务拨测')).toBeInTheDocument()
+    expect(within(ifaceSection).getByText('接口服务探活')).toBeInTheDocument()
     expect(ifaceSection).toHaveTextContent('业务接口能否正常访问')
-    expect(within(appSection).getByText('应用服务拨测')).toBeInTheDocument()
+    expect(within(appSection).getByText('应用服务探活')).toBeInTheDocument()
     expect(appSection).toHaveTextContent('应用健康检查地址能否正常访问')
     // 分区不再是独立卡片：卡内不出现嵌套 .ant-card
     expect(panel.querySelectorAll('.ant-card')).toHaveLength(0)
@@ -1040,6 +1042,7 @@ describe('HomePage', () => {
     expect(panel.className).toContain('ant-card')
 
     // 每卡四格总体数字：共 N · 正常 X · 异常 Y · 未知 Z（接口 6 条：4 正常 2 异常；应用 2 条全正常）
+    expect(within(ifaceSection).getByText('探活目标')).toBeInTheDocument()
     expect(screen.getByTestId('probe-stat-interface_service-total')).toHaveTextContent('6')
     expect(screen.getByTestId('probe-stat-interface_service-normal')).toHaveTextContent('4')
     expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('2')
@@ -1136,13 +1139,13 @@ describe('HomePage', () => {
       expect(screen.getByTestId('probe-health-rate-percent')).toHaveTextContent('0%')
     })
     expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 0 / 共 1')
-    expect(within(panel).getByText('接口服务拨测')).toBeInTheDocument()
+    expect(within(panel).getByText('接口服务探活')).toBeInTheDocument()
     // 应用服务卡在，但总体数字全 0、无异常短名单、有空提示
     const appSection = screen.getByTestId('probe-section-application')
-    expect(appSection).toHaveTextContent('应用服务拨测')
+    expect(appSection).toHaveTextContent('应用服务探活')
     expect(screen.getByTestId('probe-stat-application-total')).toHaveTextContent('0')
     expect(screen.getByTestId('probe-stat-application-abnormal')).toHaveTextContent('0')
-    expect(appSection).toHaveTextContent('暂无应用服务拨测目标')
+    expect(appSection).toHaveTextContent('暂无应用服务探活目标')
     // 接口服务分区计数照常（1 条 down → 异常 1），但不列明细（第六轮走查）
     expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('1')
     expect(screen.queryByTestId('probe-abnormal-interface_service-0')).not.toBeInTheDocument()

@@ -179,11 +179,12 @@ type coverageItemJSON struct {
 }
 
 type coverageSummaryJSON struct {
-	Total        int     `json:"total"`
-	Collecting   int     `json:"collecting"`
-	PendingDown  int     `json:"pending_down"`
-	NotMonitored int     `json:"not_monitored"`
-	CoverageRate float64 `json:"coverage_rate"`
+	Total             int     `json:"total"`
+	Collecting        int     `json:"collecting"`
+	PartialCollecting int     `json:"partial_collecting"`
+	PendingDown       int     `json:"pending_down"`
+	NotMonitored      int     `json:"not_monitored"`
+	CoverageRate      float64 `json:"coverage_rate"`
 }
 
 func mustJSON(v interface{}) string {
@@ -239,13 +240,66 @@ func TestCoverageTriState(t *testing.T) {
 	require.Equal(t, StateNotMonitored, c4.MonitorState)
 	require.Nil(t, c4.Health)
 
-	// summary 与 coverage_rate：collecting=1, pending_down=2, not_monitored=2, total=5。
+	// 三个资源已被 Job 选中即视为覆盖，采集成败不影响覆盖率。
 	s := out.Data.Summary
 	require.Equal(t, 5, s.Total)
 	require.Equal(t, 1, s.Collecting)
 	require.Equal(t, 2, s.PendingDown)
 	require.Equal(t, 2, s.NotMonitored)
-	require.Equal(t, 1.0/5.0, s.CoverageRate)
+	require.Equal(t, 0.6, s.CoverageRate)
+}
+
+func TestBuildCoverageItemsPartialCollecting(t *testing.T) {
+	resources := []coverageResource{
+		{ResourceID: "all-up", Category: models.ResourceCategoryApplication, InstanceName: "all-up"},
+		{ResourceID: "partial", Category: models.ResourceCategoryApplication, InstanceName: "partial"},
+		{ResourceID: "all-down", Category: models.ResourceCategoryApplication, InstanceName: "all-down"},
+	}
+	selected := map[string]bool{"all-up": true, "partial": true, "all-down": true}
+	upState := &upAggregation{
+		any:  map[string]bool{"all-up": true, "partial": true, "all-down": true},
+		up:   map[string]bool{"all-up": true, "partial": true},
+		down: map[string]bool{"partial": true, "all-down": true},
+	}
+
+	items := buildCoverageItems(resources, selected, upState, map[string]string{"partial": "connection refused"})
+	require.Equal(t, StateCollecting, items[0].MonitorState)
+	require.Equal(t, StatePartialCollecting, items[1].MonitorState)
+	require.Equal(t, HealthDown, *items[1].Health)
+	require.Equal(t, "connection refused", items[1].LastError)
+	require.Equal(t, StatePendingDown, items[2].MonitorState)
+
+	summary := summarize(items)
+	require.Equal(t, 1, summary.Collecting)
+	require.Equal(t, 1, summary.PartialCollecting)
+	require.Equal(t, 1, summary.PendingDown)
+	require.Equal(t, 1.0, summary.CoverageRate)
+}
+
+func TestCoveragePartialCollectingFromPrometheusSamples(t *testing.T) {
+	db := openCoverageTestDB(t)
+	seedCoverageHost(t, db, "srv-partial", "default", "partial-host")
+	seedCoverageJob(t, db, "standard-job", []string{"srv-partial"})
+	up := map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "vector",
+			"result": []map[string]interface{}{
+				{"metric": map[string]string{"resource_id": "srv-partial", "job": "standard-job"}, "value": []interface{}{float64(1725000000), "1"}},
+				{"metric": map[string]string{"resource_id": "srv-partial", "job": "blackbox-job"}, "value": []interface{}{float64(1725000000), "0"}},
+			},
+		},
+	}
+	r, srv := newCoverageRouter(t, db, up, coverageTargetsFixture())
+	defer srv.Close()
+
+	out := doCoverage(t, r, "?state=partial_collecting")
+	require.Equal(t, "success", out.Status)
+	require.Len(t, out.Data.Items, 1)
+	require.Equal(t, "srv-partial", out.Data.Items[0].ResourceID)
+	require.Equal(t, StatePartialCollecting, out.Data.Items[0].MonitorState)
+	require.Equal(t, 1, out.Data.Summary.PartialCollecting)
+	require.Equal(t, 1.0, out.Data.Summary.CoverageRate, "已配置 Job 即覆盖，与部分失败无关")
 }
 
 func TestCoverageFilterNetworkDomain(t *testing.T) {

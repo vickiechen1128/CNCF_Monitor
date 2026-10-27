@@ -283,15 +283,15 @@ export function ResourcesPage() {
   // （与资源表单三级级联同源同数据）。加载失败静默降级为「不按平台过滤」，不阻塞筛选。
   const [appPlatformRels, setAppPlatformRels] = useState<AppPlatformRel[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
+  // 决策 47-3：资源列表「采集状态」四态 badge 数据源（M02 coverage 聚合，Map by resource_id）
   const {
     coverageByResource,
     loading: coverageLoading,
     error: coverageError,
   } = useResourceCoverage(category)
-  // 决策 47-3：三态筛选（全部/采集中/已下发未采到/未监控），前端按 coverage.monitor_state 过滤
+  // 决策 47-3：四态筛选（全部/采集中/已下发未采到/未监控），前端按 coverage.monitor_state 过滤
   const [monitorState, setMonitorState] = useState<CoverageState | undefined>()
-  // 决策 47-3：三态筛选后的行。F-18 起 biz / status 已下沉后端，
+  // 决策 47-3：四态筛选后的行。F-18 起 biz / status 已下沉后端，
   // 该层仅叠加采集状态（coverage 属 M02，M07 无服务端筛选口径）。
   const coveredList = useMemo(() => {
     if (!monitorState) return data.list
@@ -714,7 +714,7 @@ export function ResourcesPage() {
         </Space>
       ),
     }
-    // 决策 47-3：采集状态三态 badge 列（数据源 M02 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
+    // 决策 47-3：采集状态四态 badge 列（数据源 M02 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
     const monitorColumn: ColumnsType<ResourceListItem>[number] = {
       title: '采集状态',
       key: 'monitor_state',
@@ -1260,6 +1260,7 @@ export function ResourcesPage() {
                   onChange={(v) => setMonitorState(v as CoverageState | undefined)}
                 >
                   <Select.Option value="collecting">采集中</Select.Option>
+                  <Select.Option value="partial_collecting">部分采集中</Select.Option>
                   <Select.Option value="pending_down">已下发未采到</Select.Option>
                   <Select.Option value="not_monitored">未监控</Select.Option>
                 </Select>

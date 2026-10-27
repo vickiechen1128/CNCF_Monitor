@@ -95,13 +95,13 @@
 
 > 前端以 `data.activeTargets` 消费；`job` / `network_domain` / `health` / `search` 过滤由后端 M02 承担，前端不重复过滤。
 
-### 2.2 `GET /api/v1/health/coverage`（三态聚合，决策 47-3，v0.2 提前 MVP）
+### 2.2 `GET /api/v1/health/coverage`（实例覆盖与采集健康聚合）
 
 | 项       | 值                                                                                                                                                                                  |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 方法      | GET                                                                                                                                                                                |
 | 路径      | `/api/v1/health/coverage`                                                                                                                                                          |
-| Query   | `network_domain`（可选，MVP 恒 `default`）、`resource_category`（可选，过滤五类）、`state`（可选，按 `collecting` / `pending_down` / `not_monitored` 过滤）、`page` / `page_size`（默认 1 / 500，上限 1000，覆盖全部资源） |
+| Query   | `network_domain`（可选，MVP 恒 `default`）、`resource_category`（可选，过滤资源类别）、`state`（可选，按 `collecting` / `partial_collecting` / `pending_down` / `not_monitored` 过滤）、`page` / `page_size`（默认 1 / 500，上限 1000，覆盖全部资源） |
 | 响应 data | `{ items, total, summary }`（**items 键**；summary 见 §2.2.2）                                                                                                                          |
 | 业务错误    | 无强校验错误；上游 Prometheus 不可达 `internal`                                                                                                                                                |
 | PRD 源   | §6.1 / §7 与 Module\_07 边界 / §8 验收第 11 条                                                                                                                                            |
@@ -111,33 +111,32 @@
 | 字段                  | 类型     | 枚举 / 说明                                                               |
 | ------------------- | ------ | --------------------------------------------------------------------- |
 | `resource_id`       | string | 资源唯一键（与 M07 `resource_id` 一致）                                         |
-| `resource_category` | string | `host` / `database` / `middleware` / `application` / `generic_target` |
+| `resource_category` | string | 六类资源枚举 |
 | `instance_name`     | string | 可读实例名（M01/M07 回显用）                                                    |
-| `monitor_state`     | string | `collecting`（采集中）/ `pending_down`（已下发未采到）/ `not_monitored`（未监控）       |
-| `health`            | string | `up` / `down` / `unknown` / `null`（未监控时 null）                         |
-| `last_error`        | string | 最近抓取错误（down 时定位，可选）                                                   |
+| `monitor_state`     | string | `collecting`（全部 Target 成功）/ `partial_collecting`（成功与失败并存）/ `pending_down`（全部失败或无成功样本）/ `not_monitored`（未监控）       |
+| `health`            | string | `up` / `down` / `unknown` / `null`（部分成功与全部失败均为 down；未监控为 null）                         |
+| `last_error`        | string | 最近抓取错误（部分成功/全部失败时定位，可选）                                                   |
 
-**三态判定规则（决策 47-3；2026-09-02 口径修订：不感知 M09 下发时序）**：
+**实例状态判定规则（2026-10-27 用户拍板，不感知 M09 下发时序）**：
 
-- 选中关系取 DB 当前值：资源 ∈ 任一 `draft_status=ready` 且 `enabled=true` Job 的 `selected_instance_ids`（**不问** **`change_status`**——已选中但变更未确认下发的实例同样计入选中侧）：
+- 选中关系取 DB 当前值：资源 ∈ 任一 `draft_status=ready` 且 `enabled=true` Job 的 `selected_instance_ids`，不问 `change_status`。
+- 同一资源同时存在 `up=1` 与 `up!=1` Target → `partial_collecting`。
+- 存在成功 Target 且无失败 Target → `collecting`。
+- 全部 Target 失败，或尚无成功样本（含待首抓、未 reload、采集器未装）→ `pending_down`。
+- 资源 ∉ 任何 ready+enabled Job → `not_monitored`。
 
-  - 存在对应 target 且 `health=up` → `collecting`；
-
-  - 其余一切（`down` / `unknown` / 无 target 无 `up` 样本——含变更未确认下发、已下发未 reload、待首次抓取、采集器未装）→ `pending_down`；
-
-- 资源 ∉ 任何 ready+enabled Job 的 `selected_instance_ids` → `not_monitored`。
-
-> 「待采集（变更未下发）vs 已下发未采到」的细分由 M01 Job 上下文回显承担（M01 持有 `change_status`，见 M01 §5.10）；coverage / M07 badge 保持三态不区分，M02 聚合不耦合 M09 时序。
+> 首页采集健康与 M07 资源页均按实例使用上述状态；Target 明细仍由 `/api/v1/targets` 和 Job 详情承载。
 
 #### 2.2.2 summary 字段（覆盖率汇总）
 
 | 字段              | 类型     | 说明                                    |
 | --------------- | ------ | ------------------------------------- |
 | `total`         | number | 资源总数（按过滤）                             |
-| `collecting`    | number | 采集中                                   |
-| `pending_down`  | number | 已下发未采到                                |
-| `not_monitored` | number | 未监控                                   |
-| `coverage_rate` | number | `collecting / total`，保留 2 位小数（无资源时 0） |
+| `collecting`    | number | 全部 Target 成功的实例数 |
+| `partial_collecting` | number | 成功与失败 Target 并存的实例数 |
+| `pending_down`  | number | 全部失败或无成功样本的实例数 |
+| `not_monitored` | number | 未被任何 Job 选中的实例数 |
+| `coverage_rate` | number | `(total - not_monitored) / total`；被 Job 选中即已覆盖，与采集是否成功无关，保留 2 位小数 |
 
 #### 2.2.3 响应示例
 
@@ -147,11 +146,12 @@
   "data": {
     "items": [
       { "resource_id": "srv-1", "resource_category": "host", "monitor_state": "collecting", "health": "up", "last_error": "" },
-      { "resource_id": "srv-2", "resource_category": "host", "monitor_state": "pending_down", "health": "down", "last_error": "connection refused" },
-      { "resource_id": "srv-3", "resource_category": "host", "monitor_state": "not_monitored", "health": null, "last_error": "" }
+      { "resource_id": "srv-2", "resource_category": "host", "monitor_state": "partial_collecting", "health": "down", "last_error": "connection refused" },
+      { "resource_id": "srv-3", "resource_category": "host", "monitor_state": "pending_down", "health": "down", "last_error": "connection refused" },
+      { "resource_id": "srv-4", "resource_category": "host", "monitor_state": "not_monitored", "health": null, "last_error": "" }
     ],
-    "total": 3,
-    "summary": { "total": 3, "collecting": 1, "pending_down": 1, "not_monitored": 1, "coverage_rate": 0.33 }
+    "total": 4,
+    "summary": { "total": 4, "collecting": 1, "partial_collecting": 1, "pending_down": 1, "not_monitored": 1, "coverage_rate": 0.75 }
   }
 }
 ```
