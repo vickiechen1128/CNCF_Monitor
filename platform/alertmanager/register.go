@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/inhibition"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/silence"
@@ -86,5 +87,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 	adminRoutes := am.Group("/routes")
 	adminRoutes.Use(auth.RequireAdmin())
 	adminRoutes.POST("", route.SaveRoutesHandler(db))
+
+	adminInhibitions := am.Group("")
+	adminInhibitions.Use(auth.RequireAdmin())
+	inhibition.RegisterRoutes(am, adminInhibitions, db)
 	return nil
 }

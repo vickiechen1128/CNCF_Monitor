@@ -73,6 +73,7 @@ const NotifyTemplatesPage = lazy(() =>
 const RoutesPage = lazy(() =>
   import('./pages/alerts/RoutesPage').then((m) => ({ default: m.RoutesPage })),
 )
+const InhibitionsPage = lazy(() => import('./pages/alerts/InhibitionsPage'))
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -137,6 +138,7 @@ function AppRoutes() {
           <Route path="/notify-channels" element={<NotifyChannelsPage />} />
           <Route path="/notify-templates" element={<NotifyTemplatesPage />} />
           <Route path="/routes" element={<RoutesPage />} />
+          <Route path="/inhibitions" element={<InhibitionsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

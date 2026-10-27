@@ -21,6 +21,7 @@ import {
   PartitionOutlined,
   RadarChartOutlined,
   SendOutlined,
+  StopOutlined,
   TagsOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
@@ -182,6 +183,7 @@ const MODULES: ModuleDef[] = [
       { key: '/notify-templates', label: '通知模板', icon: <FileTextOutlined /> },
       // M08 v0.3-a：「路由规则」只读路由树（T08-F10），与「告警配置」同组（模式开关落在该页）
       { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
+      { key: '/inhibitions', label: '告警抑制', icon: <StopOutlined /> },
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
@@ -293,6 +295,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/alert-history') ||
     locationPath.startsWith('/notify-channels') ||
     locationPath.startsWith('/notify-templates') ||
+    locationPath.startsWith('/inhibitions') ||
     locationPath.startsWith('/routes')
   )
     return findModuleByKey('alert')

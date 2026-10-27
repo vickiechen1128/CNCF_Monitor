@@ -1055,3 +1055,13 @@ L3（纯文案文档）──┘        │
 - **验证**：后端 history / alerts / models / cmd 测试通过，`platform/db` 仅剩本机既有基线失败 `TestInitDefaultPath`；前端 `tsc`、`eslint`、首页 / 告警状态 / 历史告警共 89 例通过；后端二进制已重编译；`bash scripts/ci/check-backend-arch.sh` 本地通过。
 - **运维注意**：生产首次启动自动迁移；若存量 `occurrence_key` 有重复，唯一索引创建会失败，需先清理；其他表历史时间不重写。
 - **状态**：**landed（2026-10-26）**
+
+## 55. 通用告警抑制规则设置（2026-10-26，M08-INHIBIT-01）
+
+- **用户决策**：独立「告警抑制」页面与独立 `/inhibitions` API，不把抑制字段塞入 `/routes` 请求；页面与路由一致，初始只读，编辑后可新增、修改、删除、启停，支持保存提交与放弃。
+- **共用生成**：`route.SaveAlertmanagerConfig` 接收路由树和抑制规则。保存路由 = 修改后路由 + 当前抑制；保存抑制 = 当前路由 + 修改后抑制。最终统一生成完整 `alertmanager.yml` 并复用 amtool、版本留痕、M09 pending 变更单、人工确认、写盘与 reload。
+- **数据模型**：不新增数据库表，以最新产品视图 YAML 为配置源；通用 `source_matchers` / `target_matchers` / `equal` / `enabled`，禁用项不输出，名称用注释往返保留。
+- **兼容与防覆盖**：`/routes` 请求体不变；保存路由自动保留抑制，M09 草稿重算也提取并保留抑制；显式空数组用于清空。两端共用 effective_checksum 乐观锁。
+- **架构 checklist**：无 schema/migration；未使用 GetResourceField；新增 inhibition handler → service → repository；未修改中央 main/db 注册；热点为既有唯一生成器与 route 保存函数，未新建第二条下发链。
+- **分段 pending 提示（用户补充）**：后端比较 pending 与上一确认版本的 route / inhibit_rules，分别返回 `route_changed` / `inhibit_rules_changed`。A 段变化只在 A 页提示，B 段变化只在 B 页提示，都变则都提示；确认仍共用一张变更单。
+- **验证**：后端 `platform/alertmanager/...`、generator、draft 测试及 `go vet ./platform/...` 通过；前端相关 27 个测试、typecheck、变更范围 ESLint 与 build 通过；分段提示改动后路由/抑制 36 个前端测试通过。隔离测试库真实 API 保存抑制后生成 `CHG-20261026-001`，草稿 YAML 同时包含 route / receivers / inhibit_rules；随后保存路由，抑制仍保留。未触碰默认数据库与生产 Alertmanager，临时服务和文件已清理。
