@@ -80,9 +80,9 @@ func TestReconcilerAlignsSilencedAndInhibited(t *testing.T) {
 	src := &fakeSource{
 		startedAt: now.Add(-time.Hour),
 		active: []ActiveAlert{
-			{Fingerprint: "fp-silenced", State: "suppressed", SilencedBy: []string{"silence-1"}, InhibitedBy: []string{"inhibit-1"}},
-			{Fingerprint: "fp-inhibited", State: "suppressed", InhibitedBy: []string{"inhibit-1"}},
-			{Fingerprint: "fp-muted", State: "suppressed", MutedBy: []string{"weekends"}},
+			{Fingerprint: "fp-silenced", State: "suppressed", StartsAt: now.Add(-10 * time.Minute), SilencedBy: []string{"silence-1"}, InhibitedBy: []string{"inhibit-1"}},
+			{Fingerprint: "fp-inhibited", State: "suppressed", StartsAt: now.Add(-10 * time.Minute), InhibitedBy: []string{"inhibit-1"}},
+			{Fingerprint: "fp-muted", State: "suppressed", StartsAt: now.Add(-10 * time.Minute), MutedBy: []string{"weekends"}},
 		},
 	}
 	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
@@ -110,7 +110,7 @@ func TestReconcilerSilenceEndedReturnsToFiring(t *testing.T) {
 
 	src := &fakeSource{
 		startedAt: now.Add(-time.Hour),
-		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active"}},
+		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active", StartsAt: now.Add(-10 * time.Minute)}},
 	}
 	_, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
 	require.NoError(t, err)
@@ -375,4 +375,55 @@ func TestReconcilerSkipsWhenAMUnreachable(t *testing.T) {
 		require.NoError(t, db.First(&ev).Error)
 		assert.Equal(t, models.AlertEventStatusFiring, ev.Status)
 	}
+}
+
+func TestReconcilerStartsNewOccurrenceWhenStartsAtChanges(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 27, 12, 5, 0, 0, time.UTC)
+	oldStart := time.Date(2026, 10, 26, 18, 7, 56, 0, time.UTC)
+	newStart := now.Add(-3 * time.Minute)
+	old := seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, oldStart)
+
+	src := &fakeSource{
+		startedAt: now.Add(-time.Hour),
+		active: []ActiveAlert{{
+			Fingerprint: "fp-1", State: "active", StartsAt: newStart,
+			Labels: map[string]string{"alertname": "InstanceDown"},
+		}},
+	}
+	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, summary.Closed)
+	assert.Equal(t, 1, summary.Backfilled)
+
+	var events []models.AlertEvent
+	require.NoError(t, db.Order("id ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	assert.Equal(t, old.ID, events[0].ID)
+	assert.Equal(t, models.AlertEventStatusLost, events[0].Status)
+	assert.NotNil(t, events[0].ClosedAt)
+	assert.Equal(t, models.AlertEventStatusFiring, events[1].Status)
+	assert.True(t, newStart.Equal(*events[1].StartsAt))
+	assert.NotEqual(t, events[0].OccurrenceKey, events[1].OccurrenceKey)
+}
+
+func TestReconcilerDifferentOccurrenceKeepsYoungBackfillGrace(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Date(2026, 10, 27, 12, 5, 0, 0, time.UTC)
+	oldStart := time.Date(2026, 10, 26, 18, 7, 56, 0, time.UTC)
+	old := seedOpenEvent(t, db, "fp-1", models.AlertEventStatusFiring, oldStart)
+
+	src := &fakeSource{
+		startedAt: now.Add(-time.Hour),
+		active:    []ActiveAlert{{Fingerprint: "fp-1", State: "active", StartsAt: now.Add(-30 * time.Second)}},
+	}
+	summary, err := newFixedReconciler(db, src, now).RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, summary.Closed)
+	assert.Zero(t, summary.Backfilled)
+
+	var got models.AlertEvent
+	require.NoError(t, db.First(&got, old.ID).Error)
+	assert.Equal(t, models.AlertEventStatusFiring, got.Status)
+	assert.EqualValues(t, 1, countEvents(t, db))
 }
