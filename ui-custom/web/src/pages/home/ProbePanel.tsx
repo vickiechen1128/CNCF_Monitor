@@ -84,14 +84,14 @@ const RESOURCE_LIST_HREF = '/resources'
 const PROBE_SECTIONS = [
   {
     key: 'interface_service',
-    title: '接口服务拨测',
+    title: '接口服务探活',
     // 文案口径（2026-10-17 手机/领导视角走查）：不暴露 `api_url` 等字段名，改用自解释表述
     hint: '业务接口能否正常访问',
     linkLabel: '查看接口服务采集对象',
   },
   {
     key: 'application',
-    title: '应用服务拨测',
+    title: '应用服务探活',
     hint: '应用健康检查地址能否正常访问',
     linkLabel: '查看应用服务采集对象',
   },
@@ -177,7 +177,7 @@ function ProbeStatStrip({ sectionKey, total, normal, abnormal, unknown }: {
         alignContent: 'stretch',
       }}
     >
-      {cell('total', '拨测目标', total)}
+      {cell('total', '探活目标', total)}
       {cell('normal', '正常', normal)}
       {cell('abnormal', '异常', abnormal, abnormal > 0 ? token.colorErrorText : undefined)}
       {cell('unknown', '未知', unknown, unknown > 0 ? token.colorTextTertiary : undefined)}

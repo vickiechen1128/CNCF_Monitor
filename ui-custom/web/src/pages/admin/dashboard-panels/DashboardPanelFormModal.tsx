@@ -4,17 +4,20 @@ import { dashboardPanelApi } from '../../../api/dashboardPanels'
 
 interface DashboardPanelFormModalProps {
   open: boolean
+  panel?: import('../../../api/dashboardPanels').DashboardPanel | null
   onCancel: () => void
   onSuccess: () => void
 }
 
-export function DashboardPanelFormModal({ open, onCancel, onSuccess }: DashboardPanelFormModalProps) {
+export function DashboardPanelFormModal({ open, panel, onCancel, onSuccess }: DashboardPanelFormModalProps) {
   const [form] = Form.useForm<{ name: string; url: string }>()
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (open) form.resetFields()
-  }, [open, form])
+    if (!open) return
+    form.resetFields()
+    if (panel) form.setFieldsValue({ name: panel.name, url: panel.url })
+  }, [open, panel, form])
 
   const handleSubmit = async () => {
     let values: { name: string; url: string }
@@ -25,12 +28,17 @@ export function DashboardPanelFormModal({ open, onCancel, onSuccess }: Dashboard
     }
     setSubmitting(true)
     try {
-      await dashboardPanelApi.create({ name: values.name.trim(), url: values.url.trim() })
-      message.success('面板挂载成功')
+      const input = { name: values.name.trim(), url: values.url.trim() }
+      if (panel) {
+        await dashboardPanelApi.update(panel.id, input)
+      } else {
+        await dashboardPanelApi.create(input)
+      }
+      message.success(panel ? '面板修改成功' : '面板挂载成功')
       onSuccess()
       onCancel()
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '挂载失败，请稍后重试')
+      message.error(err instanceof Error ? err.message : panel ? '修改失败，请稍后重试' : '挂载失败，请稍后重试')
     } finally {
       setSubmitting(false)
     }
@@ -38,7 +46,7 @@ export function DashboardPanelFormModal({ open, onCancel, onSuccess }: Dashboard
 
   return (
     <Modal
-      title="新增面板"
+      title={panel ? '编辑面板' : '新增面板'}
       open={open}
       onCancel={submitting ? undefined : onCancel}
       onOk={handleSubmit}

@@ -46,6 +46,19 @@ func (s *Service) Create(name, rawURL string) (*models.DashboardPanel, error) {
 	return panel, nil
 }
 
+// Update validates and updates a mounted panel without changing its identity or creation time.
+func (s *Service) Update(id uint, name, rawURL string) (*models.DashboardPanel, error) {
+	name = strings.TrimSpace(name)
+	rawURL = strings.TrimSpace(rawURL)
+	if name == "" || len([]rune(name)) > 100 {
+		return nil, fmt.Errorf("%w：名称必填且不超过 100 个字符", ErrInvalidPanel)
+	}
+	if err := validateGrafanaURL(rawURL); err != nil {
+		return nil, err
+	}
+	return s.repo.Update(id, name, rawURL)
+}
+
 // List returns mounted panels for the requested page.
 func (s *Service) List(page, pageSize int) ([]models.DashboardPanel, int64, error) {
 	if page < 1 {

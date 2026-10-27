@@ -12,4 +12,5 @@ func RegisterPanelRoutes(platform, admin *gin.RouterGroup, db *gorm.DB) {
 	platform.GET("/dashboard/panels", h.List)
 	platform.GET("/dashboard/panels/:id", h.Get)
 	admin.POST("/dashboard/panels", h.Create)
+	admin.PUT("/dashboard/panels/:id", h.Update)
 }

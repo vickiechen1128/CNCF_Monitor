@@ -33,4 +33,7 @@ export const dashboardPanelApi = {
   create(input: DashboardPanelCreateInput): Promise<ApiResponse<DashboardPanel>> {
     return apiClient.post<DashboardPanel>('/api/v2/platform/dashboard/panels', { body: input })
   },
+  update(id: number, input: DashboardPanelCreateInput): Promise<ApiResponse<DashboardPanel>> {
+    return apiClient.put<DashboardPanel>(`/api/v2/platform/dashboard/panels/${id}`, { body: input })
+  },
 }

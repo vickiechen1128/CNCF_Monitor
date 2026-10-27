@@ -376,10 +376,11 @@ interface DashboardPanelList {
 | GET | `/api/v2/platform/dashboard/panels` | 已登录用户 | `DashboardPanelList`；支持 `page` / `page_size`，默认 1 / 20，上限 100 |
 | POST | `/api/v2/platform/dashboard/panels` | 管理员 | `DashboardPanel`；请求体仅 `name` / `url` |
 | GET | `/api/v2/platform/dashboard/panels/:id` | 已登录用户 | `DashboardPanel` |
+| PUT | `/api/v2/platform/dashboard/panels/:id` | 管理员 | `DashboardPanel`；请求体仅 `name` / `url`，保留原 ID 与 `created_at` |
 
 - 所有成功/错误响应使用平台统一信封。
 - URL 仅允许 `http` / `https`、非空 host 和 `/d/` 仪表盘路径；后端保存原字符串，不主动请求目标 URL。
-- 非法字段或 ID 返回 400 `bad_request`；名称重复返回 409 `conflict`；ID 不存在返回 404 `not_found`；非管理员新增返回 403 `forbidden`。
+- 非法字段或 ID 返回 400 `bad_request`；名称重复返回 409 `conflict`（编辑时排除当前 ID）；ID 不存在返回 404 `not_found`；非管理员新增/修改返回 403 `forbidden`。
 
 ### 5.3 前端路由与 iframe 契约
 

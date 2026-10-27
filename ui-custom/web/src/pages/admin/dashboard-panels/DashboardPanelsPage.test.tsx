@@ -6,14 +6,15 @@ import { setupAntdTest } from '../../../test/antdTestUtils'
 import { DashboardPanelsPage } from './DashboardPanelsPage'
 
 const TEST_URL = 'http://1.15.11.216:3000/d/StarsL-TenSunS-node/e4b8bb-e69cba-e79b91-e68ea7?var-interval=5m&from=now-30m&to=now&timezone=browser&var-instance=localhost:9100&var-device=$__all&refresh=1m'
-const { listMock, createMock, getStoredUserMock } = vi.hoisted(() => ({
+const { listMock, createMock, updateMock, getStoredUserMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
   createMock: vi.fn(),
+  updateMock: vi.fn(),
   getStoredUserMock: vi.fn(),
 }))
 
 vi.mock('../../../api/dashboardPanels', () => ({
-  dashboardPanelApi: { list: listMock, create: createMock },
+  dashboardPanelApi: { list: listMock, create: createMock, update: updateMock },
 }))
 
 vi.mock('../../../api/client', async (importOriginal) => {
@@ -36,6 +37,7 @@ describe('DashboardPanelsPage', () => {
   beforeEach(() => {
     listMock.mockReset()
     createMock.mockReset()
+    updateMock.mockReset()
     getStoredUserMock.mockReturnValue({ id: 'admin', username: 'admin', role: 'admin' })
     listMock.mockResolvedValue(emptyList)
   })
@@ -64,6 +66,34 @@ describe('DashboardPanelsPage', () => {
 
     await waitFor(() => expect(createMock).toHaveBeenCalledWith({ name: '节点监控大屏', url: TEST_URL }))
     expect(await screen.findByText('节点监控大屏')).toBeInTheDocument()
+    expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('edits a panel with original values and reloads the updated url', async () => {
+    const user = userEvent.setup()
+    const updatedURL = 'https://grafana.example.com/d/new-node/overview?orgId=1'
+    listMock
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: { list: [{ id: 1, name: '节点监控大屏', url: TEST_URL }], total: 1, page: 1, page_size: 100 },
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: { list: [{ id: 1, name: '节点监控大屏', url: updatedURL }], total: 1, page: 1, page_size: 100 },
+      })
+    updateMock.mockResolvedValue({ status: 'success', data: { id: 1, name: '节点监控大屏', url: updatedURL } })
+    render(<MemoryRouter><DashboardPanelsPage /></MemoryRouter>)
+
+    await user.click(await screen.findByRole('button', { name: '编辑' }))
+    expect(await screen.findByLabelText('面板名称')).toHaveValue('节点监控大屏')
+    expect(screen.getByLabelText('Grafana URL')).toHaveValue(TEST_URL)
+    await user.clear(screen.getByLabelText('Grafana URL'))
+    await user.type(screen.getByLabelText('Grafana URL'), updatedURL)
+    await user.click(screen.getByRole('button', { name: '提交' }))
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith(1, { name: '节点监控大屏', url: updatedURL }))
+    expect(createMock).not.toHaveBeenCalled()
+    expect(screen.getByRole('table')).toHaveTextContent(updatedURL)
     expect(listMock).toHaveBeenCalledTimes(2)
   })
 

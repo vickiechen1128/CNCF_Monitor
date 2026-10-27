@@ -142,3 +142,70 @@ func TestDashboardPanelCreateRequiresAdmin(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "forbidden", res.ErrorType)
 }
+
+func TestDashboardPanelUpdate(t *testing.T) {
+	r := setupPanelRouter(t, models.UserRoleAdmin)
+	_, created := panelRequest(t, r, http.MethodPost, "/api/v2/platform/dashboard/panels", map[string]string{
+		"name": "节点监控大屏", "url": testPanelURL,
+	})
+	var original struct {
+		ID        uint   `json:"id"`
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		CreatedAt string `json:"created_at"`
+	}
+	require.NoError(t, json.Unmarshal(created.Data, &original))
+	newURL := "https://grafana.example.com/d/new-node/overview?orgId=1"
+
+	status, updated := panelRequest(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/dashboard/panels/%d", original.ID), map[string]string{
+		"name": "节点监控大屏（新）", "url": newURL,
+	})
+	require.Equal(t, http.StatusOK, status)
+	var panel struct {
+		ID        uint   `json:"id"`
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+	}
+	require.NoError(t, json.Unmarshal(updated.Data, &panel))
+	require.Equal(t, original.ID, panel.ID)
+	require.Equal(t, "节点监控大屏（新）", panel.Name)
+	require.Equal(t, newURL, panel.URL)
+	require.Equal(t, original.CreatedAt, panel.CreatedAt)
+	require.NotEmpty(t, panel.UpdatedAt)
+
+	status, res := panelRequest(t, r, http.MethodPut, "/api/v2/platform/dashboard/panels/999", map[string]string{
+		"name": "不存在", "url": newURL,
+	})
+	require.Equal(t, http.StatusNotFound, status)
+	require.Equal(t, "not_found", res.ErrorType)
+
+	status, res = panelRequest(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/dashboard/panels/%d", original.ID), map[string]string{
+		"name": "节点监控大屏（新）", "url": "javascript:alert(1)",
+	})
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, "bad_request", res.ErrorType)
+}
+
+func TestDashboardPanelUpdateNameConflictAndAdmin(t *testing.T) {
+	r := setupPanelRouter(t, models.UserRoleAdmin)
+	for _, name := range []string{"面板一", "面板二"} {
+		status, _ := panelRequest(t, r, http.MethodPost, "/api/v2/platform/dashboard/panels", map[string]string{
+			"name": name, "url": testPanelURL,
+		})
+		require.Equal(t, http.StatusOK, status)
+	}
+	status, res := panelRequest(t, r, http.MethodPut, "/api/v2/platform/dashboard/panels/2", map[string]string{
+		"name": "面板一", "url": testPanelURL,
+	})
+	require.Equal(t, http.StatusConflict, status)
+	require.Equal(t, "conflict", res.ErrorType)
+
+	userRouter := setupPanelRouter(t, models.UserRoleUser)
+	status, res = panelRequest(t, userRouter, http.MethodPut, "/api/v2/platform/dashboard/panels/1", map[string]string{
+		"name": "无权限", "url": testPanelURL,
+	})
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "forbidden", res.ErrorType)
+}

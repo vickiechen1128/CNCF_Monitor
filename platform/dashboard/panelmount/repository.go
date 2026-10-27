@@ -34,6 +34,28 @@ func (r *Repository) Create(panel *models.DashboardPanel) error {
 	return nil
 }
 
+// Update changes panel name and URL while rejecting names used by other panels.
+func (r *Repository) Update(id uint, name, rawURL string) (*models.DashboardPanel, error) {
+	panel, err := r.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	var existing models.DashboardPanel
+	err = r.db.Where("name = ? AND id <> ?", name, id).First(&existing).Error
+	if err == nil {
+		return nil, ErrNameConflict
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("check dashboard panel name: %w", err)
+	}
+	panel.Name = name
+	panel.URL = rawURL
+	if err := r.db.Save(panel).Error; err != nil {
+		return nil, fmt.Errorf("update dashboard panel: %w", err)
+	}
+	return panel, nil
+}
+
 // List returns a page of panels in creation order and the total count.
 func (r *Repository) List(page, pageSize int) ([]models.DashboardPanel, int64, error) {
 	var total int64

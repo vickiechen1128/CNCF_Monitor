@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Alert, Button, Card, Table } from 'antd'
+import { Alert, Button, Card, Space, Table } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { dashboardPanelApi, type DashboardPanel } from '../../../api/dashboardPanels'
@@ -14,6 +14,7 @@ export function DashboardPanelsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [editingPanel, setEditingPanel] = useState<DashboardPanel | null>(null)
   const isAdmin = getStoredUser()?.role === 'admin'
 
   const load = useCallback(async () => {
@@ -65,8 +66,17 @@ export function DashboardPanelsPage() {
     {
       title: '操作',
       key: 'action',
-      width: 100,
-      render: (_: unknown, record) => <Link to={`/dashboard/panels/${record.id}`}>查看大屏</Link>,
+      width: 180,
+      render: (_: unknown, record) => (
+        <Space>
+          <Link to={`/dashboard/panels/${record.id}`}>查看大屏</Link>
+          {isAdmin && (
+            <Button type="link" onClick={() => { setEditingPanel(record); setFormOpen(true) }}>
+              编辑
+            </Button>
+          )}
+        </Space>
+      ),
     },
   ]
 
@@ -75,7 +85,7 @@ export function DashboardPanelsPage() {
       <Card
         title="面板挂载"
         extra={isAdmin && (
-          <Button aria-label="新增面板" type="primary" icon={<PlusOutlined />} onClick={() => setFormOpen(true)}>
+          <Button aria-label="新增面板" type="primary" icon={<PlusOutlined />} onClick={() => { setEditingPanel(null); setFormOpen(true) }}>
             新增面板
           </Button>
         )}
@@ -101,7 +111,8 @@ export function DashboardPanelsPage() {
       </Card>
       <DashboardPanelFormModal
         open={formOpen}
-        onCancel={() => setFormOpen(false)}
+        panel={editingPanel}
+        onCancel={() => { setFormOpen(false); setEditingPanel(null) }}
         onSuccess={() => void load()}
       />
     </MainLayout>

@@ -809,3 +809,11 @@
 - 功能 commit：`4a58a77`（`feat(module-05): add grafana panel mounting (M05-PANEL-01)`）。
 
 既有全量门禁问题（非本次改动引入）：后端全量测试中 `admin/storagelog` Windows 磁盘统计、`db` 临时文件清理、`strategy/rule` promtool 路径失败；前端全量 lint 仅剩 `pages/strategy/InstanceSelector.tsx:94` 既有 warning；全量 Vitest 在 `ResourcesPage.test.tsx` 两个既有 15 秒超时出现后停止剩余回归。以上均未计为通过。
+
+---
+
+## 反馈 14（2026-10-27，M05-PANEL-02）：已挂载面板支持编辑名称和 URL
+
+- **用户问题**：面板挂载只有新增，已有面板无法修改 Grafana URL。
+- **实现**：新增管理员 `PUT /api/v2/platform/dashboard/panels/:id`，复用原有 URL 校验和名称判重（排除当前 ID）；保留原 ID 与创建时间。管理页操作列新增“编辑”，弹窗首次打开回显名称和 URL，保存后刷新列表；普通用户仍只能查看。
+- **验证**：panelmount 测试覆盖修改 URL、创建时间保留、404、非法 URL、重名和 403；前端覆盖编辑回显、update 请求和列表刷新，typecheck 与变更文件 ESLint 通过。契约快照 §5 已同步，PRD 待统一回填。

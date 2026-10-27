@@ -56,6 +56,26 @@ func (h *Handler) Create(c *gin.Context) {
 	response.OK(c, toPanelDTO(panel))
 }
 
+// Update handles PUT /dashboard/panels/:id.
+func (h *Handler) Update(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.BadRequest(c, fmt.Errorf("invalid dashboard panel id"))
+		return
+	}
+	var req createPanelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request payload: %w", err))
+		return
+	}
+	panel, err := h.svc.Update(uint(id), req.Name, req.URL)
+	if err != nil {
+		writePanelError(c, err)
+		return
+	}
+	response.OK(c, toPanelDTO(panel))
+}
+
 // List handles GET /dashboard/panels.
 func (h *Handler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
