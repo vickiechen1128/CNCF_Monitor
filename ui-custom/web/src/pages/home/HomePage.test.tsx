@@ -794,7 +794,8 @@ describe('HomePage', () => {
     expect(within(panel).getByTestId('ch-detail-link')).toHaveTextContent('查看资源采集健康状态')
     expect(within(panel).getByTestId('ch-detail-link')).toHaveAttribute('href', '/resources')
 
-    expect(screen.getByTestId('ch-legend').style.flexWrap).toBe('wrap')
+    expect(screen.getByTestId('ch-legend').style.display).toBe('grid')
+    expect(screen.getByTestId('ch-legend').style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))')
     expect(within(screen.getByTestId('ch-legend')).getAllByTestId(/^ch-legend-/)).toHaveLength(3)
 
     // 位置（第六轮走查定）：与拨测态势同处 home-health-probe-row（采集左、拨测右），
@@ -1036,6 +1037,7 @@ describe('HomePage', () => {
     expect(ifaceSection).toHaveTextContent('业务接口能否正常访问')
     expect(within(appSection).getByText('应用服务探活')).toBeInTheDocument()
     expect(appSection).toHaveTextContent('应用健康检查地址能否正常访问')
+    expect(appSection.compareDocumentPosition(ifaceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // 分区不再是独立卡片：卡内不出现嵌套 .ant-card
     expect(panel.querySelectorAll('.ant-card')).toHaveLength(0)
     // 但 probe-panel 本身是张卡（SurfaceCard）
@@ -1116,9 +1118,8 @@ describe('HomePage', () => {
     ).toHaveAttribute('href', '/resources?resource_category=interface_service')
   })
 
-  it('renders both probe cards (zero-stat for the empty category) when one category has no targets', async () => {
-    // 2026-10-17 走查：双卡并排版式下，藏掉空类别的那半会出现版面空缺；
-    // 故应用服务卡照常渲染——统计条全 0 + 一行空提示，接口服务卡短名单照常。
+  it('renders both probe cards with dashes for the empty category', async () => {
+    // 空类别保留分区与空提示，统计值统一显示 '-'。
     setupHomeMock({
       [DASHBOARD_PATH]: {
         status: 'success',
@@ -1140,11 +1141,12 @@ describe('HomePage', () => {
     })
     expect(screen.getByTestId('probe-health-rate-value')).toHaveTextContent('正常 0 / 共 1')
     expect(within(panel).getByText('接口服务探活')).toBeInTheDocument()
-    // 应用服务卡在，但总体数字全 0、无异常短名单、有空提示
     const appSection = screen.getByTestId('probe-section-application')
     expect(appSection).toHaveTextContent('应用服务探活')
-    expect(screen.getByTestId('probe-stat-application-total')).toHaveTextContent('0')
-    expect(screen.getByTestId('probe-stat-application-abnormal')).toHaveTextContent('0')
+    expect(screen.getByTestId('probe-stat-application-total')).toHaveTextContent('-')
+    expect(screen.getByTestId('probe-stat-application-normal')).toHaveTextContent('-')
+    expect(screen.getByTestId('probe-stat-application-abnormal')).toHaveTextContent('-')
+    expect(screen.getByTestId('probe-stat-application-unknown')).toHaveTextContent('-')
     expect(appSection).toHaveTextContent('暂无应用服务探活目标')
     // 接口服务分区计数照常（1 条 down → 异常 1），但不列明细（第六轮走查）
     expect(screen.getByTestId('probe-stat-interface_service-abnormal')).toHaveTextContent('1')
@@ -1527,7 +1529,7 @@ describe('HomePage', () => {
     // 通知中/静默/抑制不再进统计条（2026-10-26 用户确认），只出现在正在告警行状态里
     expect(screen.queryByTestId('alert-active-count')).not.toBeInTheDocument()
     expect(screen.queryByTestId('alert-governed-count')).not.toBeInTheDocument()
-    for (const label of ['今日告警', '今日恢复', '历史遗留告警', '历史遗留今日恢复']) {
+    for (const label of ['今日告警', '今日告警今日恢复', '历史遗留告警', '历史遗留今日恢复']) {
       expect(within(strip).getByText(label)).toBeInTheDocument()
     }
     // 四格数字统一 20px/600（等宽数字）：第七轮走查字号阶梯——

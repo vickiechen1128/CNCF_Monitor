@@ -817,3 +817,13 @@
 - **用户问题**：面板挂载只有新增，已有面板无法修改 Grafana URL。
 - **实现**：新增管理员 `PUT /api/v2/platform/dashboard/panels/:id`，复用原有 URL 校验和名称判重（排除当前 ID）；保留原 ID 与创建时间。管理页操作列新增“编辑”，弹窗首次打开回显名称和 URL，保存后刷新列表；普通用户仍只能查看。
 - **验证**：panelmount 测试覆盖修改 URL、创建时间保留、404、非法 URL、重名和 403；前端覆盖编辑回显、update 请求和列表刷新，typecheck 与变更文件 ESLint 通过。契约快照 §5 已同步，PRD 待统一回填。
+
+---
+
+## 反馈 15（2026-10-27）：探活目标口径、分区顺序与空值
+
+- 探活目标统一只统计未软删且 `draft_status=ready、enabled=true` 的 blackbox Job；draft/disabled Job 不进入探活面板，Job 名和探活地址继续匹配 `probe_success`。
+- 分区顺序改为应用服务探活在前、接口服务探活在后。
+- 分区无探活目标时，探活目标/正常/异常/未知四项均显示 `-`，保留空分区及空提示，不再展示 0。
+- 首页第二项指标文案改为“今日告警今日恢复”。
+- 验证：dashboard 测试覆盖 draft/disabled blackbox Job 不计入；首页分区顺序与空值测试通过。

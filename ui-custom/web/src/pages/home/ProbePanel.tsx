@@ -83,17 +83,16 @@ const RESOURCE_LIST_HREF = '/resources'
  *  `linkLabel` 为分区深链文案（按类型预筛资源清单）。 */
 const PROBE_SECTIONS = [
   {
-    key: 'interface_service',
-    title: '接口服务探活',
-    // 文案口径（2026-10-17 手机/领导视角走查）：不暴露 `api_url` 等字段名，改用自解释表述
-    hint: '业务接口能否正常访问',
-    linkLabel: '查看接口服务采集对象',
-  },
-  {
     key: 'application',
     title: '应用服务探活',
     hint: '应用健康检查地址能否正常访问',
     linkLabel: '查看应用服务采集对象',
+  },
+  {
+    key: 'interface_service',
+    title: '接口服务探活',
+    hint: '业务接口能否正常访问',
+    linkLabel: '查看接口服务采集对象',
   },
 ] as const
 
@@ -134,7 +133,7 @@ function ProbeStatStrip({ sectionKey, total, normal, abnormal, unknown }: {
   unknown: number
 }) {
   const { token } = theme.useToken()
-  const cell = (key: string, label: string, value: number, color?: string) => (
+  const cell = (key: string, label: string, value: number | string, color?: string) => (
     <div
       key={key}
       data-testid={`probe-stat-${sectionKey}-${key}`}
@@ -177,10 +176,10 @@ function ProbeStatStrip({ sectionKey, total, normal, abnormal, unknown }: {
         alignContent: 'stretch',
       }}
     >
-      {cell('total', '探活目标', total)}
-      {cell('normal', '正常', normal)}
-      {cell('abnormal', '异常', abnormal, abnormal > 0 ? token.colorErrorText : undefined)}
-      {cell('unknown', '未知', unknown, unknown > 0 ? token.colorTextTertiary : undefined)}
+      {cell('total', '探活目标', total === 0 ? '-' : total)}
+      {cell('normal', '正常', total === 0 ? '-' : normal)}
+      {cell('abnormal', '异常', total === 0 ? '-' : abnormal, abnormal > 0 ? token.colorErrorText : undefined)}
+      {cell('unknown', '未知', total === 0 ? '-' : unknown, unknown > 0 ? token.colorTextTertiary : undefined)}
     </div>
   )
 }

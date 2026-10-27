@@ -168,7 +168,7 @@ export function AlertStatStrip({
       key: 'resolved',
       testId: 'alert-today-resolved-count',
       value: statsUnavailable ? '-' : counts.todayResolvedTotal,
-      label: '今日恢复',
+      label: '今日告警今日恢复',
       tip: statsUnavailable
         ? '今天结束的告警条数（真实恢复 + 恢复时间未知）'
         : `今天结束的告警条数：真实恢复 ${counts.todayResolvedReal} 条 + 恢复时间未知 ${counts.todayResolvedInferred} 条`,
