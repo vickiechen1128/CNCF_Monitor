@@ -42,7 +42,7 @@ func seedEvent(
 }
 
 // TestComputeStatsFourMetrics 锁定首页四指标口径：
-// 今日告警严格按开始时间；今日恢复按 closed_at；历史遗留是当前未结且开始于今天之前；
+// 今日告警严格按开始时间；今日恢复要求开始和关闭都在今天；历史遗留是当前未结且开始于今天之前；
 // 历史遗留今日恢复 = 开始于今天之前 + 今天关闭。
 func TestComputeStatsFourMetrics(t *testing.T) {
 	db := newTestDB(t)
@@ -78,9 +78,9 @@ func TestComputeStatsFourMetrics(t *testing.T) {
 	st, err := ComputeStats(db, now, loc)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, st.TodayTotal, "只有今天开始的 resolved-today")
-	assert.EqualValues(t, 3, st.TodayResolvedTotal, "resolved-today + lost-today + legacy-resolved-real")
-	assert.EqualValues(t, 2, st.TodayResolvedReal, "resolved-today + legacy-resolved-real")
-	assert.EqualValues(t, 1, st.TodayResolvedInferred, "lost-today")
+	assert.EqualValues(t, 1, st.TodayResolvedTotal, "只有今天开始并关闭的 resolved-today")
+	assert.EqualValues(t, 1, st.TodayResolvedReal, "历史告警今天恢复不计入今日恢复")
+	assert.EqualValues(t, 0, st.TodayResolvedInferred, "lost-today 只计入历史遗留今日恢复")
 	assert.EqualValues(t, 2, st.LegacyOpenTotal, "open-yesterday + silenced-open")
 	assert.EqualValues(t, 1, st.LegacyOpenFiring)
 	assert.EqualValues(t, 1, st.LegacyOpenSilenced)
@@ -116,6 +116,13 @@ func TestListEventsFiltersAndPagination(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, byName, 1)
+
+	require.NoError(t, db.Model(&models.AlertEvent{}).Where("fingerprint = ?", "b").Update("description", "数据库连接超时").Error)
+	byDescription, total, err := ListEvents(db, ListQuery{Page: 1, PageSize: 20, Description: "连接超时"})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, byDescription, 1)
+	assert.Equal(t, "InstanceDown-b", byDescription[0].AlertName)
 
 	_, _, err = ListEvents(db, ListQuery{Page: 1, PageSize: 20, Status: "bogus"})
 	require.Error(t, err, "非法状态须显式报错")

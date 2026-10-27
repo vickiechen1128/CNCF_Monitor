@@ -1073,3 +1073,30 @@ L3（纯文案文档）──┘        │
 - **机制不变**：AM 启动观察窗、记录创建/新告警宽限、空活跃集确认、关闭比例保护、误关恢复、真实 resolved 不复活均保留。新 occurrence 在宽限期内时，旧行同样不得提前关闭。
 - **兼容**：webhook 对 resolved 缺 startsAt / 精度不一致的 fingerprint 兜底保持不变。
 - **测试**：新增同 fingerprint 昨天 18 点→今天 12 点用例，验证旧行 resolved_lost、新行创建及 occurrence_key 不同；另验证新 occurrence 宽限期内旧行不关、新行不补。`platform/alertmanager/history` 全量测试通过。
+
+## 57. 首页“今日恢复”限定为今天发生且今天恢复（2026-10-27，用户确认口径）
+
+- **问题**：原 `TodayResolved*` 只限制 `closed_at` 在今天，导致历史告警今天恢复同时计入第二项“今日恢复”和第四项“历史遗留今日恢复”，出现今日告警 2、今日恢复 3 的误解。
+- **修正**：第二项统一要求 `starts_at >= 今天0点 AND starts_at < 明天0点 AND closed_at >= 今天0点 AND closed_at < 明天0点`；真实恢复与推断终态同步收紧。第四项仍统计历史开始、今天关闭，互斥不重复。
+- **验证**：`TestComputeStatsFourMetrics` 更新为第二项仅计今天开始并关闭的记录；历史真实恢复和恢复信息丢失只进入第四项。`platform/alertmanager/history` 全量测试和 vet 通过。
+
+## 58. 历史告警仅展示 event 数据并支持筛选导出（2026-10-27，用户拍板）
+
+- **展示边界**：历史告警页不再展示 event 表之外的资源回连信息，移除“实例名”列及 `resource_name` 展示；labels/resource_id 和历史事件数据不删除，对账仍只使用 fingerprint+starts_at。采集地址和持续时长等计算字段保留。
+- **网域**：只展示 event labels 自带的 `network_domain_name`，缺失显示 `-`，不再回连网域配置或回落展示 ID。网域下拉仅用于筛选。
+- **内容列**：在已有 summary 基础上新增 description 列，长文本省略并悬浮全文。
+- **导出**：操作区新增“导出”，与列表共用筛选参数，按 100 条分页拉取当前筛选下全部记录，生成带 UTF-8 BOM 的 CSV；字段为告警名称、状态、网域、采集地址、summary、description、触发/恢复/关闭时间、持续秒数。CSV 转义引号/换行并中和表格公式前缀，不包含资源回连字段。
+- **验证**：导出工具 3 例 + 历史页面 14 例通过，覆盖中文、空网域、跨页导出、筛选参数和无 resource_name 展示。
+
+## 59. 历史告警增加 description 搜索（2026-10-27）
+
+- `GET /alert-events` 新增 `description` 模糊查询参数，SQL 为 `description LIKE %keyword%`，与既有 summary 筛选独立并存。
+- 前端新增“描述”搜索项；列表查询和 CSV 导出共用 `historyAlertParams`，导出同样遵循 description 筛选。
+- 验证：后端 ListEvents 描述筛选、前端搜索项及参数透传测试通过。
+
+## 60. 历史告警关闭时间与终态展示优化（2026-10-27）
+
+- 历史列表移除采集地址列，在恢复时间后新增关闭时间列；CSV 同步移除采集地址，保留关闭时间。
+- `lost` 用户展示名改为“已结束（恢复时间未知）”，明确表示记录已结束但 resolved/endsAt 未观测到；Tag 改为中性色，不再使用容易误解为未恢复或故障的红色。
+- 状态枚举、event 数据、对账终态和统计口径不变，仅调整页面及导出展示。
+- 验证：历史页面 14 例与导出工具 3 例通过，覆盖关闭时间列顺序、无采集地址、终态文案和 CSV 字段。

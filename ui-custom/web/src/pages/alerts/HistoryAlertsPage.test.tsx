@@ -45,6 +45,7 @@ const eventItem = (over: Partial<AlertEventItem> = {}): AlertEventItem => ({
   updated_at: '2026-09-08T02:00:00Z',
   duration_seconds: 3600,
   summary: 'CPU 使用率过高',
+  description: 'CPU 连续 5 分钟超过 90%',
   labels: { instance: '10.0.0.1:9100' },
   ...over,
 })
@@ -89,12 +90,14 @@ describe('HistoryAlertsPage（历史告警）', () => {
     })
     renderPage()
     expect(await screen.findByText('HighCPU')).toBeInTheDocument()
-    expect(screen.getByText('10.0.0.1:9100')).toBeInTheDocument()
+    expect(screen.queryByText('10.0.0.1:9100')).toBeNull()
     expect(screen.getByText('已恢复')).toBeInTheDocument()
     expect(screen.getByText('CPU 使用率过高')).toBeInTheDocument()
+    expect(screen.getByText('CPU 连续 5 分钟超过 90%')).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: '实例名' })).toBeNull()
   })
 
-  it('网域列优先展示 network_domain_name 中文名；存量记录按网域 ID 映射名称', async () => {
+  it('网域只展示 event 中的 network_domain_name，缺失时不回连也不回落 ID', async () => {
     networkDomainApiMock.list.mockResolvedValue({
       data: {
         list: [
@@ -127,10 +130,12 @@ describe('HistoryAlertsPage（历史告警）', () => {
 
     const legacyRow = screen.getByText('Legacy').closest('tr')
     expect(legacyRow).not.toBeNull()
-    expect(within(legacyRow as HTMLElement).getByText('默认域')).toBeInTheDocument()
+    expect(within(legacyRow as HTMLElement).getAllByText('-').length).toBeGreaterThan(0)
+    expect(within(legacyRow as HTMLElement).queryByText('默认域')).toBeNull()
+    expect(within(legacyRow as HTMLElement).queryByText('default')).toBeNull()
   })
 
-  it('七态按语义展示：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 恢复信息丢失', async () => {
+  it('七态按语义展示：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
@@ -156,10 +161,10 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText('已恢复')).toBeInTheDocument()
     expect(screen.getByText('静默期间结束')).toBeInTheDocument()
     expect(screen.getByText('抑制期间结束')).toBeInTheDocument()
-    expect(screen.getByText('恢复信息丢失')).toBeInTheDocument()
+    expect(screen.getByText('已结束（恢复时间未知）')).toBeInTheDocument()
   })
 
-  it('聚合告警（无实例）展示「全局/聚合」', async () => {
+  it('不再展示采集地址列', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
@@ -171,41 +176,28 @@ describe('HistoryAlertsPage（历史告警）', () => {
     })
     renderPage()
     expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
-    expect(screen.getByText('全局/聚合')).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: /采集地址/ })).toBeNull()
+    expect(screen.queryByText('全局/聚合')).toBeNull()
   })
 
-  it('实例名 / 采集地址拆两列：resource_name 回填，无资源时实例名为 -', async () => {
+  it('不展示 event 表之外的 resource_name 和采集地址', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
-        list: [
-          eventItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' }),
-          eventItem({
-            id: 2,
-            alert_name: 'HostTargetsMissing',
-            labels: {},
-            instance_address: '',
-            instance_display: '',
-            resource_name: '',
-          }),
-        ],
-        total: 2,
+        list: [eventItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' })],
+        total: 1,
         page: 1,
         page_size: 20,
       },
     })
     renderPage()
-    const row = (await screen.findByText('prod-db-01')).closest('tr')
-    expect(row).not.toBeNull()
-    expect(within(row as HTMLElement).getByText('10.0.0.1:9100')).toBeInTheDocument()
-
-    const aggRow = screen.getByText('HostTargetsMissing').closest('tr')
-    expect(aggRow).not.toBeNull()
-    expect(within(aggRow as HTMLElement).getByText('-')).toBeInTheDocument()
-    expect(within(aggRow as HTMLElement).getByText('全局/聚合')).toBeInTheDocument()
+    expect(await screen.findByText('HighCPU')).toBeInTheDocument()
+    expect(screen.queryByText('10.0.0.1:9100')).toBeNull()
+    expect(screen.queryByText('prod-db-01')).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: '实例名' })).toBeNull()
   })
 
-  it('摘要筛选框与告警名筛选框并存', async () => {
+  it('摘要、描述与告警名筛选框并存', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 20 },
@@ -213,19 +205,19 @@ describe('HistoryAlertsPage（历史告警）', () => {
     renderPage()
     expect(await screen.findByPlaceholderText('按告警名筛选')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('按摘要关键字筛选')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('按描述关键字筛选')).toBeInTheDocument()
   })
 
-  it('「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
+  it('关闭时间位于恢复时间之后，且不展示采集地址', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [], total: 0, page: 1, page_size: 20 },
+      data: { list: [eventItem()], total: 1, page: 1, page_size: 20 },
     })
     renderPage()
-    const header = await screen.findByRole('columnheader', { name: /采集地址/ })
-    const badge = header.querySelector('.anticon-info-circle')
-    expect(badge).toBeTruthy()
-    fireEvent.mouseEnter(badge!)
-    expect(await screen.findByText(/采集器地址，非业务端口/)).toBeInTheDocument()
+    const headers = await screen.findAllByRole('columnheader')
+    const texts = headers.map((h) => h.textContent)
+    expect(texts.indexOf('关闭时间')).toBe(texts.indexOf('恢复时间') + 1)
+    expect(texts).not.toContain('采集地址')
   })
 
   it('空结果展示「暂无历史告警」', async () => {
@@ -275,6 +267,10 @@ describe('HistoryAlertsPage（历史告警）', () => {
     })
     renderPage()
     await screen.findByText('暂无历史告警')
+    fireEvent.change(screen.getByPlaceholderText('按描述关键字筛选'), { target: { value: '连接超时' } })
+    await waitFor(() => expect(alertStatusApiMock.getAlertEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ description: '连接超时' }),
+    ))
 
     expect(alertStatusApiMock.getAlertEvents).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -288,5 +284,24 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(alertStatusApiMock.getAlertEvents).not.toHaveBeenCalledWith(
       expect.objectContaining({ step: expect.anything() }),
     )
+  })
+
+  it('点击导出按当前筛选条件下载 CSV', async () => {
+    const createSpy = vi.fn(() => 'blob:csv')
+    const revokeSpy = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL: createSpy, revokeObjectURL: revokeSpy })
+    alertStatusApiMock.getAlertEvents.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 100 },
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /导出/ }))
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1))
+    expect(alertStatusApiMock.getAlertEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, page_size: 100, sort: 'starts_at desc' }),
+    )
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(revokeSpy).toHaveBeenCalledWith('blob:csv')
+    vi.unstubAllGlobals()
   })
 })

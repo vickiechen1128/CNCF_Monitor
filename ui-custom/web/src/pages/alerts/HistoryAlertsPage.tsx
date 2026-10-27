@@ -4,7 +4,7 @@
  * 一行 = 一次告警发生（按 Alertmanager fingerprint 合并），不是通知流水账：
  * 未恢复期间重复推送不新增行；恢复回填同一行；恢复后再次触发新开一行。
  *
- * 七态：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 恢复信息丢失。
+ * 七态：告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）。
  * 恢复时间只有「已恢复」是真实值；后三类是恢复通知缺失时的如实标记（留空不伪造）。
  *
  * 筛选：网域 / 告警名 / 摘要 / 状态 / 触发时间范围；服务端分页。
@@ -19,7 +19,9 @@ import {
   DatePicker,
   Empty,
   Input,
+  message,
   Select,
+  Space,
   Table,
   Tag,
   Tooltip,
@@ -27,7 +29,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import config from 'antd/locale/zh_CN'
-import { InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -35,7 +37,8 @@ import { RuleGuideEmpty } from '../../components/RuleGuideLink'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import type { AlertEventItem, AlertEventStatus } from '../../types/alertmanager'
-import { useHistoryAlerts, useNetworkDomains, defaultTimeRange } from './useHistoryAlerts'
+import { useHistoryAlerts, useNetworkDomains, defaultTimeRange, historyAlertParams } from './useHistoryAlerts'
+import { downloadAlertEvents } from './historyAlertExport'
 import { alertEventStatusColor, alertEventStatusLabel } from './alertmanagerConstants'
 import { useSkin } from '../../skinContext'
 
@@ -62,42 +65,14 @@ function formatDuration(seconds?: number): string {
 }
 
 /**
- * 实例名展示（M08 v1.15 决策 70）：M01 资源清单口径，由后端按告警标签 resource_id
- * 回连资源表回填。无 resource_id（拨测 / 聚合 / 自写规则）时显示 '-'。
- */
-function instanceNameOf(item: AlertEventItem): string {
-  return item.resource_name || '-'
-}
-
-/** 采集地址展示：后端语义化字段优先，缺失回落标签链。 */
-function instanceAddressOf(item: AlertEventItem): string {
-  if (item.instance_address) return item.instance_address
-  if (item.instance_display) return item.instance_display
-  if (item.labels?.instance) return item.labels.instance
-  return '全局/聚合'
-}
-
-/** 「采集地址」列表头：挂提示直接消解 `:9100`（exporter 端口）被误读为业务端口 */
-function InstanceAddressTitle() {
-  return (
-    <span>
-      采集地址
-      <Tooltip title="采集器地址，非业务端口（如 :9100 为 exporter 监听端口，不是您填写的业务端口）">
-        <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
-      </Tooltip>
-    </span>
-  )
-}
-
-/**
  * 「恢复时间」列表头：只有「已恢复」是真实恢复时刻；「静默期间结束 / 抑制期间结束 /
- * 恢复信息丢失」是恢复通知缺失时的如实标记，恢复时间留空（不伪造）。
+ * 已结束（恢复时间未知）」是恢复通知缺失时的如实标记，恢复时间留空（不伪造）。
  */
 function RecoveryTimeTitle() {
   return (
     <span>
       恢复时间
-      <Tooltip title="仅「已恢复」记录有真实恢复时间；告警被静默/抑制吞掉恢复通知、或平台未收到恢复消息时，记录会标记为「静默期间结束 / 抑制期间结束 / 恢复信息丢失」，恢复时间留空。">
+      <Tooltip title="仅「已恢复」记录有真实恢复时间；告警被静默/抑制吞掉恢复通知、或平台未收到恢复消息时，记录会标记为「静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）」，恢复时间留空。">
         <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
       </Tooltip>
     </span>
@@ -121,6 +96,7 @@ export function HistoryAlertsPage() {
   const [networkDomain, setNetworkDomain] = useState<string>('all')
   const [alertName, setAlertName] = useState('')
   const [summary, setSummary] = useState('')
+  const [description, setDescription] = useState('')
   const [status, setStatus] = useState<'all' | AlertEventStatus>('all')
   const [timeRange, setTimeRange] = useState<[Dayjs, Dayjs]>(defaultTimeRange())
 
@@ -129,20 +105,30 @@ export function HistoryAlertsPage() {
       networkDomain,
       alertName,
       summary,
+      description,
       status,
       timeRange,
       page: 1,
       pageSize: 20,
     }),
-    [networkDomain, alertName, summary, status, timeRange],
+    [networkDomain, alertName, summary, description, status, timeRange],
   )
 
   const { items, total, page, pageSize, loading, error, permissionDenied, reload, setPage, setPageSize } =
     useHistoryAlerts(query)
+  const [exporting, setExporting] = useState(false)
 
-  // 网域 ID → 名称：优先使用告警标签中的中文展示名 network_domain_name（生成期注入），
-  // 存量记录无该标签时按网域 ID 映射 M06 名称；过滤仍传 ID，不受展示影响。
-  const domainNameById = useMemo(() => new Map(domains.map((d) => [d.id, d.name])), [domains])
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await downloadAlertEvents(historyAlertParams(query, 1, 100))
+      message.success('历史告警导出成功')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '导出失败，请稍后重试')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const columns: ColumnsType<AlertEventItem> = [
     {
@@ -167,27 +153,8 @@ export function HistoryAlertsPage() {
       dataIndex: 'network_domain',
       key: 'network_domain',
       width: 120,
-      render: (_: unknown, record: AlertEventItem) => {
-        const display = record.labels?.network_domain_name
-        if (display) return <Text>{display}</Text>
-        const id = record.network_domain
-        return <Text>{id ? (domainNameById.get(id) ?? id) : 'default'}</Text>
-      },
-    },
-    {
-      title: '实例名',
-      key: 'resource_name',
-      width: 150,
       render: (_: unknown, record: AlertEventItem) => (
-        <EllipsisText maxWidth={130}>{instanceNameOf(record)}</EllipsisText>
-      ),
-    },
-    {
-      title: <InstanceAddressTitle />,
-      key: 'instance_address',
-      width: 170,
-      render: (_: unknown, record: AlertEventItem) => (
-        <EllipsisText maxWidth={150}>{instanceAddressOf(record)}</EllipsisText>
+        <Text>{record.labels?.network_domain_name || '-'}</Text>
       ),
     },
     {
@@ -205,6 +172,13 @@ export function HistoryAlertsPage() {
       render: (v?: string) => <Text>{formatTime(v)}</Text>,
     },
     {
+      title: '关闭时间',
+      dataIndex: 'closed_at',
+      key: 'closed_at',
+      width: 170,
+      render: (v?: string) => <Text>{formatTime(v)}</Text>,
+    },
+    {
       title: '持续时长',
       dataIndex: 'duration_seconds',
       key: 'duration_seconds',
@@ -216,6 +190,12 @@ export function HistoryAlertsPage() {
       dataIndex: 'summary',
       key: 'summary',
       render: (v?: string) => <EllipsisText maxWidth={260}>{v || '-'}</EllipsisText>,
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      render: (v?: string) => <EllipsisText maxWidth={320}>{v || '-'}</EllipsisText>,
     },
     {
       title: '更新时间',
@@ -259,7 +239,7 @@ export function HistoryAlertsPage() {
                 <Text>
                   告警触发时留一行；未恢复期间的重复通知不会新增记录；恢复时回填同一行的真实恢复时间。
                   被静默/抑制的告警通知不会发出，由每分钟对账对齐状态；恢复通知缺失时标记「静默期间结束 /
-                  抑制期间结束 / 恢复信息丢失」，恢复时间留空。历史记录受保留策略限制，超过保留期的记录无法查询。
+                  抑制期间结束 / 已结束（恢复时间未知）」，恢复时间留空。历史记录受保留策略限制，超过保留期的记录无法查询。
                 </Text>
               ),
             },
@@ -309,6 +289,15 @@ export function HistoryAlertsPage() {
                 allowClear
               />
             </FilterItem>
+            <FilterItem label="描述">
+              <Input
+                style={{ width: 180 }}
+                placeholder="按描述关键字筛选"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                allowClear
+              />
+            </FilterItem>
             <FilterItem label="状态">
               <Select
                 style={{ width: 150 }}
@@ -337,9 +326,14 @@ export function HistoryAlertsPage() {
               />
             </FilterItem>
             <FilterItem label="操作">
-              <Button icon={<ReloadOutlined />} onClick={reload} loading={loading}>
-                刷新
-              </Button>
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={reload} loading={loading}>
+                  刷新
+                </Button>
+                <Button icon={<DownloadOutlined />} onClick={handleExport} loading={exporting}>
+                  导出
+                </Button>
+              </Space>
             </FilterItem>
           </FilterBar>
 

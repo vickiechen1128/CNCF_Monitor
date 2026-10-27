@@ -253,7 +253,7 @@ export type AlertEventStatus =
   | 'resolved' // 已恢复
   | 'silenced_closed' // 静默期间结束（恢复通知被静默吞掉，恢复时间未知）
   | 'inhibited_closed' // 抑制期间结束（恢复通知被抑制吞掉，恢复时间未知）
-  | 'lost' // 恢复信息丢失（平台没收到恢复消息，恢复时间未知）
+  | 'lost' // 已结束（平台未收到恢复消息，恢复时间未知）
 
 /** 历史告警事件记录（一行 = 一次告警发生，按 fingerprint 合并） */
 export interface AlertEventItem extends AlertInstanceFields {
