@@ -162,6 +162,10 @@ func main() {
 	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
 	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
 
+	// 心跳历史默认保留 7 天（EDGE_HEARTBEAT_RETENTION_DAYS 可配），单网域限量清理；
+	// 不影响 edge_agents 最新状态与 edge_target_snapshots。
+	edge.StartHeartbeatRetention(ctx, db.DB)
+
 	// M08 历史告警对账（webhook 事件流的盲区修复）：以 Alertmanager 活跃告警实况对齐
 	// 静默/抑制状态、补插漏记、关闭已消失行；AM 不可达或刚重启时整轮/关行自动跳过。
 	if amProxy, proxyErr := alerts.NewProxy(*alertmanagerURL); proxyErr != nil {

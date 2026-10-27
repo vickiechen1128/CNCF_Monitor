@@ -47,7 +47,7 @@ type EdgeComponent struct {
 // 仅作观测留痕；中心以接收时间写 EdgeAgent.last_heartbeat，本表 timestamp 仅供参考。
 type EdgeHeartbeat struct {
 	BaseModel
-	NetworkDomainID      string    `gorm:"size:64;not null;index" json:"network_domain_id"`
+	NetworkDomainID      string    `gorm:"size:64;not null;index;index:idx_edge_heartbeats_domain_timestamp,priority:1" json:"network_domain_id"`
 	AgentType            AgentType `gorm:"size:30;not null" json:"agent_type"` // 同网域登记值
 	Version              string    `gorm:"size:50" json:"version,omitempty"`
 	ConfigVersion        string    `gorm:"size:64" json:"config_version,omitempty"`                         // 中心据此判定 config_changed
@@ -61,7 +61,7 @@ type EdgeHeartbeat struct {
 	Hostname                string          `gorm:"size:200" json:"hostname,omitempty"`
 	Ip                      string          `gorm:"size:64" json:"ip,omitempty"`
 	Components              []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"`
-	Timestamp               time.Time       `json:"timestamp"` // 上报时间，仅作参考
+	Timestamp               time.Time       `gorm:"index:idx_edge_heartbeats_domain_timestamp,priority:2" json:"timestamp"` // 上报时间，仅作参考
 }
 
 // TableName returns the GORM table name.
