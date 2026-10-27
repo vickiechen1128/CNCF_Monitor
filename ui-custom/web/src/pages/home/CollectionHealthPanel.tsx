@@ -75,7 +75,6 @@ const STATE_METAS: StateMeta[] = [
   {
     key: 'down_count',
     label: '已下发未采到',
-    // 与「监控对象管理」页 `MonitorStatusBadge` 的 warning（橙）一致；反馈 12 前此处为红色
     color: (t) => t.colorWarning,
     hint: '已被采集任务选中，但 5 分钟内没有成功采集到数据（含尚未首次抓取、回传延迟、采集失败）。',
   },
@@ -172,16 +171,14 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
             })}
           </div>
 
-          {/* 图例计数（反馈 12 起三态）：每格色点 + 状态名（左）、计数（右，14px/700）。
-              两项各占约半行；格子 flex 双向拉伸，卡被行拉伸时分摊剩余高度、不留底部空白，
-              卡未被拉伸时（窄屏堆叠）回到 minHeight 自然高度。
-              每项 Tooltip 自带判定口径，不再需要面板底部脚注。 */}
+          {/* 三态图例固定单行等宽，状态之间保留间距，避免数字贴近下一项圆点。 */}
           <div
             data-testid="ch-legend"
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              columnGap: 32,
+              rowGap: 8,
               flex: 1,
               alignContent: 'stretch',
               marginTop: 14,
@@ -192,12 +189,11 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
                 key={m.key}
                 data-testid={`ch-legend-${m.key}`}
                 style={{
-                  flex: '1 1 45%',
                   minWidth: 0,
                   minHeight: 28,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
+                  gap: 10,
                 }}
               >
                 <span
@@ -218,7 +214,7 @@ export function CollectionHealthPanel({ health }: CollectionHealthPanelProps) {
                 </Tooltip>
                 <span
                   style={{
-                    marginLeft: 'auto',
+                    marginLeft: 0,
                     fontSize: HOME_FONT.title,
                     fontWeight: HOME_WEIGHT.number,
                     color: token.colorText,

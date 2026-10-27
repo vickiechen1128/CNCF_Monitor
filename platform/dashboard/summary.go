@@ -439,7 +439,7 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	//    拨测目标不进 resource_count / by_category（这两类资源本身已作为台账计入），
 	//    但**资源模式的选择计入 monitored_count**（H9 统一口径，见 loadSelectedResourceIDs）。
 	var bjobs []models.ScrapeJob
-	if err := db.Where("job_type = ?", models.JobTypeBlackbox).Find(&bjobs).Error; err != nil {
+	if err := db.Where("job_type = ? AND draft_status = ? AND enabled = ?", models.JobTypeBlackbox, scrapeJobDraftReady, true).Find(&bjobs).Error; err != nil {
 		return nil, fmt.Errorf("list blackbox jobs: %w", err)
 	}
 	// 应用字典（决策 92）：app_code → app_name 中文展示名。与第9 步 by_app 共用同一次查询结果。

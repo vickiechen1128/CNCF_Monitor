@@ -153,6 +153,7 @@ export interface AlertEventQuery extends Record<string, string | number | undefi
   severity?: string
   alert_name?: string
   summary?: string
+  description?: string
   network_domain?: string
   starts_from?: string
   starts_to?: string

@@ -298,10 +298,14 @@ func seedScrapeJobs(t *testing.T, db *gorm.DB) {
 		newJob("job-standard-c", models.JobTypeStandard, "draft", true, []string{"res-host-3"}),
 		newJob("job-standard-d", models.JobTypeStandard, "ready", false, []string{"res-db-2"}),
 		newJob("job-blackbox-a", models.JobTypeBlackbox, "ready", true, []string{"res-is-1", "res-is-2", "res-is-3"}),
+		newJob("job-blackbox-draft", models.JobTypeBlackbox, "draft", true, []string{"res-is-1", "res-is-2", "res-is-3"}),
+		newJob("job-blackbox-disabled", models.JobTypeBlackbox, "ready", false, []string{"res-is-1", "res-is-2", "res-is-3"}),
 	}
 	// 拨测目标改走资源选择：blackbox Job 通过 selected_instance_ids 选择接口服务资源，
-	// 地址取所选资源的 api_url（不再手填 blackbox_targets）。
+	// 地址取所选资源的 api_url（不再手填 blackbox_targets）。draft/disabled 不得计入。
 	jobs[4].ResourceType = models.ResourceTypeInterfaceService
+	jobs[5].ResourceType = models.ResourceTypeInterfaceService
+	jobs[6].ResourceType = models.ResourceTypeInterfaceService
 	for i := range jobs {
 		require.NoError(t, db.Create(&jobs[i]).Error)
 	}
@@ -441,9 +445,9 @@ func TestSummaryHandler(t *testing.T) {
 		assert.Equal(t, "管理网域", p.NetworkDomainName)
 		assert.Nil(t, p.LastProbeAt)
 	}
-	// 采集 Job：未软删 5 个（standard 4 + blackbox 1），其中 enabled=true 4 个。
-	assert.Equal(t, 5, s.ScrapeJobCount)
-	assert.Equal(t, 4, s.ScrapeJobEnabledCount)
+	// 采集 Job 总数包含草稿/禁用项；探活目标只含 ready+enabled blackbox Job。
+	assert.Equal(t, 7, s.ScrapeJobCount)
+	assert.Equal(t, 5, s.ScrapeJobEnabledCount)
 
 	// 最近下发：created_at 最早 i=1（now-1h）最新，前 5 条为 DEP-001..005。
 	require.Len(t, s.RecentDeployments, 5, "应返回最近 5 条下发记录")

@@ -129,6 +129,7 @@ type ListQuery struct {
 	Severity      string
 	AlertName     string
 	Summary       string
+	Description   string
 	NetworkDomain string
 	StartsFrom    *time.Time
 	StartsTo      *time.Time
@@ -177,6 +178,9 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 	}
 	if q.Summary != "" {
 		base = base.Where("summary LIKE ?", "%"+q.Summary+"%")
+	}
+	if q.Description != "" {
+		base = base.Where("description LIKE ?", "%"+q.Description+"%")
 	}
 	if q.NetworkDomain != "" {
 		base = base.Where("network_domain = ?", q.NetworkDomain)
@@ -260,7 +264,7 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 //
 // 四指标（2026-10-26 用户确认，对齐 MonitorStack 历史告警口径）：
 //   - 今日告警：starts_at 落在今天自然日内的发生数（严格按开始时间，不含昨天开始今天仍在持续的）；
-//   - 今日恢复：closed_at 落在今天的终态数（真实恢复 + 恢复时间未知）；
+//   - 今日恢复：starts_at 与 closed_at 均落在今天的终态数（真实恢复 + 恢复时间未知）；
 //   - 历史遗留告警：当前仍未结束、且 starts_at 早于今天 0 点的积压快照；
 //   - 历史遗留今日恢复：starts_at 早于今天 0 点、closed_at 落在今天的终态数。
 //
@@ -312,10 +316,10 @@ func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error)
 	}{
 		// 今日告警：严格按开始时间落在今天自然日内。
 		{&st.TodayTotal, base().Where("starts_at >= ? AND starts_at < ?", d0, d1)},
-		// 今日恢复：终态且关闭时间落在今天。
-		{&st.TodayResolvedTotal, base().Where("status IN ? AND closed_at >= ? AND closed_at < ?", terminal, d0, d1)},
-		{&st.TodayResolvedReal, base().Where("status = ? AND closed_at >= ? AND closed_at < ?", models.AlertEventStatusResolved, d0, d1)},
-		{&st.TodayResolvedInferred, base().Where("status IN ? AND closed_at >= ? AND closed_at < ?", inferred, d0, d1)},
+		// 今日恢复：开始时间和关闭时间都落在今天，历史告警今天恢复只计入历史遗留指标。
+		{&st.TodayResolvedTotal, base().Where("status IN ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", terminal, d0, d1, d0, d1)},
+		{&st.TodayResolvedReal, base().Where("status = ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", models.AlertEventStatusResolved, d0, d1, d0, d1)},
+		{&st.TodayResolvedInferred, base().Where("status IN ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", inferred, d0, d1, d0, d1)},
 		// 历史遗留告警：当前未结、开始时间早于今天 0 点。
 		{&st.LegacyOpenTotal, base().Where("status IN ? AND starts_at < ?", open, d0)},
 		{&st.LegacyOpenFiring, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusFiring, d0)},
@@ -357,6 +361,7 @@ func parseListQuery(c *gin.Context) (ListQuery, error) {
 	q.Severity = strings.TrimSpace(c.Query("severity"))
 	q.AlertName = strings.TrimSpace(c.Query("alert_name"))
 	q.Summary = strings.TrimSpace(c.Query("summary"))
+	q.Description = strings.TrimSpace(c.Query("description"))
 	q.NetworkDomain = strings.TrimSpace(c.Query("network_domain"))
 	if v := strings.TrimSpace(c.Query("sort")); v != "" {
 		low := strings.ToLower(v)

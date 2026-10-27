@@ -15,6 +15,7 @@ export interface HistoryAlertsQuery {
   networkDomain: string
   alertName: string
   summary: string
+  description: string
   status: 'all' | AlertEventStatus
   timeRange: [Dayjs, Dayjs]
   page: number
@@ -77,18 +78,7 @@ export function useHistoryAlerts(q: HistoryAlertsQuery): HistoryAlertsResult {
   }, [])
 
   const load = useCallback(async () => {
-    const [start, end] = clampTimeRange(q.timeRange)
-    const params: Record<string, string | number | undefined> = {
-      page,
-      page_size: pageSize,
-      starts_from: start.toISOString(),
-      starts_to: end.toISOString(),
-      sort: 'starts_at desc',
-    }
-    if (q.networkDomain && q.networkDomain !== 'all') params.network_domain = q.networkDomain
-    if (q.alertName.trim()) params.alert_name = q.alertName.trim()
-    if (q.summary.trim()) params.summary = q.summary.trim()
-    if (q.status !== 'all') params.status = q.status
+    const params = historyAlertParams(q, page, pageSize)
 
     try {
       const res = await alertStatusApi.getAlertEvents(params)
@@ -157,4 +147,22 @@ function clampTimeRange(range: [Dayjs, Dayjs]): [Dayjs, Dayjs] {
     start = end.subtract(MAX_WINDOW_HOURS, 'hour')
   }
   return [start, end]
+}
+
+/** 列表与导出共用筛选参数，保证导出内容和当前查询口径一致。 */
+export function historyAlertParams(q: HistoryAlertsQuery, page: number, pageSize: number): Record<string, string | number | undefined> {
+  const [start, end] = clampTimeRange(q.timeRange)
+  const params: Record<string, string | number | undefined> = {
+    page,
+    page_size: pageSize,
+    starts_from: start.toISOString(),
+    starts_to: end.toISOString(),
+    sort: 'starts_at desc',
+  }
+  if (q.networkDomain && q.networkDomain !== 'all') params.network_domain = q.networkDomain
+  if (q.alertName.trim()) params.alert_name = q.alertName.trim()
+  if (q.summary.trim()) params.summary = q.summary.trim()
+  if (q.description.trim()) params.description = q.description.trim()
+  if (q.status !== 'all') params.status = q.status
+  return params
 }

@@ -328,7 +328,7 @@ export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
 
 /**
  * 历史告警事件七态展示名（webhook 留痕 + 对账）。
- * 静默/抑制只掐通知、不改事实；「静默期间结束 / 抑制期间结束 / 恢复信息丢失」是
+ * 静默/抑制只掐通知、不改事实；「静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）」是
  * 恢复通知缺失时的如实标记（恢复时间留空，不伪造）。
  */
 export const alertEventStatusLabel: Record<AlertEventStatus, string> = {
@@ -338,10 +338,10 @@ export const alertEventStatusLabel: Record<AlertEventStatus, string> = {
   resolved: '已恢复',
   silenced_closed: '静默期间结束',
   inhibited_closed: '抑制期间结束',
-  lost: '恢复信息丢失',
+  lost: '已结束（恢复时间未知）',
 }
 
-/** 历史告警事件七态 Tag 色（告警中红 / 静默橙 / 抑制蓝 / 已恢复绿 / 缺失类灰红） */
+/** 历史告警事件七态 Tag 色（未结状态分色；终态使用成功或中性色，恢复时间未知不示警红） */
 export const alertEventStatusColor: Record<AlertEventStatus, string> = {
   firing: 'error',
   silenced: 'warning',
@@ -349,7 +349,7 @@ export const alertEventStatusColor: Record<AlertEventStatus, string> = {
   resolved: 'success',
   silenced_closed: 'default',
   inhibited_closed: 'default',
-  lost: 'error',
+  lost: 'default',
 }
 
 // =====================================================================

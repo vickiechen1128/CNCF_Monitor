@@ -158,3 +158,16 @@
   - H-1/M-1/M-2/M-3 待 **security-reviewer 复检**后 `#24` 置 closed。
   - PRD `Module_08_*.md`（design 空间，非开发 Agent 可写）的 PL-3 端点与 B 路线物化行为待 design 侧同步（dev-feedback #13 / #17）。
   - `design/module-mvp-demo` 分支的 `design-decisions.md` 需同步决策 74 方案 B 补充块。
+
+## M08-F61：历史告警 firing 消失等待 resolved 到达窗口
+
+- **commit**：M08-F61（本提交）。
+- **背景**：正常恢复时，Alertmanager 活跃集中的告警先消失，resolved webhook 受 `group_interval` 影响后到；原对账会抢先关 `lost`，随后再由 resolved 自愈，造成历史状态抖动。
+- **修改文件**：
+  - `platform/alertmanager/history/reconciler.go`：新增 firing occurrence 连续消失 5 分钟窗口；窗口内重新活跃则重置计时，resolved 到达后直接真实恢复；同指纹新 occurrence 活跃时旧行立即关闭，避免未结指纹唯一索引阻塞补插。静默/抑制关闭不额外等待，原 2 分钟创建宽限保持不变。
+  - `platform/alertmanager/history/reconciler_test.go`：新增窗口期关闭、窗口内 resolved、重新活跃重置计时测试；调整空活跃集、关闭比例及静默/抑制关闭时间线。
+- **验证**：
+  - `go test ./platform/alertmanager/history -count=1` 通过；`go test -race ./platform/alertmanager/history -count=1` 通过；`go vet ./platform/...` 通过。
+  - 服务以内存 DB 在 `:18080` 启动，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；验证后停服并释放端口。
+  - 全量 `go test ./platform/...` 中本包通过；未修改的 `admin/storagelog`、`cmd/metric-center`、`db`、`strategy/rule` 仍有本机环境相关失败，未借此修改其他模块。
+- **契约 / PRD 偏离**：无 API、schema、七态枚举变化；生产路由 `group_interval` 调整为 1m 由部署配置侧执行，不在本提交修改。
