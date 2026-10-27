@@ -1065,3 +1065,11 @@ L3（纯文案文档）──┘        │
 - **架构 checklist**：无 schema/migration；未使用 GetResourceField；新增 inhibition handler → service → repository；未修改中央 main/db 注册；热点为既有唯一生成器与 route 保存函数，未新建第二条下发链。
 - **分段 pending 提示（用户补充）**：后端比较 pending 与上一确认版本的 route / inhibit_rules，分别返回 `route_changed` / `inhibit_rules_changed`。A 段变化只在 A 页提示，B 段变化只在 B 页提示，都变则都提示；确认仍共用一张变更单。
 - **验证**：后端 `platform/alertmanager/...`、generator、draft 测试及 `go vet ./platform/...` 通过；前端相关 27 个测试、typecheck、变更范围 ESLint 与 build 通过；分段提示改动后路由/抑制 36 个前端测试通过。隔离测试库真实 API 保存抑制后生成 `CHG-20261026-001`，草稿 YAML 同时包含 route / receivers / inhibit_rules；随后保存路由，抑制仍保留。未触碰默认数据库与生产 Alertmanager，临时服务和文件已清理。
+
+## 56. 对账判重改为 occurrence ID，覆盖重启后 startsAt 重置（2026-10-27，用户确认 bug）
+
+- **现象**：同 fingerprint 的历史告警仍为昨天 18 点且未结，但 AM 当前 startsAt 已变成今天 12 点；旧对账只按 fingerprint 跳过，导致旧 occurrence 永不关闭、新 occurrence 不入库。
+- **修复**：对账 map 全部改为 `fingerprint + starts_at` 的 occurrence key；状态对齐只作用于同一 occurrence。不同 occurrence 过原宽限期后，旧行按原规则关闭（ firing → resolved_lost，静默/抑制沿用对应终态），新行按原补插规则创建。旧数据缺 occurrence_key 时由 fingerprint+starts_at 重建。
+- **机制不变**：AM 启动观察窗、记录创建/新告警宽限、空活跃集确认、关闭比例保护、误关恢复、真实 resolved 不复活均保留。新 occurrence 在宽限期内时，旧行同样不得提前关闭。
+- **兼容**：webhook 对 resolved 缺 startsAt / 精度不一致的 fingerprint 兜底保持不变。
+- **测试**：新增同 fingerprint 昨天 18 点→今天 12 点用例，验证旧行 resolved_lost、新行创建及 occurrence_key 不同；另验证新 occurrence 宽限期内旧行不关、新行不补。`platform/alertmanager/history` 全量测试通过。

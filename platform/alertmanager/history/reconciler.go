@@ -1,12 +1,12 @@
 // reconciler.go 实现历史告警的分钟级对账：
 //
 //	webhook 事件流的盲区 = 被静默/抑制的告警通知被 Alertmanager 吞掉、推送本身可能丢；
-//	对账以 Alertmanager 活跃告警全集为准，补齐这些事：
-//	  1. 对齐未结行状态：静默中 / 抑制中 / 告警中（静默优先于抑制）；
-//	  2. 恢复被误关的行：对账判定关闭后重新活跃的，在原行恢复未结束状态；
-//	  3. 补插漏记的行（仅 state=active 的触发通知丢失）；
-//	  4. 关闭已消失的未结行：静默中 → 静默期间结束；抑制中 → 抑制期间结束；
-//	     其余 → 恢复信息丢失。
+//	对账以 Alertmanager 活跃告警全集为准，按 fingerprint+starts_at 的 occurrence ID 判重：
+//	  1. 对齐同一 occurrence 的状态：静默中 / 抑制中 / 告警中（静默优先于抑制）；
+//	  2. 恢复被误关的行：同一 occurrence 重新活跃的，在原行恢复未结束状态；
+//	  3. 补插漏记的 occurrence（仅 state=active 的触发通知丢失）；
+//	  4. 关闭已消失的旧 occurrence：静默中 → 静默期间结束；抑制中 → 抑制期间结束；
+//	     其余 → 恢复信息丢失。同指纹不同 starts_at 属不同 occurrence，不得合并。
 //
 // 写入权单一：未结三态互跳只由本任务写（webhook 只插 firing / 回填 resolved）。
 // 安全阀：
@@ -142,12 +142,22 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 		return summary, fmt.Errorf("query active alerts: %w", err)
 	}
 
-	activeByFingerprint := make(map[string]ActiveAlert, len(active))
+	activeByOccurrence := make(map[string]ActiveAlert, len(active))
+	youngFingerprints := make(map[string]struct{}, len(active))
 	for _, a := range active {
-		if a.Fingerprint == "" {
-			continue // 无指纹无法与留痕对上，不参与对账
+		startsAt := a.StartsAt
+		if startsAt.IsZero() {
+			startsAt = now
 		}
-		activeByFingerprint[a.Fingerprint] = a
+		startsAt = models.NormalizeAlertEventTime(startsAt)
+		occurrenceKey := models.AlertEventOccurrenceKey(a.Fingerprint, startsAt)
+		if occurrenceKey == "" {
+			continue
+		}
+		activeByOccurrence[occurrenceKey] = a
+		if now.Sub(startsAt) < closeGrace {
+			youngFingerprints[a.Fingerprint] = struct{}{}
+		}
 	}
 
 	var open []models.AlertEvent
@@ -156,16 +166,17 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 	}
 
 	stillOpen := make(map[string]struct{}, len(open))
-	openByFingerprint := make(map[string]*models.AlertEvent, len(open))
+	openByOccurrence := make(map[string]*models.AlertEvent, len(open))
 	for i := range open {
 		ev := &open[i]
-		if ev.Fingerprint == "" {
+		occurrenceKey := alertEventOccurrenceKey(ev)
+		if occurrenceKey == "" {
 			continue
 		}
-		stillOpen[ev.Fingerprint] = struct{}{}
-		openByFingerprint[ev.Fingerprint] = ev
+		stillOpen[occurrenceKey] = struct{}{}
+		openByOccurrence[occurrenceKey] = ev
 
-		a, exists := activeByFingerprint[ev.Fingerprint]
+		a, exists := activeByOccurrence[occurrenceKey]
 		if !exists {
 			continue
 		}
@@ -192,11 +203,15 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 
 	// 收集待关闭行：未结、且已不在活跃集；只有 AM 稳定且过了宽限期才进入候选。
 	var candidates []closeCandidate
-	for fp, ev := range openByFingerprint {
-		if _, ok := activeByFingerprint[fp]; ok {
+	for occurrenceKey, ev := range openByOccurrence {
+		if _, ok := activeByOccurrence[occurrenceKey]; ok {
 			continue
 		}
 		if !canClose || now.Sub(ev.CreatedAt) < closeGrace {
+			summary.Skipped++
+			continue
+		}
+		if _, young := youngFingerprints[ev.Fingerprint]; young {
 			summary.Skipped++
 			continue
 		}
@@ -210,7 +225,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 		candidates = append(candidates, closeCandidate{event: ev, target: target})
 	}
 
-	if r.mayClose(len(activeByFingerprint), len(openByFingerprint), len(candidates)) {
+	if r.mayClose(len(activeByOccurrence), len(openByOccurrence), len(candidates)) {
 		for _, c := range candidates {
 			res := r.db.Model(&models.AlertEvent{}).
 				Where("id = ? AND status = ?", c.event.ID, c.event.Status).
@@ -234,8 +249,8 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 	}
 
 	// 活跃集中有、库里没有未结行的：先尝试恢复被对账误关的原行，再决定是否补插。
-	for fp, a := range activeByFingerprint {
-		if _, ok := stillOpen[fp]; ok {
+	for occurrenceKey, a := range activeByOccurrence {
+		if _, ok := stillOpen[occurrenceKey]; ok {
 			continue
 		}
 		startsAt := a.StartsAt
@@ -243,15 +258,11 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 			startsAt = now
 		}
 		startsAt = models.NormalizeAlertEventTime(startsAt)
-		occurrenceKey := models.AlertEventOccurrenceKey(fp, startsAt)
-		if occurrenceKey == "" {
-			continue
-		}
 
 		var ev models.AlertEvent
 		hit, err := findByOccurrenceKey(r.db, occurrenceKey, &ev)
 		if err != nil {
-			return summary, fmt.Errorf("load alert occurrence %q: %w", fp, err)
+			return summary, fmt.Errorf("load alert occurrence %q: %w", occurrenceKey, err)
 		}
 		if hit {
 			if models.IsOpenAlertEventStatus(ev.Status) {
@@ -297,7 +308,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (Summary, error) {
 				summary.Skipped++
 				continue
 			}
-			return summary, fmt.Errorf("backfill alert event %q: %w", fp, err)
+			return summary, fmt.Errorf("backfill alert event %q: %w", occurrenceKey, err)
 		}
 		summary.Backfilled++
 	}
@@ -332,6 +343,20 @@ func (r *Reconciler) mayClose(activeCount, totalOpen, candidateCount int) bool {
 	}
 	r.suspiciousRounds = 0
 	return true
+}
+
+// alertEventOccurrenceKey 返回历史行的对账键；旧数据缺冗余 key 时由指纹和开始时间重建。
+func alertEventOccurrenceKey(ev *models.AlertEvent) string {
+	if ev == nil {
+		return ""
+	}
+	if ev.OccurrenceKey != "" {
+		return ev.OccurrenceKey
+	}
+	if ev.StartsAt == nil {
+		return ""
+	}
+	return models.AlertEventOccurrenceKey(ev.Fingerprint, models.NormalizeAlertEventTime(*ev.StartsAt))
 }
 
 // activeAlertStatus 由 AM 实况计算目标状态：静默/时间静音优先于抑制，其余为告警中。
