@@ -27,6 +27,7 @@ func TestHeartbeatBootstrapsBlankAgentPullDomain(t *testing.T) {
 		&models.CITypeExporterMapping{},
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		&models.BlackboxModule{},
 		&models.ConfigDraft{},
 	} {
 		require.NoError(t, db.AutoMigrate(m))

@@ -628,7 +628,7 @@ func TestEndToEndSmoke(t *testing.T) {
 	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "biz_code=authorized-ops&status=online 组合应命中 1 台")
 
 	// 3. K-2：标签模板关联实例 keyword / status 服务端筛选。
-	//    创建 2 个 application 资源（svc-online / svc-offline），默认 application 模板应命中。
+	//    预置默认模板已移除（2026-10-28 决策），显式创建 application 自定义模板承载筛选。
 	for _, ov := range []map[string]interface{}{
 		{"service_name": "svc-online", "endpoint": "10.0.2.1:8081"},
 		{"service_name": "svc-offline", "endpoint": "10.0.2.2:8082", "status": "offline"},
@@ -636,18 +636,12 @@ func TestEndToEndSmoke(t *testing.T) {
 		code, out := c.json("POST", "/api/v2/platform/resources", mustJSON(t, resourcePayload("application", ov)))
 		require.Equal(t, http.StatusOK, code, "创建 application 应成功：%v", out)
 	}
-	code, out = c.json("GET", "/api/v2/platform/label-templates", "")
-	require.Equal(t, http.StatusOK, code)
-	var defaultAppID float64
-	for _, it := range listItems(out) {
-		m := it.(map[string]interface{})
-		if m["name"] == "default-application" {
-			defaultAppID = m["id"].(float64)
-		}
-	}
-	require.NotZero(t, defaultAppID, "应存在 default-application 种子模板")
+	code, out = c.json("POST", "/api/v2/platform/label-templates",
+		mustJSON(t, map[string]interface{}{"name": "smoke-app", "resource_category": "application"}))
+	require.Equal(t, http.StatusOK, code, "创建 application 模板应成功：%v", out)
+	appTemplateID := out["data"].(map[string]interface{})["id"].(float64)
 
-	base := fmt.Sprintf("/api/v2/platform/label-templates/%.0f/resources", defaultAppID)
+	base := fmt.Sprintf("/api/v2/platform/label-templates/%.0f/resources", appTemplateID)
 	code, out = c.json("GET", base, "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, float64(2), out["data"].(map[string]interface{})["total"], "默认模板应关联 2 个实例")
@@ -802,17 +796,10 @@ func TestEndToEndResourceLabels(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	appID := out["data"].(map[string]interface{})["resource_id"].(string)
 
-	// 1. 读标签：system 标签（默认模板实时计算，不落库）已在 items 中。
+	// 1. 读标签：预置默认模板已移除（2026-10-28 决策），新资源无 system 标签、仅有 user 标签。
 	code, out = c.json("GET", "/api/v2/platform/resources/"+appID+"/labels", "")
 	require.Equal(t, http.StatusOK, code)
-	items := out["data"].(map[string]interface{})["items"].([]interface{})
-	keys := make([]string, 0, len(items))
-	for _, it := range items {
-		keys = append(keys, it.(map[string]interface{})["key"].(string))
-	}
-	for _, want := range []string{"app", "env", "cluster", "biz", "service_name", "health_check_url"} {
-		assert.Contains(t, keys, want, "application 默认模板应生成 system 标签 %s", want)
-	}
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"], "无默认模板时 system 标签为空")
 
 	// 2. application 可写 user 标签。
 	code, out = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"team","value":"core"}`)
@@ -826,11 +813,11 @@ func TestEndToEndResourceLabels(t *testing.T) {
 	code, _ = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"team","value":"dup"}`)
 	assert.Equal(t, http.StatusConflict, code)
 
-	// 4. Prometheus 内置 label → 400；system 标签 key → 400；非法 key → 400。
+	// 4. Prometheus 内置 label → 400；系统注入标签 key → 400；非法 key → 400。
 	code, _ = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"instance","value":"x"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
-	code, _ = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"app","value":"x"}`)
-	assert.Equal(t, http.StatusBadRequest, code, "user 不可覆盖 system 标签")
+	code, _ = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"network_domain","value":"x"}`)
+	assert.Equal(t, http.StatusBadRequest, code, "user 不可覆盖系统注入标签")
 	code, _ = c.json("POST", "/api/v2/platform/resources/"+appID+"/labels", `{"key":"UPPER","value":"x"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
@@ -859,25 +846,17 @@ func TestEndToEndResourceLabels(t *testing.T) {
 }
 
 // TestEndToEndLabelTemplates 覆盖标签模板全链路（验收要点 4）：
-// 列表（种子默认模板）→ 创建/重名冲突 → 更新（category 不可改）→ 克隆 →
-// mappings（保护 label 拦截 / composite 例外 / 默认模板只读）→ 关联实例。
+// 列表（预置模板已移除）→ 创建/重名冲突 → 更新（category 不可改）→ 克隆 →
+// mappings（保护 label 拦截 / composite 例外）→ 关联实例。
 func TestEndToEndLabelTemplates(t *testing.T) {
 	r, _ := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
-	// 1. 列表：种子默认模板 6 个（每类一个）。
+	// 1. 列表：预置默认模板已移除（2026-10-28 决策），新库无模板。
 	code, out := c.json("GET", "/api/v2/platform/label-templates", "")
 	require.Equal(t, http.StatusOK, code)
 	ldata := out["data"].(map[string]interface{})
-	assert.Equal(t, float64(6), ldata["total"])
-	var defaultAppID float64
-	for _, it := range listItems(out) {
-		m := it.(map[string]interface{})
-		if m["name"] == "default-application" {
-			defaultAppID = m["id"].(float64)
-		}
-	}
-	require.NotZero(t, defaultAppID, "应存在 default-application 种子模板")
+	assert.Equal(t, float64(0), ldata["total"])
 
 	// 2. 创建自定义模板（含一条 mapping）。
 	code, out = c.json("POST", "/api/v2/platform/label-templates", mustJSON(t, map[string]interface{}{
@@ -904,22 +883,22 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, _ = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", customID), `{"resource_category":"host"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
-	// 5. 克隆默认模板：新名派生、is_default=false、mappings 全量复制（application 默认 8 条，
-	// 含 resource_id 与决策 110 新增的 platform_code → platform）。
-	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/clone", "")
+	// 5. 克隆自定义模板：新名派生、is_default=false、mappings 全量复制（1 条）。
+	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", customID)+"/clone", "")
 	require.Equal(t, http.StatusOK, code)
 	clone := out["data"].(map[string]interface{})
 	cloneID := clone["id"].(float64)
-	assert.Equal(t, "default-application 副本", clone["name"])
+	assert.Equal(t, "app-custom-v2 副本", clone["name"])
 	assert.Equal(t, false, clone["is_default"])
-	assert.Len(t, clone["mappings"].([]interface{}), 8)
+	assert.Len(t, clone["mappings"].([]interface{}), 1)
 
-	// 6. 默认模板禁止删除 → 400。
-	code, _ = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID), "")
-	assert.Equal(t, http.StatusBadRequest, code)
+	// 6. 预置模板移除后 is_default=true 过滤为空（创建恒非默认）。
+	code, out = c.json("GET", "/api/v2/platform/label-templates?is_default=true", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
 
 	// 7. mappings：克隆模板可写。resource_field 目标 instance → 400（保护 label）；
-	// composite→instance 例外 → 200；owner → 200。
+	// composite→instance 例外 → 200；owner1 → 200。
 	code, _ = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "instance", "target_label": "instance"}))
 	assert.Equal(t, http.StatusBadRequest, code, "非 composite 目标 instance 应被拦截")
@@ -927,27 +906,22 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "composite", "source_field": "instance_ip:port"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 9, "新增 composite→instance 映射")
+	assert.Len(t, out["data"].([]interface{}), 2, "新增 composite→instance 映射")
 
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
-		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "owner", "target_label": "owner"}))
+		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "owner1", "target_label": "owner1"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 10)
+	assert.Len(t, out["data"].([]interface{}), 3)
 
-	// 8. 更新 / 删除 mapping。
-	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/9", `{"source_field":"instance_ip:port"}`)
+	// 8. 更新 / 删除 mapping（mapping_id 为模板内 1-based 序号）。
+	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/2", `{"source_field":"instance_ip:port"}`)
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 10)
-	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/10", "")
+	assert.Len(t, out["data"].([]interface{}), 3)
+	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/3", "")
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, float64(10), out["data"].(map[string]interface{})["mapping_id"])
+	assert.Equal(t, float64(3), out["data"].(map[string]interface{})["mapping_id"])
 
-	// 9. 默认模板 mappings 只读 → 400。
-	code, _ = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/mappings",
-		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "owner", "target_label": "owner"}))
-	assert.Equal(t, http.StatusBadRequest, code)
-
-	// 10. 关联实例：创建 2 个 application 资源，默认 application 模板应关联命中。
+	// 9. 关联实例：创建 2 个 application 资源，application 模板应关联命中。
 	for _, ov := range []map[string]interface{}{
 		{"service_name": "svc-1", "endpoint": "10.0.0.21:8081"},
 		{"service_name": "svc-2", "endpoint": "10.0.0.22:8082"},
@@ -955,11 +929,11 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 		code, _ = c.json("POST", "/api/v2/platform/resources", mustJSON(t, resourcePayload("application", ov)))
 		require.Equal(t, http.StatusOK, code)
 	}
-	code, out = c.json("GET", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/resources", "")
+	code, out = c.json("GET", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/resources", "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, float64(2), out["data"].(map[string]interface{})["total"])
 
-	// 11. 删除自定义模板；未命中 → 404。
+	// 10. 删除自定义模板；未命中 → 404。
 	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", customID), "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, customID, out["data"].(map[string]interface{})["template_id"])
@@ -1520,7 +1494,7 @@ func TestEndToEndQueryCoverageRoutes(t *testing.T) {
 	assert.Equal(t, float64(1), summary["collecting"])
 	assert.Equal(t, float64(2), summary["pending_down"])
 	assert.Equal(t, float64(2), summary["not_monitored"])
-	assert.Equal(t, 0.2, summary["coverage_rate"], "coverage_rate = 1/5 = 0.2")
+	assert.Equal(t, 0.6, summary["coverage_rate"], "coverage_rate = 3/5 = 0.6（被任一 Job 选中即已覆盖）")
 
 	// state 过滤走真实路由。
 	code, out = c.json("GET", "/api/v1/health/coverage?state=not_monitored", "")
