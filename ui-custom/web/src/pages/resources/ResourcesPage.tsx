@@ -51,7 +51,7 @@ import {
   cloudDictApi,
   platformDictApi,
 } from '../../api/resources'
-import type { ResourceReferenceJob, ResourceReferenceResponse } from '../../api/resources'
+import type { ResourceListParams, ResourceReferenceJob, ResourceReferenceResponse } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
   AppPlatformRel,
@@ -83,6 +83,7 @@ import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
 import { TemplateDownloadModal } from './TemplateDownloadModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
+import { downloadResources } from './resourceExport'
 import { useSkin } from '../../skinContext'
 import type { SkinTokens } from '../../skins'
 
@@ -326,6 +327,19 @@ export function ResourcesPage() {
   // F-4：独立「下载模板」弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离
   const [templateOpen, setTemplateOpen] = useState(false)
   const [recordsOpen, setRecordsOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await downloadResources(category, filters as ResourceListParams)
+      message.success('资源导出成功')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '资源导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   /**
    * F-17「列设置」：按 `resource_category` 分区的可见列偏好（纯前端视图态，不上传后端）。
@@ -1136,6 +1150,9 @@ export function ResourcesPage() {
                 </Button>
                 <Button icon={<UploadOutlined />} onClick={openImportModal}>
                   Excel 导入
+                </Button>
+                <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void handleExport()}>
+                  导出 CSV
                 </Button>
                 <Button icon={<HistoryOutlined />} onClick={() => setRecordsOpen(true)}>
                   导入记录

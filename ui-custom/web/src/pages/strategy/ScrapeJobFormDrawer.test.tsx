@@ -12,6 +12,7 @@ const domainListMock = vi.fn()
 const mappingListMock = vi.fn()
 const labelListMock = vi.fn()
 const exporterCreateMock = vi.fn()
+const blackboxModuleListMock = vi.fn()
 
 vi.mock('../../api/domain', () => ({
   networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
@@ -38,6 +39,10 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
 }))
 
+vi.mock('../../api/blackboxModules', () => ({
+  blackboxModuleApi: { list: (...args: unknown[]) => blackboxModuleListMock(...args) },
+}))
+
 vi.mock('../../api/configCenter', () => ({
   configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
 }))
@@ -59,6 +64,25 @@ beforeEach(() => {
   mappingListMock.mockReset()
   labelListMock.mockReset()
   exporterCreateMock.mockReset()
+  blackboxModuleListMock.mockReset()
+  blackboxModuleListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query'].map((name, index) => ({
+        id: index + 1,
+        name,
+        enabled: true,
+        content: `${name}:\n  prober: http\n  timeout: 5s\n`,
+        prober: 'http',
+        referenced_jobs: 0,
+        created_at: '',
+        updated_at: '',
+      })),
+      total: 4,
+      page: 1,
+      page_size: 100,
+    },
+  })
   // {T01-P6} 编辑态回显默认空列表（防止未设置时编辑态 fetch 抛错；各用例按需覆盖）
   instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
   // 每个资源类别都有系统预设的默认标签模板（与 seed 口径一致）。
@@ -155,6 +179,24 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.queryByText('监控对象类型')).toBeNull()
   })
 
+  it('loads custom blackbox modules from the module API', async () => {
+    blackboxModuleListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 8, name: 'custom_https', enabled: true, content: '', prober: 'http', referenced_jobs: 0, created_at: '', updated_at: '' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    renderDrawer()
+    fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
+    fireEvent.mouseDown(await screen.findByText('选择拨测模块'))
+    const options = await screen.findAllByText('custom_https')
+    fireEvent.click(options[options.length - 1])
+    expect(blackboxModuleListMock).toHaveBeenCalled()
+  })
+
   it('basic auth reveals username/password; bearer reveals token', async () => {
     renderDrawer()
 
@@ -245,13 +287,10 @@ describe('ScrapeJobFormDrawer', () => {
     renderDrawer()
     fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
 
-    // 未选资源类别时给出引导（此前拨测分支因 monitorType 为空而不渲染选择器）
-    expect(await screen.findByText('选择拨测目标资源类别后按资源类别列出')).toBeInTheDocument()
-
-    // 选择接口服务：只列该类别模板；留空选项明确为「使用默认标签模板」
+    // 选择接口服务：可不使用模板，也可切换自定义方案
     fireEvent.mouseDown(screen.getByText('请选择'))
     await selectAntdOption('接口服务')
-    expect(await screen.findByText('使用默认标签模板（接口服务默认模板）')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
     expect(screen.getByText('接口服务自定义模板')).toBeInTheDocument()
     expect(screen.queryByText('应用服务默认模板')).not.toBeInTheDocument()
 
@@ -268,9 +307,7 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('12')
   })
 
-  // 回归：标准采集任务选「使用默认标签模板」时，提交的是该资源类别默认模板的
-  // 真实 ID；此前提交 undefined 导致字段从请求体消失，后端保留旧值/无法回落默认。
-  it('standard：选「使用默认标签模板」时提交默认模板 ID 与资源类别', async () => {
+  it('standard：不使用标签模板时提交空模板 ID 与资源类别', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 13, job_name: 'default-label', job_type: 'standard' } })
     labelListMock.mockResolvedValue({
       status: 'success',
@@ -299,7 +336,7 @@ describe('ScrapeJobFormDrawer', () => {
 
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'default-label')
     await selectCategoryAndType('数据库', 'MySQL')
-    expect(await screen.findByText('使用默认标签模板（MySQL 标准标签）')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
 
     fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
     await selectAntdOption('网域A')
@@ -307,7 +344,7 @@ describe('ScrapeJobFormDrawer', () => {
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
-    expect(body.label_template_id).toBe('7')
+    expect(body.label_template_id).toBe('')
     expect(body.resource_type).toBe('database')
   })
 
@@ -413,6 +450,15 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).metrics_path).toBe('')
   })
 
+  it('offers NPU under the host category without application-specific path requirements', async () => {
+    renderDrawer()
+    await selectCategoryAndType('主机', 'NPU')
+
+    expect(screen.getAllByText('NPU').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
+    expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
+  })
+
   it('renders label template as card filtered by resource category (F1-4)', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',
@@ -436,15 +482,14 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.queryByText('Linux 标签')).toBeNull()
   })
 
-  it('shows label template empty hint with 补配 action when none in category (F1-4)', async () => {
+  it('allows submitting without a label template when none exists', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
     await selectCategoryAndType('数据库', 'MySQL')
-    expect(await screen.findByText('该资源类别下暂无标签模板')).toBeInTheDocument()
-    expect(screen.getByText('前往补配标签模板')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
   })
 
   it('filters monitor type options by resource category and triggers default collector (F1-8)', async () => {

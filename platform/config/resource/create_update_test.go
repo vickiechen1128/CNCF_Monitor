@@ -221,6 +221,8 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 				"status": "online", "env": "PRD",
 				"service_name": "pay-service", "endpoint": "10.0.0.12:8080",
 				"health_check_url": "http://10.0.0.12:8080/health", "protocol": "http", "port": 8080,
+				"owner1": "张三", "owner1_contact": "13800000001",
+				"owner2": "李四", "owner2_contact": "13800000002", "go_live_at": "2026-10-28T08:00:00Z",
 			},
 		},
 		{
@@ -248,6 +250,13 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 			assert.Equal(t, tc.body["biz_code"], out.Data["biz_code"])
 			assert.Equal(t, tc.body["env"], out.Data["env"])
 			assert.Equal(t, tc.body["status"], out.Data["status"])
+			if tc.name == "application" {
+				assert.Equal(t, "张三", out.Data["owner1"])
+				assert.Equal(t, "13800000001", out.Data["owner1_contact"])
+				assert.Equal(t, "李四", out.Data["owner2"])
+				assert.Equal(t, "13800000002", out.Data["owner2_contact"])
+				assert.Equal(t, "2026-10-28T08:00:00Z", out.Data["go_live_at"])
+			}
 		})
 	}
 

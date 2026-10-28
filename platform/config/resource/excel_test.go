@@ -719,7 +719,7 @@ func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T) {
 			// 接口服务用平台自带的 blackbox_exporter 探活（目标即完整 URL），无采集端口
 			// 语义，其模板不含该列，故护栏按「有才断言」而非全类别硬性要求。
 			if len(header) < len(cols) {
-				require.Equal(t, "scrape_port", cols[len(cols)-1], "scrape_port 必须位于模板末列（T01-P7 防列序依赖断裂）")
+				require.Contains(t, cols, "scrape_port")
 				require.Len(t, header, len(cols)-1)
 			}
 			vals := baseValues(cat)

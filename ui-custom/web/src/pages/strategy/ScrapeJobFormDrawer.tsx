@@ -24,6 +24,7 @@ import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
+import { blackboxModuleApi, type BlackboxModule } from '../../api/blackboxModules'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
 import type { AuthType, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
@@ -41,10 +42,6 @@ import {
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
-
-// 拨测模块（协议/目标不再手填：目标由所选资源类别决定，协议由目标地址的 scheme 决定，
-// 故不再需要 BLACKBOX_PROTOCOLS）。
-const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
 
 /**
  * 表单值 = 提交后端的字段 + 仅用于「资源类别 → 监控对象类型」两级级联的
@@ -141,6 +138,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
   // {T01-P6} 编辑态生效端口回显数据（GET /instances 的 port/port_source，仅 standard 分支渲染）
   const [portEchoItems, setPortEchoItems] = useState<ScrapeJobInstanceItem[]>([])
+  const [blackboxModules, setBlackboxModules] = useState<BlackboxModule[]>([])
 
   const isEdit = !!record
   // 任务类型分支状态：编辑态由 record.job_type 直接决定（确定性，不依赖
@@ -182,28 +180,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
     [labelTemplates, resourceCategory],
   )
-  // 类别默认模板：每个资源类别应恰好有一个 is_default=true 的系统预设模板。
-  // 选项 value 直接使用其真实模板 ID（不再用空串），提交时无需二次解析。
-  const defaultLabelTemplates = useMemo(
-    () => filteredLabelTemplates.filter((t) => t.is_default),
-    [filteredLabelTemplates],
-  )
-  const defaultLabelTemplate = defaultLabelTemplates[0]
-  /** 同类别出现多个默认模板 = 数据异常：页面报错并禁止提交，不静默挑一个 */
-  const multipleDefaultTemplates = defaultLabelTemplates.length > 1
-
-  /**
-   * 模板列表加载完成 / 切换资源类别后，若表单值为空，自动选中该类别默认模板的
-   * **真实 ID**。默认选项不再是空串，避免「空值到底表示继承映射还是类别默认」的歧义。
-   */
-  useEffect(() => {
-    if (!open || labelTemplatesLoading || multipleDefaultTemplates || !defaultLabelTemplate) return
-    const current = form.getFieldValue('label_template_id') as string | undefined
-    if (!current) {
-      form.setFieldsValue({ label_template_id: String(defaultLabelTemplate.id) })
-    }
-  }, [open, labelTemplatesLoading, multipleDefaultTemplates, defaultLabelTemplate, form])
-
   // 打开抽屉时装载网域与初始值
   useEffect(() => {
     if (!open) return
@@ -268,6 +244,21 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     }
   }, [open, record, form])
 
+  useEffect(() => {
+    if (!open || jobType !== 'blackbox') return
+    let cancelled = false
+    blackboxModuleApi.list()
+      .then((res) => {
+        if (!cancelled) setBlackboxModules(res.data?.list ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setBlackboxModules([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, jobType])
+
   // {T01-P6} 编辑态拉取生效端口回显（GET /instances 携带 port/port_source）。
   // 仅编辑态 + standard 拉取；失败静默（回显为增强信息，不阻断表单主流程）。
   useEffect(() => {
@@ -298,14 +289,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         const def = res.data?.list?.[0]
         if (def) {
           setMappingDefaults(def)
-          const nextCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(next))?.category
-          const categoryDefault = labelTemplates.find(
-            (t) => t.resource_category === nextCategory && t.is_default,
-          )
           form.setFieldsValue({
             exporter_template_id: def.exporter_template_id as string,
-            // 映射层未配模板时，直接选中该资源类别的默认模板 ID
-            label_template_id: def.label_template_id || (categoryDefault ? String(categoryDefault.id) : ''),
+            label_template_id: def.label_template_id || '',
           })
           setParamsState('inherited')
         }
@@ -313,7 +299,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         // 无默认映射时保持空，用户可手填
       }
     },
-    [form, labelTemplates],
+    [form],
   )
 
   // F-28：参数字段 placeholder = 继承链下层生效值提示（映射 → 采集器/全局兜底）
@@ -343,11 +329,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     [form],
   )
 
-  // F1-4：标签模板补配引导（M07 标签模板管理维护）
-  const openLabelTemplateGuide = useCallback(() => {
-    message.info('标签模板补配请前往「标签模板」管理维护（M07）')
-  }, [])
-
   // 将表单值组装为请求体；draftStatus 决定是「保存草稿」还是「提交生效」。
   const buildBody = useCallback(
     (values: ScrapeJobFormValues, draftStatus: 'draft' | 'ready'): ScrapeJobInput => {
@@ -367,9 +348,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         token: values.token,
         tls_skip_verify: values.tls_skip_verify ?? false,
         ca_file: values.ca_file,
-        // 默认模板选项与普通模板选项一样携带真实模板 ID；这里保留兜底，
-        // 避免表单值异常时提交 undefined（编辑态会被后端当成「未修改」）。
-        label_template_id: values.label_template_id || (defaultLabelTemplate ? String(defaultLabelTemplate.id) : ''),
+        label_template_id: values.label_template_id || '',
         draft_status: draftStatus,
         enabled: true,
       }
@@ -391,7 +370,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       }
       return body
     },
-    [selectedIds, defaultLabelTemplate],
+    [selectedIds],
   )
 
   // 保存草稿：仅基础校验（job_name / job_type），不进入 M09 变更管线。
@@ -436,20 +415,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       message.error('标签模板加载失败，请关闭抽屉后重试')
       return
     }
-    if (multipleDefaultTemplates) {
-      message.error('该资源类别存在多个默认标签模板，请先修复数据')
-      return
-    }
-    if (!defaultLabelTemplate) {
-      message.error('该资源类别缺少默认标签模板，请先检查标签模板数据')
-      return
-    }
-    if (!values.label_template_id) {
-      message.error('未选择标签模板')
-      return
-    }
-    // 所选模板必须属于当前资源类别（防止切换类别后残留旧类别模板 ID）
-    if (!filteredLabelTemplates.some((t) => String(t.id) === String(values.label_template_id))) {
+    // 选择自定义模板时必须属于当前资源类别；空值表示不使用模板，仅保留系统注入标签。
+    if (values.label_template_id && !filteredLabelTemplates.some((t) => String(t.id) === String(values.label_template_id))) {
       message.error('所选标签模板不属于当前资源类别，请重新选择')
       return
     }
@@ -486,12 +453,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       label="标签模板"
       extra={
         resourceCategory
-          ? jobType === 'blackbox'
-            ? '按拨测目标资源类别过滤；默认模板自动选中，也可切换为其他方案'
-            : '按资源类别过滤；默认模板自动选中，也可切换为其他方案'
-          : jobType === 'blackbox'
-            ? '选择拨测目标资源类别后列出可用标签模板'
-            : '选择监控对象类型后按资源类别列出可用标签模板'
+          ? '可选择自定义模板；不使用模板时仅保留系统注入标签'
+          : '选择资源类别后列出可用标签模板'
       }
     >
       {resourceCategory && labelTemplatesLoading ? (
@@ -503,77 +466,32 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           message="标签模板加载失败"
           description="模板列表未加载成功时无法提交，请关闭抽屉后重试。"
         />
-      ) : resourceCategory && filteredLabelTemplates.length > 0 ? (
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          {multipleDefaultTemplates && (
-            <Alert
-              type="error"
-              showIcon
-              message="该资源类别存在多个默认标签模板"
-              description="每个资源类别只能有一个默认模板，请先在标签模板管理中修复数据，否则无法提交。"
-            />
-          )}
-          {!multipleDefaultTemplates && !defaultLabelTemplate && (
-            <Alert
-              type="error"
-              showIcon
-              message="该资源类别缺少默认标签模板"
-              description="每个资源类别都应有一个系统预设的默认模板，请检查标签模板数据，否则无法提交。"
-            />
-          )}
-          <Form.Item name="label_template_id" noStyle>
-            <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
-              <Space direction="vertical" style={{ width: '100%' }} size={4}>
-                {!multipleDefaultTemplates && defaultLabelTemplate && (
-                  <Radio.Button
-                    value={String(defaultLabelTemplate.id)}
-                    style={{ width: '100%', textAlign: 'left' }}
-                  >
-                    <Text type="secondary">使用默认标签模板（{defaultLabelTemplate.name}）</Text>
-                  </Radio.Button>
-                )}
-                {filteredLabelTemplates
-                  // 恰好一个默认模板时由上方「使用默认」选项承载，避免同一 ID 出现两个选项；
-                  // 多个默认模板时全部平铺展示（页面已报错并禁止提交）。
-                  .filter((t) => multipleDefaultTemplates || !t.is_default)
-                  .map((t) => (
-                    <Radio.Button
-                      key={t.id}
-                      value={String(t.id)}
-                      style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}
-                    >
-                      <Space size={6} direction="vertical" align="start">
-                        <Space size={6}>
-                          <Text strong>{t.name}</Text>
-                          {t.is_default && <Tag color="blue">默认</Tag>}
-                        </Space>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
-                        </Text>
-                      </Space>
-                    </Radio.Button>
-                  ))}
-              </Space>
-            </Radio.Group>
-          </Form.Item>
-        </Space>
+      ) : resourceCategory ? (
+        <Form.Item name="label_template_id" noStyle>
+          <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
+            <Space direction="vertical" style={{ width: '100%' }} size={4}>
+              <Radio.Button value="" style={{ width: '100%', textAlign: 'left' }}>
+                <Text type="secondary">不使用标签模板</Text>
+              </Radio.Button>
+              {filteredLabelTemplates.map((t) => (
+                <Radio.Button
+                  key={t.id}
+                  value={String(t.id)}
+                  style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}
+                >
+                  <Space size={6} direction="vertical" align="start">
+                    <Text strong>{t.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
+                    </Text>
+                  </Space>
+                </Radio.Button>
+              ))}
+            </Space>
+          </Radio.Group>
+        </Form.Item>
       ) : (
-        <Space direction="vertical" size={4}>
-          {resourceCategory && filteredLabelTemplates.length === 0 ? (
-            <>
-              <Text type="secondary">该资源类别下暂无标签模板</Text>
-              <Button type="link" size="small" onClick={openLabelTemplateGuide}>
-                前往补配标签模板
-              </Button>
-            </>
-          ) : (
-            <Text type="secondary">
-              {jobType === 'blackbox'
-                ? '选择拨测目标资源类别后按资源类别列出'
-                : '选择监控对象类型后按资源类别列出'}
-            </Text>
-          )}
-        </Space>
+        <Text type="secondary">选择资源类别后列出可用标签模板</Text>
       )}
     </Form.Item>
   )
@@ -859,13 +777,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="拨测模块" name="blackbox_module" rules={[{ required: true, message: '请选择拨测模块' }]}>
-                  <Select placeholder="选择拨测模块">
-                    {BLACKBOX_MODULES.map((m) => (
-                      <Select.Option key={m} value={m}>
-                        {m}
-                      </Select.Option>
-                    ))}
-                  </Select>
+                  <Select
+                    placeholder="选择拨测模块"
+                    options={blackboxModules.map((module) => ({
+                      value: module.name,
+                      label: module.enabled ? module.name : `${module.name}（已停用）`,
+                      disabled: !module.enabled,
+                    }))}
+                  />
                 </Form.Item>
               </Col>
               <Col span={12}>

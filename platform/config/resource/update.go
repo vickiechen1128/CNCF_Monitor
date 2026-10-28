@@ -83,6 +83,7 @@ func updatableColumns(category models.ResourceCategory) []string {
 	case models.ResourceCategoryApplication:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
+			"owner1", "owner1_contact", "owner2", "owner2_contact", "go_live_at",
 			"service_name", "health_check_url", "protocol", "endpoint", "port", "scrape_port",
 		}
 	case models.ResourceCategoryGenericTarget:

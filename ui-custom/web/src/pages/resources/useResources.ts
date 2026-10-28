@@ -56,6 +56,11 @@ export interface ResourceListItem {
   port?: number
   version?: string
   // application
+  owner1?: string
+  owner1_contact?: string
+  owner2?: string
+  owner2_contact?: string
+  go_live_at?: string
   service_name?: string
   health_check_url?: string
   protocol?: string

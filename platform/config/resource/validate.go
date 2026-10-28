@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 )
@@ -48,7 +49,12 @@ type ResourceInput struct {
 	Version        string `json:"version"`
 
 	// application（§5.8）
-	ServiceName string `json:"service_name"`
+	Owner1        string `json:"owner1"`
+	Owner1Contact string `json:"owner1_contact"`
+	Owner2        string `json:"owner2"`
+	Owner2Contact string `json:"owner2_contact"`
+	GoLiveAt      string `json:"go_live_at"`
+	ServiceName   string `json:"service_name"`
 	// HealthCheckURL 是 blackbox 拨测目标地址，必填，也可作为标签模板来源。
 	HealthCheckURL string `json:"health_check_url"`
 	// Protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
@@ -448,7 +454,31 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.Protocol) != "" && !containsString(models.ValidProtocols, in.Protocol) {
 		return fmt.Errorf("protocol 必须是 http/https/tcp 之一，当前：%q", in.Protocol)
 	}
+	for field, value := range map[string]string{
+		"owner1": in.Owner1, "owner2": in.Owner2,
+		"owner1_contact": in.Owner1Contact, "owner2_contact": in.Owner2Contact,
+	} {
+		if len([]rune(value)) > 128 {
+			return fmt.Errorf("%s 长度不能超过 128 字符", field)
+		}
+	}
+	if _, err := parseGoLiveAt(in.GoLiveAt); err != nil {
+		return err
+	}
 	return nil
+}
+
+func parseGoLiveAt(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return &parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("go_live_at 格式非法，应为 RFC3339 或 YYYY-MM-DD")
 }
 
 func validateGenericTarget(in *ResourceInput) error {

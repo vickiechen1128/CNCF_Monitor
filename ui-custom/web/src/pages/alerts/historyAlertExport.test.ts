@@ -15,7 +15,7 @@ const item: AlertEventItem = {
   updated_at: '2026-10-27T02:00:00Z',
   duration_seconds: 3600,
   labels: { instance: '10.0.0.1:9100', network_domain_name: '腾讯云' },
-  resource_name: '不应导出',
+  resource_name: 'prod-db-01',
 }
 
 afterEach(() => {
@@ -24,14 +24,15 @@ afterEach(() => {
 })
 
 describe('historyAlertExport', () => {
-  it('exports event fields with Chinese BOM and escaped text, without resource enrichment', () => {
+  it('exports event fields with Chinese BOM, escaped text and resource instance name', () => {
     const csv = alertEventsToCSV([item])
     expect(csv.startsWith('\uFEFF')).toBe(true)
     expect(csv).toContain('"CPU, 使用率过高"')
     expect(csv).toContain('"第一行\n第二行 ""详情"""')
     expect(csv).toContain('"腾讯云"')
+    expect(csv).toContain('实例名')
+    expect(csv).toContain('"prod-db-01"')
     expect(csv).not.toContain('采集地址')
-    expect(csv).not.toContain('不应导出')
   })
 
   it('neutralizes spreadsheet formulas', () => {

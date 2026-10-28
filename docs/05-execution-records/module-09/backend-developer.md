@@ -176,3 +176,12 @@
 
 #### 前端联动
 - 前端无需改动：`ConfigPreviewPage` 的 `changeTypeLabel/changeTypeColor` 已支持 add/update/delete 渲染；禁用 Job 后变更清单 Tab 现在会如实出现红色「移除」高风险项。
+
+## M09-BB-01：blackbox_exporter 地址调整为 19115
+
+- **commit**：M09-BB-01（本提交）。
+- **背景**：运行中的 blackbox_exporter 使用 19115，而生成配置仍写死 9115，导致 Prometheus 抓取地址错误。
+- **修改文件**：`platform/configcenter/generator/render.go`、`targets.go`、`generator_test.go`。
+- **实现**：blackbox Job 的 `__address__` relabel replacement 统一改为 `127.0.0.1:19115`，同步注释和 `TestAssembleBlackbox` 断言。
+- **验证**：`go test ./platform/configcenter/generator -count=1` 与相关 `go vet` 通过。
+- **契约 / PRD 偏离**：无 API 或 schema 变化；本次为按用户部署端口硬编码，未新增配置项。

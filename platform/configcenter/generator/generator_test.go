@@ -184,10 +184,31 @@ func TestAssembleBlackbox(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "metrics_path: /probe")
 	assert.Contains(t, ca.PrometheusYML, "__param_target")
-	assert.Contains(t, ca.PrometheusYML, "replacement: 127.0.0.1:9115")
+	assert.Contains(t, ca.PrometheusYML, "replacement: 127.0.0.1:19115")
 	assert.Contains(t, ca.BlackboxYML, "http_2xx:")
 	assert.Contains(t, ca.BlackboxYML, "prober: http")
 	assert.Contains(t, ca.TargetsFiles["blackbox-http.json"], "https://api.example.com/health")
+}
+
+func TestAssembleWithModulesMergesAllDefinitions(t *testing.T) {
+	defs := []models.BlackboxModule{
+		{Name: "custom_https", Content: "custom_https:\n  prober: http\n  timeout: 10s\n  http:\n    tls_config:\n      insecure_skip_verify: true\n", Enabled: true},
+		{Name: "http_2xx", Content: "http_2xx:\n  prober: http\n  timeout: 5s\n", Enabled: true},
+	}
+	jobs := []JobBuild{{
+		Job:     models.ScrapeJob{JobName: "bb", JobType: models.JobTypeBlackbox, BlackboxModule: "http_2xx"},
+		Targets: []TargetGroup{{Targets: []string{"https://api.example.com"}}},
+	}}
+	ca, err := AssembleWithModules("default", "", "", jobs, nil, "", "", true, defs)
+	require.NoError(t, err)
+	assert.Contains(t, ca.BlackboxYML, "  custom_https:\n    prober: http\n    timeout: 10s")
+	assert.Contains(t, ca.BlackboxYML, "insecure_skip_verify: true")
+	assert.Contains(t, ca.BlackboxYML, "  http_2xx:\n    prober: http")
+	assert.Less(t, strings.Index(ca.BlackboxYML, "custom_https"), strings.Index(ca.BlackboxYML, "http_2xx"))
+
+	jobs[0].Job.BlackboxModule = "missing"
+	_, err = AssembleWithModules("default", "", "", jobs, nil, "", "", true, defs)
+	assert.ErrorContains(t, err, "不存在或已禁用")
 }
 
 func TestNormalizeJobFilename(t *testing.T) {
@@ -887,7 +908,7 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
 		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
-		&models.NotifyChannel{}, &models.NotifyTemplate{}))
+		&models.NotifyChannel{}, &models.NotifyTemplate{}, &models.BlackboxModule{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)
@@ -913,7 +934,7 @@ func newSourceVersionDB(t *testing.T) *gorm.DB {
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.InterfaceService{},
 		&models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.NotifyChannel{},
-		&models.NotifyTemplate{}))
+		&models.NotifyTemplate{}, &models.BlackboxModule{}))
 	return db
 }
 

@@ -2,6 +2,7 @@ package models
 
 import (
 	"strconv"
+	"time"
 )
 
 // LegacyFieldMap 返回某类型资源「PRD 规范字段名 → 现模型列名」的映射。
@@ -271,6 +272,19 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return a.GetStatus(), true
 	case "owner":
 		return a.Owner, true
+	case "owner1":
+		return a.Owner1, true
+	case "owner1_contact":
+		return a.Owner1Contact, true
+	case "owner2":
+		return a.Owner2, true
+	case "owner2_contact":
+		return a.Owner2Contact, true
+	case "go_live_at":
+		if a.GoLiveAt == nil {
+			return "", true
+		}
+		return a.GoLiveAt.Format(time.RFC3339), true
 	case "source_type":
 		return string(a.SourceType), true
 	case "service_name":

@@ -111,6 +111,11 @@ export interface Application extends ResourceBaseShape {
   cluster: string
   service_name: string
   health_check_url: string
+  owner1?: string
+  owner1_contact?: string
+  owner2?: string
+  owner2_contact?: string
+  go_live_at?: string
   protocol: string
   endpoint: string
   port: number
@@ -214,6 +219,11 @@ export interface ApplicationResourceFields {
   service_name: string
   endpoint: string
   health_check_url?: string
+  owner1?: string
+  owner1_contact?: string
+  owner2?: string
+  owner2_contact?: string
+  go_live_at?: string
   protocol?: string
   port?: number
 }

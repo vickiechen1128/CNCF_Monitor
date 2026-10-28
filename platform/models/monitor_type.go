@@ -9,6 +9,7 @@ import (
 const (
 	MonitorTypeHostLinux       = "host_linux"
 	MonitorTypeHostWindows     = "host_windows"
+	MonitorTypeNPU             = "npu"
 	MonitorTypeMySQL           = "mysql"
 	MonitorTypeRedis           = "redis"
 	MonitorTypeKafka           = "kafka"
@@ -24,6 +25,7 @@ func ValidMonitorTypes() []string {
 	return []string{
 		MonitorTypeHostLinux,
 		MonitorTypeHostWindows,
+		MonitorTypeNPU,
 		MonitorTypeMySQL,
 		MonitorTypeRedis,
 		MonitorTypeKafka,
@@ -90,6 +92,9 @@ func DeriveResourceFilter(monitorType string) (MonitorTypeDerivation, bool) {
 		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: OSKeywordsForLinux()}, true
 	case MonitorTypeHostWindows:
 		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: OSKeywordsForWindows()}, true
+	case MonitorTypeNPU:
+		// NPU 是主机附加采集能力，候选主机全集，不按 OS 或型号过滤。
+		return MonitorTypeDerivation{Category: ResourceCategoryHost}, true
 	case MonitorTypeMySQL:
 		return MonitorTypeDerivation{Category: ResourceCategoryDatabase, SubtypeField: "database_type", Subtype: "mysql"}, true
 	case MonitorTypeRedis:

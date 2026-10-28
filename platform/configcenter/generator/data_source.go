@@ -203,6 +203,15 @@ func LoadAlertmanagerConfigInput(db *gorm.DB, routeSection string) (Alertmanager
 	return AlertmanagerConfigInput{RouteSection: routeSection, Channels: channels}, nil
 }
 
+// LoadBlackboxModules 读取全部启用模块，按名称排序保证产物 checksum 可复现。
+func LoadBlackboxModules(db *gorm.DB) ([]models.BlackboxModule, error) {
+	var modules []models.BlackboxModule
+	if err := db.Where("enabled = ?", true).Order("name ASC").Find(&modules).Error; err != nil {
+		return nil, fmt.Errorf("load blackbox modules: %w", err)
+	}
+	return modules, nil
+}
+
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

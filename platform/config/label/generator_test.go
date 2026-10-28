@@ -2,6 +2,7 @@ package label
 
 import (
 	"testing"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +45,7 @@ func sampleHost() *models.Host {
 		SourceType:       models.SourceTypeManual,
 		AppCode:          "payment-api",
 		SubAppCode:       "cluster-a",
-		EnvFlag: "PRD",
+		EnvFlag:          "PRD",
 		InstanceName:     "web-01.example.com",
 		Status:           "online",
 		Image:            "linux",
@@ -113,8 +114,14 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 			{SourceField: "cluster", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
 			{SourceField: "health_check_url", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "health_check_url", Enabled: true},
+			{SourceField: "owner1", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "owner1", Enabled: true},
+			{SourceField: "owner1_contact", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "owner1_contact", Enabled: true},
+			{SourceField: "owner2", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "owner2", Enabled: true},
+			{SourceField: "owner2_contact", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "owner2_contact", Enabled: true},
+			{SourceField: "go_live_at", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "go_live_at", Enabled: true},
 		},
 	}
+	live := time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC)
 	res := &models.Application{
 		ResourceID:       "app-1",
 		ResourceCategory: models.ResourceCategoryApplication,
@@ -123,9 +130,14 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 		SourceType:       models.SourceTypeManual,
 		ServiceName:      "order-svc",
 		AppName:          "order-svc",
-		Env: "UAT",
+		Env:              "UAT",
 		Cluster:          "cluster-b",
 		Status:           "online",
+		Owner1:           "张三",
+		Owner1Contact:    "13800000001",
+		Owner2:           "李四",
+		Owner2Contact:    "13800000002",
+		GoLiveAt:         &live,
 		HealthCheckURL:   "http://10.0.0.5:8080/healthz",
 	}
 
@@ -138,6 +150,11 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 	assert.Equal(t, "cluster-b", got["cluster"].Value)
 	assert.Equal(t, "payment", got["biz"].Value)
 	assert.Equal(t, "http://10.0.0.5:8080/healthz", got["health_check_url"].Value)
+	assert.Equal(t, "张三", got["owner1"].Value)
+	assert.Equal(t, "13800000001", got["owner1_contact"].Value)
+	assert.Equal(t, "李四", got["owner2"].Value)
+	assert.Equal(t, "13800000002", got["owner2_contact"].Value)
+	assert.Equal(t, "2026-10-28T08:00:00Z", got["go_live_at"].Value)
 	assert.NotContains(t, got, "instance", "application 默认模板不含组合字段（§5.13）")
 }
 

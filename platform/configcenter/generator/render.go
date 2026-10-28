@@ -97,7 +97,7 @@ type JobBuild struct {
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
 //   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
 //     为单文档（renderRules）；
-//   - blackbox.yml：存在 blackbox job 时按所用模块生成；
+//   - blackbox.yml：兼容入口按 Job 所用模块生成；生产入口合并全部启用模块；
 //   - alertmanager.yml：决策 60，由调用方按「管理域 default 范围」透传 M08 已留痕
 //     源配置内容（无告警配置时传空串，不产生空产物）。
 //
@@ -108,6 +108,15 @@ type JobBuild struct {
 // 另一段没生成」的半残配置）。alerting 另有前置条件：alertmanagerYML 非空且地址非空，
 // 避免指向不存在的 Alertmanager。
 func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
+	return assemble(domainID, zoneType, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, nil, false)
+}
+
+// AssembleWithModules 使用全部启用模块生成完整 blackbox.yml，并校验 Job 引用。
+func AssembleWithModules(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule) (*ConfigArtifacts, error) {
+	return assemble(domainID, zoneType, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, moduleDefs, true)
+}
+
+func assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule, useModuleDefs bool) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, zoneType, replica)
 
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}, ScrapeConfigs: []scrapeConf{}}
@@ -170,7 +179,15 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 		return nil, fmt.Errorf("marshal prometheus.yml: %w", err)
 	}
 
-	blackboxYAML := renderBlackbox(modules)
+	blackboxYAML := ""
+	if useModuleDefs {
+		blackboxYAML, err = renderBlackboxModuleDefinitions(moduleDefs, jobs)
+	} else {
+		blackboxYAML = renderBlackbox(modules)
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	return &ConfigArtifacts{
 		PrometheusYML:     string(promYAML),
@@ -234,7 +251,7 @@ func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error) {
 		sc.RelabelConfigs = []relabelConf{
 			{SourceLabels: []string{"__address__"}, TargetLabel: "__param_target"},
 			{SourceLabels: []string{"__param_target"}, TargetLabel: "instance"},
-			{TargetLabel: "__address__", Replacement: "127.0.0.1:9115"},
+			{TargetLabel: "__address__", Replacement: "127.0.0.1:19115"},
 		}
 	}
 	return sc, nil
@@ -309,4 +326,33 @@ func renderBlackboxModule(module string) string {
 		prober = "tcp"
 	}
 	return fmt.Sprintf("  %s:\n    prober: %s\n    timeout: 5s\n", module, prober)
+}
+
+// renderBlackboxModuleDefinitions 合并全部启用模块，并拒绝缺失的 Job 模块引用。
+func renderBlackboxModuleDefinitions(defs []models.BlackboxModule, jobs []JobBuild) (string, error) {
+	byName := make(map[string]string, len(defs))
+	for _, def := range defs {
+		byName[def.Name] = def.Content
+	}
+	for _, job := range jobs {
+		if job.Job.JobType != models.JobTypeBlackbox {
+			continue
+		}
+		if _, ok := byName[job.Job.BlackboxModule]; !ok {
+			return "", fmt.Errorf("采集 Job %s 引用的拨测模块 %s 不存在或已禁用", job.Job.JobName, job.Job.BlackboxModule)
+		}
+	}
+	if len(defs) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("modules:\n")
+	for _, def := range defs {
+		for _, line := range strings.Split(strings.TrimSpace(def.Content), "\n") {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	return b.String(), nil
 }

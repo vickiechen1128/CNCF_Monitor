@@ -111,11 +111,13 @@ var removedTemplateColumns = map[string]bool{
 	"zone_env": true,
 }
 
+var optionalTemplateColumns = map[string]bool{
+	"scrape_port": true, "owner1": true, "owner1_contact": true,
+	"owner2": true, "owner2_contact": true, "go_live_at": true,
+}
+
 // validateHeader 校验表头与固定列模板完全一致（§5.16.1 不支持动态列）。
-// 决策 D-7 P1：末列 `scrape_port` 允许整体缺省（旧模板无该列，导入按 0=未指定
-// 处理）；决策 101 后续：已废弃列（removedTemplateColumns）按列名剔除后参与比对，
-// 存量模板不因该列报「列头不一致 / 超出模板」。其余列仍逐列严格比对，列序依赖
-// 不放松。错误文案中的列号回填为 Excel 原始列号。
+// 可空的尾部扩展列允许整体缺省，保证旧模板继续导入；废弃列剔除后逐列严格比对。
 func validateHeader(header, expected []string) error {
 	if len(header) == 0 {
 		return fmt.Errorf("Excel 缺少表头行")
@@ -129,8 +131,12 @@ func validateHeader(header, expected []string) error {
 		kept = append(kept, col)
 		keptIdx = append(keptIdx, i)
 	}
-	if len(kept) == len(expected)-1 && expected[len(expected)-1] == "scrape_port" {
-		expected = expected[:len(expected)-1] // 旧模板缺 scrape_port 末列，按可缺省处理
+	for len(expected) > 0 && optionalTemplateColumns[expected[len(expected)-1]] {
+		expected = expected[:len(expected)-1]
+	}
+	for len(kept) > 0 && optionalTemplateColumns[kept[len(kept)-1]] {
+		kept = kept[:len(kept)-1]
+		keptIdx = keptIdx[:len(keptIdx)-1]
 	}
 	for i, want := range expected {
 		if i >= len(kept) {
@@ -192,6 +198,16 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.ScrapePort, _ = parsePort(val)
 		case "version":
 			in.Version = val
+		case "owner1":
+			in.Owner1 = val
+		case "owner1_contact":
+			in.Owner1Contact = val
+		case "owner2":
+			in.Owner2 = val
+		case "owner2_contact":
+			in.Owner2Contact = val
+		case "go_live_at":
+			in.GoLiveAt = val
 		case "service_name":
 			in.ServiceName = val
 		case "health_check_url":

@@ -24,6 +24,7 @@ import (
 func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem {
 	if base == nil {
 		items := buildInitialChangeItems(jobs, rules)
+		items = append(items, diffBlackboxItems(artifacts, nil)...)
 		items = append(items, diffAlertmanagerItems(artifacts, nil)...)
 		items = append(items, diffPromAlertingItems(artifacts, nil)...)
 		for i := range items {
@@ -35,12 +36,38 @@ func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, ar
 	items = append(items, diffJobItems(jobs, artifacts, base)...)
 	items = append(items, diffTargetItems(jobs, artifacts, base)...)
 	items = append(items, diffRuleItems(artifacts.RulesYML, base.RulesYml)...)
+	items = append(items, diffBlackboxItems(artifacts, base)...)
 	items = append(items, diffAlertmanagerItems(artifacts, base)...)
 	items = append(items, diffPromAlertingItems(artifacts, base)...)
 	for i := range items {
 		items[i].ID = fmt.Sprintf("ci-%d", i+1)
 	}
 	return items
+}
+
+// diffBlackboxItems 对比完整 blackbox.yml，确保仅模块定义变化也形成变更单。
+func diffBlackboxItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem {
+	newConfig := artifacts.BlackboxYML
+	baseConfig := ""
+	if base != nil {
+		baseConfig = base.BlackboxYml
+	}
+	if newConfig == baseConfig {
+		return nil
+	}
+	typ, verb := models.ChangeItemTypeAdd, "新增"
+	if baseConfig != "" && newConfig != "" {
+		typ, verb = models.ChangeItemTypeUpdate, "变更"
+	} else if baseConfig != "" {
+		typ, verb = models.ChangeItemTypeDelete, "移除"
+	}
+	return []models.ConfigChangeItem{{
+		Type:          string(typ),
+		Target:        string(models.ChangeItemTargetProbeTarget),
+		Description:   verb + "拨测模块配置 blackbox.yml",
+		AffectedFiles: []string{string(models.AffectedFileBlackbox)},
+		Risk:          string(models.RiskHigh),
+	}}
 }
 
 // diffAlertmanagerItems 对比新旧 alertmanager.yml 内容，产出告警收敛配置变更项

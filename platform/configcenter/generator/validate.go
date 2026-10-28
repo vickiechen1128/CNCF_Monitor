@@ -138,7 +138,7 @@ func validateLabelName(name string) error {
 	if name == "" {
 		return fmt.Errorf("标签名为空")
 	}
-	if name == "instance" {
+	if name == "instance" || models.IsSystemInjectedLabel(name) {
 		return nil
 	}
 	if models.IsProtectedLabel(name) {

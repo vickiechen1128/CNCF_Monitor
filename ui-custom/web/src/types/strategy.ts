@@ -152,6 +152,7 @@ export interface BlackboxTarget {
 export type MonitorType =
   | 'host_linux'
   | 'host_windows'
+  | 'npu'
   | 'mysql'
   | 'redis'
   | 'kafka'

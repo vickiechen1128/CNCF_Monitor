@@ -523,6 +523,11 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
             return [
               { key: 'service_name', label: '服务名', children: record.service_name || '-' },
               { key: 'health_check_url', label: '健康检查 URL', children: record.health_check_url || '-' },
+              { key: 'owner1', label: '负责人1', children: record.owner1 || '-' },
+              { key: 'owner1_contact', label: '负责人1联系方式', children: record.owner1_contact || '-' },
+              { key: 'owner2', label: '负责人2', children: record.owner2 || '-' },
+              { key: 'owner2_contact', label: '负责人2联系方式', children: record.owner2_contact || '-' },
+              { key: 'go_live_at', label: '应用上线时间', children: record.go_live_at || '-' },
               { key: 'protocol', label: '协议', children: record.protocol || '-' },
               { key: 'endpoint', label: '端点', children: record.endpoint || '-' },
               { key: 'port', label: '端口', children: record.port ?? '-' },

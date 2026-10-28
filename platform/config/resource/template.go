@@ -53,7 +53,7 @@ var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryApplication: {
 		"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
 		"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
-		"scrape_port",
+		"scrape_port", "owner1", "owner1_contact", "owner2", "owner2_contact", "go_live_at",
 	},
 	models.ResourceCategoryGenericTarget: {
 		"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
@@ -103,6 +103,11 @@ var templateColumnDocs = map[string]templateColumnDoc{
 	"env":              {"环境", "环境枚举"},
 	"cluster":          {"集群", "集群名称"},
 	"owner":            {"负责人", "负责人（自由文本）"},
+	"owner1":           {"负责人1", "负责人1姓名（可选）"},
+	"owner1_contact":   {"负责人1联系方式", "负责人1联系方式（可选）"},
+	"owner2":           {"负责人2", "负责人2姓名（可选）"},
+	"owner2_contact":   {"负责人2联系方式", "负责人2联系方式（可选）"},
+	"go_live_at":       {"应用上线时间", "RFC3339 或 YYYY-MM-DD（可选）"},
 	"status":           {"运行状态", "源状态 → 目标状态"},
 	"scrape_port":      {"采集端口", "实例级采集端口覆盖：留空（0）=未指定，填值须 1~65535"},
 	"database_type":    {"数据库类型", "数据库类型"},
@@ -127,7 +132,8 @@ var templateOptionalColumns = map[string]bool{
 	"hostname": true, "version": true, "owner": true, "protocol": true,
 	"metrics_path": true, "scheme": true,
 	"exporter_type": true, "custom_labels": true, "scrape_port": true,
-	"platform_code": true,
+	"platform_code": true, "owner1": true, "owner1_contact": true,
+	"owner2": true, "owner2_contact": true, "go_live_at": true,
 }
 
 // valueSheetHeaderRow 是 sheet2「取值说明」的表头行（F-23-② 拆出「中文含义」列、

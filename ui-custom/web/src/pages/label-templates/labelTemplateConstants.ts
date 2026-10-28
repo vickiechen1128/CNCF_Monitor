@@ -121,16 +121,16 @@ export const PROTECTED_PROMETHEUS_LABELS = [
 
 /** 各资源类别 Resource 字段来源选项（§5.12 A，对齐原型 RESOURCE_FIELD_OPTIONS） */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
-  database: ['instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
-  middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
-  application: ['instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
-  generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id'],
-  interface_service: ['api_name', 'api_url', 'resource_id', 'env', 'cluster', 'biz_code', 'app_code', 'platform_code'],
+  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'status', 'scrape_port', 'network_domain_id'],
+  database: ['database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port', 'network_domain_id'],
+  middleware: ['middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port', 'network_domain_id'],
+  application: ['service_name', 'health_check_url', 'owner1', 'owner1_contact', 'owner2', 'owner2_contact', 'go_live_at', 'protocol', 'endpoint', 'port', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'network_domain_id'],
+  generic_target: ['target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'network_domain_id'],
+  interface_service: ['api_name', 'api_url', 'biz_code', 'app_code', 'env', 'status', 'network_domain_id'],
 }
 
 /** 组合字段选项（§5.12 C：MVP 仅 instance_ip:port → instance） */
-export const COMPOSITE_OPTIONS = ['instance_ip:port']
+export const COMPOSITE_OPTIONS: string[] = []
 
 /** v0.4+ CMDB 字段选项（§5.12 A，预留） */
 export const CMDB_FIELD_OPTIONS = ['cmdb_ci_id', 'cmdb_business_path', 'cmdb_module_path', 'cmdb_maintainer']
