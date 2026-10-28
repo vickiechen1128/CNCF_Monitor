@@ -184,7 +184,7 @@ func TestAssembleBlackbox(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "metrics_path: /probe")
 	assert.Contains(t, ca.PrometheusYML, "__param_target")
-	assert.Contains(t, ca.PrometheusYML, "replacement: 127.0.0.1:9115")
+	assert.Contains(t, ca.PrometheusYML, "replacement: 127.0.0.1:19115")
 	assert.Contains(t, ca.BlackboxYML, "http_2xx:")
 	assert.Contains(t, ca.BlackboxYML, "prober: http")
 	assert.Contains(t, ca.TargetsFiles["blackbox-http.json"], "https://api.example.com/health")

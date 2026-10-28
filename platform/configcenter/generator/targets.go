@@ -299,7 +299,7 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 // blackbox：目标地址取该实例在 job.TargetField 上的字段值（models.GetResourceField，
 // 与实例解析共用同一 resourceTarget.Raw 资源对象）——取值缺失/字段为空记
 // SkipReasonAddressEmpty 跳过。渲染侧 render.go 的黑盒专属逻辑（/probe、params.module、
-// 127.0.0.1:9115 relabel）保持不变。
+// 127.0.0.1:19115 relabel）保持不变。
 func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance) {
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
 	var skipped []SkippedInstance

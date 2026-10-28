@@ -234,7 +234,7 @@ func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error) {
 		sc.RelabelConfigs = []relabelConf{
 			{SourceLabels: []string{"__address__"}, TargetLabel: "__param_target"},
 			{SourceLabels: []string{"__param_target"}, TargetLabel: "instance"},
-			{TargetLabel: "__address__", Replacement: "127.0.0.1:9115"},
+			{TargetLabel: "__address__", Replacement: "127.0.0.1:19115"},
 		}
 	}
 	return sc, nil
