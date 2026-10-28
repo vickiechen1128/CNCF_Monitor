@@ -287,9 +287,8 @@ const DASHBOARD_EMPTY = {
 
 /**
  * AM 通知状态样例：active 3 / silenced 1 / inhibited 1 / unprocessed 1。
- * starts_at 依次为 5 分钟 / 30 分钟 / 2 小时 / 3 小时 / 1 天前 → 列表（剔除 unprocessed 后）
- * 恰为 5 条且顺序确定；第 4 条 resource_name 为空，用于校验不回落成采集地址。
- * labels.instance 与 annotations.summary 供行 2（实例名 · 告警具体内容）断言。
+ * 首页只展示 active，按 starts_at 倒序后恰为 3 条；第 3 条 resource_name 为空，
+ * 用于校验不回落成采集地址。labels.instance 与 annotations.summary 供行 2 摘要断言。
  */
 const AM_ALERTS_OK = {
   status: 'success',
@@ -314,7 +313,7 @@ const AM_ALERTS_OK = {
         labels: { alertname: '接口错误率升高', severity: 'info', instance: '10.0.0.13:9100' },
         annotations: {},
         starts_at: isoAgo(120),
-        resource_name: 'app-01',
+        resource_name: '',
       },
       {
         notify_status: 'silenced',
@@ -1230,9 +1229,7 @@ describe('HomePage', () => {
     expect(screen.queryByRole('link', { name: /去导入资源/ })).not.toBeInTheDocument()
   })
 
-  it('shows a prominent all-clear block in the latest-alert column when nothing needs handling', async () => {
-    // AM 无通知中告警、Prom 无触发，但历史统计有记录 → 不走空态引导，
-    // 两栏区渲染、右栏「正在告警」为空 → 醒目成功块（不是 12px 灰字一行）
+  it('keeps the four metrics and shows only the active-alert empty text when AM has no active alerts', async () => {
     setupHomeMock({
       [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
       [HISTORY_PATH]: HISTORY_OK,
@@ -1241,17 +1238,12 @@ describe('HomePage', () => {
 
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByTestId('latest-alert-empty')).toBeInTheDocument()
-    })
-    const block = screen.getByTestId('latest-alert-empty')
-    expect(block).toHaveTextContent('当前没有需要处理的告警')
-    // 醒目：成功色语义块 + 16px/600 标题（原 12px 灰字常在扫读时被当成没加载出来）；
-    // 第七轮走查把 15px 并入 title 级 16px——首页所有空态标题同尺寸
-    expect(within(block).getByText('当前没有需要处理的告警').style.fontSize).toBe('16px')
-    expect(within(block).getByText('当前没有需要处理的告警').style.fontWeight).toBe('600')
-    expect(block.getAttribute('style') ?? '').toContain('background')
-    // 标题不带「近 8 条」：上限是内部实现，带条数与「没有告警」自相矛盾
+    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
+    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
+    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
+    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
+    expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
     expect(screen.queryByText(/近 8 条/)).not.toBeInTheDocument()
   })
 
@@ -1315,7 +1307,7 @@ describe('HomePage', () => {
       'db-01 · 磁盘使用率 91%，预计 6 小时后写满',
     )
     // resource_name 缺失显示 '-'，且无告警内容时行 2 仅 '-'
-    expect(screen.getByTestId('latest-alert-3-line2')).toHaveTextContent('-')
+    expect(screen.getByTestId('latest-alert-2-line2')).toHaveTextContent('-')
   })
 
   it('states the 下发口径 next to the overall coverage figure instead of on per-card tips', async () => {
@@ -1423,12 +1415,12 @@ describe('HomePage', () => {
     expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
     expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
     expect(screen.queryByTestId('cloud-cards')).not.toBeInTheDocument()
-    // 告警卡独立取数：本例三个告警源均为空且均成功 → 渲染空态引导，
-// 证明它由自己的取数结果驱动，不随 summary 失败一并降级
+    // 告警卡独立取数：三个告警源均为空且成功时，四格仍为 0，右侧展示通知中空态
     await waitFor(() => {
       expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
     })
     expect(screen.getByTestId('alert-status-card')).toHaveTextContent('当前无通知中的告警')
+    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
   })
 
   it('renders error message when the dashboard request throws', async () => {
@@ -1526,7 +1518,7 @@ describe('HomePage', () => {
     expect(within(strip).getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
     expect(within(strip).getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
     expect(within(strip).getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
-    // 通知中/静默/抑制不再进统计条（2026-10-26 用户确认），只出现在正在告警行状态里
+    // 四格只展示历史统计；通知状态仅保留在右侧通知中告警行内
     expect(screen.queryByTestId('alert-active-count')).not.toBeInTheDocument()
     expect(screen.queryByTestId('alert-governed-count')).not.toBeInTheDocument()
     for (const label of ['今日告警', '今日告警今日恢复', '历史遗留告警', '历史遗留今日恢复']) {
@@ -1548,28 +1540,23 @@ describe('HomePage', () => {
 
     expect(within(screen.getByTestId('latest-alert-0')).getByText('主机 CPU 使用率过高')).toBeInTheDocument()
     expect(within(screen.getByTestId('latest-alert-1')).getByText('磁盘使用率接近上限')).toBeInTheDocument()
-    expect(within(screen.getByTestId('latest-alert-4')).getByText('节点失联')).toBeInTheDocument()
-    expect(screen.queryByTestId('latest-alert-5')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-2')).getByText('接口错误率升高')).toBeInTheDocument()
+    expect(screen.queryByTestId('latest-alert-3')).not.toBeInTheDocument()
+    // 首页只展示通知中；已静默、已抑制、待处理仅在通知状态页展示
+    expect(screen.queryByText('内存使用率偏高')).not.toBeInTheDocument()
+    expect(screen.queryByText('节点失联')).not.toBeInTheDocument()
     expect(screen.queryByText('队列积压')).not.toBeInTheDocument()
-    // 告警条数不超过单页上限（5 ≤ ALERT_PAGE_SIZE）→ 单页展示，分页器不出现
     expect(screen.queryByTestId('latest-alert-pager')).not.toBeInTheDocument()
 
-    // 相对时间（本地化，非机器格式）
     expect(within(screen.getByTestId('latest-alert-0')).getByText('5 分钟前')).toBeInTheDocument()
     // resource_name 缺失显示 '-'，不回落成采集地址
-    expect(within(screen.getByTestId('latest-alert-3')).getByText('-')).toBeInTheDocument()
+    expect(screen.getByTestId('latest-alert-2-line2')).toHaveTextContent(/^-/)
 
-    // 级别与通知状态用用户语言，不暴露枚举值
-    expect(within(screen.getByTestId('latest-alert-4')).getByText('严重')).toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-0')).getByText('严重')).toBeInTheDocument()
     expect(within(screen.getByTestId('latest-alert-0')).getByText('通知中')).toBeInTheDocument()
-    expect(within(screen.getByTestId('latest-alert-3')).getByText('已静默')).toBeInTheDocument()
-
-    // unprocessed 不计数陈列，仅一行灰字防误读
-    expect(screen.getByTestId('alert-unprocessed-note')).toHaveTextContent(
-      '另有 1 条告警仍在计算通知状态',
-    )
-
-    // 页面不再出现「待处理」歧义词
+    expect(within(alertCard).queryByText('已静默')).not.toBeInTheDocument()
+    expect(within(alertCard).queryByText('已抑制')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('alert-unprocessed-note')).not.toBeInTheDocument()
     expect(screen.queryByText(/待处理/)).not.toBeInTheDocument()
 
     // 卡内深链：告警中心入口已由标题右侧「查看全部 →」承担，底部不再重复（用户反馈 2026-09-14）；
@@ -1633,7 +1620,7 @@ describe('HomePage', () => {
     expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('主机 CPU 使用率过高')
   })
 
-  it('does not show empty guidance when AM only has unprocessed alerts', async () => {
+  it('ignores silenced, inhibited and unprocessed AM alerts and keeps the four zero metrics visible', async () => {
     setupHomeMock({
       [AM_ALERTS_PATH]: {
         status: 'success',
@@ -1645,6 +1632,18 @@ describe('HomePage', () => {
               annotations: {},
               starts_at: isoAgo(1),
             },
+            {
+              notify_status: 'silenced',
+              labels: { alertname: '静默告警', severity: 'warning' },
+              annotations: {},
+              starts_at: isoAgo(2),
+            },
+            {
+              notify_status: 'inhibited',
+              labels: { alertname: '抑制告警', severity: 'warning' },
+              annotations: {},
+              starts_at: isoAgo(3),
+            },
           ],
         },
       },
@@ -1652,30 +1651,32 @@ describe('HomePage', () => {
 
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByTestId('alert-unprocessed-note')).toBeInTheDocument()
-    })
-    // 仅有 unprocessed 告警时不是空态：四格 0 + 灰字提示，不得引导「去配置通知规则」
+    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('latest-alert-empty')).toBeInTheDocument()
-    expect(screen.queryByText('当前无通知中的告警')).not.toBeInTheDocument()
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('0')
+    for (const name of ['队列积压', '静默告警', '抑制告警']) {
+      expect(screen.queryByText(name)).not.toBeInTheDocument()
+    }
+    expect(screen.queryByTestId('alert-unprocessed-note')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
   })
 
-  it('renders neutral empty guidance linking to /alert-config when alert sources are empty', async () => {
+  it('always renders the four metrics when all alert sources are empty', async () => {
     setupHomeMock({
       [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
     })
 
     renderPage()
 
-    await waitFor(() => {
-      expect(screen.getByText('当前无通知中的告警')).toBeInTheDocument()
-    })
-    expect(screen.getByRole('link', { name: '去配置通知规则 →' })).toHaveAttribute(
-      'href',
-      '/alert-config',
-    )
+    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
+    expect(screen.getByTestId('alert-stat-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('0')
+    expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
   })
 
   it('renders warning but keeps AM data when the stats source fails', async () => {
@@ -1985,7 +1986,7 @@ describe('HomePage', () => {
   })
 
   it('keeps the 5-rows-per-page contract on the side-by-side alert card', async () => {
-    // 有真实告警数据（否则走空态引导，页脚不渲染）
+    // 有多条通知中告警时验证固定分页
     setupHomeMock({ [AM_ALERTS_PATH]: AM_ALERTS_OK })
 
     renderPage()

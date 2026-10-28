@@ -83,18 +83,19 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getAllByText(/恢复时间/).length).toBeGreaterThan(0)
   })
 
-  it('渲染历史告警列表：告警名、采集地址、状态、摘要', async () => {
+  it('渲染历史告警列表：告警名、实例名、状态、摘要', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
-      data: { list: [eventItem()], total: 1, page: 1, page_size: 20 },
+      data: { list: [eventItem({ resource_name: 'prod-db-01' })], total: 1, page: 1, page_size: 20 },
     })
     renderPage()
     expect(await screen.findByText('HighCPU')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '实例名' })).toBeInTheDocument()
+    expect(screen.getByText('prod-db-01')).toBeInTheDocument()
     expect(screen.queryByText('10.0.0.1:9100')).toBeNull()
     expect(screen.getByText('已恢复')).toBeInTheDocument()
     expect(screen.getByText('CPU 使用率过高')).toBeInTheDocument()
     expect(screen.getByText('CPU 连续 5 分钟超过 90%')).toBeInTheDocument()
-    expect(screen.queryByRole('columnheader', { name: '实例名' })).toBeNull()
   })
 
   it('网域只展示 event 中的 network_domain_name，缺失时不回连也不回落 ID', async () => {
@@ -180,21 +181,22 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.queryByText('全局/聚合')).toBeNull()
   })
 
-  it('不展示 event 表之外的 resource_name 和采集地址', async () => {
+  it('实例名使用 resource_name，缺失时显示 - 且不回落采集地址', async () => {
     alertStatusApiMock.getAlertEvents.mockResolvedValue({
       status: 'success',
       data: {
-        list: [eventItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' })],
+        list: [eventItem({ instance_address: '10.0.0.1:9100' })],
         total: 1,
         page: 1,
         page_size: 20,
       },
     })
     renderPage()
-    expect(await screen.findByText('HighCPU')).toBeInTheDocument()
+    const row = (await screen.findByText('HighCPU')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    expect(cells[3]).toHaveTextContent('-')
     expect(screen.queryByText('10.0.0.1:9100')).toBeNull()
-    expect(screen.queryByText('prod-db-01')).toBeNull()
-    expect(screen.queryByRole('columnheader', { name: '实例名' })).toBeNull()
   })
 
   it('摘要、描述与告警名筛选框并存', async () => {
