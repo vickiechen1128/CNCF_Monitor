@@ -271,6 +271,9 @@
 - 服务端固定：`source_type=manual`、`tenant_id=platform_admin`、`resource_id`（M07 生成 uuid）
 - 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`health_check_url`/`endpoint?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
 - **application 双地址口径（2026-10-27 用户决策）**：`health_check_url` 必填，作为 blackbox 拨测目标；`endpoint` / `port` 均可选，仅用于 standard 指标采集，`port=0` 表示未设置。判重与 Excel upsert 定位键为 `(network_domain_id, service_name, health_check_url)`；不使用 URL 代填 standard 采集地址。
+- **application 负责人与上线时间（2026-10-28 用户决策）**：`owner1`、`owner1_contact`、`owner2`、`owner2_contact`、`go_live_at` 全部可选；`go_live_at` 使用 RFC3339，Excel 同时接受 `YYYY-MM-DD`。五字段可用于标签模板 resource_field 映射，空值不注入标签；旧 `owner` 保留，存量 migration 回填到 `owner1`。
+- **资源列表导出**：前端按当前 `resource_category` 与筛选条件分页拉取列表并导出 CSV；application 导出包含上述五字段；interface_service 不导出无语义的 `scrape_port`。
+- **标签模板与系统注入（2026-10-28 用户决策）**：来源字段按各类资源实际录入字段开放，移除无效字段与组合字段选项；预置默认模板全部删除，Job 可不选择模板。`resource_id` 及网域/云/分区等系统注入字段全程保护，既不得作为模板目标标签，也不得被模板覆盖。
 
 ### 10.2 资源更新（PUT /resources/:resource_id）
 

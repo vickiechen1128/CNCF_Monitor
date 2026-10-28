@@ -164,7 +164,7 @@ func strPtr(s string) *string {
 func applyHostInput(h *models.Host, in *ResourceInput) {
 	h.NetworkDomainID = in.NetworkDomainID
 	h.BizCode = in.BizCode
-	h.AppCode = in.AppCode // 决策 92：资源侧只存不可变编码 app_code
+	h.AppCode = in.AppCode           // 决策 92：资源侧只存不可变编码 app_code
 	h.PlatformCode = in.PlatformCode // 决策 110：资源行一等字段（可空，留空走应用主平台兜底）
 	h.SubAppCode = in.Cluster
 	h.EnvFlag = in.Env
@@ -184,7 +184,7 @@ func applyHostInput(h *models.Host, in *ResourceInput) {
 func applyDatabaseInput(d *models.Database, in *ResourceInput) {
 	d.NetworkDomainID = in.NetworkDomainID
 	d.BizCode = in.BizCode
-	d.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
+	d.AppName = strPtr(in.AppCode)   // 决策 92：AppName 物理列语义切换为 app_code 编码
 	d.PlatformCode = in.PlatformCode // 决策 110
 	d.Cluster = strPtr(in.Cluster)
 	d.Env = in.Env
@@ -200,7 +200,7 @@ func applyDatabaseInput(d *models.Database, in *ResourceInput) {
 func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
 	m.NetworkDomainID = in.NetworkDomainID
 	m.BizCode = in.BizCode
-	m.AppName = in.AppCode // 决策 92：AppName 物理列语义切换为 app_code 编码
+	m.AppName = in.AppCode           // 决策 92：AppName 物理列语义切换为 app_code 编码
 	m.PlatformCode = in.PlatformCode // 决策 110
 	m.Cluster = in.Cluster
 	m.Env = in.Env
@@ -216,11 +216,16 @@ func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
 func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.NetworkDomainID = in.NetworkDomainID
 	a.BizCode = in.BizCode
-	a.AppName = in.AppCode // 决策 92：AppName 物理列语义切换为 app_code 编码
+	a.AppName = in.AppCode           // 决策 92：AppName 物理列语义切换为 app_code 编码
 	a.PlatformCode = in.PlatformCode // 决策 110
 	a.Cluster = in.Cluster
 	a.Env = in.Env
 	a.Owner = in.Owner
+	a.Owner1 = in.Owner1
+	a.Owner1Contact = in.Owner1Contact
+	a.Owner2 = in.Owner2
+	a.Owner2Contact = in.Owner2Contact
+	a.GoLiveAt, _ = parseGoLiveAt(in.GoLiveAt)
 	a.Status = in.Status
 	a.ServiceName = in.ServiceName
 	a.HealthCheckURL = in.HealthCheckURL
@@ -233,7 +238,7 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.NetworkDomainID = in.NetworkDomainID
 	g.BizCode = in.BizCode
-	g.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
+	g.AppName = strPtr(in.AppCode)   // 决策 92：AppName 物理列语义切换为 app_code 编码
 	g.PlatformCode = in.PlatformCode // 决策 110
 	g.Cluster = strPtr(in.Cluster)
 	g.Env = in.Env
@@ -256,7 +261,7 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 func applyInterfaceServiceInput(o *models.InterfaceService, in *ResourceInput) {
 	o.NetworkDomainID = in.NetworkDomainID
 	o.BizCode = in.BizCode
-	o.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
+	o.AppName = strPtr(in.AppCode)   // 决策 92：AppName 物理列语义切换为 app_code 编码
 	o.PlatformCode = in.PlatformCode // 决策 110
 	o.Cluster = strPtr(in.Cluster)
 	o.Env = in.Env

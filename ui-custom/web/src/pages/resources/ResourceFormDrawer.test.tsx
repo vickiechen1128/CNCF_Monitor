@@ -628,6 +628,10 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByText('健康检查 URL')).toBeInTheDocument()
     expect(screen.getByText('端点（采集地址主机）')).toBeInTheDocument()
     expect(screen.getByText('端口（采集端口）')).toBeInTheDocument()
+    expect(screen.getByText('负责人信息（选填）')).toBeInTheDocument()
+    expect(screen.getByText('负责人1联系方式')).toBeInTheDocument()
+    expect(screen.getByText('负责人2联系方式')).toBeInTheDocument()
+    expect(screen.getByText('应用上线时间')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：10.10.1.4')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：8081')).toBeInTheDocument()
 

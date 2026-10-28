@@ -576,7 +576,7 @@ func TestImportRecordErrorsJSONRoundTrip(t *testing.T) {
 }
 
 func TestProtectedPrometheusLabels(t *testing.T) {
-	for _, key := range []string{"instance", "job", "scheme", "__address__", "__scheme__", "__metrics_path__"} {
+	for _, key := range []string{"instance", "job", "scheme", "__address__", "__scheme__", "__metrics_path__", "resource_id", "network_domain", "cloud", "zone", "network_domain_name", "cloud_name", "zone_name"} {
 		assert.True(t, IsProtectedLabel(key), "expected %q to be a protected label", key)
 	}
 	assert.False(t, IsProtectedLabel("app"))

@@ -7,6 +7,7 @@ package resource
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
@@ -232,6 +233,14 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["version"] = r.Version
 		item["scrape_port"] = r.ScrapePort
 	case *models.Application:
+		item["owner1"] = r.Owner1
+		item["owner1_contact"] = r.Owner1Contact
+		item["owner2"] = r.Owner2
+		item["owner2_contact"] = r.Owner2Contact
+		item["go_live_at"] = nil
+		if r.GoLiveAt != nil {
+			item["go_live_at"] = r.GoLiveAt.Format(time.RFC3339)
+		}
 		item["service_name"] = r.ServiceName
 		item["health_check_url"] = r.HealthCheckURL
 		item["protocol"] = r.Protocol

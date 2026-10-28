@@ -12,13 +12,20 @@ import (
 // exception for composite→instance mappings, which is enforced at the label
 // mapping layer (T07-16), not here.
 var PROTECTED_PROMETHEUS_LABELS = map[string]struct{}{
-	"instance":         {},
-	"job":              {},
-	"scheme":           {},
-	"__address__":      {},
-	"__scheme__":       {},
-	"__metrics_path__": {},
-	"__name__":         {},
+	"instance":            {},
+	"job":                 {},
+	"scheme":              {},
+	"__address__":         {},
+	"__scheme__":          {},
+	"__metrics_path__":    {},
+	"__name__":            {},
+	"resource_id":         {},
+	"network_domain":      {},
+	"cloud":               {},
+	"zone":                {},
+	"network_domain_name": {},
+	"cloud_name":          {},
+	"zone_name":           {},
 }
 
 // IsProtectedLabel reports whether key is a protected Prometheus label.
@@ -27,8 +34,17 @@ func IsProtectedLabel(key string) bool {
 	return ok
 }
 
+// IsSystemInjectedLabel 报告由生成器自动注入且禁止模板覆盖的标签。
+func IsSystemInjectedLabel(key string) bool {
+	switch key {
+	case "resource_id", "network_domain", "cloud", "zone", "network_domain_name", "cloud_name", "zone_name":
+		return true
+	}
+	return false
+}
+
 // LabelTransformDict 是标签映射的「字典翻译」转换规则：把来源字段的编码值
-// 翻译为字典展示名后再写入 Prometheus 标签（如 app_code ``ceshi`` → 应用名）。
+// 翻译为字典展示名后再写入 Prometheus 标签（如 app_code “ceshi“ → 应用名）。
 //
 // 仅对引用字典 / 固定枚举的 resource_field 来源生效，见
 // IsDictTranslatableSourceField；未知取值回退原始 code。

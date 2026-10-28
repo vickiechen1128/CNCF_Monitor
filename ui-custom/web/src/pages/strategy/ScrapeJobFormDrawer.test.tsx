@@ -287,13 +287,10 @@ describe('ScrapeJobFormDrawer', () => {
     renderDrawer()
     fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
 
-    // 未选资源类别时给出引导（此前拨测分支因 monitorType 为空而不渲染选择器）
-    expect(await screen.findByText('选择拨测目标资源类别后按资源类别列出')).toBeInTheDocument()
-
-    // 选择接口服务：只列该类别模板；留空选项明确为「使用默认标签模板」
+    // 选择接口服务：可不使用模板，也可切换自定义方案
     fireEvent.mouseDown(screen.getByText('请选择'))
     await selectAntdOption('接口服务')
-    expect(await screen.findByText('使用默认标签模板（接口服务默认模板）')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
     expect(screen.getByText('接口服务自定义模板')).toBeInTheDocument()
     expect(screen.queryByText('应用服务默认模板')).not.toBeInTheDocument()
 
@@ -310,9 +307,7 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('12')
   })
 
-  // 回归：标准采集任务选「使用默认标签模板」时，提交的是该资源类别默认模板的
-  // 真实 ID；此前提交 undefined 导致字段从请求体消失，后端保留旧值/无法回落默认。
-  it('standard：选「使用默认标签模板」时提交默认模板 ID 与资源类别', async () => {
+  it('standard：不使用标签模板时提交空模板 ID 与资源类别', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 13, job_name: 'default-label', job_type: 'standard' } })
     labelListMock.mockResolvedValue({
       status: 'success',
@@ -341,7 +336,7 @@ describe('ScrapeJobFormDrawer', () => {
 
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'default-label')
     await selectCategoryAndType('数据库', 'MySQL')
-    expect(await screen.findByText('使用默认标签模板（MySQL 标准标签）')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
 
     fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
     await selectAntdOption('网域A')
@@ -349,7 +344,7 @@ describe('ScrapeJobFormDrawer', () => {
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
-    expect(body.label_template_id).toBe('7')
+    expect(body.label_template_id).toBe('')
     expect(body.resource_type).toBe('database')
   })
 
@@ -487,15 +482,14 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.queryByText('Linux 标签')).toBeNull()
   })
 
-  it('shows label template empty hint with 补配 action when none in category (F1-4)', async () => {
+  it('allows submitting without a label template when none exists', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
     await selectCategoryAndType('数据库', 'MySQL')
-    expect(await screen.findByText('该资源类别下暂无标签模板')).toBeInTheDocument()
-    expect(screen.getByText('前往补配标签模板')).toBeInTheDocument()
+    expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
   })
 
   it('filters monitor type options by resource category and triggers default collector (F1-8)', async () => {

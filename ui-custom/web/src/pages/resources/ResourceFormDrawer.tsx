@@ -4,6 +4,7 @@ import {
   AutoComplete,
   Button,
   Col,
+  DatePicker,
   Drawer,
   Form,
   Input,
@@ -14,6 +15,7 @@ import {
   Typography,
   message,
 } from 'antd'
+import dayjs from 'dayjs'
 import { networkDomainApi } from '../../api/domain'
 import {
   applicationDictApi,
@@ -200,6 +202,11 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         service_name: String(values.service_name),
         endpoint: values.endpoint ? String(values.endpoint) : undefined,
         health_check_url: String(values.health_check_url),
+        owner1: values.owner1 ? String(values.owner1) : undefined,
+        owner1_contact: values.owner1_contact ? String(values.owner1_contact) : undefined,
+        owner2: values.owner2 ? String(values.owner2) : undefined,
+        owner2_contact: values.owner2_contact ? String(values.owner2_contact) : undefined,
+        go_live_at: values.go_live_at && dayjs.isDayjs(values.go_live_at) ? values.go_live_at.toISOString() : undefined,
         protocol: values.protocol ? String(values.protocol) : undefined,
         port: values.port ? Number(values.port) : undefined,
       }
@@ -265,6 +272,11 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     version: record.version,
     service_name: record.service_name,
     health_check_url: record.health_check_url,
+    owner1: record.owner1,
+    owner1_contact: record.owner1_contact,
+    owner2: record.owner2,
+    owner2_contact: record.owner2_contact,
+    go_live_at: record.go_live_at ? dayjs(record.go_live_at) : undefined,
     protocol: record.protocol,
     endpoint: record.endpoint,
     target_name: record.target_name,
@@ -872,6 +884,28 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             </Row>
             <Form.Item label="协议" name="protocol" extra="资源画像用（采集协议由采集 Job 的 scheme 决定）">
               <Input placeholder="例如：http（可选）" maxLength={16} />
+            </Form.Item>
+            <Typography.Text strong>负责人信息（选填）</Typography.Text>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="负责人1" name="owner1">
+                  <Input placeholder="姓名（可选）" maxLength={100} />
+                </Form.Item>
+                <Form.Item label="负责人1联系方式" name="owner1_contact">
+                  <Input placeholder="电话或邮箱（可选）" maxLength={128} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="负责人2" name="owner2">
+                  <Input placeholder="姓名（可选）" maxLength={100} />
+                </Form.Item>
+                <Form.Item label="负责人2联系方式" name="owner2_contact">
+                  <Input placeholder="电话或邮箱（可选）" maxLength={128} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item label="应用上线时间" name="go_live_at">
+              <DatePicker style={{ width: '100%' }} showTime format="YYYY-MM-DD HH:mm" placeholder="选择上线时间（可选）" />
             </Form.Item>
           </>
         )

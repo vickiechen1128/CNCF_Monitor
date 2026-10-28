@@ -7,29 +7,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// runLabelTemplates seeds one default LabelTemplate per resource category,
-// using the canonical field→label mappings (resource_id→resource_id,
-// biz_code→biz, instance_ip:port→instance).
-// Aligned with Module_07 §5.10~§5.13. Idempotent via "name = ?" upsert.
+// runLabelTemplates 删除预置默认模板；系统注入标签由生成器负责，自定义模板由用户维护。
 func runLabelTemplates(db *gorm.DB) error {
-	categories := models.ValidResourceCategories()
-	for _, cat := range categories {
-		tmpl := &models.LabelTemplate{
-			Name:             "default-" + string(cat),
-			ResourceCategory: cat,
-			IsDefault:        true,
-			Mappings:         models.DefaultMappingBuilders(cat),
-		}
-		if err := firstOrCreate(db, tmpl, "name = ?", tmpl.Name); err != nil {
-			return err
-		}
-		if err := ensureResourceIDMapping(db, tmpl.Name); err != nil {
-			return err
-		}
-		// 决策 115：platform 五类全覆盖。
-		if err := ensurePlatformMapping(db, tmpl.Name); err != nil {
-			return err
-		}
+	if err := db.Unscoped().Where("is_default = ?", true).Delete(&models.LabelTemplate{}).Error; err != nil {
+		return fmt.Errorf("remove default label templates: %w", err)
 	}
 	return nil
 }
