@@ -186,3 +186,11 @@
   - 前端 71 项目标测试、`typecheck:test`、生产构建及变更文件 ESLint 通过；首页与后端三个健康接口均 200，验证后已停服释放端口。
   - 全量检查仍有既有环境/存量问题：Windows 磁盘统计与 promtool 测试失败，`InstanceSelector.tsx:94` 有一个 Lint 警告；未修改无关模块。
 - **契约 / PRD 偏离**：API 字段与枚举不变；第三项语义按用户最新确认调整为「今天 0 点遗留量」，PRD 由文档侧后续回填。
+
+## M08-F63：历史告警导出补充实例名
+
+- **commit**：M08-F63（本提交）。
+- **修改文件**：`ui-custom/web/src/pages/alerts/historyAlertExport.ts`、`historyAlertExport.test.ts`。
+- **实现**：CSV 在网域后新增实例名列，使用 `resource_name`，缺失导出 `-`；仍不导出采集地址。
+- **验证**：历史告警页面与导出共 17 项测试通过；`typecheck:test` 与变更文件 ESLint 通过。
+- **契约 / PRD 偏离**：仅导出内容补齐，无 API 或 schema 变化。

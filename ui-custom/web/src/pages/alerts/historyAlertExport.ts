@@ -13,11 +13,12 @@ function csvCell(value: unknown): string {
 }
 
 export function alertEventsToCSV(items: AlertEventItem[]): string {
-  const headers = ['告警名称', '状态', '网域', '摘要', '描述', '触发时间', '恢复时间', '关闭时间', '持续时长（秒）']
+  const headers = ['告警名称', '状态', '网域', '实例名', '摘要', '描述', '触发时间', '恢复时间', '关闭时间', '持续时长（秒）']
   const rows = items.map((item) => [
     item.alert_name,
     alertEventStatusLabel[item.status] ?? item.status,
     item.labels?.network_domain_name || '-',
+    item.resource_name || '-',
     item.summary || '-',
     item.description || '-',
     item.starts_at || '-',
