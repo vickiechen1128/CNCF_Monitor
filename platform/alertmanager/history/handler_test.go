@@ -42,8 +42,8 @@ func seedEvent(
 }
 
 // TestComputeStatsFourMetrics 锁定首页四指标口径：
-// 今日告警严格按开始时间；今日恢复要求开始和关闭都在今天；历史遗留是当前未结且开始于今天之前；
-// 历史遗留今日恢复 = 开始于今天之前 + 今天关闭。
+// 今日告警严格按开始时间；今日恢复要求开始和关闭都在今天；
+// 历史遗留是今天 0 点时的遗留量（当前未结或今天关闭）；历史遗留今日恢复 = 开始于今天之前 + 今天关闭。
 func TestComputeStatsFourMetrics(t *testing.T) {
 	db := newTestDB(t)
 	loc := time.FixedZone("UTC+8", 8*3600)
@@ -81,7 +81,7 @@ func TestComputeStatsFourMetrics(t *testing.T) {
 	assert.EqualValues(t, 1, st.TodayResolvedTotal, "只有今天开始并关闭的 resolved-today")
 	assert.EqualValues(t, 1, st.TodayResolvedReal, "历史告警今天恢复不计入今日恢复")
 	assert.EqualValues(t, 0, st.TodayResolvedInferred, "lost-today 只计入历史遗留今日恢复")
-	assert.EqualValues(t, 2, st.LegacyOpenTotal, "open-yesterday + silenced-open")
+	assert.EqualValues(t, 4, st.LegacyOpenTotal, "今天 0 点遗留：2 条仍未结 + 2 条今天关闭")
 	assert.EqualValues(t, 1, st.LegacyOpenFiring)
 	assert.EqualValues(t, 1, st.LegacyOpenSilenced)
 	assert.EqualValues(t, 0, st.LegacyOpenInhibited)

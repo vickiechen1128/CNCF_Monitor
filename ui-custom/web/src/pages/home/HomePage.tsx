@@ -314,14 +314,11 @@ const ALERT_MOCK: AlertCounts = {
   todayResolvedTotal: 9,
   todayResolvedReal: 8,
   todayResolvedInferred: 1,
-  legacyOpenTotal: 2,
+  legacyOpenTotal: 3,
   legacyResolvedTodayTotal: 3,
   legacyResolvedTodayReal: 3,
   legacyResolvedTodayInferred: 0,
   active: 2,
-  silenced: 1,
-  inhibited: 0,
-  unprocessed: 0,
 }
 
 /**
@@ -460,8 +457,8 @@ type AlertStatsCounts = Pick<
 /**
  * 历史告警四指标（GET /alert-events/stats）。
  *
- * 口径由服务端按 UTC+8 自然日计算：今日告警严格按 starts_at；今日恢复按 closed_at；
- * 历史遗留是当前未结且 starts_at 早于今天 0 点。字段缺失（契约异常）返回 null，
+ * 口径由服务端按 UTC+8 自然日计算：今日告警严格按 starts_at；今日恢复要求今天触发并关闭；
+ * 历史遗留是今天 0 点前触发且当前未结或今天关闭。字段缺失（契约异常）返回 null，
  * 由调用方把四格降级为 '-'（不显示 0）。
  */
 function computeAlertStats(res: ApiResponse<AlertEventStats> | null): AlertStatsCounts | null {
@@ -505,19 +502,12 @@ function buildSummaryMap(res: ApiResponse<AlertHistoryData> | null): Record<stri
   return map
 }
 
-/** 内部治理态计数：AM 通知四态（active / silenced / inhibited / unprocessed） */
-function computeCounts(
-  amRes: ApiResponse<AmAlertsData> | null,
-): Pick<AlertCounts, 'active' | 'silenced' | 'inhibited' | 'unprocessed'> {
+/** 首页只关注 AM 通知中数量，其他通知状态不参与展示或空态判断。 */
+function computeCounts(amRes: ApiResponse<AmAlertsData> | null): Pick<AlertCounts, 'active'> {
   // amRes 仅在信封 status === 'success' 时被写入（见 toSourceState），
   // 业务错误信封不会静默计 0，而是走 amError 呈现。
   const amAlerts: AmAlertItem[] = amRes?.data?.items ?? []
-  return {
-    active: amAlerts.filter((i) => i.notify_status === 'active').length,
-    silenced: amAlerts.filter((i) => i.notify_status === 'silenced').length,
-    inhibited: amAlerts.filter((i) => i.notify_status === 'inhibited').length,
-    unprocessed: amAlerts.filter((i) => i.notify_status === 'unprocessed').length,
-  }
+  return { active: amAlerts.filter((i) => i.notify_status === 'active').length }
 }
 
 /** 统计接口不可用时的占位值；由 AlertStatusCard 按 statsError 统一渲染 '-'。 */
@@ -534,7 +524,7 @@ const EMPTY_ALERT_STATS: AlertStatsCounts = {
 
 interface AlertGovernance {
   counts: AlertCounts
-  /** 最新告警：AM 条目按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条，剔除 unprocessed（治理闭环 MVP 未实现） */
+  /** 通知中告警：仅 active，按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条 */
   latestAlerts: AmAlertItem[]
   /** 行 2 告警具体内容回查表（history summary 优先，AM annotations.summary 兜底） */
   summaryByAlert: Record<string, string>
@@ -605,12 +595,9 @@ function useAlertGovernance(
   }, [isStaticPreview, mockCounts, amRes, statsRes])
 
   const latestAlerts = useMemo(() => {
-    if (isStaticPreview) {
-      return mockLatest
-    }
-    const items = amRes?.data?.items ?? []
+    const items = isStaticPreview ? mockLatest : (amRes?.data?.items ?? [])
     return items
-      .filter((i) => i.notify_status !== 'unprocessed')
+      .filter((i) => i.notify_status === 'active')
       .sort((a, b) => alertTime(b.starts_at) - alertTime(a.starts_at))
       .slice(0, LATEST_ALERT_LIMIT)
   }, [isStaticPreview, mockLatest, amRes])

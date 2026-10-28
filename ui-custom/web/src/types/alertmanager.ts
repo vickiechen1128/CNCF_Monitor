@@ -287,11 +287,11 @@ export interface AlertEventData {
 export interface AlertEventStats {
   /** 今日告警：今天 0 点后开始触发的发生数（严格按开始时间） */
   today_total: number
-  /** 今日恢复：今天关闭的终态数（真实恢复 + 恢复时间未知） */
+  /** 今日恢复：今天触发且今天关闭的终态数（真实恢复 + 恢复时间未知） */
   today_resolved_total: number
   today_resolved_real: number
   today_resolved_inferred: number
-  /** 历史遗留告警：当前未结且开始时间早于今天 0 点 */
+  /** 历史遗留告警：今天 0 点前触发，且当前未关闭或今天关闭 */
   legacy_open_total: number
   legacy_open_firing: number
   legacy_open_silenced: number

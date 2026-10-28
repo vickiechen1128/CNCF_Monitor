@@ -171,3 +171,18 @@
   - 服务以内存 DB 在 `:18080` 启动，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；验证后停服并释放端口。
   - 全量 `go test ./platform/...` 中本包通过；未修改的 `admin/storagelog`、`cmd/metric-center`、`db`、`strategy/rule` 仍有本机环境相关失败，未借此修改其他模块。
 - **契约 / PRD 偏离**：无 API、schema、七态枚举变化；生产路由 `group_interval` 调整为 1m 由部署配置侧执行，不在本提交修改。
+
+## M08-F62：首页四项指标与通知中列表口径修正
+
+- **commit**：M08-F62（本提交）。
+- **背景**：首页全零时空态会替换四项指标；右侧混入非通知中状态；历史遗留告警在今天恢复后会从第三项减少；历史告警列表缺实例名。
+- **修改文件**：
+  - `platform/alertmanager/history/handler.go`、`handler_test.go`：第三项改为今天 0 点前触发且当前未结或今天关闭；第四项是其中今天关闭的子集，并补充统计回归断言。
+  - `ui-custom/web/src/pages/home/HomePage.tsx`、`AlertStatusCard.tsx`：四格始终展示；右侧只过滤 `notify_status=active`，无通知中告警时仅显示对应空态，不再展示其他 AM 状态或配置引导。
+  - `ui-custom/web/src/pages/alerts/HistoryAlertsPage.tsx`：恢复 `resource_name` 实例名列，缺失显示 `-`，不回落采集地址。
+  - 相关前端测试与 `ui-custom/web/src/types/alertmanager.ts` 注释同步。
+- **验证**：
+  - `go test ./platform/alertmanager/history -count=1`、`go vet ./platform/...` 通过；`metric-center` 构建通过。
+  - 前端 71 项目标测试、`typecheck:test`、生产构建及变更文件 ESLint 通过；首页与后端三个健康接口均 200，验证后已停服释放端口。
+  - 全量检查仍有既有环境/存量问题：Windows 磁盘统计与 promtool 测试失败，`InstanceSelector.tsx:94` 有一个 Lint 警告；未修改无关模块。
+- **契约 / PRD 偏离**：API 字段与枚举不变；第三项语义按用户最新确认调整为「今天 0 点遗留量」，PRD 由文档侧后续回填。

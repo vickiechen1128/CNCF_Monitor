@@ -265,7 +265,7 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 // 四指标（2026-10-26 用户确认，对齐 MonitorStack 历史告警口径）：
 //   - 今日告警：starts_at 落在今天自然日内的发生数（严格按开始时间，不含昨天开始今天仍在持续的）；
 //   - 今日恢复：starts_at 与 closed_at 均落在今天的终态数（真实恢复 + 恢复时间未知）；
-//   - 历史遗留告警：当前仍未结束、且 starts_at 早于今天 0 点的积压快照；
+//   - 历史遗留告警：starts_at 早于今天 0 点，且当前未结或 closed_at 落在今天（今天 0 点遗留量）；
 //   - 历史遗留今日恢复：starts_at 早于今天 0 点、closed_at 落在今天的终态数。
 //
 // 所有时间边界先转 UTC+8（与表内存储时区一致）再进 SQL，
@@ -320,8 +320,11 @@ func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error)
 		{&st.TodayResolvedTotal, base().Where("status IN ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", terminal, d0, d1, d0, d1)},
 		{&st.TodayResolvedReal, base().Where("status = ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", models.AlertEventStatusResolved, d0, d1, d0, d1)},
 		{&st.TodayResolvedInferred, base().Where("status IN ? AND starts_at >= ? AND starts_at < ? AND closed_at >= ? AND closed_at < ?", inferred, d0, d1, d0, d1)},
-		// 历史遗留告警：当前未结、开始时间早于今天 0 点。
-		{&st.LegacyOpenTotal, base().Where("status IN ? AND starts_at < ?", open, d0)},
+		// 历史遗留告警：今天 0 点时的遗留量，即开始于今天之前，且当前未结或今天关闭。
+		{&st.LegacyOpenTotal, base().Where(
+			"starts_at < ? AND (status IN ? OR (status IN ? AND closed_at >= ? AND closed_at < ?))",
+			d0, open, terminal, d0, d1,
+		)},
 		{&st.LegacyOpenFiring, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusFiring, d0)},
 		{&st.LegacyOpenSilenced, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusSilenced, d0)},
 		{&st.LegacyOpenInhibited, base().Where("status = ? AND starts_at < ?", models.AlertEventStatusInhibited, d0)},

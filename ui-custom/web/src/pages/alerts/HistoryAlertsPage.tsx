@@ -158,6 +158,13 @@ export function HistoryAlertsPage() {
       ),
     },
     {
+      title: '实例名',
+      dataIndex: 'resource_name',
+      key: 'resource_name',
+      width: 150,
+      render: (v?: string) => <EllipsisText maxWidth={130}>{v || '-'}</EllipsisText>,
+    },
+    {
       title: '触发时间',
       dataIndex: 'starts_at',
       key: 'starts_at',

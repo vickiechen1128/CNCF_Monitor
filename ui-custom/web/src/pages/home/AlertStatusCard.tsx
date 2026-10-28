@@ -29,15 +29,11 @@
  * 「查看全部 →」指向 /alert-status 兜底；卡内不再重复「查看告警中心」入口（用户反馈 2026-09-14）。
  *
  * 口径（M08 历史告警统计 /alert-events/stats + M08 通知状态 + M02 /api/v1/alerts）：
- * - 四格 = 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复（2026-10-26 用户确认，
- *   对齐 MonitorStack 历史告警口径；今日告警严格按开始时间，不含昨天开始今天仍在持续的）；
+ * - 四格 = 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复，任何数据状态下都保留；
+ * - 历史遗留告警 = 今天 0 点前触发，且当前未关闭或今天关闭；历史遗留今日恢复是其中今天关闭的子集；
  * - 今日恢复 / 历史遗留今日恢复悬浮提示拆分为「真实恢复 + 恢复时间未知」；
- * - 通知中 / 静默 / 抑制不再进统计条（2026-10-26 用户确认），仅保留在「正在告警」行状态里；
- *   Prometheus 规则求值参考行按用户要求移除，首页告警卡只保留「库四指标 + AM 正在告警」；
- * - AM `unprocessed` 不计数、不进列表（其治理闭环 MVP 未实现），仅在 N > 0 时以一行
- *   灰字提示「另有 N 条告警仍在计算通知状态」，避免「通知中 0」被误读为「真的没告警」；
- * - 空态判定覆盖历史四指标 + AM 四态（任一有数据即不得引导
- *   「尚未挂载通知配置」），且统计取数失败时判定未知、不误报空态。
+ * - 右栏只展示 AM `notify_status=active` 的通知中告警，不展示静默、抑制、待处理及其汇总；
+ * - 无通知中告警时右栏仅显示「当前无通知中的告警」，不影响左侧四格。
  *
  * 权威设计：docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §5.2、
  * docs/05-execution-records/module-05/design-decisions.md「决策 73」。
@@ -45,7 +41,7 @@
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Alert, Button, Empty, List, Pagination, Spin, Tag, Tooltip, Typography, theme } from 'antd'
-import { CheckCircleFilled, ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { useSkin } from '../../skinContext'
 import { HOME_FONT, HOME_WEIGHT } from './homeTypography'
@@ -66,22 +62,18 @@ import { SurfaceCard } from './SurfaceCard'
 export interface AlertCounts {
   /** 今日告警：今天 0 点后开始触发的告警条数（严格按开始时间，不含昨天开始今天仍在持续的） */
   todayTotal: number
-  /** 今日恢复：今天关闭的终态条数（真实恢复 + 恢复时间未知） */
+  /** 今日恢复：今天触发且今天关闭的终态条数（真实恢复 + 恢复时间未知） */
   todayResolvedTotal: number
   todayResolvedReal: number
   todayResolvedInferred: number
-  /** 历史遗留告警：当前仍未结束、且开始时间早于今天 0 点的积压快照 */
+  /** 历史遗留告警：今天 0 点前触发，且当前未关闭或今天关闭 */
   legacyOpenTotal: number
   /** 历史遗留今日恢复：开始时间早于今天 0 点、且今天关闭 */
   legacyResolvedTodayTotal: number
   legacyResolvedTodayReal: number
   legacyResolvedTodayInferred: number
-  /** 以下为 AM 实时计数：不在统计条展示，仅用于空态判断 / 待处理提示 */
+  /** AM 通知中数量：不进入四格统计，仅用于卡片边框状态 */
   active: number
-  silenced: number
-  inhibited: number
-  /** AM 待处理：刚进入 Alertmanager，尚未完成路由 / 静默 / 抑制计算（契约 §10.2 四态之一） */
-  unprocessed: number
 }
 
 /**
@@ -92,15 +84,13 @@ export interface AlertCounts {
 export const LATEST_ALERT_LIMIT = 8
 
 /**
- * 正在告警列表标题：数据来自 Alertmanager 当前告警（剔除 unprocessed），
- * 按开始时间倒序取前 8 条。原文案「正在告警」容易被误解为历史流水；
- * 2026-10-26 用户确认改名为「正在告警」，与数据语义一致。
+ * 正在告警列表标题：数据来自 Alertmanager 通知中告警，按开始时间倒序取前 8 条。
  */
 export const LATEST_ALERT_TITLE = '正在告警'
 
 interface AlertStatusCardProps {
   counts: AlertCounts
-  /** 正在告警（HomePage 已按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条、并剔除 unprocessed） */
+  /** 通知中告警（HomePage 已过滤 active、按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条） */
   latestAlerts: AmAlertItem[]
   /** 行 2 告警具体内容回查表（key 由 alertMatchKey 生成；M02 history summary 优先） */
   summaryByAlert?: Record<string, string>
@@ -170,8 +160,8 @@ export function AlertStatStrip({
       value: statsUnavailable ? '-' : counts.todayResolvedTotal,
       label: '今日告警今日恢复',
       tip: statsUnavailable
-        ? '今天结束的告警条数（真实恢复 + 恢复时间未知）'
-        : `今天结束的告警条数：真实恢复 ${counts.todayResolvedReal} 条 + 恢复时间未知 ${counts.todayResolvedInferred} 条`,
+        ? '今天触发且今天结束的告警条数（真实恢复 + 恢复时间未知）'
+        : `今天触发且今天结束的告警条数：真实恢复 ${counts.todayResolvedReal} 条 + 恢复时间未知 ${counts.todayResolvedInferred} 条`,
       color: token.colorSuccess,
     },
     {
@@ -179,7 +169,7 @@ export function AlertStatStrip({
       testId: 'alert-legacy-open-count',
       value: statsUnavailable ? '-' : counts.legacyOpenTotal,
       label: '历史遗留告警',
-      tip: '现在仍未结束、且开始时间早于今天 0 点的告警条数（当前积压）',
+      tip: '今天 0 点前触发，且当前仍未关闭或今天关闭的告警条数（今天 0 点时的历史遗留量）',
       color: token.colorError,
     },
     {
@@ -475,22 +465,15 @@ export function AlertStatusCard({
   const pageOffset = (currentPage - 1) * pageSize
   const visibleAlerts = latestAlerts.slice(pageOffset, pageOffset + pageSize)
 
-  // 空态只在「各链路均取数成功且全为 0」时引导；部分失败时不误导。
-  // 求和覆盖历史四指标 + AM 四态：任意一侧有数据都不算空态。
-  // 历史表可能还没写入（AM 已有告警），因此不能只看四格是否为 0。
+  // 卡片左边框仅表示是否存在告警数据，不再用整卡空态替换四格指标。
   const isEmpty =
     counts.todayTotal +
       counts.todayResolvedTotal +
       counts.legacyOpenTotal +
       counts.legacyResolvedTodayTotal +
-      counts.active +
-      counts.silenced +
-      counts.inhibited +
-      counts.unprocessed ===
+      counts.active ===
     0
-  // 统计接口取数失败时四格不可知，空态无从判定 → 不引导（宁缺不误导）
   const statsUnavailable = !loading && statsError !== null
-  const showEmptyGuide = !loading && !allFailed && !partialError && !statsUnavailable && isEmpty
 
   const retryAction = onRetry ? (
     <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>
@@ -548,19 +531,9 @@ export function AlertStatusCard({
             />
           )}
 
-          {showEmptyGuide ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="当前无通知中的告警"
-              style={{ margin: '12px 0' }}
-            >
-              <Link to="/alert-config">去配置通知规则 →</Link>
-            </Empty>
-          ) : (
-            /* 卡体两栏（design-proposal §2.3）：左统计块 280px 固定（四格纵排）/
-               右列表 flex:1（正在告警列表，无页脚）。
-               窄屏（≤767px）：统计块维持 2×2，与列表**上下堆叠**（不横向并排）。 */
-            <div
+          {/* 四格指标始终展示；右栏只展示通知中告警及其空态。
+              窄屏（≤767px）：统计块维持 2×2，与列表上下堆叠。 */}
+          <div
               data-testid="alert-card-columns"
               style={{
                 display: 'flex',
@@ -588,19 +561,6 @@ export function AlertStatusCard({
                   compact={narrow}
                   vertical={!narrow}
                 />
-
-                {/* unprocessed 不计数不列条，仅防「通知中 0」被误读为无告警 */}
-                {!amUnavailable && counts.unprocessed > 0 && (
-                  <Typography.Text
-                    type="secondary"
-                    data-testid="alert-unprocessed-note"
-                    style={{ display: 'block', marginTop: 6, fontSize: HOME_FONT.note }}
-                  >
-                    <Tooltip title="告警刚进入通知队列，系统仍在计算是否通知、通知给谁">
-                      <span>另有 {counts.unprocessed} 条告警仍在计算通知状态</span>
-                    </Tooltip>
-                  </Typography.Text>
-                )}
 
               </div>
 
@@ -632,43 +592,12 @@ export function AlertStatusCard({
                       取数失败，暂无法展示正在告警
                     </Typography.Text>
                   ) : latestAlerts.length === 0 ? (
-                    /* 无待处理告警 = 好消息：**醒目的成功态提示块**（原 12px 灰字一行，
-                       扫读时像没加载出来——产品负责人走查要求「醒目一点」）。
-                       语义绿不是唯一语义：标题文字本身写明「没有需要处理的告警」。 */
-                    <div
-                      data-testid="latest-alert-empty"
-                      style={{
-                        marginTop: 12,
-                        padding: '16px 14px',
-                        borderRadius: 8,
-                        background: token.colorSuccessBg,
-                        border: `1px solid ${token.colorSuccessBorder}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <CheckCircleFilled style={{ fontSize: 22, color: token.colorSuccess }} />
-                      <div style={{ minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontSize: HOME_FONT.title,
-                            fontWeight: HOME_WEIGHT.title,
-                            color: token.colorSuccessText,
-                          }}
-                        >
-                          当前没有需要处理的告警
-                        </div>
-                        <div
-                          style={{
-                            fontSize: HOME_FONT.body,
-                            color: token.colorTextSecondary,
-                            marginTop: 2,
-                          }}
-                        >
-                          出现新告警后，会在这里按触发时间倒序列出。
-                        </div>
-                      </div>
+                    <div data-testid="latest-alert-empty">
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="当前无通知中的告警"
+                        style={{ margin: '12px 0' }}
+                      />
                     </div>
                   ) : (
                     /* 固定分页：每页最多 ALERT_PAGE_SIZE 行，列表高度随行数自然增减，
@@ -717,8 +646,7 @@ export function AlertStatusCard({
                 {/* 列表区即卡体结尾：右栏无页脚；「配置告警通知」深链按产品负责人要求
                     移除（通知配置入口收敛到告警状态页与首页使用指引）。 */}
               </div>
-            </div>
-          )}
+          </div>
         </>
       )}
     </SurfaceCard>
