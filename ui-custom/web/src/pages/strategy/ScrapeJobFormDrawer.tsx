@@ -24,6 +24,7 @@ import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
+import { blackboxModuleApi, type BlackboxModule } from '../../api/blackboxModules'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
 import type { AuthType, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
@@ -41,10 +42,6 @@ import {
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
-
-// 拨测模块（协议/目标不再手填：目标由所选资源类别决定，协议由目标地址的 scheme 决定，
-// 故不再需要 BLACKBOX_PROTOCOLS）。
-const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
 
 /**
  * 表单值 = 提交后端的字段 + 仅用于「资源类别 → 监控对象类型」两级级联的
@@ -141,6 +138,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
   // {T01-P6} 编辑态生效端口回显数据（GET /instances 的 port/port_source，仅 standard 分支渲染）
   const [portEchoItems, setPortEchoItems] = useState<ScrapeJobInstanceItem[]>([])
+  const [blackboxModules, setBlackboxModules] = useState<BlackboxModule[]>([])
 
   const isEdit = !!record
   // 任务类型分支状态：编辑态由 record.job_type 直接决定（确定性，不依赖
@@ -267,6 +265,21 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: '' } as Partial<ScrapeJobInput>)
     }
   }, [open, record, form])
+
+  useEffect(() => {
+    if (!open || jobType !== 'blackbox') return
+    let cancelled = false
+    blackboxModuleApi.list()
+      .then((res) => {
+        if (!cancelled) setBlackboxModules(res.data?.list ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setBlackboxModules([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, jobType])
 
   // {T01-P6} 编辑态拉取生效端口回显（GET /instances 携带 port/port_source）。
   // 仅编辑态 + standard 拉取；失败静默（回显为增强信息，不阻断表单主流程）。
@@ -859,13 +872,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="拨测模块" name="blackbox_module" rules={[{ required: true, message: '请选择拨测模块' }]}>
-                  <Select placeholder="选择拨测模块">
-                    {BLACKBOX_MODULES.map((m) => (
-                      <Select.Option key={m} value={m}>
-                        {m}
-                      </Select.Option>
-                    ))}
-                  </Select>
+                  <Select
+                    placeholder="选择拨测模块"
+                    options={blackboxModules.map((module) => ({
+                      value: module.name,
+                      label: module.enabled ? module.name : `${module.name}（已停用）`,
+                      disabled: !module.enabled,
+                    }))}
+                  />
                 </Form.Item>
               </Col>
               <Col span={12}>

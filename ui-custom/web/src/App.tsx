@@ -19,6 +19,7 @@ import PlatformManagementPage from './pages/resources/PlatformManagementPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
+import BlackboxModulesPage from './pages/strategy/BlackboxModulesPage'
 import RulesPage from './pages/strategy/RulesPage'
 import MetricLibraryPage from './pages/strategy/MetricLibraryPage'
 import LoginPage from './pages/login/LoginPage'
@@ -123,6 +124,7 @@ function AppRoutes() {
           <Route path="/platform-dict" element={<PlatformManagementPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
+          <Route path="/blackbox-modules" element={<BlackboxModulesPage />} />
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/metric-library" element={<MetricLibraryPage />} />
           <Route path="/domain-onboarding" element={<NetworkDomainsPage />} />

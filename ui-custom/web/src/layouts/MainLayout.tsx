@@ -118,6 +118,7 @@ const MODULES: ModuleDef[] = [
     path: '/collectors',
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
+      { key: '/blackbox-modules', label: '拨测模块', icon: <DeploymentUnitOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
       {
         // D-1b ⓐ（2026-09-28）：名称保持「规则编辑」不变，仅补副标题说明本页同时承载

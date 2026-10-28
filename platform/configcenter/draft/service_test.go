@@ -44,6 +44,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.AlertmanagerConfigVersion{},
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		&models.BlackboxModule{},
 	))
 	return db
 }
@@ -85,12 +86,12 @@ func seedManagementDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkD
 func seedRule(t *testing.T, db *gorm.DB, name string) {
 	t.Helper()
 	require.NoError(t, db.Create(&models.MonitoringRule{
-		Name:        name,
-		ContentMode: models.RuleContentModeYAMLPassthrough,
-		RuleContent: "groups:\n  - name: g\n    rules: [{alert: A, expr: up == 0}]",
-		Scope:       models.ScopeTypeCentral,
-		Enabled:     true,
-		DraftStatus: "ready",
+		Name:         name,
+		ContentMode:  models.RuleContentModeYAMLPassthrough,
+		RuleContent:  "groups:\n  - name: g\n    rules: [{alert: A, expr: up == 0}]",
+		Scope:        models.ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  "ready",
 		ChangeStatus: models.ChangeStatusPending,
 	}).Error)
 }

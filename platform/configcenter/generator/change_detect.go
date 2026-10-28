@@ -10,7 +10,7 @@ import (
 
 // sourceTableScopes 声明参与源数据版本聚合的源表及其是否按网域过滤。
 var sourceTableScopes = []struct {
-	model       interface{}
+	model        interface{}
 	domainScoped bool
 }{
 	{&models.ScrapeJob{}, true},
@@ -25,6 +25,7 @@ var sourceTableScopes = []struct {
 	{&models.MonitoringRule{}, false},
 	{&models.LabelTemplate{}, false},
 	{&models.CITypeExporterMapping{}, false},
+	{&models.BlackboxModule{}, false},
 	// 2026-10-22 渠道/模板解耦：
 	//   - NotifyTemplate 完全不进 alertmanager.yml（模板由桥在投递时按 channel ID 实时读取），
 	//     模板 CRUD 不参与源数据版本聚合；

@@ -46,6 +46,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.AlertmanagerConfigVersion{},
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		&models.BlackboxModule{},
 	))
 	return db
 }

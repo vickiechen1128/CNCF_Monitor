@@ -12,6 +12,7 @@ const domainListMock = vi.fn()
 const mappingListMock = vi.fn()
 const labelListMock = vi.fn()
 const exporterCreateMock = vi.fn()
+const blackboxModuleListMock = vi.fn()
 
 vi.mock('../../api/domain', () => ({
   networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
@@ -38,6 +39,10 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
 }))
 
+vi.mock('../../api/blackboxModules', () => ({
+  blackboxModuleApi: { list: (...args: unknown[]) => blackboxModuleListMock(...args) },
+}))
+
 vi.mock('../../api/configCenter', () => ({
   configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
 }))
@@ -59,6 +64,25 @@ beforeEach(() => {
   mappingListMock.mockReset()
   labelListMock.mockReset()
   exporterCreateMock.mockReset()
+  blackboxModuleListMock.mockReset()
+  blackboxModuleListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query'].map((name, index) => ({
+        id: index + 1,
+        name,
+        enabled: true,
+        content: `${name}:\n  prober: http\n  timeout: 5s\n`,
+        prober: 'http',
+        referenced_jobs: 0,
+        created_at: '',
+        updated_at: '',
+      })),
+      total: 4,
+      page: 1,
+      page_size: 100,
+    },
+  })
   // {T01-P6} 编辑态回显默认空列表（防止未设置时编辑态 fetch 抛错；各用例按需覆盖）
   instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
   // 每个资源类别都有系统预设的默认标签模板（与 seed 口径一致）。
@@ -153,6 +177,24 @@ describe('ScrapeJobFormDrawer', () => {
     // 探测地址字段已写死（接口服务→接口地址、应用服务→健康检查 URL），不再是输入项
     expect(screen.queryByText('探测地址字段')).toBeNull()
     expect(screen.queryByText('监控对象类型')).toBeNull()
+  })
+
+  it('loads custom blackbox modules from the module API', async () => {
+    blackboxModuleListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 8, name: 'custom_https', enabled: true, content: '', prober: 'http', referenced_jobs: 0, created_at: '', updated_at: '' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    renderDrawer()
+    fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
+    fireEvent.mouseDown(await screen.findByText('选择拨测模块'))
+    const options = await screen.findAllByText('custom_https')
+    fireEvent.click(options[options.length - 1])
+    expect(blackboxModuleListMock).toHaveBeenCalled()
   })
 
   it('basic auth reveals username/password; bearer reveals token', async () => {

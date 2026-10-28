@@ -259,7 +259,11 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	if !centerEvaluator {
 		rules = nil
 	}
-	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator)
+	moduleDefs, err := generator.LoadBlackboxModules(db)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	artifacts, err := generator.AssembleWithModules(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator, moduleDefs)
 	if err != nil {
 		return nil, nil, nil, err
 	}

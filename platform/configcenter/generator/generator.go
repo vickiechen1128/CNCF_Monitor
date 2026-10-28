@@ -21,7 +21,7 @@ const GeneratorVersion = "0.1.0"
 //
 //	PrometheusYML   prometheus.yml 文本（global.external_labels + scrape_configs 骨架）
 //	RulesYML        rules.yml 文本（scope=central yaml_passthrough 规则解析合并 groups 为单文档，可为空）
-//	BlackboxYML     blackbox.yml 文本（存在 blackbox job 时生成，可为空）
+//	BlackboxYML     blackbox.yml 文本（合并全部启用模块，无启用模块时为空）
 //	TargetsFiles    targets/<job>.json → 文件内容（file_sd 目标）
 //	AlertmanagerYML alertmanager.yml 文本（决策 60：仅管理域 default scope，无告警配置时为空）
 type ConfigArtifacts struct {

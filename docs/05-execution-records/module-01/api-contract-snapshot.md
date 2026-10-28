@@ -200,3 +200,16 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 - PRD：`docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md` §3/§5/§6/§8/§9/§10/§11
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §3/§7
 - 序列：`docs/05-execution-records/module-01/task-sequence.yaml`
+
+## 13. 拨测模块（BlackboxModule）API
+
+模块全局共享，内容仅允许一个 YAML 模块节点，根键必须与 `name` 一致；`name` 创建后不可改。`prober` 支持 `http`/`tcp`/`icmp`/`dns`，`timeout` 可选且须为合法时长。每次配置生成合并全部 `enabled=true` 模块并整体生成 `blackbox.yml`；ready Job 引用不存在或已停用模块时阻断生成。
+
+| 方法 | 路径 | 请求体 | 响应 data | 业务错误 |
+|------|------|--------|-----------|----------|
+| GET | `/blackbox-modules` | `page`、`page_size`（默认 1/20，上限 100） | `{list,total,page,page_size}` | — |
+| POST | `/blackbox-modules` | `{name,content}` | 创建后的模块对象 | `bad_request`：名称/YAML/prober/timeout 非法；`conflict`：重名 |
+| PUT | `/blackbox-modules/:id` | `{content,enabled}` | 更新后的模块对象 | `bad_request`：内容非法；`not_found`：模块不存在 |
+| DELETE | `/blackbox-modules/:id` | — | `{deleted:true}` | `not_found`：模块不存在；`conflict`：仍有 Job 引用 |
+
+模块对象字段：`id`、`name`、`content`、`enabled`、`prober`、`referenced_jobs`、`created_at`、`updated_at`。预置 `http_2xx`、`icmp_ping`、`tcp_connect`、`dns_query`，初始化只补缺，不覆盖用户修改。

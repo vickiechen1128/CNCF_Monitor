@@ -386,3 +386,11 @@
 - **实现**：新增 `monitor_type=npu` 与中文展示名，归属主机类别；NPU 视为主机附加采集能力，采集 Job 候选为主机全集，不按 OS 或型号过滤。采集器、端口、路径和指标由用户在页面登记，不预置。
 - **验证**：`go test ./platform/models ./platform/strategy/scrapejob` 与相关 `go vet` 通过；采集 Job、采集器登记、默认采集配置相关前端测试通过；`typecheck:test`、变更文件 ESLint、生产构建通过；页面 200 后已停服。
 - **契约 / PRD 偏离**：`monitor_type` 枚举新增 `npu`，已同步契约快照；PRD 待文档侧回填。
+
+## M01-BB-01：拨测模块管理与全量下发
+
+- **commit**：M01-BB-01（本提交）。
+- **修改文件**：新增 `BlackboxModule` 模型、版本化 migration、`strategy/blackboxmodule` 分层 API、拨测模块前端页面与 API；生成器、草稿变更检测、Job 模块下拉及契约快照同步修改。
+- **实现**：模块全局共享，支持单模块 YAML 新增/编辑/启停/删除与引用保护；每次生成合并全部启用模块并整体输出 `blackbox.yml`，缺失或停用引用阻断下发；模块-only 变化形成变更单，沿用中心 reload 和 Agent 拉包。
+- **验证**：`go test ./platform/strategy/blackboxmodule ./platform/strategy/scrapejob ./platform/configcenter/... ./platform/models` 通过，`go vet ./platform/...` 通过；前端页面、Job、导航测试、`typecheck:test`、变更文件 ESLint、生产构建通过；页面与后端健康接口 200，验证后停服。
+- **契约 / PRD 偏离**：新增 `/blackbox-modules` CRUD 契约并同步快照；PRD 待文档侧回填。

@@ -7,6 +7,7 @@ package strategy
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/metriccenter/metriccenter/platform/strategy/blackboxmodule"
 	"github.com/metriccenter/metriccenter/platform/strategy/ci-exporter"
 	"github.com/metriccenter/metriccenter/platform/strategy/exporter-template"
 	"github.com/metriccenter/metriccenter/platform/strategy/metric-library"
@@ -28,6 +29,7 @@ import (
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	exportertemplate.RegisterRoutes(platform, db)
 	ciexporter.RegisterRoutes(platform, db)
+	blackboxmodule.RegisterRoutes(platform, db)
 	scrapejob.RegisterRoutes(platform, db)
 	rule.RegisterRoutes(platform, db)
 	metriclibrary.RegisterRoutes(platform, db)
