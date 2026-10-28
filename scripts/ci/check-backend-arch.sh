@@ -47,8 +47,8 @@ if echo "$MODEL_DIFF" | grep -E '^\+.*(gorm:"|type\s+\w+\s+struct)' >/dev/null; 
     fi
 fi
 
-# R3: 业务代码禁止新增字符串字段映射（resource_fields.go 自身除外）
-FIELD_DIFF=$(git diff "$COMPARE" -- platform/ ':!platform/models/resource_fields.go' || true)
+# R3: 业务代码禁止新增字符串字段映射（resource_fields.go 自身与测试文件除外）
+FIELD_DIFF=$(git diff "$COMPARE" -- platform/ ':!platform/models/resource_fields.go' ':!platform/**/*_test.go' || true)
 if echo "$FIELD_DIFF" | grep -E '^\+.*(GetResourceField|LegacyFieldMap)' >/dev/null; then
     echo "ERROR [R3]: 业务代码中新增 models.GetResourceField / LegacyFieldMap 调用，必须改为类型化方法。"
     echo "$FIELD_DIFF" | grep -E '^\+.*(GetResourceField|LegacyFieldMap)' || true
