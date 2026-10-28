@@ -84,7 +84,7 @@ func TestMiddlewareImplementsResource(t *testing.T) {
 		ResourceID:     "redis-01",
 		ResourceType:   ResourceTypeMiddleware,
 		AppName:        "app-a",
-		Env: "PRD",
+		Env:            "PRD",
 		Cluster:        "cluster-1",
 		Status:         "online",
 		MiddlewareType: "redis",
@@ -107,7 +107,7 @@ func TestApplicationImplementsResource(t *testing.T) {
 		ResourceID:     "svc-01",
 		ResourceType:   ResourceTypeApplication,
 		AppName:        "app-a",
-		Env: "PRD",
+		Env:            "PRD",
 		Cluster:        "cluster-1",
 		Status:         "online",
 		ServiceName:    "order-service",
@@ -184,7 +184,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 			ResourceCategory: ResourceCategoryDatabase,
 			NetworkDomainID:  DefaultDomainID,
 			BizCode:          "pay",
-			Env: "PRD",
+			Env:              "PRD",
 			Status:           "online",
 			SourceType:       SourceTypeManual,
 		},
@@ -202,7 +202,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 			ResourceID:       "gt-01",
 			ResourceCategory: ResourceCategoryGenericTarget,
 			NetworkDomainID:  DefaultDomainID,
-			Env: "PRD",
+			Env:              "PRD",
 			Status:           "online",
 			SourceType:       SourceTypeManual,
 		},
@@ -634,11 +634,22 @@ func TestMonitorTypeDerivationMapFull(t *testing.T) {
 
 func TestValidMonitorTypes(t *testing.T) {
 	types := ValidMonitorTypes()
-	assert.Len(t, types, 9)
+	assert.Len(t, types, 10)
 	assert.True(t, ValidMonitorType("mysql"))
 	assert.True(t, ValidMonitorType("application_http"))
 	assert.False(t, ValidMonitorType("dm8"))
 	assert.False(t, ValidMonitorType(""))
+}
+
+func TestNPUMonitorTypeUsesHostCandidates(t *testing.T) {
+	assert.True(t, ValidMonitorType(MonitorTypeNPU))
+
+	derivation, ok := DeriveResourceFilter(MonitorTypeNPU)
+	assert.True(t, ok)
+	assert.Equal(t, ResourceCategoryHost, derivation.Category)
+	assert.Empty(t, derivation.SubtypeField)
+	assert.Empty(t, derivation.Subtype)
+	assert.Empty(t, derivation.OSKeywords)
 }
 
 func TestBlackboxTargetJSONRoundTrip(t *testing.T) {

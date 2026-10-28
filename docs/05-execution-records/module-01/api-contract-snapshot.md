@@ -144,7 +144,7 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 ## 9. 枚举字典
 | 枚举 | 取值 | 说明 |
 |------|------|------|
-| `monitor_type` | `host_linux`/`host_windows`/`mysql`/`redis`/`kafka`/`elasticsearch`/`nginx`/`application_http`/`snmp` | MONITOR_TYPE_DERIVATION_MAP 推导 |
+| `monitor_type` | `host_linux`/`host_windows`/`npu`/`mysql`/`redis`/`kafka`/`elasticsearch`/`nginx`/`application_http`/`snmp` | MONITOR_TYPE_DERIVATION_MAP 推导；NPU 为主机附加采集能力，候选主机全集 |
 | `job_type` | `standard`/`blackbox` | UI「采集 / 拨测」 |
 | `auth_type` | `none`(默认)/`basic`/`bearer` | 决策31 |
 | `blackbox_module` | `http_2xx`/`icmp_ping`/`tcp_connect`/`dns_query` 等 | blackbox.yml 模块名 |

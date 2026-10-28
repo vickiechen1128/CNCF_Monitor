@@ -378,3 +378,11 @@
 
 - 提案 §8 #1/#2/#3（M01/M07 PRD 端口层级与字段分工表述）、#4/#8（D3b 修 PRD 对齐实现 + 端口承载分口径矩阵落 PRD 文字）→ prototype-designer 在 `design/module-mvp-demo` 执行。
 - `pages/alerts/` lint 存量（M08 范围）。
+
+## M01-NPU-01：新增主机下 NPU 监控类型
+
+- **commit**：M01-NPU-01（本提交）。
+- **修改文件**：`platform/models/monitor_type.go`、`models_test.go`，前端 `strategyConstants.ts`、`types/strategy.ts`、`ScrapeJobFormDrawer.test.tsx`，以及 `api-contract-snapshot.md`。
+- **实现**：新增 `monitor_type=npu` 与中文展示名，归属主机类别；NPU 视为主机附加采集能力，采集 Job 候选为主机全集，不按 OS 或型号过滤。采集器、端口、路径和指标由用户在页面登记，不预置。
+- **验证**：`go test ./platform/models ./platform/strategy/scrapejob` 与相关 `go vet` 通过；采集 Job、采集器登记、默认采集配置相关前端测试通过；`typecheck:test`、变更文件 ESLint、生产构建通过；页面 200 后已停服。
+- **契约 / PRD 偏离**：`monitor_type` 枚举新增 `npu`，已同步契约快照；PRD 待文档侧回填。

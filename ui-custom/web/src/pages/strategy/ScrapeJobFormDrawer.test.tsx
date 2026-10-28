@@ -413,6 +413,15 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).metrics_path).toBe('')
   })
 
+  it('offers NPU under the host category without application-specific path requirements', async () => {
+    renderDrawer()
+    await selectCategoryAndType('主机', 'NPU')
+
+    expect(screen.getAllByText('NPU').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
+    expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
+  })
+
   it('renders label template as card filtered by resource category (F1-4)', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',
