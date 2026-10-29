@@ -119,14 +119,20 @@ export const PROTECTED_PROMETHEUS_LABELS = [
   '__name__',
 ]
 
-/** 各资源类别 Resource 字段来源选项（§5.12 A，对齐原型 RESOURCE_FIELD_OPTIONS） */
+/**
+ * 各资源类别 Resource 字段来源选项（§5.12 A，对齐原型 RESOURCE_FIELD_OPTIONS）。
+ *
+ * 2026-10-29：移除 `network_domain_id`——网域由平台在 target 级 system 层自动注入
+ * `network_domain` / `network_domain_name`，不再作为用户可选的实例级来源字段；
+ * 既有模板若已配置该来源，编辑抽屉仍会保留当前值（见 MappingDrawer）。
+ */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'status', 'scrape_port', 'network_domain_id'],
-  database: ['database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port', 'network_domain_id'],
-  middleware: ['middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port', 'network_domain_id'],
-  application: ['service_name', 'health_check_url', 'owner1', 'owner1_contact', 'owner2', 'owner2_contact', 'go_live_at', 'protocol', 'endpoint', 'port', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'network_domain_id'],
-  generic_target: ['target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'network_domain_id'],
-  interface_service: ['api_name', 'api_url', 'biz_code', 'app_code', 'env', 'status', 'network_domain_id'],
+  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'status', 'scrape_port', 'activated_at'],
+  database: ['database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port'],
+  middleware: ['middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status', 'scrape_port'],
+  application: ['service_name', 'health_check_url', 'owner1', 'owner1_contact', 'owner2', 'owner2_contact', 'ops_person', 'ops_person_contact', 'go_live_at', 'protocol', 'endpoint', 'port', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  generic_target: ['target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  interface_service: ['api_name', 'api_url', 'biz_code', 'app_code', 'env', 'status'],
 }
 
 /** 组合字段选项（§5.12 C：MVP 仅 instance_ip:port → instance） */

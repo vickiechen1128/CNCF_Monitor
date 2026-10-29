@@ -3,6 +3,7 @@ package history
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -88,6 +89,12 @@ func TestComputeStatsFourMetrics(t *testing.T) {
 	assert.EqualValues(t, 2, st.LegacyResolvedTodayTotal, "lost-today + legacy-resolved-real")
 	assert.EqualValues(t, 1, st.LegacyResolvedTodayReal)
 	assert.EqualValues(t, 1, st.LegacyResolvedTodayInferred)
+
+	// 当前未结（不限今天）：open-yesterday(firing) + silenced-open(silenced)。
+	assert.EqualValues(t, 2, st.OpenTotal)
+	assert.EqualValues(t, 1, st.OpenFiring)
+	assert.EqualValues(t, 1, st.OpenSilenced)
+	assert.EqualValues(t, 0, st.OpenInhibited)
 }
 
 // TestListEventsFiltersAndPagination 服务端过滤 / 排序 / 分页。
@@ -126,6 +133,122 @@ func TestListEventsFiltersAndPagination(t *testing.T) {
 
 	_, _, err = ListEvents(db, ListQuery{Page: 1, PageSize: 20, Status: "bogus"})
 	require.Error(t, err, "非法状态须显式报错")
+}
+
+// TestListEventsStatusGroupOpen 锁定 status=open 分组：只返回未结三态，
+// 供「当前告警」页与首页右栏复用同一口径。
+func TestListEventsStatusGroupOpen(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now().UTC()
+	seedEvent(t, db, "firing", models.AlertEventStatusFiring, now.Add(-3*time.Hour), nil, nil)
+	seedEvent(t, db, "silenced", models.AlertEventStatusSilenced, now.Add(-2*time.Hour), nil, nil)
+	seedEvent(t, db, "inhibited", models.AlertEventStatusInhibited, now.Add(-time.Hour), nil, nil)
+	closed := now.Add(-30 * time.Minute)
+	seedEvent(t, db, "resolved", models.AlertEventStatusResolved, now.Add(-4*time.Hour), &closed, &closed)
+
+	open, total, err := ListEvents(db, ListQuery{Page: 1, PageSize: 20, StatusGroup: statusGroupOpen})
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, total)
+	require.Len(t, open, 3)
+	for _, ev := range open {
+		assert.True(t, models.IsOpenAlertEventStatus(ev.Status), "open 分组不得包含终态：%s", ev.Status)
+	}
+
+	// 精确状态过滤与分组过滤互不影响。
+	firing, total, err := ListEvents(db, ListQuery{Page: 1, PageSize: 20, Status: models.AlertEventStatusFiring})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, firing, 1)
+}
+
+// TestListOpenEventsReturnsAllWithoutPagination 当前告警专用链路不受列表 page_size=100 上限影响：
+// 全部未结告警一次返回，终态不混入，网域过滤生效。
+func TestListOpenEventsReturnsAllWithoutPagination(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now().UTC()
+	for i := range 120 {
+		seedEvent(t, db, fmt.Sprintf("open-%03d", i), models.AlertEventStatusFiring, now.Add(-time.Duration(i)*time.Minute), nil, nil)
+	}
+	closed := now.Add(-time.Minute)
+	seedEvent(t, db, "resolved", models.AlertEventStatusResolved, now.Add(-2*time.Hour), &closed, &closed)
+
+	list, total, err := ListOpenEvents(db, "")
+	require.NoError(t, err)
+	assert.EqualValues(t, 120, total, "超过列表单页上限 100 也必须全部返回")
+	require.Len(t, list, 120)
+	for _, ev := range list {
+		assert.True(t, models.IsOpenAlertEventStatus(ev.Status), "不得混入终态：%s", ev.Status)
+	}
+
+	sameDomain, total, err := ListOpenEvents(db, "mc-test")
+	require.NoError(t, err)
+	assert.EqualValues(t, 120, total)
+	assert.Len(t, sameDomain, 120)
+
+	otherDomain, total, err := ListOpenEvents(db, "mc-other")
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, total)
+	assert.Empty(t, otherDomain)
+}
+
+// TestCurrentEventsHandler 路由返回 { list, total } 信封（无分页字段）。
+func TestCurrentEventsHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newTestDB(t)
+	now := time.Now().UTC()
+	seedEvent(t, db, "open-1", models.AlertEventStatusSilenced, now.Add(-time.Hour), nil, nil)
+
+	r := gin.New()
+	r.GET("/alert-events/current", CurrentEventsHandler(NewService(db)))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alert-events/current", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"total":1`)
+	assert.Contains(t, w.Body.String(), `"list"`)
+	assert.NotContains(t, w.Body.String(), `"page_size"`, "当前告警接口不分页，不应返回分页字段")
+}
+
+// TestParseListQueryStatusGroupOpen status=open 是分组别名，不能按非法七态报错；
+// 其他非法值仍须显式报错。
+func TestParseListQueryStatusGroupOpen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	newCtx := func(rawQuery string) *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodGet, "/?"+rawQuery, nil)
+		return c
+	}
+
+	q, err := parseListQuery(newCtx("status=open"))
+	require.NoError(t, err)
+	assert.Equal(t, statusGroupOpen, q.StatusGroup)
+	assert.Empty(t, q.Status)
+
+	_, err = parseListQuery(newCtx("status=bogus"))
+	require.Error(t, err)
+}
+
+// TestComputeStatsFilteredByDomain 网域筛选同时作用于未结计数与四格指标。
+func TestComputeStatsFilteredByDomain(t *testing.T) {
+	db := newTestDB(t)
+	loc := time.FixedZone("UTC+8", 8*3600)
+	now := time.Date(2026, 10, 25, 10, 0, 0, 0, loc)
+
+	inDomain := seedEvent(t, db, "in-domain", models.AlertEventStatusFiring, now.Add(-time.Hour), nil, nil)
+	other := seedEvent(t, db, "other-domain", models.AlertEventStatusFiring, now.Add(-time.Hour), nil, nil)
+	require.NoError(t, db.Model(other).Update("network_domain", "mc-other").Error)
+
+	all, err := ComputeStats(db, now, loc)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, all.OpenTotal)
+
+	filtered, err := ComputeStatsFiltered(db, now, loc, "mc-test")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, filtered.OpenTotal)
+	assert.EqualValues(t, 1, filtered.OpenFiring)
+	assert.EqualValues(t, 1, filtered.TodayTotal)
+	assert.Equal(t, inDomain.ID, inDomain.ID)
 }
 
 // TestListEventsNormalizesTimeFiltersToCST 时间筛选边界与表内存储同为 UTC+8：

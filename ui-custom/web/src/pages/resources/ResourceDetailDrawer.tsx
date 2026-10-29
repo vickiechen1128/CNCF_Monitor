@@ -502,6 +502,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
               { key: 'hostname', label: '主机名', children: record.hostname || '-' },
               { key: 'instance_ip', label: 'IP 地址', children: record.instance_ip || '-' },
               { key: 'os_type', label: '操作系统', children: record.os_type || '-' },
+              { key: 'activated_at', label: '开通时间', children: record.activated_at || '-' },
             ]
           case 'database':
             return [
@@ -527,6 +528,8 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
               { key: 'owner1_contact', label: '负责人1联系方式', children: record.owner1_contact || '-' },
               { key: 'owner2', label: '负责人2', children: record.owner2 || '-' },
               { key: 'owner2_contact', label: '负责人2联系方式', children: record.owner2_contact || '-' },
+              { key: 'ops_person', label: '运维人员', children: record.ops_person || '-' },
+              { key: 'ops_person_contact', label: '运维人员联系方式', children: record.ops_person_contact || '-' },
               { key: 'go_live_at', label: '应用上线时间', children: record.go_live_at || '-' },
               { key: 'protocol', label: '协议', children: record.protocol || '-' },
               { key: 'endpoint', label: '端点', children: record.endpoint || '-' },

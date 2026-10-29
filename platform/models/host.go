@@ -42,6 +42,9 @@ type Host struct {
 	VPC           string     `gorm:"size:100;not null" json:"vpc"`
 	SecurityGroup string     `gorm:"size:100;not null" json:"security_group"`
 	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
+	// ActivatedAt 是主机开通时间（可选，v2026-10-29 用户新增）：仅作资源画像 /
+	// 标签来源，不参与采集或状态判定。
+	ActivatedAt *time.Time `json:"activated_at,omitempty"`
 	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选字段）：0=未指定，
 	// 留空时由 M09 四级端口解析链回落（映射 → 模板；host 无业务 port 兜底）。
 	ScrapePort int `gorm:"default:0" json:"scrape_port"`

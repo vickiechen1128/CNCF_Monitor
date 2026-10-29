@@ -700,4 +700,14 @@
 - `isPendingRegistrationReason` 与错误行渲染注释中仍保留内部「决策 97」字样，属逻辑注释（待登记清单功能未删、后端 reason 透传「业务声明 sheet」仍在），非用户可见文案；如后续要求代码注释也去编号化，可再统一清理。
 - 录入方式列（`source_type`）位于采集状态之后、操作之前，属纯前端列序调整，未改 `source_type` 取值/渲染；后端列表字段契约不变。
 
+---
+
+## F-35：标签映射表格批量编辑（增量）
+
+- 「新增映射」与逐行操作收敛为单个「编辑」入口；抽屉表格支持本地连续新增、修改、删除和启停，取消不提交，统一保存只调用一次批量接口，失败保留草稿。
+- 保留字段联动、字典转换、composite→instance、保护标签和同批目标标签唯一校验；默认模板只读。
+- 文件：`MappingDrawer.tsx`、`TemplateDetailTabs.tsx` 及对应测试、`api/labelTemplates.ts`、`types/label.ts`。
+- 验证：标签模板 3 个测试文件 33 用例通过；`typecheck:test`、变更文件 ESLint、`pnpm build` 通过；dev server 首页 200，验证后已释放端口。全量 `pnpm lint` 仅被未触碰的 `strategy/InstanceSelector.tsx:94` 既有 warning 阻断。
+- 全量 Vitest：105 文件中 101 通过、4 失败（ResourcesPage 2 个超时、EdgeAgentsPage 20、UsersPage 9、InstanceSelector 1），共 1109 通过 / 32 失败；失败文件均不在本次变更范围，标签模板测试全部通过。
+
 

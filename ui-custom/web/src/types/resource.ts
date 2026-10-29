@@ -196,6 +196,8 @@ export interface HostResourceFields {
   hostname?: string
   instance_ip: string
   os_type?: string
+  /** 主机开通时间（可选，2026-10-29 新增；RFC3339） */
+  activated_at?: string
 }
 
 /** 数据库差异化字段（§5.7.1） */
@@ -223,6 +225,9 @@ export interface ApplicationResourceFields {
   owner1_contact?: string
   owner2?: string
   owner2_contact?: string
+  /** 运维人员姓名 / 联系方式（可选，2026-10-29 新增） */
+  ops_person?: string
+  ops_person_contact?: string
   go_live_at?: string
   protocol?: string
   port?: number

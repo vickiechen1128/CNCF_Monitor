@@ -124,7 +124,7 @@ func TestTemplateColumnsMatchPRD(t *testing.T) {
 		models.ResourceCategoryHost: {
 			"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
 			"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
-			"scrape_port",
+			"scrape_port", "activated_at",
 		},
 		models.ResourceCategoryDatabase: {
 			"network_domain", "database_type", "instance_ip", "port", "version",
@@ -141,6 +141,7 @@ func TestTemplateColumnsMatchPRD(t *testing.T) {
 			"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
 			"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
 			"scrape_port", "owner1", "owner1_contact", "owner2", "owner2_contact", "go_live_at",
+			"ops_person", "ops_person_contact",
 		},
 		models.ResourceCategoryGenericTarget: {
 			"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",

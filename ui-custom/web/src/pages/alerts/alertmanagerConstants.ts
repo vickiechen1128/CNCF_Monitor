@@ -182,7 +182,12 @@ export function formatMatchers(matchers: SilenceMatcher[]): string {
 // 告警状态查看（v1.12 MVP 增量，契约快照 §10 / 映射表 §8.3 文案对照）
 // =====================================================================
 
-/** AM 通知状态四态展示名（服务端归一 notify_status；UI 展示名以契约 §10.2 为准） */
+/**
+ * AM 通知状态四态展示名（服务端归一 notify_status；UI 展示名以契约 §10.2 为准）。
+ *
+ * 2026-10-29 起「告警状态」页改用 event 表未结三态（告警中/静默中/抑制中），
+ * 四态视图已下线；本组常量保留供兼容与其它消费方使用，新页面勿再引用。
+ */
 export const notifyStatusLabel: Record<NotifyStatus, string> = {
   active: '通知中',
   silenced: '已静默',
@@ -205,10 +210,14 @@ export const notifyStatusTip: Record<NotifyStatus, string> = {
   unprocessed: '刚进入 Alertmanager，尚未完成路由 / 静默 / 抑制计算',
 }
 
-/** Prometheus 当前触发告警状态展示名（契约 §10.1：firing=触发中 / pending=待处理） */
+/**
+ * Prometheus 规则评估结果展示名（契约 §10.1）。
+ * 2026-10-29：pending 由「待处理」改为「观察中」——AM 通知状态原有「待处理」已下线，
+ * 且 pending 的语义是「条件已满足、仍在 for 观察期」，不是待人工处理。
+ */
 export const promAlertStateLabel: Record<PromAlertState, string> = {
   firing: '触发中',
-  pending: '待处理',
+  pending: '观察中',
 }
 
 export const promAlertStateColor: Record<PromAlertState, string> = {

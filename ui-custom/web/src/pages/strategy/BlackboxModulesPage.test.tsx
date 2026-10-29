@@ -9,6 +9,7 @@ const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
 const removeMock = vi.fn()
+const triggerDraftsMock = vi.fn()
 
 vi.mock('../../api/blackboxModules', () => ({
   blackboxModuleApi: {
@@ -17,6 +18,10 @@ vi.mock('../../api/blackboxModules', () => ({
     update: (...args: unknown[]) => updateMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
   },
+}))
+
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDraftsForAllDomains: (...args: unknown[]) => triggerDraftsMock(...args),
 }))
 
 const moduleRow = {
@@ -57,6 +62,10 @@ describe('BlackboxModulesPage', () => {
     await waitFor(() => expect(createMock).toHaveBeenCalledWith(
       'custom_https',
       'custom_https:\n  prober: http\n  timeout: 10s\n',
+    ))
+    // 保存后立即触发全量网域的变更单生成（与 Job / 规则保存动线一致），提示可点击跳转
+    await waitFor(() => expect(triggerDraftsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prefix: '拨测模块已保存', onNavigate: expect.any(Function) }),
     ))
   })
 

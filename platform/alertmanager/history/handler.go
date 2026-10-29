@@ -17,6 +17,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// statusGroupOpen 是列表 status 参数的未结分组别名：映射未结三态
+// （firing / silenced / inhibited），供「当前告警」页与首页右栏复用。
+const statusGroupOpen = "open"
+
 // Service 是历史告警模块的依赖容器：handler 只依赖 Service，不直接持有 *gorm.DB
 // （后端架构红线 R1）。
 type Service struct {
@@ -74,13 +78,30 @@ type Config struct {
 }
 
 // RegisterManagementRoutes 挂载历史告警查询接口到 /api/v2/platform/alertmanager/*。
-//   - GET /alert-events        服务端分页查询
-//   - GET /alert-events/stats  首页统计（当日 / 近 7 天 / 通知中 / 静默 · 抑制）
+//   - GET /alert-events          服务端分页查询
+//   - GET /alert-events/current  全部未结告警（不分页，首页「当前告警」卡用）
+//   - GET /alert-events/stats    首页统计（当日 / 近 7 天 / 通知中 / 静默 · 抑制）
 func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, cfg Config) {
 	svc := NewService(db)
 	am := platform.Group("/alertmanager")
 	am.GET("/alert-events", ListEventsHandler(svc))
+	am.GET("/alert-events/current", CurrentEventsHandler(svc))
 	am.GET("/alert-events/stats", StatsHandler(svc, cfg))
+}
+
+// CurrentEventsHandler 处理 GET /api/v2/platform/alertmanager/alert-events/current。
+// 一次返回全部未结告警（firing/silenced/inhibited），不分页；
+// 首页告警卡用滚动条浏览，历史告警页仍走 /alert-events 分页。
+func CurrentEventsHandler(svc *Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		domain := strings.TrimSpace(c.Query("network_domain"))
+		list, total, err := ListOpenEvents(svc.db, domain)
+		if err != nil {
+			response.InternalServerError(c, err)
+			return
+		}
+		response.OK(c, gin.H{"list": list, "total": total})
+	}
 }
 
 // ListEventsHandler 处理 GET /api/v2/platform/alertmanager/alert-events。
@@ -112,7 +133,9 @@ func StatsHandler(svc *Service, cfg Config) gin.HandlerFunc {
 		if loc == nil {
 			loc = defaultStatsLocation()
 		}
-		stats, err := ComputeStats(svc.db, time.Now().In(loc), loc)
+		// network_domain 为 UX 筛选透传：告警状态页三张未结统计卡需要与当前页筛选一致。
+		domain := strings.TrimSpace(c.Query("network_domain"))
+		stats, err := ComputeStatsFiltered(svc.db, time.Now().In(loc), loc, domain)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
@@ -123,9 +146,12 @@ func StatsHandler(svc *Service, cfg Config) gin.HandlerFunc {
 
 // ListQuery 是历史告警查询参数。
 type ListQuery struct {
-	Page          int
-	PageSize      int
+	Page     int
+	PageSize int
+	// Status 是精确状态过滤；StatusGroup 是分组过滤别名（当前仅 open = 未结三态）。
+	// 两者互斥，StatusGroup 优先。
 	Status        models.AlertEventStatus
+	StatusGroup   string
 	Severity      string
 	AlertName     string
 	Summary       string
@@ -164,7 +190,10 @@ type EventView struct {
 func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 	base := db.Model(&models.AlertEvent{})
 
-	if q.Status != "" {
+	switch {
+	case q.StatusGroup == statusGroupOpen:
+		base = base.Where("status IN ?", models.AlertEventOpenStatuses)
+	case q.Status != "":
 		if !models.IsValidAlertEventStatus(q.Status) {
 			return nil, 0, fmt.Errorf("invalid status %q", q.Status)
 		}
@@ -260,6 +289,37 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 	return views, total, nil
 }
 
+// ListOpenEvents 返回全部未结告警（firing / silenced / inhibited），不分页。
+// networkDomain 非空时按网域过滤；排序与列表一致（starts_at desc）。
+//
+// 复用 ListEvents 的筛选与视图转换：先取未结总数，再以该总数作为单页大小查询，
+// 避免在「当前告警」专用链路上复制一套过滤 / 实例回连逻辑。
+func ListOpenEvents(db *gorm.DB, networkDomain string) ([]EventView, int64, error) {
+	base := db.Model(&models.AlertEvent{}).Where("status IN ?", models.AlertEventOpenStatuses)
+	if networkDomain != "" {
+		base = base.Where("network_domain = ?", networkDomain)
+	}
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count open alert events: %w", err)
+	}
+	if total == 0 {
+		return []EventView{}, 0, nil
+	}
+
+	views, _, err := ListEvents(db, ListQuery{
+		Page:          1,
+		PageSize:      int(total),
+		StatusGroup:   statusGroupOpen,
+		NetworkDomain: networkDomain,
+		Sort:          "starts_at desc",
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return views, total, nil
+}
+
 // Stats 是首页告警卡统计口径（全部来自同一张事件表，避免多数据源打架）。
 //
 // 四指标（2026-10-26 用户确认，对齐 MonitorStack 历史告警口径）：
@@ -277,6 +337,13 @@ type Stats struct {
 	TodayResolvedReal     int64 `json:"today_resolved_real"`
 	TodayResolvedInferred int64 `json:"today_resolved_inferred"`
 
+	// 当前未结（不限今天）：供「当前告警」页三张统计卡与首页右栏计数，
+	// 与列表 status=open 同一口径（firing / silenced / inhibited）。
+	OpenTotal     int64 `json:"open_total"`
+	OpenFiring    int64 `json:"open_firing"`
+	OpenSilenced  int64 `json:"open_silenced"`
+	OpenInhibited int64 `json:"open_inhibited"`
+
 	LegacyOpenTotal     int64 `json:"legacy_open_total"`
 	LegacyOpenFiring    int64 `json:"legacy_open_firing"`
 	LegacyOpenSilenced  int64 `json:"legacy_open_silenced"`
@@ -287,8 +354,14 @@ type Stats struct {
 	LegacyResolvedTodayInferred int64 `json:"legacy_resolved_today_inferred"`
 }
 
-// ComputeStats 计算首页统计。now 应已按 loc 表示。
+// ComputeStats 计算首页统计（不按网域过滤）。now 应已按 loc 表示。
 func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error) {
+	return ComputeStatsFiltered(db, now, loc, "")
+}
+
+// ComputeStatsFiltered 计算统计；networkDomain 非空时全部指标按该网域过滤。
+// 告警状态页的未结三张卡需要与当前页网域筛选一致，故统计入口支持网域参数。
+func ComputeStatsFiltered(db *gorm.DB, now time.Time, loc *time.Location, networkDomain string) (Stats, error) {
 	var st Stats
 	if loc == nil {
 		loc = defaultStatsLocation()
@@ -305,7 +378,13 @@ func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error)
 	terminal := models.AlertEventTerminalStatuses
 	inferred := models.AlertEventInferredTerminalStatuses
 
-	base := func() *gorm.DB { return db.Model(&models.AlertEvent{}) }
+	base := func() *gorm.DB {
+		q := db.Model(&models.AlertEvent{})
+		if networkDomain != "" {
+			q = q.Where("network_domain = ?", networkDomain)
+		}
+		return q
+	}
 	count := func(dest *int64, q *gorm.DB) error {
 		return q.Count(dest).Error
 	}
@@ -314,6 +393,11 @@ func ComputeStats(db *gorm.DB, now time.Time, loc *time.Location) (Stats, error)
 		dest *int64
 		q    *gorm.DB
 	}{
+		// 当前未结（不限今天）：与列表 status=open 同一口径，供状态页三张卡 / 首页右栏计数。
+		{&st.OpenTotal, base().Where("status IN ?", open)},
+		{&st.OpenFiring, base().Where("status = ?", models.AlertEventStatusFiring)},
+		{&st.OpenSilenced, base().Where("status = ?", models.AlertEventStatusSilenced)},
+		{&st.OpenInhibited, base().Where("status = ?", models.AlertEventStatusInhibited)},
 		// 今日告警：严格按开始时间落在今天自然日内。
 		{&st.TodayTotal, base().Where("starts_at >= ? AND starts_at < ?", d0, d1)},
 		// 今日恢复：开始时间和关闭时间都落在今天，历史告警今天恢复只计入历史遗留指标。
@@ -357,9 +441,14 @@ func parseListQuery(c *gin.Context) (ListQuery, error) {
 			q.PageSize = ps
 		}
 	}
-	q.Status = models.AlertEventStatus(strings.TrimSpace(c.Query("status")))
-	if q.Status != "" && !models.IsValidAlertEventStatus(q.Status) {
-		return q, fmt.Errorf("invalid status %q", q.Status)
+	rawStatus := strings.TrimSpace(c.Query("status"))
+	if rawStatus == statusGroupOpen {
+		q.StatusGroup = statusGroupOpen
+	} else {
+		q.Status = models.AlertEventStatus(rawStatus)
+		if q.Status != "" && !models.IsValidAlertEventStatus(q.Status) {
+			return q, fmt.Errorf("invalid status %q", q.Status)
+		}
 	}
 	q.Severity = strings.TrimSpace(c.Query("severity"))
 	q.AlertName = strings.TrimSpace(c.Query("alert_name"))

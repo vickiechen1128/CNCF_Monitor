@@ -114,6 +114,7 @@ var removedTemplateColumns = map[string]bool{
 var optionalTemplateColumns = map[string]bool{
 	"scrape_port": true, "owner1": true, "owner1_contact": true,
 	"owner2": true, "owner2_contact": true, "go_live_at": true,
+	"activated_at": true, "ops_person": true, "ops_person_contact": true,
 }
 
 // validateHeader 校验表头与固定列模板完全一致（§5.16.1 不支持动态列）。
@@ -208,6 +209,12 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.Owner2Contact = val
 		case "go_live_at":
 			in.GoLiveAt = val
+		case "activated_at":
+			in.ActivatedAt = val
+		case "ops_person":
+			in.OpsPerson = val
+		case "ops_person_contact":
+			in.OpsPersonContact = val
 		case "service_name":
 			in.ServiceName = val
 		case "health_check_url":
@@ -491,6 +498,7 @@ var resourceInputFieldPrefixes = []string{
 	"target_name", "metrics_path", "scheme", "exporter_type",
 	"app_code", "platform_code", "cluster", "resource_category",
 	"scrape_port", "api_name", "api_url",
+	"activated_at", "ops_person_contact", "ops_person",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -564,6 +572,12 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.APIName
 	case "api_url":
 		return in.APIURL
+	case "activated_at":
+		return in.ActivatedAt
+	case "ops_person":
+		return in.OpsPerson
+	case "ops_person_contact":
+		return in.OpsPersonContact
 	}
 	return ""
 }

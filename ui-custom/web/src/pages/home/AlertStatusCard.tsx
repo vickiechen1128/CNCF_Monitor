@@ -4,10 +4,10 @@
  * 受控展示型组件：数据由 HomePage 的 useAlertGovernance 单次请求持有，
  * 本组件不再自行取数（避免与首页指标卡重复请求同一接口），只负责渲染：
  *   四格历史指标（今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复）
- *   → 正在告警（近 8 条两行制，行 2 携带告警具体内容）。
+ *   → 当前告警（event 表未结三态，全部两行制，行 2 携带告警具体内容）。
  *
  * 版式（design-proposal §2.3，2026-10-17 定稿）：卡体**两栏**——左统计块（220px 固定，
- * 四格**纵排**）/ 右列表（正在告警，flex:1）。整宽单列下四格被拉通全宽
+ * 四格**纵排**）/ 右列表（当前告警，flex:1）。整宽单列下四格被拉通全宽
  * （每格过疏）、告警行宽过长把两行制文案拉薄，故改为两栏；**第五轮走查（方案 A）起与
  * 「采集健康」按 2:1 并排**（不再是独立整宽卡，见 HomePage 的 home-alert-health-row），
  * 2/3 宽度（桌面约 776px+）下两栏结构原样保留。
@@ -23,39 +23,37 @@
  *   告警卡撑满行高，残余落差由左栏参考行 margin-top:auto 吸收、沉在统计块底部
  *   （落在白底上，不悬在卡片中段）（旧布局「双列区 min-height 420px 兜底」随独立整宽
  *   形态一同废止，本行不再需要）；
- * - 列表为**固定分页约束**：每页最多 homeLayout.ALERT_PAGE_SIZE（5）行，超出才出现分页器，
- *   与视口高度彻底解耦（二版按实测高度反推行数，版式随分辨率漂移，已废弃）；
- * - 数据池仍为「最新 8 条」（决策 73），因此满池时是「5 行 + 第 2 页 3 行」。
+ * - 列表为**卡内滚动**：展示接口返回的全部未结告警，超出可视高度时出现纵向滚动条
+ *   （桌面约 360px、窄屏约 280px），与视口高度解耦；不再分页。
+ * - 取数上限为接口单页上限 100 条；超出时按钮下方提示「仅展示最近 100 条」。
  * 「查看全部 →」指向 /alert-status 兜底；卡内不再重复「查看告警中心」入口（用户反馈 2026-09-14）。
  *
- * 口径（M08 历史告警统计 /alert-events/stats + M08 通知状态 + M02 /api/v1/alerts）：
+ * 口径（M08 event 表单一事实源：/alert-events/stats + /alert-events?status=open）：
  * - 四格 = 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复，任何数据状态下都保留；
  * - 历史遗留告警 = 今天 0 点前触发，且当前未关闭或今天关闭；历史遗留今日恢复是其中今天关闭的子集；
  * - 今日恢复 / 历史遗留今日恢复悬浮提示拆分为「真实恢复 + 恢复时间未知」；
- * - 右栏只展示 AM `notify_status=active` 的通知中告警，不展示静默、抑制、待处理及其汇总；
- * - 无通知中告警时右栏仅显示「当前无通知中的告警」，不影响左侧四格。
+ * - 右栏展示 event 表未结三态（告警中 / 静默中 / 抑制中），与「当前告警」页、历史告警同源；
+ * - 无未结告警时右栏仅显示「当前无告警」，不影响左侧四格。
  *
  * 权威设计：docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §5.2、
  * docs/05-execution-records/module-05/design-decisions.md「决策 73」。
  */
-import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Alert, Button, Empty, List, Pagination, Spin, Tag, Tooltip, Typography, theme } from 'antd'
+import { Alert, Button, Empty, List, Spin, Tag, Tooltip, Typography, theme } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { useSkin } from '../../skinContext'
 import { HOME_FONT, HOME_WEIGHT } from './homeTypography'
-import type { AmAlertItem } from '../../types/alertmanager'
+import type { AlertEventItem } from '../../types/alertmanager'
 import { formatLocalTime, formatRelativeTime } from '../config-center/configCenterConstants'
 import {
-  alertMatchKey,
-  notifyStatusLabel,
+  alertEventStatusColor,
+  alertEventStatusLabel,
   severityBg,
   severityLabel,
   severityText,
   severityTone,
 } from '../alerts/alertmanagerConstants'
-import { computeAlertPageSize } from './homeLayout'
 import { useNarrowLayout } from './homeResponsive'
 import { SurfaceCard } from './SurfaceCard'
 
@@ -72,34 +70,25 @@ export interface AlertCounts {
   legacyResolvedTodayTotal: number
   legacyResolvedTodayReal: number
   legacyResolvedTodayInferred: number
-  /** AM 通知中数量：不进入四格统计，仅用于卡片边框状态 */
-  active: number
+  /** 当前未结总数（告警中/静默中/抑制中）：不进入四格统计，仅用于卡片边框状态 */
+  openTotal: number
 }
 
 /**
- * 首页告警卡「正在告警」展示条数（决策 73 §3）：
- * 由 10 条单行改为 8 条两行制（单条信息量翻倍，总信息量不降，「查看全部 →」兜底）。
- * 由 HomePage 取数时按此上限截断，本组件用它渲染标题（两边不得各写一份数字）。
+ * 当前告警列表标题：数据来自 event 表未结三态，按开始时间倒序。
  */
-export const LATEST_ALERT_LIMIT = 8
-
-/**
- * 正在告警列表标题：数据来自 Alertmanager 通知中告警，按开始时间倒序取前 8 条。
- */
-export const LATEST_ALERT_TITLE = '正在告警'
+export const LATEST_ALERT_TITLE = '当前告警'
 
 interface AlertStatusCardProps {
   counts: AlertCounts
-  /** 通知中告警（HomePage 已过滤 active、按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条） */
-  latestAlerts: AmAlertItem[]
-  /** 行 2 告警具体内容回查表（key 由 alertMatchKey 生成；M02 history summary 优先） */
-  summaryByAlert?: Record<string, string>
+  /** 当前未结告警（HomePage 已分页取满全部，按 starts_at 倒序） */
+  latestAlerts: AlertEventItem[]
   loading?: boolean
-  /** Alertmanager 通知链路错误（M08 /alertmanager/alerts） */
-  amError?: string | null
+  /** 当前告警链路错误（M08 /alert-events?status=open） */
+  currentError?: string | null
   /**
    * 历史告警统计链路错误（GET /alert-events/stats）。
-   * 局部降级：四格统计统一显示 '-'，不阻塞 AM 正在告警列表展示，
+   * 局部降级：四格统计统一显示 '-'，不阻塞当前告警列表展示，
    * 也不并入「告警状态加载失败」判定（避免一条统计链路把整卡打成错误态）。
    */
   statsError?: string | null
@@ -308,7 +297,7 @@ function safeTime(iso?: string): string | undefined {
 }
 
 /**
- * 正在告警两行制行（决策 73 §3）：
+ * 当前告警两行制行（决策 73 §3）：
  * 行 1 = 级别浅底 Tag + 告警名 + 相对时间 + 状态；行 2 = 实例名 · 告警具体内容（12px 灰字）。
  * 两行均超长省略并悬浮全文；行间细分隔线（末行不加）。
  */
@@ -316,26 +305,23 @@ export function AlertRow({
   item,
   index,
   isLast,
-  summary,
 }: {
-  item: AmAlertItem
+  item: AlertEventItem
   index: number
   isLast: boolean
-  /** 告警具体内容（history summary 优先，AM annotations.summary 兜底；为空则行 2 只显示实例名） */
-  summary?: string
 }) {
   const { token } = theme.useToken()
   // 级别 Tag 的浅底 / 深字取自皮肤 token（随皮肤切换）；antd 的 token 取不到
   // colorErrorBg 这类需要逐字保真的语义浅底，故走 useSkin。
   const { tokens: skinTokens } = useSkin()
-  const alertname = item.labels?.alertname || '-'
+  const alertname = item.alert_name || '-'
   // 决策 70：实例名只认 resource_name，缺失显示 '-'，不回落成采集地址（instance_address）
   const instanceName = item.resource_name?.trim() ? item.resource_name : '-'
   const relativeTime = formatRelativeTime(safeTime(item.starts_at)) || '-'
-  const statusLabel =
-    (notifyStatusLabel as Record<string, string>)[item.notify_status] ?? item.notify_status
-  const tone = severityTone(item.labels?.severity)
-  const content = summary?.trim() ? summary.trim() : ''
+  const statusLabel = alertEventStatusLabel[item.status] ?? item.status
+  const statusColor = alertEventStatusColor[item.status]
+  const tone = severityTone(item.severity)
+  const content = item.summary?.trim() ? item.summary.trim() : ''
   const secondLine = content ? `${instanceName} · ${content}` : instanceName
 
   const ellipsis: CSSProperties = {
@@ -375,7 +361,7 @@ export function AlertRow({
             }}
           >
             {/* 复用共享字典的级别展示名，与 Tag 色调保持同一套同义归并 */}
-            {severityLabel(item.labels?.severity)}
+            {severityLabel(item.severity)}
           </Tag>
           <Tooltip title={alertname}>
             <span
@@ -402,17 +388,13 @@ export function AlertRow({
               {relativeTime}
             </span>
           </Tooltip>
-          <span
-            style={{
-              flexShrink: 0,
-              width: 48,
-              fontSize: HOME_FONT.body,
-              color: token.colorTextSecondary,
-              textAlign: 'right',
-            }}
+          <Tag
+            data-testid={`latest-alert-${index}-status`}
+            color={statusColor}
+            style={{ marginInlineEnd: 0, flexShrink: 0 }}
           >
             {statusLabel}
-          </span>
+          </Tag>
         </div>
         <Tooltip title={secondLine}>
           <div
@@ -436,9 +418,8 @@ export function AlertRow({
 export function AlertStatusCard({
   counts,
   latestAlerts,
-  summaryByAlert,
   loading = false,
-  amError = null,
+  currentError = null,
   statsError = null,
   onRetry,
   isStaticPreview = false,
@@ -446,33 +427,24 @@ export function AlertStatusCard({
   const { token } = theme.useToken()
   // 窄屏（≤767px）版式开关：四格统计条由一行四格改为 2×2（见 AlertStatStrip 头注释）
   const narrow = useNarrowLayout()
-  // 首页告警卡只剩两条主链路：AM 正在告警列表 + 历史四指标统计。
+  // 首页告警卡只剩两条主链路：当前未结告警列表 + 历史四指标统计。
   // 两条都失败才整卡报错；单条失败进入部分降级，另一条仍展示。
-  const allFailed = !loading && amError !== null && statsError !== null
-  const partialError = !loading && !allFailed && (amError !== null || statsError !== null)
-  const errorText = [amError, statsError].filter(Boolean).join('；')
+  const allFailed = !loading && currentError !== null && statsError !== null
+  const partialError = !loading && !allFailed && (currentError !== null || statsError !== null)
+  const errorText = [currentError, statsError].filter(Boolean).join('；')
 
-  /**
-   * 固定分页约束（用户 2026-09-18 二次反馈）：每页行数由常量 ALERT_PAGE_SIZE 决定，
-   * 与窗口高度、分辨率无关——同一份数据在任何电脑上都渲染成同一版式。
-   * 数据池仍是「最新 8 条」（决策 73）：池子 ≤ 上限时单页展示、分页器不出现。
-   */
-  const [page, setPage] = useState(1)
-  const pageSize = computeAlertPageSize(latestAlerts.length)
-  const pageCount = Math.max(1, Math.ceil(latestAlerts.length / pageSize))
-  // 数据刷新（条数变少）后停在越界页会渲染空列表，直接夹取到最后一页，不引入额外 effect
-  const currentPage = Math.min(page, pageCount)
-  const pageOffset = (currentPage - 1) * pageSize
-  const visibleAlerts = latestAlerts.slice(pageOffset, pageOffset + pageSize)
+  // 卡内滚动：展示取回的全部未结告警；超出可视高度时出现滚动条（不再分页）。
+  const scrollMaxHeight = narrow ? 280 : 360
 
   // 卡片左边框仅表示是否存在告警数据，不再用整卡空态替换四格指标。
+  // 统计不可用时 openTotal 为 0，用列表长度兜底，避免「有告警但边框仍显示无告警」。
   const isEmpty =
     counts.todayTotal +
       counts.todayResolvedTotal +
       counts.legacyOpenTotal +
       counts.legacyResolvedTodayTotal +
-      counts.active ===
-    0
+      counts.openTotal ===
+      0 && latestAlerts.length === 0
   const statsUnavailable = !loading && statsError !== null
 
   const retryAction = onRetry ? (
@@ -482,14 +454,14 @@ export function AlertStatusCard({
   ) : null
 
   // 按数据源降级：该源取数失败时数字显示 '-'，不把失败静默成 0 让用户误当作真实值
-  // （决策 68-2：AM 未挂载时数字恒为 0，必须与「请求失败」区分）。
-  const amUnavailable = !loading && amError !== null
+  // （决策 68-2：数据源未就绪时数字恒为 0，必须与「请求失败」区分）。
+  const currentUnavailable = !loading && currentError !== null
 
   return (
     <SurfaceCard
       data-testid="alert-status-card"
       title="告警状态"
-      /* 卡内只展示近 8 条，完整列表在 /alert-status（决策 73 §3「查看全部 →」兜底） */
+      /* 卡内展示全部未结告警（最多 100 条），完整列表在 /alert-status（「查看全部 →」兜底） */
       extra={
         <Link to="/alert-status" style={{ fontSize: HOME_FONT.label }}>
           查看全部 →
@@ -497,7 +469,7 @@ export function AlertStatusCard({
       }
       /* 高度：由内容决定，但**允许被所在行拉伸**（第五轮起与采集健康并排，行内
          align-items: stretch）——告警卡撑满行高，残余落差由页脚 margin-top:auto
-         吸收，落在「正在告警列表」下方（白底），而不是让两卡底边参差。 */
+         吸收，落在「当前告警列表」下方（白底），而不是让两卡底边参差。 */
       style={{
         height: '100%',
         display: 'flex',
@@ -531,7 +503,7 @@ export function AlertStatusCard({
             />
           )}
 
-          {/* 四格指标始终展示；右栏只展示通知中告警及其空态。
+          {/* 四格指标始终展示；右栏只展示未结三态告警及其空态。
               窄屏（≤767px）：统计块维持 2×2，与列表上下堆叠。 */}
           <div
               data-testid="alert-card-columns"
@@ -570,7 +542,14 @@ export function AlertStatusCard({
               >
                 <div
                   data-testid="latest-alert-region"
-                  style={{ marginTop: narrow ? 4 : 0, marginBottom: 10 }}
+                  style={{
+                    marginTop: narrow ? 4 : 0,
+                    marginBottom: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    minHeight: 0,
+                  }}
                 >
                   <Typography.Text
                     strong
@@ -579,66 +558,54 @@ export function AlertStatusCard({
                       fontSize: HOME_FONT.label,
                       fontWeight: HOME_WEIGHT.title,
                       marginBottom: 2,
+                      flexShrink: 0,
                     }}
                   >
                     {LATEST_ALERT_TITLE}
                   </Typography.Text>
-                  {amUnavailable ? (
+                  {currentUnavailable ? (
                     <Typography.Text
                       type="secondary"
                       data-testid="latest-alert-unavailable"
                       style={{ display: 'block', marginTop: 8, fontSize: HOME_FONT.body }}
                     >
-                      取数失败，暂无法展示正在告警
+                      取数失败，暂无法展示当前告警
                     </Typography.Text>
                   ) : latestAlerts.length === 0 ? (
                     <div data-testid="latest-alert-empty">
                       <Empty
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description="当前无通知中的告警"
+                        description="当前无告警"
                         style={{ margin: '12px 0' }}
                       />
                     </div>
                   ) : (
-                    /* 固定分页：每页最多 ALERT_PAGE_SIZE 行，列表高度随行数自然增减，
-                       不再测量高度、不再 overflow 兜底（页面按内容滚动，见 HomePage） */
-                    <div>
+                    /* 卡内滚动：全部未结告警一次性渲染，超出可视高度出现纵向滚动条；
+                       不再分页、不测量视口高度。 */
+                    <div
+                      data-testid="latest-alert-scroll"
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        maxHeight: scrollMaxHeight,
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        paddingRight: 4,
+                      }}
+                    >
                       <List
                         size="small"
                         split={false}
                         data-testid="latest-alert-list"
-                        dataSource={visibleAlerts}
+                        dataSource={latestAlerts}
                         renderItem={(item, index) => (
                           <AlertRow
                             item={item}
-                            /* 测试 id 用数据池内的全局序号（翻页后不重复、不重置） */
-                            index={pageOffset + index}
-                            isLast={index === visibleAlerts.length - 1}
-                            /* 行 2 告警具体内容：M02 history summary 优先，AM annotations.summary 兜底 */
-                            summary={
-                              summaryByAlert?.[
-                                alertMatchKey(item.labels?.alertname, item.labels?.instance)
-                              ] ?? item.annotations?.summary
-                            }
+                            index={index}
+                            isLast={index === latestAlerts.length - 1}
                           />
                         )}
                       />
-                      {/* 分页器仅在池子超过单页上限时出现（少量告警时保持单页观感） */}
-                      {pageCount > 1 && (
-                        <div
-                          data-testid="latest-alert-pager"
-                          style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}
-                        >
-                          <Pagination
-                            size="small"
-                            showSizeChanger={false}
-                            current={currentPage}
-                            pageSize={pageSize}
-                            total={latestAlerts.length}
-                            onChange={setPage}
-                          />
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>

@@ -23,6 +23,8 @@ const applicationRow: ResourceListItem = {
   owner1_contact: '13800000001',
   owner2: '李四',
   owner2_contact: '13800000002',
+  ops_person: '王五',
+  ops_person_contact: 'ops@example.com',
   go_live_at: '2026-10-28T08:00:00Z',
 }
 
@@ -31,11 +33,30 @@ describe('resourceExport', () => {
     vi.clearAllMocks()
   })
 
-  it('exports application owners and go-live time', () => {
+  it('exports application owners, ops person and go-live time', () => {
     const csv = resourcesToCSV('application', [applicationRow])
-    for (const text of ['负责人1', '负责人1联系方式', '负责人2', '负责人2联系方式', '应用上线时间', '张三', '13800000002', '2026-10-28T08:00:00Z']) {
+    for (const text of [
+      '负责人1', '负责人1联系方式', '负责人2', '负责人2联系方式',
+      '运维人员', '运维人员联系方式', '应用上线时间',
+      '张三', '13800000002', '王五', 'ops@example.com', '2026-10-28T08:00:00Z',
+    ]) {
       expect(csv).toContain(text)
     }
+  })
+
+  it('exports host activated time', () => {
+    const hostRow: ResourceListItem = {
+      resource_id: 'host-1',
+      resource_category: 'host',
+      network_domain_id: 'default',
+      status: 'online',
+      source_type: 'manual',
+      instance_name: 'web-01',
+      activated_at: '2026-10-01T08:30:00Z',
+    }
+    const csv = resourcesToCSV('host', [hostRow])
+    expect(csv).toContain('开通时间')
+    expect(csv).toContain('2026-10-01T08:30:00Z')
   })
 
   it('does not export scrape_port for interface services', () => {

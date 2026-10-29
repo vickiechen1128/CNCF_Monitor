@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import MappingDrawer from './MappingDrawer'
+import { setupAntdTest } from '@/test/antdTestUtils'
 import type { LabelSourceType, LabelTemplate, Mapping } from '../../types/label'
 
-const addMappingMock = vi.fn()
-const updateMappingMock = vi.fn()
+const replaceMappingsMock = vi.fn()
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: {
-    addMapping: (...args: unknown[]) => addMappingMock(...args),
-    updateMapping: (...args: unknown[]) => updateMappingMock(...args),
+    replaceMappings: (...args: unknown[]) => replaceMappingsMock(...args),
   },
 }))
 
@@ -35,154 +35,133 @@ function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
   }
 }
 
-interface RenderOver {
-  template?: LabelTemplate | null
-  editingMapping?: Mapping | null
-  editingIndex?: number | null
-}
-
-function renderDrawer(over: RenderOver = {}) {
+function renderDrawer(tpl: LabelTemplate | null = template()) {
   const onClose = vi.fn()
   const onSaved = vi.fn()
-  render(
-    <MappingDrawer
-      open
-      template={template()}
-      editingMapping={null}
-      editingIndex={null}
-      onClose={onClose}
-      onSaved={onSaved}
-      {...over}
-    />,
-  )
+  render(<MappingDrawer open template={tpl} onClose={onClose} onSaved={onSaved} />)
   return { onClose, onSaved }
 }
 
-/** 在指定下标（0=来源类型 1=来源字段 2=转换规则）的 Select 中选择选项 */
-async function selectOption(index: number, optionText: string) {
-  const combos = screen.getAllByRole('combobox')
-  fireEvent.mouseDown(combos[index])
-  // 首选项同时带有 aria-label 与内容节点，取最后一个（选项内容）点击
+async function selectOption(name: string, optionText: string) {
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('combobox', { name }))
   const options = await screen.findAllByText(optionText)
-  fireEvent.click(options[options.length - 1])
+  await user.click(options[options.length - 1])
 }
 
 describe('MappingDrawer', () => {
+  setupAntdTest()
+
   beforeEach(() => {
-    addMappingMock.mockReset()
-    updateMappingMock.mockReset()
+    replaceMappingsMock.mockReset()
   })
 
-  it('opens in add mode with resource_field defaults', () => {
-    renderDrawer()
-    expect(screen.getByText('新增映射')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('如 instance')).toBeInTheDocument()
-    // 转换规则默认「无（原样透传）」
-    expect(screen.getByText('无（原样透传）')).toBeInTheDocument()
+  it('opens the full mapping table with existing values', () => {
+    renderDrawer(template({ mappings: [mapping('app_code', 'resource_field', 'app'), mapping('env', 'resource_field', 'environment')] }))
+    expect(screen.getByRole('dialog', { name: '编辑映射' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '目标标签 1' })).toHaveValue('app')
+    expect(screen.getByRole('textbox', { name: '目标标签 2' })).toHaveValue('environment')
+    expect(screen.getByRole('button', { name: '新增一行' })).toBeInTheDocument()
   })
 
-  it('rejects protected label as target with field error', async () => {
+  it('adds multiple rows and saves them in one request', async () => {
+    const user = userEvent.setup()
+    replaceMappingsMock.mockResolvedValue({ status: 'success', data: [] })
+    const { onSaved, onClose } = renderDrawer(template({ mappings: [] }))
+
+    await user.click(screen.getByRole('button', { name: '新增一行' }))
+    await user.click(screen.getByRole('button', { name: '新增一行' }))
+    await selectOption('来源字段 1', 'app_code')
+    await selectOption('来源字段 2', 'env')
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
+
+    await waitFor(() =>
+      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
+        { target_label: 'app_code', source_type: 'resource_field', source_field: 'app_code', transform_rule: '', enabled: true },
+        { target_label: 'env', source_type: 'resource_field', source_field: 'env', transform_rule: '', enabled: true },
+      ]),
+    )
+    expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('edits and deletes rows locally before one unified save', async () => {
+    const user = userEvent.setup()
+    replaceMappingsMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(template({ mappings: [mapping('app_code', 'resource_field', 'app'), mapping('env', 'resource_field', 'env')] }))
+
+    const target = screen.getByRole('textbox', { name: '目标标签 1' })
+    await user.clear(target)
+    await user.type(target, 'application')
+    await user.click(screen.getByRole('button', { name: '删除第 2 行' }))
+    expect(screen.queryByRole('textbox', { name: '目标标签 2' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
+
+    await waitFor(() =>
+      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
+        { target_label: 'application', source_type: 'resource_field', source_field: 'app_code', transform_rule: '', enabled: true },
+      ]),
+    )
+    expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call the API when cancelling local edits', async () => {
+    const user = userEvent.setup()
+    const { onClose } = renderDrawer()
+    const target = screen.getByRole('textbox', { name: '目标标签 1' })
+    await user.clear(target)
+    await user.type(target, 'draft_only')
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    expect(onClose).toHaveBeenCalled()
+    expect(replaceMappingsMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects protected labels without saving', async () => {
+    const user = userEvent.setup()
     renderDrawer()
-    await selectOption(1, 'app_code')
-    const targetInput = screen.getByPlaceholderText('如 instance')
-    fireEvent.change(targetInput, { target: { value: 'job' } })
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    const target = screen.getByRole('textbox', { name: '目标标签 1' })
+    await user.clear(target)
+    await user.type(target, 'job')
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
     expect(await screen.findByText(/是 Prometheus 保护 label/)).toBeInTheDocument()
-    expect(addMappingMock).not.toHaveBeenCalled()
+    expect(replaceMappingsMock).not.toHaveBeenCalled()
   })
 
-  it('rejects duplicate target_label within same template', async () => {
-    renderDrawer({ template: template({ mappings: [mapping('app_code', 'resource_field', 'app')] }) })
-    await selectOption(1, 'instance_name')
-    const targetInput = screen.getByPlaceholderText('如 instance')
-    fireEvent.change(targetInput, { target: { value: 'app' } })
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    expect(await screen.findByText(/target_label 重复、必须唯一/)).toBeInTheDocument()
-    expect(addMappingMock).not.toHaveBeenCalled()
+  it('rejects duplicate target labels across draft rows', async () => {
+    const user = userEvent.setup()
+    renderDrawer(template({ mappings: [mapping('app_code', 'resource_field', 'app'), mapping('env', 'resource_field', 'env')] }))
+    const target = screen.getByRole('textbox', { name: '目标标签 2' })
+    await user.clear(target)
+    await user.type(target, 'app')
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
+    expect(await screen.findByText(/在该模板内已存在/)).toBeInTheDocument()
+    expect(replaceMappingsMock).not.toHaveBeenCalled()
   })
 
-  it('saves new mapping via addMapping and notifies onSaved', async () => {
-    addMappingMock.mockResolvedValue({ status: 'success', data: [mapping('app_code', 'resource_field', 'app')] })
-    const { onSaved } = renderDrawer()
-    await selectOption(1, 'app_code')
-    // 目标标签自动预填为来源字段；转换规则选 lower
-    await selectOption(2, 'lower（转小写）')
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+  it('keeps the draft when the server rejects the batch', async () => {
+    const user = userEvent.setup()
+    replaceMappingsMock.mockRejectedValue(new Error('保存失败'))
+    const { onClose } = renderDrawer()
+    const target = screen.getByRole('textbox', { name: '目标标签 1' })
+    await user.clear(target)
+    await user.type(target, 'application')
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
+    expect(await screen.findByText('保存失败')).toBeInTheDocument()
+    expect(target).toHaveValue('application')
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('supports dict transforms and composite instance mappings', async () => {
+    const user = userEvent.setup()
+    replaceMappingsMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(template({ mappings: [mapping('instance_ip:port', 'composite', 'instance')] }))
+    expect(screen.getByRole('textbox', { name: '目标标签 1' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '统一保存' }))
     await waitFor(() =>
-      expect(addMappingMock).toHaveBeenCalledWith(1, {
-        target_label: 'app_code',
-        source_type: 'resource_field',
-        source_field: 'app_code',
-        transform_rule: 'lower',
-      }),
-    )
-    await waitFor(() => expect(onSaved).toHaveBeenCalled())
-  })
-
-  it('offers dict transform for dictionary-backed source field and submits it', async () => {
-    addMappingMock.mockResolvedValue({ status: 'success', data: [] })
-    renderDrawer()
-    await selectOption(1, 'app_code')
-    const combos = screen.getAllByRole('combobox')
-    fireEvent.mouseDown(combos[2])
-    const options = await screen.findAllByText('字典翻译（显示名）')
-    fireEvent.click(options[options.length - 1])
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    await waitFor(() =>
-      expect(addMappingMock).toHaveBeenCalledWith(1, {
-        target_label: 'app_code',
-        source_type: 'resource_field',
-        source_field: 'app_code',
-        transform_rule: 'dict',
-      }),
-    )
-  })
-
-  it('does not offer dict transform for non-dictionary source field', async () => {
-    renderDrawer()
-    await selectOption(1, 'os_type')
-    const combos = screen.getAllByRole('combobox')
-    fireEvent.mouseDown(combos[2])
-    expect(screen.queryByText('字典翻译（显示名）')).not.toBeInTheDocument()
-  })
-
-  it('pre-fills values in edit mode and calls updateMapping', async () => {
-    const existing = mapping('app_code', 'resource_field', 'app', { enabled: true })
-    updateMappingMock.mockResolvedValue({ status: 'success', data: [existing] })
-    const { onSaved } = renderDrawer({
-      template: template({ mappings: [existing] }),
-      editingMapping: existing,
-      editingIndex: 1,
-    })
-    expect(screen.getByPlaceholderText('如 instance')).toHaveValue('app')
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    await waitFor(() =>
-      expect(updateMappingMock).toHaveBeenCalledWith(1, 1, {
-        target_label: 'app',
-        source_type: 'resource_field',
-        source_field: 'app_code',
-        transform_rule: '',
-      }),
-    )
-    await waitFor(() => expect(onSaved).toHaveBeenCalled())
-  })
-
-  it('allows composite→instance mapping in edit mode (protected label exception)', async () => {
-    const existing = mapping('instance_ip:port', 'composite', 'instance', { enabled: true })
-    updateMappingMock.mockResolvedValue({ status: 'success', data: [existing] })
-    renderDrawer({
-      template: template({ mappings: [existing] }),
-      editingMapping: existing,
-      editingIndex: 1,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    await waitFor(() =>
-      expect(updateMappingMock).toHaveBeenCalledWith(1, 1, {
-        target_label: 'instance',
-        source_type: 'composite',
-        source_field: 'instance_ip:port',
-        transform_rule: '',
-      }),
+      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
+        { target_label: 'instance', source_type: 'composite', source_field: 'instance_ip:port', transform_rule: '', enabled: true },
+      ]),
     )
   })
 })

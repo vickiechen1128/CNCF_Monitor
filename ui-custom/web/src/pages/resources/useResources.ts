@@ -50,6 +50,8 @@ export interface ResourceListItem {
   hostname?: string
   instance_ip?: string
   os_type?: string
+  /** 主机开通时间（可选，2026-10-29 新增） */
+  activated_at?: string
   // database / middleware
   database_type?: string
   middleware_type?: string
@@ -60,6 +62,9 @@ export interface ResourceListItem {
   owner1_contact?: string
   owner2?: string
   owner2_contact?: string
+  /** 运维人员姓名 / 联系方式（可选，2026-10-29 新增） */
+  ops_person?: string
+  ops_person_contact?: string
   go_live_at?: string
   service_name?: string
   health_check_url?: string

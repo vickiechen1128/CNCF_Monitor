@@ -1,32 +1,13 @@
 /**
- * 映射新增/编辑抽屉（T07-F8，Module_07 §3.2 / §5.11 / §5.12）。
- *
- * 右栏 Tab1「映射明细」的新增/编辑入口：保留模板上下文（编辑时对照映射表格，§11.2）。
- * 字段：来源类型 / 来源字段 / 目标标签 / 转换规则 / 启用状态。
- *
- * 前端预校验（与后端 models/label/mappings.go 校验一致）：
- * - 目标标签不得为保护 label（PROTECTED_PROMETHEUS_LABELS，composite→instance 例外）；
- * - 同模板内 target_label 必须唯一（编辑排除自身）；
- * 校验失败置于目标标签字段下方（§11.2）；提交失败透传后端错误 message。
- *
- * 保存成功后由 API 返回全量 mappings，经 onSaved 透传上级统一刷新（Tab1 表格与左栏 badge）。
- * 默认模板（is_default）为只读保护，映射变更禁止——由 Tab1 侧隐藏入口，本组件不重复拦截。
+ * 映射批量编辑抽屉（Module_07 §3.2 / §5.11 / §5.12）。
+ * 所有增删改先保存在本地表格草稿中，点击「统一保存」后一次提交整组映射。
  */
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Col,
-  Drawer,
-  Form,
-  Input,
-  Row,
-  Select,
-  Space,
-  Switch,
-  Typography,
-  message,
-} from 'antd'
+import { useState } from 'react'
+import { Button, Drawer, Input, Select, Space, Switch, Table, Typography, message } from 'antd'
+import type { TableProps } from 'antd'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { labelTemplateApi } from '../../api/labelTemplates'
+import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import type { LabelSourceType, LabelTemplate, Mapping, MappingInput } from '../../types/label'
 import {
   CMDB_FIELD_OPTIONS,
@@ -42,184 +23,264 @@ import {
 
 const { Text } = Typography
 
-interface MappingFormValues {
-  source_type: LabelSourceType
-  source_field: string
-  target_label: string
-  transform?: string
-  enabled?: boolean
+interface EditableMapping extends Mapping {
+  key: string
+  transform: string
 }
 
 interface MappingDrawerProps {
-  /** 抽屉是否打开 */
   open: boolean
-  /** 所属模板（保留上下文：资源类别字段选项 + 同模板唯一性校验） */
   template: LabelTemplate | null
-  /** 正在编辑的映射；null 表示新增 */
-  editingMapping: Mapping | null
-  /** 编辑映射的 1-based 数组位置（后端 mapping_id，§6.6.3），用于唯一性校验排除自身 */
-  editingIndex: number | null
   onClose: () => void
-  /** 保存成功后回调，携带服务端返回的最新 mappings */
   onSaved: (mappings: Mapping[]) => void
 }
 
-/** 来源字段 extra 文案（按来源类型给引导） */
-function sourceFieldExtra(sourceType?: LabelSourceType) {
-  switch (sourceType) {
-    case 'composite':
-      return '组合字段，由多个字段拼接生成标签'
-    case 'cmdb_field':
-      return 'CMDB 字段，后续版本由 CMDB 同步'
-    case 'prometheus_builtin':
-      return 'Prometheus 原生注入字段'
-    default:
-      return '从资源固定字段中选取'
-  }
+let nextRowKey = 0
+
+function rowKey() {
+  nextRowKey += 1
+  return `mapping-row-${nextRowKey}`
 }
 
-/**
- * 映射新增/编辑抽屉（T07-F8）。
- * 保留模板上下文；前端预校验保护 label 与同模板 target_label 唯一后提交 API。
- */
-export default function MappingDrawer({
-  open,
-  template,
-  editingMapping,
-  editingIndex,
-  onClose,
-  onSaved,
-}: MappingDrawerProps) {
-  const [form] = Form.useForm<MappingFormValues>()
-  const [saving, setSaving] = useState(false)
-  const watchedSourceType = Form.useWatch('source_type', form)
-  const watchedSourceField = Form.useWatch('source_field', form)
+function toEditableRows(template: LabelTemplate | null): EditableMapping[] {
+  return (template?.mappings ?? []).map((item) => ({
+    ...item,
+    key: rowKey(),
+    transform: item.transform ?? '',
+  }))
+}
 
-  // 编辑存量 composite / prometheus_builtin 映射时，选项需含当前来源并置灰（MVP 不可新增）
-  const sourceTypeOptions = useMemo(() => {
+function FieldError({ text }: { text?: string }) {
+  return text ? (
+    <div>
+      <Text type="danger" style={{ fontSize: 12 }}>
+        {text}
+      </Text>
+    </div>
+  ) : null
+}
+
+export default function MappingDrawer(props: MappingDrawerProps) {
+  return <MappingDrawerEditor key={`${props.template?.id ?? 0}:${props.open}`} {...props} />
+}
+
+function MappingDrawerEditor({ open, template, onClose, onSaved }: MappingDrawerProps) {
+  const [rows, setRows] = useState<EditableMapping[]>(() => toEditableRows(template))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+
+  const clearError = (key: string, field: string) => {
+    setErrors((current) => {
+      const next = { ...current }
+      delete next[`${key}:${field}`]
+      return next
+    })
+  }
+
+  const updateRow = (key: string, update: (row: EditableMapping) => EditableMapping) => {
+    setRows((current) => current.map((row) => (row.key === key ? update(row) : row)))
+  }
+
+  const handleSourceTypeChange = (row: EditableMapping, value: LabelSourceType) => {
+    updateRow(row.key, (current) => ({
+      ...current,
+      source_type: value,
+      source_field: '',
+      target_label: value === 'composite' ? 'instance' : '',
+      transform: value !== 'resource_field' && current.transform === 'dict' ? '' : current.transform,
+    }))
+    clearError(row.key, 'source_field')
+    clearError(row.key, 'target_label')
+  }
+
+  const handleSourceFieldChange = (row: EditableMapping, value: string) => {
+    updateRow(row.key, (current) => ({
+      ...current,
+      source_field: value,
+      target_label:
+        !current.target_label || current.target_label === current.source_field ? value : current.target_label,
+      transform:
+        current.transform === 'dict' && !DICT_TRANSLATABLE_FIELDS.includes(value) ? '' : current.transform,
+    }))
+    clearError(row.key, 'source_field')
+    clearError(row.key, 'target_label')
+  }
+
+  const sourceTypeOptions = (row: EditableMapping) => {
     const options = [...MAPPING_SOURCE_TYPE_OPTIONS]
-    if (
-      editingMapping &&
-      editingMapping.source_type !== 'resource_field' &&
-      editingMapping.source_type !== 'cmdb_field'
-    ) {
+    if (row.source_type !== 'resource_field' && row.source_type !== 'cmdb_field') {
       options.unshift({
-        value: editingMapping.source_type,
-        label: SOURCE_TYPE_LABEL[editingMapping.source_type],
+        value: row.source_type,
+        label: SOURCE_TYPE_LABEL[row.source_type],
         disabled: true,
       })
     }
     return options
-  }, [editingMapping])
-
-  const sourceFieldOptions = useMemo(() => {
-    const toOptions = (fields: string[]) => fields.map((f) => ({ value: f, label: f }))
-    switch (watchedSourceType) {
-      case 'composite':
-        return toOptions(COMPOSITE_OPTIONS)
-      case 'prometheus_builtin':
-        return toOptions(PROMETHEUS_BUILTIN_OPTIONS)
-      case 'cmdb_field':
-        return CMDB_FIELD_OPTIONS.map((f) => ({ value: f, label: `${f}（后续版本开放）` }))
-      default:
-        return toOptions(template ? RESOURCE_FIELD_OPTIONS[template.resource_category] : [])
-    }
-  }, [watchedSourceType, template])
-
-  // 「字典翻译」仅对引用字典 / 固定枚举的来源字段开放；编辑存量 dict 映射时保留选项，
-  // 避免回显值在选项中缺失。
-  const dictTransformSupported =
-    watchedSourceType === 'resource_field' &&
-    !!watchedSourceField &&
-    DICT_TRANSLATABLE_FIELDS.includes(watchedSourceField)
-  const transformOptions = useMemo(
-    () =>
-      TRANSFORM_OPTIONS.filter(
-        (o) => o.value !== 'dict' || dictTransformSupported || editingMapping?.transform === 'dict',
-      ),
-    [dictTransformSupported, editingMapping],
-  )
-
-  // 抽屉打开时初始化表单：新增默认 resource_field / 无转换 / 启用；编辑回填存量映射
-  useEffect(() => {
-    if (!open) return
-    form.resetFields()
-    if (editingMapping) {
-      form.setFieldsValue({
-        source_type: editingMapping.source_type,
-        source_field: editingMapping.source_field,
-        target_label: editingMapping.target_label,
-        transform: editingMapping.transform ?? '',
-        enabled: editingMapping.enabled,
-      })
-    } else {
-      form.setFieldsValue({
-        source_type: 'resource_field',
-        transform: '',
-        enabled: true,
-      })
-    }
-  }, [open, editingMapping, form])
-
-  const handleSourceTypeChange = (value: LabelSourceType) => {
-    form.setFieldsValue({ source_field: undefined })
-    // composite 目标标签锁定 instance；其余来源清空由来源字段联动预填
-    form.setFieldValue('target_label', value === 'composite' ? 'instance' : '')
-    // 字典翻译仅适用于 resource_field 来源，切换来源类型时清掉不兼容的转换规则
-    if (value !== 'resource_field' && form.getFieldValue('transform') === 'dict') {
-      form.setFieldValue('transform', '')
-    }
   }
 
-  // resource_field 来源新增时目标标签默认 = 来源字段（可修改，不覆盖用户手输值）
-  const handleSourceFieldChange = (value: string) => {
-    const currentTarget = form.getFieldValue('target_label') as string | undefined
-    if (!currentTarget || currentTarget === watchedSourceField) {
-      form.setFieldValue('target_label', value)
+  const sourceFieldOptions = (row: EditableMapping) => {
+    let fields: string[]
+    switch (row.source_type) {
+      case 'composite':
+        fields = COMPOSITE_OPTIONS
+        break
+      case 'prometheus_builtin':
+        fields = PROMETHEUS_BUILTIN_OPTIONS
+        break
+      case 'cmdb_field':
+        fields = CMDB_FIELD_OPTIONS
+        break
+      default:
+        fields = template ? RESOURCE_FIELD_OPTIONS[template.resource_category] : []
     }
-    // 字段不再支持字典翻译时，清掉 dict 转换规则（避免提交后端 400）
-    if (!DICT_TRANSLATABLE_FIELDS.includes(value) && form.getFieldValue('transform') === 'dict') {
-      form.setFieldValue('transform', '')
-    }
+    const values = row.source_field && !fields.includes(row.source_field) ? [...fields, row.source_field] : fields
+    return values.map((field) => ({
+      value: field,
+      label: row.source_type === 'cmdb_field' ? `${field}（后续版本开放）` : field,
+    }))
+  }
+
+  const transformOptions = (row: EditableMapping) => {
+    const dictSupported =
+      row.source_type === 'resource_field' && DICT_TRANSLATABLE_FIELDS.includes(row.source_field)
+    return TRANSFORM_OPTIONS.filter(
+      (option) => option.value !== 'dict' || dictSupported || row.transform === 'dict',
+    )
+  }
+
+  const columns: TableProps<EditableMapping>['columns'] = [
+    {
+      title: '来源类型',
+      width: 170,
+      render: (_, row, index) => (
+        <Select
+          aria-label={`来源类型 ${index + 1}`}
+          style={{ width: '100%' }}
+          value={row.source_type}
+          options={sourceTypeOptions(row)}
+          disabled={row.source_type === 'composite' || row.source_type === 'prometheus_builtin'}
+          onChange={(value) => handleSourceTypeChange(row, value)}
+        />
+      ),
+    },
+    {
+      title: '来源字段',
+      width: 220,
+      render: (_, row, index) => (
+        <>
+          <Select
+            aria-label={`来源字段 ${index + 1}`}
+            style={{ width: '100%' }}
+            placeholder="请选择来源字段"
+            showSearch
+            optionFilterProp="label"
+            value={row.source_field || undefined}
+            options={sourceFieldOptions(row)}
+            disabled={row.source_type === 'composite' || row.source_type === 'cmdb_field'}
+            onChange={(value) => handleSourceFieldChange(row, value)}
+          />
+          <FieldError text={errors[`${row.key}:source_field`]} />
+        </>
+      ),
+    },
+    {
+      title: '目标标签',
+      width: 210,
+      render: (_, row, index) => (
+        <>
+          <Input
+            aria-label={`目标标签 ${index + 1}`}
+            placeholder="如 app"
+            value={row.target_label}
+            disabled={row.source_type === 'composite'}
+            onChange={(event) => {
+              updateRow(row.key, (current) => ({ ...current, target_label: event.target.value }))
+              clearError(row.key, 'target_label')
+            }}
+          />
+          <FieldError text={errors[`${row.key}:target_label`]} />
+        </>
+      ),
+    },
+    {
+      title: '转换规则',
+      width: 210,
+      render: (_, row, index) => (
+        <Select
+          aria-label={`转换规则 ${index + 1}`}
+          style={{ width: '100%' }}
+          value={row.transform}
+          options={transformOptions(row)}
+          onChange={(value) => updateRow(row.key, (current) => ({ ...current, transform: value }))}
+        />
+      ),
+    },
+    {
+      title: '启用',
+      width: 80,
+      render: (_, row, index) => (
+        <Switch
+          aria-label={`启用状态 ${index + 1}`}
+          checked={row.enabled}
+          onChange={(checked) => updateRow(row.key, (current) => ({ ...current, enabled: checked }))}
+        />
+      ),
+    },
+    {
+      title: '操作',
+      width: 80,
+      fixed: 'right',
+      render: (_, row, index) => (
+        <Button
+          type="text"
+          danger
+          icon={<DeleteOutlined />}
+          aria-label={`删除第 ${index + 1} 行`}
+          onClick={() => setRows((current) => current.filter((item) => item.key !== row.key))}
+        />
+      ),
+    },
+  ]
+
+  const validate = () => {
+    const nextErrors: Record<string, string> = {}
+    const seen = new Map<string, number>()
+    rows.forEach((row, index) => {
+      if (!row.source_field.trim()) {
+        nextErrors[`${row.key}:source_field`] = '请选择来源字段'
+      }
+      const targetLabel = row.target_label.trim()
+      if (!targetLabel) {
+        nextErrors[`${row.key}:target_label`] = '请输入目标标签'
+        return
+      }
+      const isCompositeInstance = row.source_type === 'composite' && targetLabel === 'instance'
+      if (PROTECTED_PROMETHEUS_LABELS.includes(targetLabel) && !isCompositeInstance) {
+        nextErrors[`${row.key}:target_label`] = `目标标签「${targetLabel}」是 Prometheus 保护 label，禁止作为目标标签`
+      }
+      if (seen.has(targetLabel)) {
+        nextErrors[`${row.key}:target_label`] = `目标标签「${targetLabel}」在该模板内已存在，target_label 重复、必须唯一`
+      } else {
+        seen.set(targetLabel, index)
+      }
+    })
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
   }
 
   const handleSave = async () => {
-    if (!template) return
-    let values: MappingFormValues
-    try {
-      values = await form.validateFields()
-    } catch {
-      return // 表单校验错误已置于字段下方
-    }
-    const targetLabel = values.target_label.trim()
-    const sourceType = values.source_type
-    const isCompositeInstance = sourceType === 'composite' && targetLabel === 'instance'
-
-    // 前端预校验 1：保护 label 拒绝（composite→instance 例外，§5.11）
-    if (PROTECTED_PROMETHEUS_LABELS.includes(targetLabel) && !isCompositeInstance) {
-      form.setFields([{ name: 'target_label', errors: [`目标标签「${targetLabel}」是 Prometheus 保护 label，禁止作为目标标签`] }])
-      return
-    }
-    // 前端预校验 2：同模板 target_label 唯一（编辑排除自身，§5.11）
-    const duplicated = template.mappings.some((m, i) => m.target_label === targetLabel && i + 1 !== editingIndex)
-    if (duplicated) {
-      form.setFields([{ name: 'target_label', errors: [`目标标签「${targetLabel}」在该模板内已存在，target_label 重复、必须唯一`] }])
-      return
-    }
-
-    const input: MappingInput = {
-      target_label: targetLabel,
-      source_type: sourceType,
-      source_field: values.source_field,
-      transform_rule: values.transform ?? '',
-    }
+    if (!template || !validate()) return
+    const input: MappingInput[] = rows.map((row) => ({
+      target_label: row.target_label.trim(),
+      source_type: row.source_type,
+      source_field: row.source_field.trim(),
+      transform_rule: row.transform,
+      enabled: row.enabled,
+    }))
     setSaving(true)
     try {
-      const res =
-        editingMapping && editingIndex
-          ? await labelTemplateApi.updateMapping(template.id, editingIndex, input)
-          : await labelTemplateApi.addMapping(template.id, input)
-      message.success(editingMapping ? '映射已更新' : '映射已新增')
+      const res = await labelTemplateApi.replaceMappings(template.id, input)
+      message.success('映射已保存')
       onSaved(res.data)
       onClose()
     } catch (err) {
@@ -231,93 +292,47 @@ export default function MappingDrawer({
 
   return (
     <Drawer
-      title={editingMapping ? '编辑映射' : '新增映射'}
-      width={520}
+      title="编辑映射"
+      width={1200}
       open={open}
       onClose={onClose}
-      // forceRender（替代 destroyOnHidden）：Drawer 首次打开时内容惰性挂载，导致
-      // useEffect(open) 的 setFieldsValue 在 Form 字段注册前执行被吞、编辑回显首次为空；
-      // forceRender 保证 Form 常驻挂载、每次打开由 effect reset+回显（#19 通病，标签映射抽屉）。
       forceRender
       extra={
         <Space>
-          <Button onClick={onClose}>取消</Button>
+          <Button autoInsertSpace={false} onClick={onClose}>
+            取消
+          </Button>
           <Button type="primary" loading={saving} onClick={handleSave}>
-            保存
+            统一保存
           </Button>
         </Space>
       }
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              label="来源类型"
-              name="source_type"
-              rules={[{ required: true, message: '请选择来源类型' }]}
-            >
-              <Select
-                placeholder="请选择"
-                disabled={editingMapping?.source_type === 'composite' || editingMapping?.source_type === 'prometheus_builtin'}
-                onChange={handleSourceTypeChange}
-                options={sourceTypeOptions}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              label="来源字段"
-              name="source_field"
-              rules={[{ required: true, message: '请选择来源字段' }]}
-              extra={sourceFieldExtra(watchedSourceType)}
-            >
-              <Select
-                placeholder={watchedSourceType === 'cmdb_field' ? '后续版本开放' : '请选择'}
-                showSearch
-                optionFilterProp="label"
-                options={sourceFieldOptions}
-                disabled={watchedSourceType === 'composite' || watchedSourceType === 'cmdb_field'}
-                onChange={handleSourceFieldChange}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              label="目标标签"
-              name="target_label"
-              rules={[{ required: true, message: '请输入目标标签' }]}
-              extra={
-                watchedSourceType === 'composite'
-                  ? '组合字段固定生成 instance 标签，无需修改'
-                  : '资源字段来源默认取来源字段，可修改；保护标签（instance/job 等）不允许使用'
-              }
-            >
-              <Input placeholder="如 instance" disabled={watchedSourceType === 'composite'} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              label="转换规则"
-              name="transform"
-              extra={
-                dictTransformSupported
-                  ? '字典翻译：把来源编码翻译为字典展示名（如应用编码 → 应用名）；加前缀 / 正则替换后续版本开放'
-                  : '可留空（原样透传）；字典翻译仅支持应用编码 / 业务编码 / 平台编码 / 网域 / 环境字段'
-              }
-            >
-              <Select placeholder="无（原样透传）" options={transformOptions} />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Form.Item label="启用状态" name="enabled" valuePropName="checked" extra="关闭后该映射不参与标签生成">
-          <Switch />
-        </Form.Item>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          映射保存即生效：被引用采集 Job 会按新映射重新生成标签，修改立即生效、无版本回滚能力。
-        </Text>
-      </Form>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Text type="secondary">可在表格中连续新增、修改或删除映射，所有变更将在统一保存后生效。</Text>
+        <Table
+          rowKey="key"
+          size="small"
+          dataSource={rows}
+          columns={columns}
+          pagination={false}
+          scroll={TABLE_SCROLL_X}
+          locale={{ emptyText: '暂无映射，点击下方「新增一行」添加' }}
+        />
+        <Button aria-label="新增一行" icon={<PlusOutlined />} onClick={() => setRows((current) => [
+          ...current,
+          {
+            key: rowKey(),
+            source_type: 'resource_field',
+            source_field: '',
+            target_label: '',
+            transform: '',
+            enabled: true,
+          },
+        ])}>
+          新增一行
+        </Button>
+      </Space>
     </Drawer>
   )
 }

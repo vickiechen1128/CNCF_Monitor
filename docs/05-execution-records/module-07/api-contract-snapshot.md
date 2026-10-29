@@ -230,9 +230,12 @@
 | 方法 | 路径 | 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|--------|-----------|----------|--------|
 | POST | `/label-templates/:template_id/mappings` | `MappingInput`：`{target_label, source_type, source_field?, transform_rule?}` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 | §6.6.3 |
+| PUT | `/label-templates/:template_id/mappings` | `{mappings: MappingInput[]}`，每项含 `{target_label, source_type, source_field, transform_rule?, enabled?}`；完整替换，空数组表示清空 | 统一保存后的完整 mappings 列表 | `bad_request`：缺省 mappings / 保护 label / 同模板 target_label 重复 / 默认模板只读；`not_found` | 增量交互决策 |
 | PUT | `/label-templates/:template_id/mappings/:mapping_id` | 部分 `MappingInput`（编辑自身排除唯一性校验） | 更新后的 mappings 列表 | `not_found`；`bad_request` | §6.6.3 |
 | DELETE | `/label-templates/:template_id/mappings/:mapping_id` | — | `{mapping_id}` | `not_found` | §6.6.3 |
 
+> **整组统一保存**：`PUT /mappings` 的整组校验、模板写入与本批增删改快照在同一事务内完成，任一项失败全部回滚；无实际变化不写快照。原单条接口保留兼容。
+>
 > **组合字段语义**：模板 API 只保存映射规则（`source_field=instance_ip:port`、`source_type=composite`），不保存任何实例值；`instance` 标签出值由 Module_09 生成配置时拼接（§5.12）。
 
 ## 9. 枚举字典

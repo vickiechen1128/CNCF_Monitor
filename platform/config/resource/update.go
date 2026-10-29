@@ -68,7 +68,7 @@ func updatableColumns(category models.ResourceCategory) []string {
 		// 决策 110：platform_code 为五类可更新一等字段（可空）。
 		return []string{
 			"network_domain_id", "biz_code", "app_code", "platform_code", "sub_app_code", "env_flag",
-			"status", "instance_name", "private_ip", "image", "scrape_port",
+			"status", "instance_name", "private_ip", "image", "scrape_port", "activated_at",
 		}
 	case models.ResourceCategoryDatabase:
 		return []string{
@@ -83,7 +83,8 @@ func updatableColumns(category models.ResourceCategory) []string {
 	case models.ResourceCategoryApplication:
 		return []string{
 			"network_domain_id", "biz_code", "app_name", "platform_code", "cluster", "env", "owner", "status",
-			"owner1", "owner1_contact", "owner2", "owner2_contact", "go_live_at",
+			"owner1", "owner1_contact", "owner2", "owner2_contact",
+			"ops_person", "ops_person_contact", "go_live_at",
 			"service_name", "health_check_url", "protocol", "endpoint", "port", "scrape_port",
 		}
 	case models.ResourceCategoryGenericTarget:

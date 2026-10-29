@@ -165,6 +165,23 @@ describe('MainLayout', () => {
     expect(screen.getByText('collector-content')).toBeInTheDocument()
   })
 
+  // 回归：/blackbox-modules 遗漏在 resolveActiveModule 的白名单外时，一级 tab 会落回
+  // 「首页」、侧栏切成首页二级菜单（2026-10-29 用户反馈「点拨测模块跳到首页」）。
+  it('keeps /blackbox-modules under 采集策略 instead of falling back to 首页', () => {
+    render(
+      <MemoryRouter initialEntries={['/blackbox-modules']}>
+        <Routes>
+          <Route path="/blackbox-modules" element={<MainLayout>blackbox-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('blackbox-content')).toBeInTheDocument()
+    // 侧栏必须是采集策略的二级菜单：含「拨测模块」，不含首页的「概览 Dashboard」
+    const menuTexts = screen.getAllByRole('menuitem').map((el) => el.textContent ?? '')
+    expect(menuTexts.some((t) => t.includes('拨测模块'))).toBe(true)
+    expect(menuTexts.some((t) => t.includes('概览 Dashboard'))).toBe(false)
+  })
+
   // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
   it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
     render(

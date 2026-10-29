@@ -55,6 +55,7 @@ export interface MappingInput {
   source_type: LabelSourceType
   source_field?: string
   transform_rule?: string
+  enabled?: boolean
 }
 
 /** 创建标签模板输入（非默认，is_default=false）；mappings 可空（PRD §6.6.3） */

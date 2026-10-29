@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -554,6 +555,62 @@ func TestCreateResource_Application_URLOnlyAccepted(t *testing.T) {
 	assert.Equal(t, "http://10.10.1.4:8081/actuator/health", a.HealthCheckURL)
 	assert.Empty(t, a.Endpoint)
 	assert.Zero(t, a.Port)
+}
+
+// TestCreateResource_HostActivatedAt 主机开通时间为可选字段：合法时间落库并回读，
+// 非法格式返回 bad_request（2026-10-29 用户新增）。
+func TestCreateResource_HostActivatedAt(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	body := hostBody()
+	body["activated_at"] = "2026-10-01T08:30:00Z"
+	w, out := doCreate(t, r, body)
+	require.Equal(t, http.StatusOK, w.Code, "创建主机应成功：%s", out.Error)
+	assert.Equal(t, "2026-10-01T08:30:00Z", out.Data["activated_at"])
+
+	h := loadHostByResourceID(t, db, out.Data["resource_id"].(string))
+	require.NotNil(t, h.ActivatedAt)
+	assert.Equal(t, "2026-10-01T08:30:00Z", h.ActivatedAt.UTC().Format(time.RFC3339))
+
+	// 留空合法。
+	emptyBody := hostBody()
+	w, out = doCreate(t, r, emptyBody)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Nil(t, out.Data["activated_at"])
+
+	// 非法格式拒绝。
+	badBody := hostBody()
+	badBody["activated_at"] = "2026/10/01"
+	w, out = doCreate(t, r, badBody)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, out.Error, "activated_at")
+}
+
+// TestCreateResource_Application_OpsPerson 应用服务运维人员及联系方式为可选字段：
+// 创建后回读，列表 item 同步返回（2026-10-29 用户新增）。
+func TestCreateResource_Application_OpsPerson(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	body := appCreateBody()
+	body["ops_person"] = "王五"
+	body["ops_person_contact"] = "ops@example.com"
+	w, out := doCreate(t, r, body)
+	require.Equal(t, http.StatusOK, w.Code, "创建应用应成功：%s", out.Error)
+	assert.Equal(t, "王五", out.Data["ops_person"])
+	assert.Equal(t, "ops@example.com", out.Data["ops_person_contact"])
+
+	a := loadAppByResourceID(t, db, out.Data["resource_id"].(string))
+	assert.Equal(t, "王五", a.OpsPerson)
+	assert.Equal(t, "ops@example.com", a.OpsPersonContact)
+
+	// 留空合法。
+	emptyBody := appCreateBody()
+	w, out = doCreate(t, r, emptyBody)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "", out.Data["ops_person"])
+	assert.Equal(t, "", out.Data["ops_person_contact"])
 }
 
 // TestUpdateResource_Application_AddressPersistsAsGiven 验证更新时 endpoint/port 整体替换

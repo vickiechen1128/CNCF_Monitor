@@ -283,6 +283,15 @@ export interface AlertEventData {
   page_size: number
 }
 
+/**
+ * GET /api/v2/platform/alertmanager/alert-events/current 响应 data 信封。
+ * 全部未结告警（firing/silenced/inhibited），不分页；首页「当前告警」卡一次取满。
+ */
+export interface AlertEventCurrentData {
+  list: AlertEventItem[]
+  total: number
+}
+
 /** GET /api/v2/platform/alertmanager/alert-events/stats 响应 data */
 export interface AlertEventStats {
   /** 今日告警：今天 0 点后开始触发的发生数（严格按开始时间） */
@@ -291,6 +300,11 @@ export interface AlertEventStats {
   today_resolved_total: number
   today_resolved_real: number
   today_resolved_inferred: number
+  /** 当前未结（不限今天）：与列表 status=open 同一口径，供当前告警页三张卡 / 首页右栏计数 */
+  open_total: number
+  open_firing: number
+  open_silenced: number
+  open_inhibited: number
   /** 历史遗留告警：今天 0 点前触发，且当前未关闭或今天关闭 */
   legacy_open_total: number
   legacy_open_firing: number

@@ -2,7 +2,7 @@
  * 标签模板右栏详情三 Tab（T07-F8，Module_07 §3.2 / §11.1）。
  *
  * Tab1 映射明细：按来源类型分组展示（composite / resource_field / 其他），
- *   新增/编辑/删除映射走 MappingDrawer（保留模板上下文）；默认模板只读保护。
+ *   「编辑」打开 MappingDrawer 批量增删改并统一保存；默认模板只读保护。
  * Tab2 关联实例：labelTemplateApi.resources 服务端分页（pageSize=10）+ 关键字搜索 + 状态筛选
  *   （MVP 阶段后端仅支持 page/page_size，搜索与状态筛选在前端对当前页过滤，见 §3.2 分页策略）；
  *   Tab 顶部隐式关联说明（§3.2）；空态「该类型下暂无实例」。
@@ -22,7 +22,6 @@ import {
   Divider,
   Empty,
   Input,
-  Modal,
   Select,
   Skeleton,
   Space,
@@ -31,10 +30,9 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { EditOutlined, ReloadOutlined } from '@ant-design/icons'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { EllipsisText } from '../../components/EllipsisText'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
@@ -68,7 +66,7 @@ interface TemplateDetailTabsProps {
   onMappingsChange: (mappings: Mapping[]) => void
 }
 
-/** 分组映射行：映射本身 + 在模板全量 mappings 中的 0-based 下标（→ 1-based mapping_id） */
+/** 分组映射行：映射本身 + 在模板全量 mappings 中的下标（用作只读表格行键） */
 interface GroupedMapping {
   mapping: Mapping
   globalIndex: number
@@ -92,10 +90,6 @@ export default function TemplateDetailTabs({
   // 右栏 Tab / 映射抽屉 / 影响反馈 Alert
   const [detailTab, setDetailTab] = useState<DetailTabKey>('mappings')
   const [mappingDrawerOpen, setMappingDrawerOpen] = useState(false)
-  const [editingMapping, setEditingMapping] = useState<Mapping | null>(null)
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<GroupedMapping | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const [impactVisible, setImpactVisible] = useState(false)
 
   // 关联实例（服务端分页 + 前端搜索/状态过滤）
@@ -113,9 +107,6 @@ export default function TemplateDetailTabs({
     setPrevTemplateId(templateId)
     setDetailTab('mappings')
     setMappingDrawerOpen(false)
-    setEditingMapping(null)
-    setEditingIndex(null)
-    setDeleteTarget(null)
     setImpactVisible(false)
     setPage(1)
     setInstanceSearch('')
@@ -176,39 +167,10 @@ export default function TemplateDetailTabs({
     })
   }, [instances, instanceSearch, instanceStatus])
 
-  const openAddMapping = () => {
-    setEditingMapping(null)
-    setEditingIndex(null)
-    setMappingDrawerOpen(true)
-  }
-
-  const openEditMapping = (row: GroupedMapping) => {
-    setEditingMapping(row.mapping)
-    setEditingIndex(row.globalIndex + 1)
-    setMappingDrawerOpen(true)
-  }
-
-  // 映射保存（新增/编辑）成功后：刷新映射并展示影响反馈
+  // 整组映射统一保存成功后：刷新映射并展示影响反馈。
   const handleMappingsSaved = (mappings: Mapping[]) => {
     setImpactVisible(true)
     onMappingsChange(mappings)
-  }
-
-  const handleDeleteMapping = async () => {
-    if (!template || !deleteTarget) return
-    setDeleting(true)
-    try {
-      await labelTemplateApi.removeMapping(template.id, deleteTarget.globalIndex + 1)
-      const newMappings = template.mappings.filter((_, i) => i !== deleteTarget.globalIndex)
-      message.success('映射已删除')
-      setDeleteTarget(null)
-      setImpactVisible(true)
-      onMappingsChange(newMappings)
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败，请稍后重试')
-    } finally {
-      setDeleting(false)
-    }
   }
 
   const mappingColumns: TableProps<GroupedMapping>['columns'] = [
@@ -249,30 +211,6 @@ export default function TemplateDetailTabs({
       render: (_, row) =>
         row.mapping.enabled ? <Badge status="success" text="启用" /> : <Badge status="default" text="禁用" />,
     },
-    ...(!template?.is_default
-      ? [
-          {
-            title: '操作',
-            key: 'actions',
-            render: (_: unknown, row: GroupedMapping) => (
-              <Space size={0}>
-                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditMapping(row)}>
-                  编辑
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => setDeleteTarget(row)}
-                >
-                  删除
-                </Button>
-              </Space>
-            ),
-          },
-        ]
-      : []),
   ]
 
   const instanceColumns: TableProps<TemplateInstanceItem>['columns'] = [
@@ -334,14 +272,20 @@ export default function TemplateDetailTabs({
           <Tooltip title="默认模板只读保护，映射变更请基于默认模板克隆后操作">
             {/* 禁用按钮 pointer-events:none 会吞掉鼠标事件，需外套 span 才能触发 Tooltip */}
             <span>
-              <Button type="primary" icon={<PlusOutlined />} disabled>
-                新增映射
+              <Button type="primary" icon={<EditOutlined />} aria-label="编辑" autoInsertSpace={false} disabled>
+                编辑
               </Button>
             </span>
           </Tooltip>
         ) : (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAddMapping}>
-            新增映射
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            aria-label="编辑"
+            autoInsertSpace={false}
+            onClick={() => setMappingDrawerOpen(true)}
+          >
+            编辑
           </Button>
         )
       }
@@ -393,7 +337,7 @@ export default function TemplateDetailTabs({
                   instance / job / scheme / __address__ 等（composite→instance 例外）。
                 </Text>
                 {template.mappings.length === 0 ? (
-                  <Empty description="该模板暂无映射，点击「新增映射」添加" />
+                  <Empty description="该模板暂无映射，点击「编辑」添加" />
                 ) : (
                   <Space direction="vertical" style={{ width: '100%' }} size={12}>
                     {mappingGroups.map((group) => (
@@ -526,30 +470,14 @@ export default function TemplateDetailTabs({
         ]}
       />
 
-      <MappingDrawer
-        open={mappingDrawerOpen}
-        template={template}
-        editingMapping={editingMapping}
-        editingIndex={editingIndex}
-        onClose={() => setMappingDrawerOpen(false)}
-        onSaved={handleMappingsSaved}
-      />
-
-      <Modal
-        title="删除映射"
-        open={deleteTarget !== null}
-        onCancel={() => setDeleteTarget(null)}
-        onOk={handleDeleteMapping}
-        confirmLoading={deleting}
-        okText="删除"
-        okType="danger"
-        cancelText="取消"
-        destroyOnHidden
-      >
-        <p>
-          确认删除映射「{deleteTarget?.mapping.source_field} → {deleteTarget?.mapping.target_label}」？
-        </p>
-      </Modal>
+      {mappingDrawerOpen && !template.is_default && (
+        <MappingDrawer
+          open={mappingDrawerOpen}
+          template={template}
+          onClose={() => setMappingDrawerOpen(false)}
+          onSaved={handleMappingsSaved}
+        />
+      )}
     </Card>
   )
 }

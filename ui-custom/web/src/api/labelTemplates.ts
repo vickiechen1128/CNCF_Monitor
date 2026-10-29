@@ -84,6 +84,11 @@ export const labelTemplateApi = {
       body: input,
     })
   },
+  replaceMappings(templateId: number, mappings: MappingInput[]): Promise<ApiResponse<Mapping[]>> {
+    return apiClient.put<Mapping[]>(`/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/mappings`, {
+      body: { mappings },
+    })
+  },
   updateMapping(
     templateId: number,
     mappingId: number,

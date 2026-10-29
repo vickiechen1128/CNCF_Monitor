@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { blackboxModuleApi, type BlackboxModule } from '../../api/blackboxModules'
 import { MainLayout } from '../../layouts/MainLayout'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
 const DEFAULT_CONTENT = 'http_2xx:\n  prober: http\n  timeout: 5s\n'
 
@@ -72,9 +73,14 @@ export function BlackboxModulesPage() {
       } else {
         await blackboxModuleApi.create(values.name, values.content)
       }
-      message.success('拨测模块已保存，请前往配置中心确认下发')
       setOpen(false)
       await reload()
+      // 拨测模块是全局配置：保存后立即对全部已纳管网域触发变更单生成，
+      // 提示可点击直达「配置变更确认」（与采集 Job / 规则的保存动线一致）。
+      void triggerConfigDraftsForAllDomains({
+        prefix: '拨测模块已保存',
+        onNavigate: () => navigate('/config-preview'),
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存拨测模块失败')
     } finally {
@@ -90,8 +96,11 @@ export function BlackboxModulesPage() {
       onOk: async () => {
         try {
           await blackboxModuleApi.remove(record.id)
-          message.success('拨测模块已删除，请前往配置中心确认下发')
           await reload()
+          void triggerConfigDraftsForAllDomains({
+            prefix: '拨测模块已删除',
+            onNavigate: () => navigate('/config-preview'),
+          })
         } catch (err) {
           message.error(err instanceof Error ? err.message : '删除拨测模块失败')
         }
