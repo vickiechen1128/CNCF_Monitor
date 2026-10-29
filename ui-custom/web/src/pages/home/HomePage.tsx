@@ -59,7 +59,7 @@
  *   未下发」→「已配置采集 / 未配置采集」（下发什么说不清）；纳管率列去行内进度条、
  *   资源类型收窄，使纳管率列在 1440 半幅卡内完整可见；口径注解定稿在卡底左对齐；
  * - 告警卡统计块 280 → 220px；Prometheus 参考行与「配置告警通知」深链均已移除，
- *   首页告警卡只保留「库四指标 + AM 正在告警」；矩阵脚注两句合并为一行、末行/末列「合计」统一命名。
+ *   首页告警卡只保留「库四指标 + event 表当前告警」；矩阵脚注两句合并为一行、末行/末列「合计」统一命名。
  *
  * 版式约束：
  * - 页面按内容自然排布，**不锁定视口**：不同电脑尺寸/分辨率下版式一致，内容超出即滚动；
@@ -79,9 +79,9 @@
  *   resource_count / monitored_count（04 圆环）、by_category（04 六类表格，by_subtype
  *   契约保留但前端不再消费）、probe_targets（拨测态势）、collection_health（采集健康）；
  *   by_app + unclassified_* 契约字段保留（应用覆盖明细表已按 design-proposal §2.4 删除，前端不再消费）；
- * - alertStatusApi 三条只读链路**单次请求**由 useAlertGovernance 持有：
- *   AM 通知状态（正在告警列表）+ 历史告警统计（四格）+ M02 历史告警（列表行 2 摘要回查），
- *   全部收敛到告警状态卡。
+ * - alertStatusApi 两条只读链路**单次请求**由 useAlertGovernance 持有：
+ *   event 表未结告警（当前告警列表）+ 历史告警统计（四格），全部收敛到告警状态卡；
+ *   两者与「告警状态」页、历史告警页共用 alert_events 单一事实源。
  * - 拨测态势实测来自 `dashboard.probe_targets[]`（决策 93 明细），由 HomePage 传入 ProbePanel
  *   受控渲染；静态预览（VITE_STATIC_PREVIEW=true）仍用 DASHBOARD_MOCK 明细与原型对齐。前端排序、分页，
  *   见 ProbePanel 头注释。
@@ -90,23 +90,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Tooltip, Typography, theme } from 'antd'
 import { EyeInvisibleOutlined, EyeOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
-import dayjs from 'dayjs'
 import { dashboardApi } from '../../api/dashboard'
 import { useProductName } from '../../skinContext'
 import type { CloudSummary, DashboardSummary } from '../../api/dashboard'
-import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
+import { alertStatusApi } from '../../api/alertmanager'
 import type {
+  AlertEventData,
+  AlertEventItem,
   AlertEventStats,
-  AlertHistoryData,
-  AmAlertItem,
-  AmAlertsData,
 } from '../../types/alertmanager'
 import type { ApiResponse } from '../../types/api'
 import { MainLayout } from '../../layouts/MainLayout'
 import { LoadingPlaceholder } from '../../components/LoadingPlaceholder'
 import { AlertStatusCard, LATEST_ALERT_LIMIT } from './AlertStatusCard'
 import type { AlertCounts } from './AlertStatusCard'
-import { alertMatchKey } from '../alerts/alertmanagerConstants'
 import { OnboardingSteps } from './OnboardingSteps'
 import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { CoverageDonut } from './CoverageDonut'
@@ -318,87 +315,117 @@ const ALERT_MOCK: AlertCounts = {
   legacyResolvedTodayTotal: 3,
   legacyResolvedTodayReal: 3,
   legacyResolvedTodayInferred: 0,
-  active: 2,
+  openTotal: 8,
 }
 
 /**
- * 静态预览用最新告警样例（无后端时保持告警卡形态完整，数量与卡内上限一致便于校验行高与「查看全部」语义）。
- * 每条携带 annotations.summary（行 2 告警具体内容）与 labels.instance（history 回查键的一半）。
+ * 静态预览用当前告警样例（无后端时保持告警卡形态完整，数量与卡内上限一致便于校验行高与「查看全部」语义）。
+ * 每条携带 summary（行 2 告警具体内容）与 event 表状态（告警中/静默中/抑制中）。
  */
-const ALERT_MOCK_LATEST: AmAlertItem[] = [
+const ALERT_MOCK_LATEST: AlertEventItem[] = [
   {
-    labels: { alertname: '主机 CPU 使用率过高', severity: 'critical', instance: '10.0.0.11:9100' },
-    annotations: { summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟' },
+    id: 1,
+    alert_name: '主机 CPU 使用率过高',
+    severity: 'critical',
+    summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟',
     starts_at: '2026-09-18T09:32:00Z',
+    updated_at: '2026-09-18T09:32:00Z',
     resource_name: 'prod-web-01',
-    notify_status: 'active',
+    instance_address: '10.0.0.11:9100',
+    network_domain: 'mc-prod',
+    status: 'firing',
   },
   {
-    labels: { alertname: '节点离线', severity: 'critical', instance: '10.0.2.7:9100' },
-    annotations: { summary: '节点已 60 秒无响应，疑似断网或采集进程异常' },
+    id: 2,
+    alert_name: '节点离线',
+    severity: 'critical',
+    summary: '节点已 60 秒无响应，疑似断网或采集进程异常',
     starts_at: '2026-09-18T09:28:00Z',
+    updated_at: '2026-09-18T09:28:00Z',
     resource_name: 'edge-node-03',
-    notify_status: 'active',
+    instance_address: '10.0.2.7:9100',
+    network_domain: 'mc-edge',
+    status: 'firing',
   },
   {
-    labels: { alertname: '磁盘空间不足', severity: 'warning', instance: '10.0.1.5:9100' },
-    annotations: { summary: '数据盘使用率 91%，预计 6 小时后写满' },
+    id: 3,
+    alert_name: '磁盘空间不足',
+    severity: 'warning',
+    summary: '数据盘使用率 91%，预计 6 小时后写满',
     starts_at: '2026-09-18T09:15:00Z',
+    updated_at: '2026-09-18T09:15:00Z',
     resource_name: 'prod-db-01',
-    notify_status: 'active',
+    instance_address: '10.0.1.5:9100',
+    network_domain: 'mc-prod',
+    status: 'firing',
   },
   {
-    labels: { alertname: '服务拨测失败', severity: 'critical', instance: 'http://order-svc:8080/health' },
-    annotations: { summary: 'HTTP 探针连续 3 次超时（>3s）' },
+    id: 4,
+    alert_name: '服务拨测失败',
+    severity: 'critical',
+    summary: 'HTTP 探针连续 3 次超时（>3s）',
     starts_at: '2026-09-18T08:58:00Z',
+    updated_at: '2026-09-18T08:58:00Z',
     resource_name: 'order-service-v2',
-    notify_status: 'silenced',
+    instance_address: 'http://order-svc:8080/health',
+    network_domain: 'mc-prod',
+    status: 'silenced',
   },
   {
-    labels: { alertname: '内存使用率偏高', severity: 'warning', instance: '10.0.3.9:9100' },
-    annotations: { summary: '内存使用率 88%，接近告警阈值 90%' },
+    id: 5,
+    alert_name: '内存使用率偏高',
+    severity: 'warning',
+    summary: '内存使用率 88%，接近告警阈值 90%',
     starts_at: '2026-09-18T08:40:00Z',
+    updated_at: '2026-09-18T08:40:00Z',
     resource_name: 'redis-cache-01',
-    notify_status: 'inhibited',
+    instance_address: '10.0.3.9:9100',
+    network_domain: 'mc-prod',
+    status: 'inhibited',
   },
   {
-    labels: { alertname: '数据库连接数接近上限', severity: 'warning', instance: '10.0.1.6:3306' },
-    annotations: { summary: '当前连接数 480 / 上限 500，新增连接将被拒绝' },
+    id: 6,
+    alert_name: '数据库连接数接近上限',
+    severity: 'warning',
+    summary: '当前连接数 480 / 上限 500，新增连接将被拒绝',
     starts_at: '2026-09-18T08:20:00Z',
+    updated_at: '2026-09-18T08:20:00Z',
     resource_name: 'prod-mysql-01',
-    notify_status: 'active',
+    instance_address: '10.0.1.6:3306',
+    network_domain: 'mc-prod',
+    status: 'firing',
   },
   {
-    labels: { alertname: 'Kafka 消费延迟增长', severity: 'warning', instance: '10.0.4.2:9092' },
-    annotations: { summary: '消费组 order-group 积压 12 万条，延迟 8 分钟' },
+    id: 7,
+    alert_name: 'Kafka 消费延迟增长',
+    severity: 'warning',
+    summary: '消费组 order-group 积压 12 万条，延迟 8 分钟',
     starts_at: '2026-09-18T07:40:00Z',
+    updated_at: '2026-09-18T07:40:00Z',
     resource_name: 'kafka-broker-02',
-    notify_status: 'active',
+    instance_address: '10.0.4.2:9092',
+    network_domain: 'mc-prod',
+    status: 'firing',
   },
   {
-    labels: { alertname: 'Nginx 上游健康检查失败', severity: 'info', instance: 'http://nginx-01/status' },
-    annotations: { summary: '上游 app-03 连续 5 次健康检查失败' },
+    id: 8,
+    alert_name: 'Nginx 上游健康检查失败',
+    severity: 'info',
+    summary: '上游 app-03 连续 5 次健康检查失败',
     starts_at: '2026-09-18T07:00:00Z',
+    updated_at: '2026-09-18T07:00:00Z',
     resource_name: 'nginx-01',
-    notify_status: 'silenced',
+    instance_address: 'http://nginx-01/status',
+    network_domain: 'mc-prod',
+    status: 'silenced',
   },
 ]
 
 const IS_STATIC_PREVIEW = import.meta.env.VITE_STATIC_PREVIEW === 'true'
 
 /**
- * 告警排序用时间戳：缺失或非法 `starts_at` 计 0（排到末位），
- * 避免 `dayjs(undefined)` 视作「当前时间」而把无时间条目顶到最前、或 NaN 比较器导致顺序不定。
- */
-function alertTime(iso?: string): number {
-  if (!iso) return 0
-  const d = dayjs(iso)
-  return d.isValid() ? d.valueOf() : 0
-}
-
-/**
  * 单数据源取数结果归一：网络异常与业务错误信封（status: 'error'）统一转 error，
- * 不静默吞 0（决策 68-2：AM 未挂载时数字恒为 0，必须与「请求失败」区分）。
+ * 不静默吞 0（决策 68-2：数据源未就绪时数字恒为 0，必须与「请求失败」区分）。
  */
 function toSourceState<T>(
   settled: PromiseSettledResult<ApiResponse<T>>,
@@ -413,35 +440,7 @@ function toSourceState<T>(
   return { res: null, error: settled.value.error || '请求失败' }
 }
 
-/** 近 7 天告警窗口（决策 73：与 M02 history 服务端最大时间窗一致） */
-const HISTORY_WINDOW_DAYS = 7
-
-/** history 单页取数上限（服务端 maxHistoryPageSize = 200，一次拉满减少分页往返） */
-const HISTORY_PAGE_SIZE = 200
-
-/**
- * 历史告警取数参数：窗口按服务端上限 7d。
- *
- * 2026-10-26 起 M02 history 只用于「最新告警」行 2 的摘要回查（summary 优先），
- * 不再参与首屏四格计数；四格改由 `/alert-events/stats` 提供。
- *
- * - **必须显式传 `step`（决策 90）**：取 `ALERT_HISTORY_STEP_SECONDS`（30s，PRD 默认细粒度）。
- *   7d ÷ 30s = 20160 点超过 Prometheus 单序列 11000 点上限，服务端会按窗口抬高步长兜底，
- *   但调用侧仍显式传值，避免行为依赖服务端默认；
- * - 窗口直接取整 7d：服务端会把 > 7d 的窗口压缩为 `[end-7d, end]`。
- */
-function historyQuery(): { start: string; end: string; step: number; page: number; page_size: number } {
-  const now = dayjs()
-  return {
-    start: now.subtract(HISTORY_WINDOW_DAYS, 'day').toISOString(),
-    end: now.toISOString(),
-    step: ALERT_HISTORY_STEP_SECONDS,
-    page: 1,
-    page_size: HISTORY_PAGE_SIZE,
-  }
-}
-
-/** 首屏四格使用的历史告警统计字段（其余字段保留在接口里供其他消费方使用）。 */
+/** 首屏四格 + 当前未结计数使用的统计字段（其余字段保留在接口里供其他消费方使用）。 */
 type AlertStatsCounts = Pick<
   AlertCounts,
   | 'todayTotal'
@@ -452,10 +451,11 @@ type AlertStatsCounts = Pick<
   | 'legacyResolvedTodayTotal'
   | 'legacyResolvedTodayReal'
   | 'legacyResolvedTodayInferred'
+  | 'openTotal'
 >
 
 /**
- * 历史告警四指标（GET /alert-events/stats）。
+ * 历史告警统计 + 当前未结计数（GET /alert-events/stats）。
  *
  * 口径由服务端按 UTC+8 自然日计算：今日告警严格按 starts_at；今日恢复要求今天触发并关闭；
  * 历史遗留是今天 0 点前触发且当前未结或今天关闭。字段缺失（契约异常）返回 null，
@@ -481,33 +481,8 @@ function computeAlertStats(res: ApiResponse<AlertEventStats> | null): AlertStats
     legacyResolvedTodayTotal: d.legacy_resolved_today_total,
     legacyResolvedTodayReal: d.legacy_resolved_today_real ?? 0,
     legacyResolvedTodayInferred: d.legacy_resolved_today_inferred ?? 0,
+    openTotal: d.open_total ?? 0,
   }
-}
-
-/**
- * 行 2 告警具体内容回查表（决策 73 §3）：M02 history 的 summary 优先，AM annotations.summary 兜底。
- * 键由 alertMatchKey（告警名 + 采集地址）生成，与告警卡取值端共用一份逻辑。
- */
-function buildSummaryMap(res: ApiResponse<AlertHistoryData> | null): Record<string, string> {
-  const items = res?.data?.list
-  if (!Array.isArray(items)) return {}
-  const map: Record<string, string> = {}
-  for (const item of items) {
-    const summary = item.summary?.trim()
-    if (!summary) continue
-    const key = alertMatchKey(item.alertname, item.instance)
-    // 同一告警名 + 实例可能有多段触发区间：保留最近一段（history 按时间倒序返回时首条即最新）
-    if (!(key in map)) map[key] = summary
-  }
-  return map
-}
-
-/** 首页只关注 AM 通知中数量，其他通知状态不参与展示或空态判断。 */
-function computeCounts(amRes: ApiResponse<AmAlertsData> | null): Pick<AlertCounts, 'active'> {
-  // amRes 仅在信封 status === 'success' 时被写入（见 toSourceState），
-  // 业务错误信封不会静默计 0，而是走 amError 呈现。
-  const amAlerts: AmAlertItem[] = amRes?.data?.items ?? []
-  return { active: amAlerts.filter((i) => i.notify_status === 'active').length }
 }
 
 /** 统计接口不可用时的占位值；由 AlertStatusCard 按 statsError 统一渲染 '-'。 */
@@ -520,35 +495,33 @@ const EMPTY_ALERT_STATS: AlertStatsCounts = {
   legacyResolvedTodayTotal: 0,
   legacyResolvedTodayReal: 0,
   legacyResolvedTodayInferred: 0,
+  openTotal: 0,
 }
 
 interface AlertGovernance {
   counts: AlertCounts
-  /** 通知中告警：仅 active，按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条 */
-  latestAlerts: AmAlertItem[]
-  /** 行 2 告警具体内容回查表（history summary 优先，AM annotations.summary 兜底） */
-  summaryByAlert: Record<string, string>
+  /** 当前未结告警：event 表 open 分组，按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条 */
+  latestAlerts: AlertEventItem[]
   loading: boolean
-  amError: string | null
-  /** 历史告警统计链路错误：四格降级为 '-'，不影响 AM 正在告警展示 */
+  currentError: string | null
+  /** 历史告警统计链路错误：四格降级为 '-'，不影响当前告警展示 */
   statsError: string | null
   retry: () => void
 }
 
 /**
- * 首页告警治理态取数（三条只读链路各单次请求持有）：
- * AM 通知状态（正在告警列表）、历史告警统计（四格）、M02 历史告警（列表行 2 摘要回查）。
+ * 首页告警治理态取数（两条只读链路各单次请求持有）：
+ * event 表未结告警（当前告警列表）+ 历史告警统计（四格）。
  * allSettled：任一端点失败不丢弃其他端点已成功数据，失败源局部降级提示。
  */
 function useAlertGovernance(
   isStaticPreview: boolean,
   mockCounts: AlertCounts,
-  mockLatest: AmAlertItem[],
+  mockLatest: AlertEventItem[],
 ): AlertGovernance {
-  const [amRes, setAmRes] = useState<ApiResponse<AmAlertsData> | null>(null)
-  const [historyRes, setHistoryRes] = useState<ApiResponse<AlertHistoryData> | null>(null)
+  const [currentRes, setCurrentRes] = useState<ApiResponse<AlertEventData> | null>(null)
   const [statsRes, setStatsRes] = useState<ApiResponse<AlertEventStats> | null>(null)
-  const [amError, setAmError] = useState<string | null>(null)
+  const [currentError, setCurrentError] = useState<string | null>(null)
   const [statsError, setStatsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(() => !isStaticPreview)
   const [retryKey, setRetryKey] = useState(0)
@@ -559,19 +532,20 @@ function useAlertGovernance(
     }
     let cancelled = false
     Promise.allSettled([
-      alertStatusApi.getAlertmanagerAlerts(),
-      alertStatusApi.getAlertHistory(historyQuery()),
+      alertStatusApi.getAlertEvents({
+        status: 'open',
+        sort: 'starts_at desc',
+        page: 1,
+        page_size: LATEST_ALERT_LIMIT,
+      }),
       alertStatusApi.getAlertEventStats(),
-    ]).then(([am, history, stats]) => {
+    ]).then(([current, stats]) => {
       if (cancelled) return
-      const a = toSourceState(am)
-      const h = toSourceState(history)
+      const c = toSourceState(current)
       const s = toSourceState(stats)
-      setAmRes(a.res)
-      setHistoryRes(h.res)
+      setCurrentRes(c.res)
       setStatsRes(s.res)
-      setAmError(a.error)
-      // history 只用于列表行 2 摘要回查，失败时静默回落 AM summary，不阻塞统计四格。
+      setCurrentError(c.error)
       // 统计四格字段缺失（信封成功但字段不全）同样视为不可用：显示 '-' 而非 0。
       setStatsError(
         s.error ?? (computeAlertStats(s.res) ? null : '历史告警统计响应缺少字段'),
@@ -587,36 +561,26 @@ function useAlertGovernance(
     if (isStaticPreview) {
       return mockCounts
     }
-    return {
-      ...computeCounts(amRes),
-      // 统计不可用时由 AlertStatusCard 按 statsError 统一渲染 '-'，此处仅提供占位数值
-      ...(computeAlertStats(statsRes) ?? EMPTY_ALERT_STATS),
-    }
-  }, [isStaticPreview, mockCounts, amRes, statsRes])
+    // 统计不可用时由 AlertStatusCard 按 statsError 统一渲染 '-'，此处仅提供占位数值
+    return computeAlertStats(statsRes) ?? EMPTY_ALERT_STATS
+  }, [isStaticPreview, mockCounts, statsRes])
 
   const latestAlerts = useMemo(() => {
-    const items = isStaticPreview ? mockLatest : (amRes?.data?.items ?? [])
-    return items
-      .filter((i) => i.notify_status === 'active')
-      .sort((a, b) => alertTime(b.starts_at) - alertTime(a.starts_at))
-      .slice(0, LATEST_ALERT_LIMIT)
-  }, [isStaticPreview, mockLatest, amRes])
-
-  const summaryByAlert = useMemo(
-    () => (isStaticPreview ? {} : buildSummaryMap(historyRes)),
-    [isStaticPreview, historyRes],
-  )
+    if (isStaticPreview) return mockLatest.slice(0, LATEST_ALERT_LIMIT)
+    // 服务端已按 starts_at desc + status=open 返回，无需前端再过滤/排序
+    return (currentRes?.data?.list ?? []).slice(0, LATEST_ALERT_LIMIT)
+  }, [isStaticPreview, mockLatest, currentRes])
 
   const retry = () => {
     // 静态预览无后端：effect 提前 return，置 loading 会永久停在加载态，直接短路
     if (isStaticPreview) return
     setLoading(true)
-    setAmError(null)
+    setCurrentError(null)
     setStatsError(null)
     setRetryKey((k) => k + 1)
   }
 
-  return { counts, latestAlerts, summaryByAlert, loading, amError, statsError, retry }
+  return { counts, latestAlerts, loading, currentError, statsError, retry }
 }
 
 export function HomePage() {
@@ -645,9 +609,8 @@ export function HomePage() {
   const {
     counts,
     latestAlerts,
-    summaryByAlert,
     loading: alertLoading,
-    amError,
+    currentError,
     statsError,
     retry,
   } = useAlertGovernance(IS_STATIC_PREVIEW, ALERT_MOCK, ALERT_MOCK_LATEST)
@@ -862,9 +825,8 @@ export function HomePage() {
             <AlertStatusCard
               counts={counts}
               latestAlerts={latestAlerts}
-              summaryByAlert={summaryByAlert}
               loading={alertLoading}
-              amError={amError}
+              currentError={currentError}
               statsError={statsError}
               onRetry={retry}
               isStaticPreview={IS_STATIC_PREVIEW}

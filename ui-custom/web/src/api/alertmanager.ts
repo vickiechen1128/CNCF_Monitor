@@ -149,7 +149,8 @@ export interface AlertHistoryQuery extends Record<string, string | number | bool
 export interface AlertEventQuery extends Record<string, string | number | undefined> {
   page?: number
   page_size?: number
-  status?: AlertEventStatus
+  /** 精确七态；`open` 为服务端分组别名 = 未结三态（firing / silenced / inhibited） */
+  status?: AlertEventStatus | 'open'
   severity?: string
   alert_name?: string
   summary?: string
@@ -184,9 +185,12 @@ export const alertStatusApi = {
   getAlertEvents(params?: AlertEventQuery): Promise<ApiResponse<AlertEventData>> {
     return apiClient.get<AlertEventData>('/api/v2/platform/alertmanager/alert-events', { params })
   },
-  /** 历史告警统计（首页四格：今日告警/今日恢复/历史遗留告警/历史遗留今日恢复） */
-  getAlertEventStats(): Promise<ApiResponse<AlertEventStats>> {
-    return apiClient.get<AlertEventStats>('/api/v2/platform/alertmanager/alert-events/stats')
+  /**
+   * 历史告警统计：首页四格（今日告警/今日恢复/历史遗留告警/历史遗留今日恢复）
+   * + 当前未结三态计数（open_*，供当前告警页三张卡）。network_domain 可选。
+   */
+  getAlertEventStats(params?: AlertStatusQuery): Promise<ApiResponse<AlertEventStats>> {
+    return apiClient.get<AlertEventStats>('/api/v2/platform/alertmanager/alert-events/stats', { params })
   },
 }
 

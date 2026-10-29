@@ -291,6 +291,11 @@ export interface AlertEventStats {
   today_resolved_total: number
   today_resolved_real: number
   today_resolved_inferred: number
+  /** 当前未结（不限今天）：与列表 status=open 同一口径，供当前告警页三张卡 / 首页右栏计数 */
+  open_total: number
+  open_firing: number
+  open_silenced: number
+  open_inhibited: number
   /** 历史遗留告警：今天 0 点前触发，且当前未关闭或今天关闭 */
   legacy_open_total: number
   legacy_open_firing: number

@@ -17,7 +17,8 @@ const getCurrentMock = vi.fn()
 const getVersionsMock = vi.fn()
 const getSilencesMock = vi.fn()
 const getPromAlertsMock = vi.fn()
-const getAmAlertsMock = vi.fn()
+const getAlertEventsMock = vi.fn()
+const getAlertEventStatsMock = vi.fn()
 const listDomainsMock = vi.fn()
 
 vi.mock('../../api/alertmanager', () => ({
@@ -35,7 +36,8 @@ vi.mock('../../api/alertmanager', () => ({
   },
   alertStatusApi: {
     getPromAlerts: (...a: unknown[]) => getPromAlertsMock(...a),
-    getAlertmanagerAlerts: (...a: unknown[]) => getAmAlertsMock(...a),
+    getAlertEvents: (...a: unknown[]) => getAlertEventsMock(...a),
+    getAlertEventStats: (...a: unknown[]) => getAlertEventStatsMock(...a),
   },
   readValidateErrors: vi.fn(() => null),
 }))
@@ -71,14 +73,38 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     getVersionsMock.mockReset()
     getSilencesMock.mockReset()
     getPromAlertsMock.mockReset()
-    getAmAlertsMock.mockReset()
+    getAlertEventsMock.mockReset()
+    getAlertEventStatsMock.mockReset()
     listDomainsMock.mockReset()
     // 默认空态：无当前生效、无历史版本、无活跃静默、无告警
     getCurrentMock.mockResolvedValue({ status: 'success', data: null })
     getVersionsMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
     getSilencesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
     getPromAlertsMock.mockResolvedValue({ status: 'success', data: { alerts: [] } })
-    getAmAlertsMock.mockResolvedValue({ status: 'success', data: { items: [] } })
+    getAlertEventsMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 20 },
+    })
+    getAlertEventStatsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        today_total: 0,
+        today_resolved_total: 0,
+        today_resolved_real: 0,
+        today_resolved_inferred: 0,
+        open_total: 0,
+        open_firing: 0,
+        open_silenced: 0,
+        open_inhibited: 0,
+        legacy_open_total: 0,
+        legacy_open_firing: 0,
+        legacy_open_silenced: 0,
+        legacy_open_inhibited: 0,
+        legacy_resolved_today_total: 0,
+        legacy_resolved_today_real: 0,
+        legacy_resolved_today_inferred: 0,
+      },
+    })
     listDomainsMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })
 
@@ -112,22 +138,23 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
 
   it('告警状态链路前端可走通：/alert-status 加载双视图页，Sider 三子项就位且当前项高亮', async () => {
     renderM08('/alert-status')
-    // 双 Tab 就位（通知状态 + 当前告警）
-    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /当前告警/ })).toBeInTheDocument()
+    // 双 Tab 就位（当前告警 + 规则评估）
+    expect(await screen.findByRole('tab', { name: /当前告警/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /规则评估/ })).toBeInTheDocument()
     // 顶级 tab 用 PRD 模块名
     expect(screen.getAllByText('告警收敛与通知管理').length).toBeGreaterThan(0)
     // Sider「告警配置」组三子项展示，当前路由项高亮
     const current = screen.getByRole('menuitem', { name: /告警状态/ })
     expect(current.className).toContain('ant-menu-item-selected')
-    // 两视图真实 API 已调用
-    expect(getAmAlertsMock).toHaveBeenCalled()
+    // 两视图真实 API 已调用（当前告警 = event 表 open 列表 + stats；规则评估 = Prom）
+    expect(getAlertEventsMock).toHaveBeenCalled()
+    expect(getAlertEventStatsMock).toHaveBeenCalled()
     expect(getPromAlertsMock).toHaveBeenCalled()
   })
 
   it('导航联动：从 /alert-status 点击「静默管理」二级菜单切换到静默页', async () => {
     renderM08('/alert-status')
-    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /当前告警/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: /静默管理/ }))
     expect((await screen.findAllByText(/屏蔽特定告警的通知/)).length).toBeGreaterThan(0)
   })

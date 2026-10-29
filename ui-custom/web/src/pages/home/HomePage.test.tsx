@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import dayjs from 'dayjs'
 import { HomePage } from './HomePage'
-import { ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
 import { severityBg } from '../alerts/alertmanagerConstants'
 import { LATEST_ALERT_LIMIT } from './AlertStatusCard'
 import { ALERT_PAGE_SIZE } from './homeLayout'
@@ -33,10 +31,9 @@ const renderPage = () =>
   )
 
 const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
-const AM_ALERTS_PATH = '/api/v2/platform/alertmanager/alerts'
-/** M02 历史告警（仅用于列表行 2 告警具体内容回查） */
-const HISTORY_PATH = '/api/v1/alerts/history'
-/** M08 历史告警统计（首屏四格：今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复） */
+/** M08 event 表当前未结告警（status=open，与历史告警、首页四格同源） */
+const CURRENT_ALERTS_PATH = '/api/v2/platform/alertmanager/alert-events'
+/** M08 历史告警统计（首屏四格 + 当前未结计数） */
 const STATS_PATH = '/api/v2/platform/alertmanager/alert-events/stats'
 
 /**
@@ -60,20 +57,6 @@ const toRgbString = (hex: string): string => {
 /** 相对当前时间构造 ISO 串，避免断言「N 分钟前」时依赖固定时间 */
 const isoAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000).toISOString()
 
-/**
- * 今日 0 点后 30 分钟（恒 ≥ 今日 0 点，且必然在过去）：
- * 用于「当日告警」计数断言，避免测试恰好在凌晨运行时 isoAgo 落到昨天导致 flaky。
- */
-const isoToday = () => dayjs().startOf('day').add(30, 'minute').toISOString()
-
-/**
- * 今日 0 点后 N 分钟（无上界，允许落在「未来」）：
- * 「当日告警」计数只与今日 0 点边界比较（`fired_at >= 今日0点`），未来时间戳同样计入
- * 当日——用它构造**当日**样例可彻底摆脱运行时刻依赖（旧样例用 isoAgo(120)，
- * 在纽约时间 00:00–02:30 跑会落到昨天，当日计数少 1，2026-10-17 实测 flaky）。
- */
-const isoTodayAt = (minutes: number) => dayjs().startOf('day').add(minutes, 'minute').toISOString()
-
 function setupMock(byPath: Record<string, unknown>) {
   mockGet.mockImplementation((path: string) => {
     if (path in byPath) {
@@ -86,8 +69,7 @@ function setupMock(byPath: Record<string, unknown>) {
 function setupHomeMock(overrides: Record<string, unknown> = {}) {
   setupMock({
     [DASHBOARD_PATH]: DASHBOARD_OK,
-    [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
-    [HISTORY_PATH]: HISTORY_EMPTY,
+    [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_EMPTY,
     [STATS_PATH]: STATS_EMPTY,
     ...overrides,
   })
@@ -286,114 +268,78 @@ const DASHBOARD_EMPTY = {
 }
 
 /**
- * AM 通知状态样例：active 3 / silenced 1 / inhibited 1 / unprocessed 1。
- * 首页只展示 active，按 starts_at 倒序后恰为 3 条；第 3 条 resource_name 为空，
- * 用于校验不回落成采集地址。labels.instance 与 annotations.summary 供行 2 摘要断言。
+ * 当前告警样例（event 表未结三态）：告警中 3 / 静默中 1 / 抑制中 1，按 starts_at 倒序共 5 条。
+ * 第 3 条 resource_name 为空，用于校验不回落成采集地址；summary 直接来自 event 行。
  */
-const AM_ALERTS_OK = {
-  status: 'success',
-  data: {
-    items: [
-      {
-        notify_status: 'active',
-        labels: { alertname: '主机 CPU 使用率过高', severity: 'error', instance: '10.0.0.11:9100' },
-        annotations: { summary: 'AM 兜底内容（应被 history summary 覆盖）' },
-        starts_at: isoAgo(5),
-        resource_name: 'web-01',
-      },
-      {
-        notify_status: 'active',
-        labels: { alertname: '磁盘使用率接近上限', severity: 'warning', instance: '10.0.0.12:9100' },
-        annotations: { summary: '磁盘使用率 91%，预计 6 小时后写满' },
-        starts_at: isoAgo(30),
-        resource_name: 'db-01',
-      },
-      {
-        notify_status: 'active',
-        labels: { alertname: '接口错误率升高', severity: 'info', instance: '10.0.0.13:9100' },
-        annotations: {},
-        starts_at: isoAgo(120),
-        resource_name: '',
-      },
-      {
-        notify_status: 'silenced',
-        labels: { alertname: '内存使用率偏高', severity: 'warning', instance: '10.0.0.14:9100' },
-        annotations: {},
-        starts_at: isoAgo(180),
-        resource_name: '',
-      },
-      {
-        notify_status: 'inhibited',
-        labels: { alertname: '节点失联', severity: 'critical', instance: '10.0.0.15:9100' },
-        annotations: {},
-        starts_at: isoAgo(1440),
-        resource_name: 'web-02',
-      },
-      {
-        notify_status: 'unprocessed',
-        labels: { alertname: '队列积压', severity: 'warning', instance: '10.0.0.16:9100' },
-        annotations: {},
-        starts_at: isoAgo(1),
-        resource_name: 'mw-01',
-      },
-    ],
-  },
-}
-
-const AM_ALERTS_EMPTY = {
-  status: 'success',
-  data: { items: [] },
-}
-
-/**
- * M02 历史告警样例（决策 73）：当日 2 条（含 1 条与 AM 首条同键，用于校验 history summary 优先）、
- * 3 天前 1 条 → 当日 2 / 近 7 天 3（total 与 list 长度一致）。
- */
-const HISTORY_OK = {
+const CURRENT_ALERTS_OK = {
   status: 'success',
   data: {
     list: [
       {
-        alertname: '主机 CPU 使用率过高',
-        instance: '10.0.0.11:9100',
-        network_domain: 'default',
-        state: 'firing',
-        fired_at: isoToday(),
-        duration_seconds: 300,
+        id: 1,
+        alert_name: '主机 CPU 使用率过高',
+        status: 'firing',
+        severity: 'error',
         summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟',
-        value: '92',
+        starts_at: isoAgo(5),
+        updated_at: isoAgo(5),
+        resource_name: 'web-01',
+        instance_address: '10.0.0.11:9100',
       },
       {
-        alertname: '接口错误率升高',
-        instance: '10.0.0.13:9100',
-        network_domain: 'default',
-        state: 'resolved',
-        // 今日 01:30（确定性当日，不用 isoAgo——凌晨跑会落到昨天导致当日计数 flaky）
-        fired_at: isoTodayAt(90),
-        duration_seconds: 600,
-        summary: '5xx 占比 4.2%，已恢复',
-        value: '4.2',
+        id: 2,
+        alert_name: '磁盘使用率接近上限',
+        status: 'firing',
+        severity: 'warning',
+        summary: '磁盘使用率 91%，预计 6 小时后写满',
+        starts_at: isoAgo(30),
+        updated_at: isoAgo(30),
+        resource_name: 'db-01',
+        instance_address: '10.0.0.12:9100',
       },
       {
-        alertname: '磁盘空间不足',
-        instance: '10.0.0.20:9100',
-        network_domain: 'edge',
-        state: 'resolved',
-        fired_at: dayjs().subtract(3, 'day').toISOString(),
-        duration_seconds: 900,
-        summary: '数据盘使用率 91%，已清理',
-        value: '91',
+        id: 3,
+        alert_name: '接口错误率升高',
+        status: 'firing',
+        severity: 'info',
+        summary: '',
+        starts_at: isoAgo(120),
+        updated_at: isoAgo(120),
+        resource_name: '',
+        instance_address: '10.0.0.13:9100',
+      },
+      {
+        id: 4,
+        alert_name: '内存使用率偏高',
+        status: 'silenced',
+        severity: 'warning',
+        summary: '',
+        starts_at: isoAgo(180),
+        updated_at: isoAgo(180),
+        resource_name: '',
+        instance_address: '10.0.0.14:9100',
+      },
+      {
+        id: 5,
+        alert_name: '节点失联',
+        status: 'inhibited',
+        severity: 'critical',
+        summary: '',
+        starts_at: isoAgo(1440),
+        updated_at: isoAgo(1440),
+        resource_name: 'web-02',
+        instance_address: '10.0.0.15:9100',
       },
     ],
-    total: 3,
+    total: 5,
     page: 1,
-    page_size: 200,
+    page_size: 8,
   },
 }
 
-const HISTORY_EMPTY = {
+const CURRENT_ALERTS_EMPTY = {
   status: 'success',
-  data: { list: [], total: 0, page: 1, page_size: 200 },
+  data: { list: [], total: 0, page: 1, page_size: 8 },
 }
 
 /** 历史告警统计空态（首屏四格全 0）。 */
@@ -404,6 +350,10 @@ const STATS_EMPTY = {
     today_resolved_total: 0,
     today_resolved_real: 0,
     today_resolved_inferred: 0,
+    open_total: 0,
+    open_firing: 0,
+    open_silenced: 0,
+    open_inhibited: 0,
     legacy_open_total: 0,
     legacy_open_firing: 0,
     legacy_open_silenced: 0,
@@ -414,7 +364,7 @@ const STATS_EMPTY = {
   },
 }
 
-/** 历史告警统计样例：今日 2 / 今日恢复 3（2 真实 + 1 未知）/ 遗留 1 / 遗留今日恢复 1。 */
+/** 历史告警统计样例：今日 2 / 今日恢复 3（2 真实 + 1 未知）/ 遗留 1 / 遗留今日恢复 1 / 未结 5。 */
 const STATS_OK = {
   status: 'success',
   data: {
@@ -422,6 +372,10 @@ const STATS_OK = {
     today_resolved_total: 3,
     today_resolved_real: 2,
     today_resolved_inferred: 1,
+    open_total: 5,
+    open_firing: 3,
+    open_silenced: 1,
+    open_inhibited: 1,
     legacy_open_total: 1,
     legacy_open_firing: 1,
     legacy_open_silenced: 0,
@@ -1229,16 +1183,15 @@ describe('HomePage', () => {
     expect(screen.queryByRole('link', { name: /去导入资源/ })).not.toBeInTheDocument()
   })
 
-  it('keeps the four metrics and shows only the active-alert empty text when AM has no active alerts', async () => {
+  it('keeps the four metrics and shows the current-alert empty text when there are no open alerts', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
-      [HISTORY_PATH]: HISTORY_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_EMPTY,
       [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
 
-    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
+    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无告警')
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
     expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
     expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
@@ -1248,7 +1201,7 @@ describe('HomePage', () => {
   })
 
   it('renders the 查看全部 deep link on the alert card', async () => {
-    setupHomeMock({ [AM_ALERTS_PATH]: AM_ALERTS_OK })
+    setupHomeMock({ [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK })
 
     renderPage()
 
@@ -1267,7 +1220,7 @@ describe('HomePage', () => {
   })
 
   it('renders each latest alert as two rows with shallow severity tag and alert content', async () => {
-    setupHomeMock({ [AM_ALERTS_PATH]: AM_ALERTS_OK, [HISTORY_PATH]: HISTORY_OK })
+    setupHomeMock({ [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK })
 
     renderPage()
 
@@ -1279,7 +1232,7 @@ describe('HomePage', () => {
     // 行 1：级别 + 告警名 + 相对时间 + 状态（决策 73 两行制）
     const line1 = within(row).getByTestId('latest-alert-0-line1')
     expect(line1.style.display).toBe('flex')
-    for (const text of ['严重', '主机 CPU 使用率过高', '5 分钟前', '通知中']) {
+    for (const text of ['严重', '主机 CPU 使用率过高', '5 分钟前', '告警中']) {
       expect(within(line1).getByText(text)).toBeInTheDocument()
     }
 
@@ -1334,13 +1287,13 @@ describe('HomePage', () => {
 
   it('keeps every alert figure inside the alert card', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK,
       [STATS_PATH]: STATS_OK,
     })
 
     renderPage()
 
-    // 等告警卡渲染出正在告警，确保计数已到位
+    // 等告警卡渲染出当前告警，确保计数已到位
     await waitFor(() => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
@@ -1354,7 +1307,7 @@ describe('HomePage', () => {
     expect(within(alertCard).getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
     expect(within(alertCard).getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
     expect(within(alertCard).getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
-    expect(alertCard).toHaveTextContent('通知中')
+    expect(alertCard).toHaveTextContent('告警中')
 
     // 02 云卡与 04 覆盖率区都不得出现任何告警数字（跨区块串味防线）
     const cloudPanel = screen.getByTestId('cloud-distribution-panel')
@@ -1415,11 +1368,11 @@ describe('HomePage', () => {
     expect(screen.getByTestId('overall-coverage-percent')).toHaveTextContent('-')
     expect(screen.getByTestId('pam-unavailable')).toBeInTheDocument()
     expect(screen.queryByTestId('cloud-cards')).not.toBeInTheDocument()
-    // 告警卡独立取数：三个告警源均为空且成功时，四格仍为 0，右侧展示通知中空态
+    // 告警卡独立取数：两条链路均为空且成功时，四格仍为 0，右侧展示当前无告警空态
     await waitFor(() => {
       expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('alert-status-card')).toHaveTextContent('当前无通知中的告警')
+    expect(screen.getByTestId('alert-status-card')).toHaveTextContent('当前无告警')
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
   })
 
@@ -1434,53 +1387,8 @@ describe('HomePage', () => {
     })
   })
 
-  it('requests the 7d history window with the explicit fine-grained step', async () => {
-    setupHomeMock()
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(mockGet).toHaveBeenCalledWith(HISTORY_PATH, expect.anything())
-    })
-
-    const call = mockGet.mock.calls.find(([path]) => path === HISTORY_PATH)
-    const params = (call?.[1] as { params: Record<string, string | number> }).params
-
-    // 决策 90：必须显式传步长，取值 30s —— 调用侧不因「宽窗口需要更粗步长」而放弃窄窗口的
-    // 估算精度；7d 窗口下 20160 点超过 Prometheus 单序列 11000 点上限，由服务端
-    // normalizeHistoryStep 抬高到 55s 兜底（2026-09-18 缺陷根因）
-    expect(params.step).toBe(ALERT_HISTORY_STEP_SECONDS)
-    // 常量取值 = PRD §5.4 默认步长 30s，且不低于最小步长 15s——两端都是产品口径，
-    // 改动此常量即口径变更，须同步 PRD / 契约快照（宽窗口上限由服务端兜底承担）
-    expect(ALERT_HISTORY_STEP_SECONDS).toBe(30)
-    expect(ALERT_HISTORY_STEP_SECONDS).toBeGreaterThanOrEqual(15)
-
-    // 窗口恰为 7d：服务端把 >7d 的窗口压缩为 [end-7d, end]，多加容差无效果
-    const windowHours = (Date.parse(String(params.end)) - Date.parse(String(params.start))) / 3_600_000
-    expect(windowHours).toBeCloseTo(7 * 24, 3)
-    expect(params.page_size).toBe(200)
-  })
-
-  it('takes the four metrics from the stats endpoint rather than the history list', async () => {
-    // M02 history 列表只用于行 2 摘要回查，不再参与四格计数：
-    // 即使 history 返回 200 条，四格也必须以 stats 接口为准。
-    const todayItems = Array.from({ length: 200 }, (_, i) => ({
-      alertname: `告警 ${i}`,
-      instance: `10.0.0.${(i % 250) + 1}:9100`,
-      network_domain: 'default',
-      state: 'firing',
-      fired_at: isoToday(),
-      duration_seconds: 60,
-      summary: '内容',
-      value: '1',
-    }))
-    setupHomeMock({
-      [HISTORY_PATH]: {
-        status: 'success',
-        data: { list: todayItems, total: 350, page: 1, page_size: 200, step: 60 },
-      },
-      [STATS_PATH]: STATS_OK,
-    })
+  it('takes the four metrics from the stats endpoint', async () => {
+    setupHomeMock({ [STATS_PATH]: STATS_OK })
 
     renderPage()
 
@@ -1494,8 +1402,7 @@ describe('HomePage', () => {
 
   it('renders four-cell alert stat strip and the latest alerts list', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_OK,
-      [HISTORY_PATH]: HISTORY_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK,
       [STATS_PATH]: STATS_OK,
     })
 
@@ -1507,7 +1414,7 @@ describe('HomePage', () => {
 
     const alertCard = screen.getByTestId('alert-status-card')
     const strip = screen.getByTestId('alert-stat-strip')
-    // §2.3 两栏化后：四格统计块在左列、正在告警列表在右列，两者都仍在告警卡内
+    // §2.3 两栏化后：四格统计块在左列、当前告警列表在右列，两者都仍在告警卡内
     expect(screen.getByTestId('alert-stat-column').contains(strip)).toBe(true)
     expect(
       screen.getByTestId('alert-list-column').contains(screen.getByTestId('latest-alert-region')),
@@ -1518,7 +1425,7 @@ describe('HomePage', () => {
     expect(within(strip).getByTestId('alert-today-resolved-count')).toHaveTextContent('3')
     expect(within(strip).getByTestId('alert-legacy-open-count')).toHaveTextContent('1')
     expect(within(strip).getByTestId('alert-legacy-resolved-count')).toHaveTextContent('1')
-    // 四格只展示历史统计；通知状态仅保留在右侧通知中告警行内
+    // 四格只展示历史统计；未结状态仅保留在右侧当前告警行内
     expect(screen.queryByTestId('alert-active-count')).not.toBeInTheDocument()
     expect(screen.queryByTestId('alert-governed-count')).not.toBeInTheDocument()
     for (const label of ['今日告警', '今日告警今日恢复', '历史遗留告警', '历史遗留今日恢复']) {
@@ -1532,8 +1439,8 @@ describe('HomePage', () => {
     expect(todayCount.style.fontWeight).toBe('600')
     expect(todayCount.style.fontVariantNumeric).toBe('tabular-nums')
 
-    // 正在告警：近 8 条上限，标题与取数共用常量；两行制不再需要表头
-    expect(within(alertCard).getByText('正在告警')).toBeInTheDocument()
+    // 当前告警：近 8 条上限，标题与取数共用常量；两行制不再需要表头
+    expect(within(alertCard).getByText('当前告警')).toBeInTheDocument()
     // 标题不再带「近 8 条」（第六轮走查：上限是内部实现，标题带条数有歧义）
     expect(within(alertCard).queryByText(/近 8 条/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('latest-alert-header')).not.toBeInTheDocument()
@@ -1541,11 +1448,10 @@ describe('HomePage', () => {
     expect(within(screen.getByTestId('latest-alert-0')).getByText('主机 CPU 使用率过高')).toBeInTheDocument()
     expect(within(screen.getByTestId('latest-alert-1')).getByText('磁盘使用率接近上限')).toBeInTheDocument()
     expect(within(screen.getByTestId('latest-alert-2')).getByText('接口错误率升高')).toBeInTheDocument()
-    expect(screen.queryByTestId('latest-alert-3')).not.toBeInTheDocument()
-    // 首页只展示通知中；已静默、已抑制、待处理仅在通知状态页展示
-    expect(screen.queryByText('内存使用率偏高')).not.toBeInTheDocument()
-    expect(screen.queryByText('节点失联')).not.toBeInTheDocument()
-    expect(screen.queryByText('队列积压')).not.toBeInTheDocument()
+    // 首页右栏现在展示 event 表未结三态：静默中、抑制中也必须出现
+    expect(within(screen.getByTestId('latest-alert-3')).getByText('内存使用率偏高')).toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-4')).getByText('节点失联')).toBeInTheDocument()
+    expect(screen.queryByTestId('latest-alert-5')).not.toBeInTheDocument()
     expect(screen.queryByTestId('latest-alert-pager')).not.toBeInTheDocument()
 
     expect(within(screen.getByTestId('latest-alert-0')).getByText('5 分钟前')).toBeInTheDocument()
@@ -1553,10 +1459,9 @@ describe('HomePage', () => {
     expect(screen.getByTestId('latest-alert-2-line2')).toHaveTextContent(/^-/)
 
     expect(within(screen.getByTestId('latest-alert-0')).getByText('严重')).toBeInTheDocument()
-    expect(within(screen.getByTestId('latest-alert-0')).getByText('通知中')).toBeInTheDocument()
-    expect(within(alertCard).queryByText('已静默')).not.toBeInTheDocument()
-    expect(within(alertCard).queryByText('已抑制')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('alert-unprocessed-note')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-0')).getByText('告警中')).toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-3')).getByText('静默中')).toBeInTheDocument()
+    expect(within(screen.getByTestId('latest-alert-4')).getByText('抑制中')).toBeInTheDocument()
     expect(screen.queryByText(/待处理/)).not.toBeInTheDocument()
 
     // 卡内深链：告警中心入口已由标题右侧「查看全部 →」承担，底部不再重复（用户反馈 2026-09-14）；
@@ -1567,16 +1472,20 @@ describe('HomePage', () => {
   })
 
   it('caps the latest alert pool at 8 and paginates it at the fixed page size', async () => {
-    // 12 条通知中告警：数据池上限仍为 8（决策 73 §3），卡内按固定页大小分页，其余走 /alert-status
-    const items = Array.from({ length: 12 }, (_, i) => ({
-      notify_status: 'active',
-      labels: { alertname: `批量告警-${i}`, severity: 'warning', instance: `10.0.0.${i}:9100` },
-      annotations: {},
+    // 12 条当前告警：数据池上限仍为 8（决策 73 §3），卡内按固定页大小分页，其余走 /alert-status
+    const list = Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1,
+      alert_name: `批量告警-${i}`,
+      status: 'firing',
+      severity: 'warning',
+      summary: '',
       starts_at: isoAgo(i + 1),
+      updated_at: isoAgo(i + 1),
       resource_name: `host-${i}`,
+      instance_address: `10.0.0.${i}:9100`,
     }))
     setupHomeMock({
-      [AM_ALERTS_PATH]: { status: 'success', data: { items } },
+      [CURRENT_ALERTS_PATH]: { status: 'success', data: { list, total: 12, page: 1, page_size: 8 } },
     })
 
     renderPage()
@@ -1600,8 +1509,7 @@ describe('HomePage', () => {
 
   it('requests each alert endpoint exactly once for counts and the latest list', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_OK,
-      [HISTORY_PATH]: HISTORY_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK,
       [STATS_PATH]: STATS_OK,
     })
 
@@ -1611,66 +1519,78 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 三条只读链路各只请求一次（四格取 stats，正在告警取 AM，摘要回查取 history，无重复取数）
+    // 两条只读链路各只请求一次（四格取 stats，当前告警取 event 表 open 列表，无重复取数）
     const paths = mockGet.mock.calls.map((call) => call[0] as string)
-    expect(paths.filter((path) => path === AM_ALERTS_PATH)).toHaveLength(1)
-    expect(paths.filter((path) => path === HISTORY_PATH)).toHaveLength(1)
+    expect(paths.filter((path) => path === CURRENT_ALERTS_PATH)).toHaveLength(1)
     expect(paths.filter((path) => path === STATS_PATH)).toHaveLength(1)
     // 列表首条来自同一份响应
     expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('主机 CPU 使用率过高')
   })
 
-  it('ignores silenced, inhibited and unprocessed AM alerts and keeps the four zero metrics visible', async () => {
+  it('renders firing, silenced and inhibited open alerts and never shows the retired 待处理 state', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: {
+      [CURRENT_ALERTS_PATH]: {
         status: 'success',
         data: {
-          items: [
+          list: [
             {
-              notify_status: 'unprocessed',
-              labels: { alertname: '队列积压', severity: 'warning' },
-              annotations: {},
+              id: 1,
+              alert_name: '队列积压',
+              status: 'firing',
+              severity: 'warning',
+              summary: '',
               starts_at: isoAgo(1),
+              updated_at: isoAgo(1),
             },
             {
-              notify_status: 'silenced',
-              labels: { alertname: '静默告警', severity: 'warning' },
-              annotations: {},
+              id: 2,
+              alert_name: '静默告警',
+              status: 'silenced',
+              severity: 'warning',
+              summary: '',
               starts_at: isoAgo(2),
+              updated_at: isoAgo(2),
             },
             {
-              notify_status: 'inhibited',
-              labels: { alertname: '抑制告警', severity: 'warning' },
-              annotations: {},
+              id: 3,
+              alert_name: '抑制告警',
+              status: 'inhibited',
+              severity: 'warning',
+              summary: '',
               starts_at: isoAgo(3),
+              updated_at: isoAgo(3),
             },
           ],
+          total: 3,
+          page: 1,
+          page_size: 8,
         },
       },
     })
 
     renderPage()
 
-    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
-    expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('alert-legacy-resolved-count')).toHaveTextContent('0')
+    await waitFor(() => {
+      expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
+    })
     for (const name of ['队列积压', '静默告警', '抑制告警']) {
-      expect(screen.queryByText(name)).not.toBeInTheDocument()
+      expect(screen.getByText(name)).toBeInTheDocument()
     }
+    expect(screen.getByText('告警中')).toBeInTheDocument()
+    expect(screen.getByText('静默中')).toBeInTheDocument()
+    expect(screen.getByText('抑制中')).toBeInTheDocument()
+    expect(screen.queryByText(/待处理/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('alert-unprocessed-note')).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
   })
 
   it('always renders the four metrics when all alert sources are empty', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_EMPTY,
     })
 
     renderPage()
 
-    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无通知中的告警')
+    expect(await screen.findByTestId('latest-alert-empty')).toHaveTextContent('当前无告警')
     expect(screen.getByTestId('alert-stat-strip')).toBeInTheDocument()
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('0')
     expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('0')
@@ -1679,9 +1599,9 @@ describe('HomePage', () => {
     expect(screen.queryByRole('link', { name: '去配置通知规则 →' })).not.toBeInTheDocument()
   })
 
-  it('renders warning but keeps AM data when the stats source fails', async () => {
+  it('renders warning but keeps current-alert data when the stats source fails', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK,
       [STATS_PATH]: { status: 'error', data: null, error: 'stats unreachable' },
     })
 
@@ -1697,10 +1617,9 @@ describe('HomePage', () => {
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('-')
   })
 
-  it('shows placeholder instead of 0 when the alertmanager source fails', async () => {
+  it('shows placeholder instead of 0 when the current-alerts source fails', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: Promise.reject(new Error('am down')),
-      [HISTORY_PATH]: HISTORY_OK,
+      [CURRENT_ALERTS_PATH]: Promise.reject(new Error('alerts down')),
       [STATS_PATH]: STATS_OK,
     })
 
@@ -1710,7 +1629,7 @@ describe('HomePage', () => {
       expect(screen.getByText('部分告警数据加载失败')).toBeInTheDocument()
     })
 
-    // AM 侧失败 → 正在告警列表显示不可用提示，不把失败静默成 0
+    // 当前告警链路失败 → 列表显示不可用提示，不把失败静默成 0
     expect(screen.getByTestId('latest-alert-unavailable')).toBeInTheDocument()
     // 统计侧成功 → 四格仍展示真实数字（局部降级不整片归零）
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('2')
@@ -1719,8 +1638,7 @@ describe('HomePage', () => {
 
   it('shows placeholder instead of 0 for the four metrics when the stats source fails', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: AM_ALERTS_OK,
-      [HISTORY_PATH]: HISTORY_OK,
+      [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK,
       [STATS_PATH]: Promise.reject(new Error('stats down')),
     })
 
@@ -1730,7 +1648,7 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 统计取数失败 → 四格 '-'（不显示 0），AM 正在告警仍展示
+    // 统计取数失败 → 四格 '-'（不显示 0），当前告警仍展示
     expect(screen.getByTestId('alert-today-count')).toHaveTextContent('-')
     expect(screen.getByTestId('alert-today-resolved-count')).toHaveTextContent('-')
     expect(screen.getByTestId('alert-legacy-open-count')).toHaveTextContent('-')
@@ -1758,7 +1676,7 @@ describe('HomePage', () => {
 
   it('renders error state when alert APIs return business error envelopes', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: { status: 'error', data: null, error: 'alertmanager unreachable' },
+      [CURRENT_ALERTS_PATH]: { status: 'error', data: null, error: 'alerts unreachable' },
       [STATS_PATH]: { status: 'error', data: null, error: 'stats unreachable' },
     })
 
@@ -1768,15 +1686,15 @@ describe('HomePage', () => {
       expect(screen.getByText('告警状态加载失败')).toBeInTheDocument()
     })
     // 业务错误信封必须显式呈现，不得静默吞成 0 + 空态引导
-    expect(screen.getByText(/alertmanager unreachable/)).toBeInTheDocument()
+    expect(screen.getByText(/alerts unreachable/)).toBeInTheDocument()
     expect(screen.getByText(/stats unreachable/)).toBeInTheDocument()
-    expect(screen.queryByText('当前无通知中的告警')).not.toBeInTheDocument()
+    expect(screen.queryByText('当前无告警')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
   it('renders alert card error state with retry button', async () => {
     setupHomeMock({
-      [AM_ALERTS_PATH]: Promise.reject(new Error('am down')),
+      [CURRENT_ALERTS_PATH]: Promise.reject(new Error('alerts down')),
       [STATS_PATH]: Promise.reject(new Error('stats down')),
     })
 
@@ -1785,7 +1703,7 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByText('告警状态加载失败')).toBeInTheDocument()
     })
-    expect(screen.getByText(/am down/)).toBeInTheDocument()
+    expect(screen.getByText(/alerts down/)).toBeInTheDocument()
     expect(screen.getByText(/stats down/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
@@ -1986,8 +1904,8 @@ describe('HomePage', () => {
   })
 
   it('keeps the 5-rows-per-page contract on the side-by-side alert card', async () => {
-    // 有多条通知中告警时验证固定分页
-    setupHomeMock({ [AM_ALERTS_PATH]: AM_ALERTS_OK })
+    // 有多条当前告警时验证固定分页
+    setupHomeMock({ [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK })
 
     renderPage()
 
@@ -2014,16 +1932,22 @@ describe('HomePage', () => {
   })
 
   it('paginates the latest alerts at a fixed page size, independent of the viewport', async () => {
-    // 8 条通知中告警（恰为数据池上限）：单页固定 ALERT_PAGE_SIZE 行，第 2 页承接剩余 2 条。
+    // 8 条当前告警（恰为数据池上限）：单页固定 ALERT_PAGE_SIZE 行，第 2 页承接剩余 3 条。
     // 旧版按卡内实测高度反推行数（stub ResizeObserver 才能驱动），新版不再测量——不再 stub。
-    const items = Array.from({ length: LATEST_ALERT_LIMIT }, (_, i) => ({
-      notify_status: 'active',
-      labels: { alertname: `批量告警-${i}`, severity: 'warning', instance: `10.0.0.${i}:9100` },
-      annotations: {},
+    const list = Array.from({ length: LATEST_ALERT_LIMIT }, (_, i) => ({
+      id: i + 1,
+      alert_name: `批量告警-${i}`,
+      status: 'firing',
+      severity: 'warning',
+      summary: '',
       starts_at: isoAgo(i + 1),
+      updated_at: isoAgo(i + 1),
       resource_name: `host-${i}`,
+      instance_address: `10.0.0.${i}:9100`,
     }))
-    setupHomeMock({ [AM_ALERTS_PATH]: { status: 'success', data: { items } } })
+    setupHomeMock({
+      [CURRENT_ALERTS_PATH]: { status: 'success', data: { list, total: 8, page: 1, page_size: 8 } },
+    })
 
     renderPage()
 
