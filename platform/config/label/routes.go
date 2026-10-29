@@ -17,6 +17,7 @@ import (
 //   - PUT/DELETE          /label-templates/:template_id
 //   - POST                /label-templates/:template_id/clone（克隆）
 //   - POST/PUT/DELETE     /label-templates/:template_id/mappings[/:mapping_id]
+//   - PUT                 /label-templates/:template_id/mappings（整组统一保存）
 //   - GET                 /label-templates/:template_id/resources（关联实例）
 //   - GET                 /label-templates/:template_id/references（引用清单：聚合
 //     M01 拥有的采集 Job 与 CI 类型映射两张表的只读查询，供删除前引用保护，
@@ -27,6 +28,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	// 引用清单数据源：M07 读取 M01 拥有两张表的唯一收敛点（references.go），
 	// DELETE 的引用保护与 GET /references 复用同一实例，口径不会分叉。
 	refSource := NewTemplateReferenceSource(db)
+	mappingBatchSvc := NewMappingBatchService(NewMappingBatchRepository(db))
 
 	labelTemplates := platform.Group("/label-templates")
 	{
@@ -39,6 +41,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 		mappings := labelTemplates.Group("/:template_id/mappings")
 		{
 			mappings.POST("", CreateLabelMapping(db))
+			mappings.PUT("", ReplaceLabelMappings(mappingBatchSvc))
 			mappings.PUT("/:mapping_id", UpdateLabelMapping(db))
 			mappings.DELETE("/:mapping_id", DeleteLabelMapping(db))
 		}

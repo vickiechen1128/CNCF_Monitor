@@ -159,3 +159,14 @@
 - **存量 Job 需重新生成采集配置**方可生效（标签在生成 `prometheus.yml` 时注入）——发布说明需携带该提示；存量环境（含 Ubuntu 部署环境）需逐一核查，「新库正常、存量库异常」属静默故障。
 - T07-106（决策 116）：类别专属行（`hostname` / `instance_name` / `os_type` / `middleware_type` / `database_type` / `target_name`）评估，若采纳须**同时**改 `DefaultMappingBuilders` + 补回填。
 - T07-107（决策 117）：默认模板版本化重建机制（根治，排期 {v0.2}），届时可用其取代逐条 ensure 函数。
+
+---
+
+## F-35：标签映射整组统一保存（增量）
+
+- 新增 `PUT /api/v2/platform/label-templates/:template_id/mappings`，按 handler → service → repository 分层完整替换 mappings；原单条接口保留。
+- 整组复用来源、转换、保护标签和唯一性校验；模板写入与本批 OldValue/NewValue 快照同事务，空数组合法，无变化不写快照，默认模板只读。
+- 文件：`mapping_batch.go`、`mapping_batch_service.go`、`mapping_batch_repository.go`、`mapping_batch_test.go`、`routes.go`。
+- 验证：批量新增/修改/删除、清空、校验、404、默认模板、快照失败回滚及 no-op 用例通过；`go test ./platform/config/label/...` 通过；`go vet ./platform/...` 通过；独立服务真实登录后一次保存三条映射成功，重复标签 HTTP 400 且原数据不变。
+- 契约：`api-contract-snapshot.md` 与 `dev-feedback.md` F-35 已同步。
+- 全量 `go test ./platform/...` 中本次标签包通过；未触碰的 storagelog（Windows 磁盘统计）、db（Windows 临时 SQLite 文件清理）与 strategy/rule（promtool PATH）测试失败，未借本任务修改其他模块。

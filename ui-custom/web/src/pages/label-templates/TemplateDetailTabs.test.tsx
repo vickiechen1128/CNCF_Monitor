@@ -1,19 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import TemplateDetailTabs from './TemplateDetailTabs'
 import type { LabelSourceType, LabelTemplate, Mapping, TemplateInstanceItem } from '../../types/label'
 
 const resourcesMock = vi.fn()
-const addMappingMock = vi.fn()
-const updateMappingMock = vi.fn()
-const removeMappingMock = vi.fn()
+const replaceMappingsMock = vi.fn()
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: {
     resources: (...args: unknown[]) => resourcesMock(...args),
-    addMapping: (...args: unknown[]) => addMappingMock(...args),
-    updateMapping: (...args: unknown[]) => updateMappingMock(...args),
-    removeMapping: (...args: unknown[]) => removeMappingMock(...args),
+    replaceMappings: (...args: unknown[]) => replaceMappingsMock(...args),
   },
 }))
 
@@ -59,9 +55,7 @@ function renderTabs(tpl: LabelTemplate | null, over: { referencingJobCount?: num
 describe('TemplateDetailTabs', () => {
   beforeEach(() => {
     resourcesMock.mockReset()
-    addMappingMock.mockReset()
-    updateMappingMock.mockReset()
-    removeMappingMock.mockReset()
+    replaceMappingsMock.mockReset()
     resourcesMock.mockResolvedValue(instancePage([]))
   })
 
@@ -103,7 +97,7 @@ describe('TemplateDetailTabs', () => {
 
   it('shows empty hint when template has no mappings', async () => {
     renderTabs(template({ mappings: [] }))
-    expect(await screen.findByText('该模板暂无映射，点击「新增映射」添加')).toBeInTheDocument()
+    expect(await screen.findByText('该模板暂无映射，点击「编辑」添加')).toBeInTheDocument()
   })
 
   it('renders instance table and filters by keyword search', async () => {
@@ -142,32 +136,29 @@ describe('TemplateDetailTabs', () => {
     expect(screen.getByText(/只读修改快照/)).toBeInTheDocument()
   })
 
-  it('shows save impact Alert after deleting a mapping and 查看引用 Job jumps to jobs tab', async () => {
-    removeMappingMock.mockResolvedValue({ status: 'success', data: { mapping_id: 1 } })
+  it('opens batch editing and shows save impact after one unified save', async () => {
+    replaceMappingsMock.mockResolvedValue({ status: 'success', data: [] })
     const { onMappingsChange } = renderTabs(template(), { referencingJobCount: 3 })
-    // 定位 resource_field 分组的映射行（globalIndex 0 → mapping_id 1）内的删除按钮
-    const resourceFieldRow = (await screen.findByText('app_code')).closest('tr')!
-    fireEvent.click(within(resourceFieldRow).getByRole('button', { name: /删\s*除/ }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: /删\s*除/ }))
-    await waitFor(() => expect(removeMappingMock).toHaveBeenCalledWith(1, 1))
-    // 保存影响反馈 Alert（含被引用 Job 数；描述跨多节点，用整段 textContent 断言）
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    expect(await screen.findByRole('dialog', { name: '编辑映射' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '统一保存' }))
+    await waitFor(() => expect(replaceMappingsMock).toHaveBeenCalledWith(1, expect.any(Array)))
+    expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('保存已生效')).toBeInTheDocument()
     const alertDesc = document.querySelector('.ant-alert-description')
     expect(alertDesc?.textContent).toContain('被 3 个采集 Job 引用')
     expect(onMappingsChange).toHaveBeenCalled()
-    // 「查看引用 Job」跳转 Tab3
     fireEvent.click(screen.getByRole('button', { name: /查看引用 Job/ }))
     expect(await screen.findByText('暂无采集 Job 引用本模板')).toBeInTheDocument()
   })
 
-  it('default template is read-only: no delete buttons and 新增映射 disabled with tooltip', async () => {
+  it('default template is read-only with a disabled edit entry and tooltip', async () => {
     renderTabs(template({ is_default: true }))
     expect(await screen.findByText('组合字段（1）')).toBeInTheDocument()
     expect(screen.queryAllByRole('button', { name: /删\s*除/ })).toHaveLength(0)
-    const addBtn = screen.getByRole('button', { name: /新增映射/ })
-    expect(addBtn).toBeDisabled()
-    fireEvent.mouseOver(addBtn)
+    const editBtn = screen.getByRole('button', { name: '编辑' })
+    expect(editBtn).toBeDisabled()
+    fireEvent.mouseOver(editBtn)
     expect(await screen.findByText(/默认模板只读保护/)).toBeInTheDocument()
   })
 })

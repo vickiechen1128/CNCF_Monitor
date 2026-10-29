@@ -986,3 +986,9 @@
 - **双 Job 口径**：blackbox 应用服务拨测固定使用 `health_check_url`，standard 指标采集使用 `endpoint + port`，不相互覆盖或代填。仅 URL 的资源若配置 standard Job，仍由生成侧 `address_empty` 诊断拦截，不用拨测 URL 冒充指标端点。
 - **页面展示**：资源页分别显示 URL、端点和端口，缺省为 `-`。首页 Job 总数/启用数按 Job 计数；同一资源被 standard 和 blackbox 同时选中，资源覆盖数按 `resource_id` 只计一次；拨测健康按 URL 匹配 `probe_success` 独立展示。
 - **验证**：`platform/config/resource` 全部测试通过；ResourceFormDrawer 与 TemplateDownloadModal 共 63 例通过。契约已同步 `api-contract-snapshot.md`，PRD 待后续统一回填。
+
+### F-35. 标签映射由逐条立即保存改为表格批量编辑（③ 交互优化，已实现）
+
+- **用户反馈**：资源标签映射逐条新增效率低；去掉「新增映射」，统一从「编辑」进入表格，连续新增、修改、删除后一次保存。
+- **实现**：抽屉内使用本地草稿，取消或服务端校验失败不落库且保留编辑内容；新增 `PUT /label-templates/:template_id/mappings` 整组替换接口，校验、写入和本批审计快照同事务完成，原单条接口保留兼容。
+- **待设计侧回写**：`Module_07` 标签模板映射交互由单条表单改为批量表格统一保存；API 契约快照已同步。
