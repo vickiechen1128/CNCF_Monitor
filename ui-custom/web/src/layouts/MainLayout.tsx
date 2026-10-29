@@ -259,7 +259,7 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/blackbox-modules、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -284,6 +284,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
+    // 拨测模块同属采集策略；遗漏会让一级 tab 落回「首页」，侧栏也切到首页的二级菜单。
+    locationPath.startsWith('/blackbox-modules') ||
     locationPath.startsWith('/scrape-jobs') ||
     locationPath.startsWith('/rules') ||
     locationPath.startsWith('/metric-library')
