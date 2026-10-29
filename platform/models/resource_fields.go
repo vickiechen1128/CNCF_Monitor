@@ -29,6 +29,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"resource_id":       "resource_id",
 			"source_type":       "source_type",
 			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
+			"activated_at":      "activated_at",
 		}
 	case ResourceCategoryDatabase:
 		return map[string]string{
@@ -68,22 +69,29 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 		}
 	case ResourceCategoryApplication:
 		return map[string]string{
-			"service_name":      "service_name",
-			"health_check_url":  "health_check_url",
-			"protocol":          "protocol",
-			"endpoint":          "endpoint",
-			"port":              "port",
-			"scrape_port":       "scrape_port", // 实例级采集端口覆盖（0=未指定）
-			"app_code":          "app_name",
-			"platform_code":     "platform_code",
-			"cluster":           "cluster",
-			"env":               "env",
-			"biz_code":          "biz_code",
-			"network_domain_id": "network_domain_id",
-			"status":            "status",
-			"owner":             "owner",
-			"resource_id":       "resource_id",
-			"source_type":       "source_type",
+			"service_name":       "service_name",
+			"health_check_url":   "health_check_url",
+			"protocol":           "protocol",
+			"endpoint":           "endpoint",
+			"port":               "port",
+			"scrape_port":        "scrape_port", // 实例级采集端口覆盖（0=未指定）
+			"app_code":           "app_name",
+			"platform_code":      "platform_code",
+			"cluster":            "cluster",
+			"env":                "env",
+			"biz_code":           "biz_code",
+			"network_domain_id":  "network_domain_id",
+			"status":             "status",
+			"owner":              "owner",
+			"owner1":             "owner1",
+			"owner1_contact":     "owner1_contact",
+			"owner2":             "owner2",
+			"owner2_contact":     "owner2_contact",
+			"ops_person":         "ops_person",
+			"ops_person_contact": "ops_person_contact",
+			"go_live_at":         "go_live_at",
+			"resource_id":        "resource_id",
+			"source_type":        "source_type",
 		}
 	case ResourceCategoryGenericTarget:
 		return map[string]string{
@@ -176,6 +184,11 @@ func getHostField(h *Host, field string) (string, bool) {
 		return h.OSType(), true // legacy: Image
 	case "scrape_port":
 		return strconv.Itoa(h.ScrapePort), true
+	case "activated_at":
+		if h.ActivatedAt == nil {
+			return "", true
+		}
+		return h.ActivatedAt.Format(time.RFC3339), true
 	}
 	return "", false
 }
@@ -280,6 +293,10 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return a.Owner2, true
 	case "owner2_contact":
 		return a.Owner2Contact, true
+	case "ops_person":
+		return a.OpsPerson, true
+	case "ops_person_contact":
+		return a.OpsPersonContact, true
 	case "go_live_at":
 		if a.GoLiveAt == nil {
 			return "", true

@@ -220,6 +220,10 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["instance_ip"] = r.InstanceIP() // legacy: PrivateIP
 		item["os_type"] = r.OSType()         // legacy: Image
 		item["scrape_port"] = r.ScrapePort   // 实例级采集端口覆盖（0=未指定，int 口径同 port）
+		item["activated_at"] = nil
+		if r.ActivatedAt != nil {
+			item["activated_at"] = r.ActivatedAt.Format(time.RFC3339)
+		}
 	case *models.Database:
 		item["database_type"] = r.DatabaseType
 		item["instance_ip"] = r.InstanceIP
@@ -237,6 +241,8 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["owner1_contact"] = r.Owner1Contact
 		item["owner2"] = r.Owner2
 		item["owner2_contact"] = r.Owner2Contact
+		item["ops_person"] = r.OpsPerson
+		item["ops_person_contact"] = r.OpsPersonContact
 		item["go_live_at"] = nil
 		if r.GoLiveAt != nil {
 			item["go_live_at"] = r.GoLiveAt.Format(time.RFC3339)

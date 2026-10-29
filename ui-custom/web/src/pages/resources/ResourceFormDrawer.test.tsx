@@ -631,6 +631,8 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByText('负责人信息（选填）')).toBeInTheDocument()
     expect(screen.getByText('负责人1联系方式')).toBeInTheDocument()
     expect(screen.getByText('负责人2联系方式')).toBeInTheDocument()
+    expect(screen.getByText('运维人员（选填）')).toBeInTheDocument()
+    expect(screen.getByText('运维人员联系方式')).toBeInTheDocument()
     expect(screen.getByText('应用上线时间')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：10.10.1.4')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：8081')).toBeInTheDocument()
@@ -640,6 +642,22 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByText('目标名称')).toBeInTheDocument()
     expect(screen.getByText('自定义标签')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c')).toBeInTheDocument()
+  })
+
+  it('lays owner and ops name/contact horizontally in the same row', () => {
+    renderDrawer({ category: 'application' })
+    const rowOf = (label: string) =>
+      screen.getByText(label).closest('.ant-form-item')?.closest('.ant-row')
+    // 左姓名、右联系方式：两两同一行
+    expect(rowOf('负责人1')).toBe(rowOf('负责人1联系方式'))
+    expect(rowOf('负责人2')).toBe(rowOf('负责人2联系方式'))
+    expect(rowOf('运维人员')).toBe(rowOf('运维人员联系方式'))
+  })
+
+  it('renders host activated time field', () => {
+    renderDrawer({ category: 'host' })
+    expect(screen.getByText('开通时间')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('选择开通时间（可选）')).toBeInTheDocument()
   })
 
   it('application requires health check url but not endpoint and port', async () => {

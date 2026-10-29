@@ -190,6 +190,24 @@ func TestParseExcel_SkipsBlankRowsAndReturnsEmptyData(t *testing.T) {
 	assert.Equal(t, 2, rows[0].Row)
 }
 
+// TestParseExcel_NewOptionalFields 校验新增可选列（host.activated_at /
+// application.ops_person / ops_person_contact）能按列名映射进 ResourceInput。
+func TestParseExcel_NewOptionalFields(t *testing.T) {
+	host := baseValues(models.ResourceCategoryHost)
+	host["activated_at"] = "2026-10-01"
+	hostRows := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, host)})
+	require.Len(t, hostRows, 1)
+	assert.Equal(t, "2026-10-01", hostRows[0].Input.ActivatedAt)
+
+	app := baseValues(models.ResourceCategoryApplication)
+	app["ops_person"] = "王五"
+	app["ops_person_contact"] = "ops@example.com"
+	appRows := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, app)})
+	require.Len(t, appRows, 1)
+	assert.Equal(t, "王五", appRows[0].Input.OpsPerson)
+	assert.Equal(t, "ops@example.com", appRows[0].Input.OpsPersonContact)
+}
+
 // ---------------------------------------------------------------------------
 // ParseExcel：列头固定列校验（§5.16.1 不支持动态列）
 // ---------------------------------------------------------------------------
@@ -198,10 +216,11 @@ func TestParseExcel_HeaderErrors(t *testing.T) {
 	cols := TemplateColumns[models.ResourceCategoryHost]
 
 	t.Run("missing column", func(t *testing.T) {
-		// 去掉末两列 status 与 scrape_port：scrape_port 单独缺省是旧模板兼容
-		// （决策 D-7 P1，见 TestExcelLegacyTemplateWithoutScrapePortStillImports），
-		// 必填列 status 缺失必须报「列头缺失」。
-		header := cols[:len(cols)-2]
+		// 截断到必填列 status 之前：尾部可选列（scrape_port / activated_at）缺省
+		// 属于旧模板兼容，但必填列 status 缺失必须报「列头缺失」。
+		header := append([]string{}, cols...)
+		idx := requireIndex(t, header, "status")
+		header = header[:idx]
 		_, err := ParseExcel(buildXLSXWithHeader(t, header, nil), models.ResourceCategoryHost)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "列头缺失")

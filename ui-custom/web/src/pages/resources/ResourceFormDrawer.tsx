@@ -178,6 +178,10 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         os_type: values.os_type ? String(values.os_type) : undefined,
         // {T01-P5} 采集端口：留空 → 提交 0（= 未指定，与 NULL 等价；编辑清空时以 0 回退解析链，提案 §5.1）
         scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
+        activated_at:
+          values.activated_at && dayjs.isDayjs(values.activated_at)
+            ? values.activated_at.toISOString()
+            : undefined,
       }
     case 'database':
       return {
@@ -206,6 +210,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         owner1_contact: values.owner1_contact ? String(values.owner1_contact) : undefined,
         owner2: values.owner2 ? String(values.owner2) : undefined,
         owner2_contact: values.owner2_contact ? String(values.owner2_contact) : undefined,
+        ops_person: values.ops_person ? String(values.ops_person) : undefined,
+        ops_person_contact: values.ops_person_contact ? String(values.ops_person_contact) : undefined,
         go_live_at: values.go_live_at && dayjs.isDayjs(values.go_live_at) ? values.go_live_at.toISOString() : undefined,
         protocol: values.protocol ? String(values.protocol) : undefined,
         port: values.port ? Number(values.port) : undefined,
@@ -264,6 +270,7 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     hostname: record.hostname,
     instance_ip: record.instance_ip,
     os_type: record.os_type,
+    activated_at: record.activated_at ? dayjs(record.activated_at) : undefined,
     database_type: record.database_type,
     middleware_type: record.middleware_type,
     port: record.port,
@@ -276,6 +283,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     owner1_contact: record.owner1_contact,
     owner2: record.owner2,
     owner2_contact: record.owner2_contact,
+    ops_person: record.ops_person,
+    ops_person_contact: record.ops_person_contact,
     go_live_at: record.go_live_at ? dayjs(record.go_live_at) : undefined,
     protocol: record.protocol,
     endpoint: record.endpoint,
@@ -751,6 +760,16 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             </Row>
             <Row gutter={16}>
               <Col span={12}>{scrapePortField}</Col>
+              <Col span={12}>
+                <Form.Item label="开通时间" name="activated_at">
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    showTime
+                    format="YYYY-MM-DD HH:mm"
+                    placeholder="选择开通时间（可选）"
+                  />
+                </Form.Item>
+              </Col>
             </Row>
           </>
         )
@@ -886,20 +905,40 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
               <Input placeholder="例如：http（可选）" maxLength={16} />
             </Form.Item>
             <Typography.Text strong>负责人信息（选填）</Typography.Text>
+            {/* 横向布局（2026-10-29 用户要求）：左侧人名、右侧对应联系方式，逐行排列。 */}
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="负责人1" name="owner1">
                   <Input placeholder="姓名（可选）" maxLength={100} />
                 </Form.Item>
+              </Col>
+              <Col span={12}>
                 <Form.Item label="负责人1联系方式" name="owner1_contact">
                   <Input placeholder="电话或邮箱（可选）" maxLength={128} />
                 </Form.Item>
               </Col>
+            </Row>
+            <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="负责人2" name="owner2">
                   <Input placeholder="姓名（可选）" maxLength={100} />
                 </Form.Item>
+              </Col>
+              <Col span={12}>
                 <Form.Item label="负责人2联系方式" name="owner2_contact">
+                  <Input placeholder="电话或邮箱（可选）" maxLength={128} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Typography.Text strong>运维人员（选填）</Typography.Text>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="运维人员" name="ops_person">
+                  <Input placeholder="姓名（可选）" maxLength={100} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="运维人员联系方式" name="ops_person_contact">
                   <Input placeholder="电话或邮箱（可选）" maxLength={128} />
                 </Form.Item>
               </Col>

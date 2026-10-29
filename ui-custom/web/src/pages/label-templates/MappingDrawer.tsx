@@ -113,7 +113,12 @@ export default function MappingDrawer({
   }, [editingMapping])
 
   const sourceFieldOptions = useMemo(() => {
-    const toOptions = (fields: string[]) => fields.map((f) => ({ value: f, label: f }))
+    const toOptions = (fields: string[], current?: string) => {
+      // 已下线的来源字段（如 network_domain_id）在编辑存量映射时仍需回显，
+      // 否则 Select 找不到当前值会显示为空、保存后被静默清空。
+      const list = current && !fields.includes(current) ? [...fields, current] : fields
+      return list.map((f) => ({ value: f, label: f }))
+    }
     switch (watchedSourceType) {
       case 'composite':
         return toOptions(COMPOSITE_OPTIONS)
@@ -122,9 +127,12 @@ export default function MappingDrawer({
       case 'cmdb_field':
         return CMDB_FIELD_OPTIONS.map((f) => ({ value: f, label: `${f}（后续版本开放）` }))
       default:
-        return toOptions(template ? RESOURCE_FIELD_OPTIONS[template.resource_category] : [])
+        return toOptions(
+          template ? RESOURCE_FIELD_OPTIONS[template.resource_category] : [],
+          editingMapping?.source_field,
+        )
     }
-  }, [watchedSourceType, template])
+  }, [watchedSourceType, template, editingMapping])
 
   // 「字典翻译」仅对引用字典 / 固定枚举的来源字段开放；编辑存量 dict 映射时保留选项，
   // 避免回显值在选项中缺失。

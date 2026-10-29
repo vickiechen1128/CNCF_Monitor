@@ -232,6 +232,24 @@ describe('ResourceDetailDrawer', () => {
     expect(screen.getByText('10.0.1.11')).toBeInTheDocument()
   })
 
+  it('renders host activated time and application ops person', () => {
+    const host = hostRecord()
+    host.activated_at = '2026-10-01T08:30:00Z'
+    const hostView = renderDrawer({ record: host })
+    expect(screen.getByText('开通时间')).toBeInTheDocument()
+    expect(screen.getByText('2026-10-01T08:30:00Z')).toBeInTheDocument()
+    hostView.unmount()
+
+    const app = appRecord()
+    app.ops_person = '王五'
+    app.ops_person_contact = 'ops@example.com'
+    renderDrawer({ record: app })
+    expect(screen.getByText('运维人员')).toBeInTheDocument()
+    expect(screen.getByText('王五')).toBeInTheDocument()
+    expect(screen.getByText('运维人员联系方式')).toBeInTheDocument()
+    expect(screen.getByText('ops@example.com')).toBeInTheDocument()
+  })
+
   it('marks disabled business with （已停用）', async () => {
     const rec = hostRecord()
     rec.biz_code = 'legacy'

@@ -41,6 +41,8 @@ type ResourceInput struct {
 	InstanceIP   string `json:"instance_ip"`
 	OSType       string `json:"os_type"`
 	Hostname     string `json:"hostname"`
+	// ActivatedAt 是主机开通时间（可选，2026-10-29 用户新增）。
+	ActivatedAt string `json:"activated_at"`
 
 	// database / middleware（§5.7 / §5.7.1）
 	DatabaseType   string `json:"database_type"`
@@ -53,8 +55,11 @@ type ResourceInput struct {
 	Owner1Contact string `json:"owner1_contact"`
 	Owner2        string `json:"owner2"`
 	Owner2Contact string `json:"owner2_contact"`
-	GoLiveAt      string `json:"go_live_at"`
-	ServiceName   string `json:"service_name"`
+	// OpsPerson / OpsPersonContact 是运维人员及联系方式（可选，2026-10-29 用户新增）。
+	OpsPerson        string `json:"ops_person"`
+	OpsPersonContact string `json:"ops_person_contact"`
+	GoLiveAt         string `json:"go_live_at"`
+	ServiceName      string `json:"service_name"`
 	// HealthCheckURL 是 blackbox 拨测目标地址，必填，也可作为标签模板来源。
 	HealthCheckURL string `json:"health_check_url"`
 	// Protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
@@ -367,6 +372,9 @@ func validateHost(in *ResourceInput) error {
 	if strings.TrimSpace(in.OSType) == "" {
 		return fmt.Errorf("os_type 必填")
 	}
+	if _, err := parseOptionalTime(in.ActivatedAt, "activated_at"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -457,6 +465,7 @@ func validateApplication(in *ResourceInput) error {
 	for field, value := range map[string]string{
 		"owner1": in.Owner1, "owner2": in.Owner2,
 		"owner1_contact": in.Owner1Contact, "owner2_contact": in.Owner2Contact,
+		"ops_person": in.OpsPerson, "ops_person_contact": in.OpsPersonContact,
 	} {
 		if len([]rune(value)) > 128 {
 			return fmt.Errorf("%s 长度不能超过 128 字符", field)
@@ -469,6 +478,12 @@ func validateApplication(in *ResourceInput) error {
 }
 
 func parseGoLiveAt(value string) (*time.Time, error) {
+	return parseOptionalTime(value, "go_live_at")
+}
+
+// parseOptionalTime 解析可选的 RFC3339 / YYYY-MM-DD 时间串；空串返回 (nil, nil)。
+// field 仅用于错误文案（go_live_at / activated_at 共用同一格式口径）。
+func parseOptionalTime(value, field string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
@@ -478,7 +493,7 @@ func parseGoLiveAt(value string) (*time.Time, error) {
 			return &parsed, nil
 		}
 	}
-	return nil, fmt.Errorf("go_live_at 格式非法，应为 RFC3339 或 YYYY-MM-DD")
+	return nil, fmt.Errorf("%s 格式非法，应为 RFC3339 或 YYYY-MM-DD", field)
 }
 
 func validateGenericTarget(in *ResourceInput) error {

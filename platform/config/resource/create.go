@@ -179,6 +179,7 @@ func applyHostInput(h *models.Host, in *ResourceInput) {
 	// 保证采集 Job host_linux/host_windows 候选按家族稳定命中（os_dict.go）。
 	h.Image = models.NormalizeOSType(in.OSType)
 	h.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
+	h.ActivatedAt, _ = parseOptionalTime(in.ActivatedAt, "activated_at")
 }
 
 func applyDatabaseInput(d *models.Database, in *ResourceInput) {
@@ -225,6 +226,8 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.Owner1Contact = in.Owner1Contact
 	a.Owner2 = in.Owner2
 	a.Owner2Contact = in.Owner2Contact
+	a.OpsPerson = in.OpsPerson
+	a.OpsPersonContact = in.OpsPersonContact
 	a.GoLiveAt, _ = parseGoLiveAt(in.GoLiveAt)
 	a.Status = in.Status
 	a.ServiceName = in.ServiceName
