@@ -6,6 +6,7 @@
 import { apiClient, isApiError } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
+  AlertEventCurrentData,
   AlertEventData,
   AlertEventStats,
   AlertEventStatus,
@@ -184,6 +185,16 @@ export const alertStatusApi = {
   /** 历史告警事件（M08 webhook 留痕 + 对账，一行=一次告警发生） */
   getAlertEvents(params?: AlertEventQuery): Promise<ApiResponse<AlertEventData>> {
     return apiClient.get<AlertEventData>('/api/v2/platform/alertmanager/alert-events', { params })
+  },
+  /**
+   * 当前未结告警（不分页，一次返回全部 firing/silenced/inhibited）。
+   * 首页「当前告警」卡专用；历史告警页仍走 getAlertEvents 分页。
+   */
+  getCurrentAlerts(params?: AlertStatusQuery): Promise<ApiResponse<AlertEventCurrentData>> {
+    return apiClient.get<AlertEventCurrentData>(
+      '/api/v2/platform/alertmanager/alert-events/current',
+      { params },
+    )
   },
   /**
    * 历史告警统计：首页四格（今日告警/今日恢复/历史遗留告警/历史遗留今日恢复）

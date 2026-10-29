@@ -13,7 +13,7 @@
  *
  * 断点取值 767px：与 antd `md`（≥768 桌面 / 平板横屏）对齐，一处改、全线改。
  * 放在非组件模块而非组件文件内：避免 `react-refresh/only-export-components` 告警
- * （仓库 eslint 为 max-warnings 0），与 homeLayout.ts 同一处理方式。
+ * （仓库 eslint 为 max-warnings 0）。
  */
 import { useEffect, useState } from 'react'
 

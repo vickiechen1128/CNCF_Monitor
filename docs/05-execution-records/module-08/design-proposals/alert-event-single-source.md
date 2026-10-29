@@ -28,7 +28,8 @@
    - Tab 1「当前告警」：event 表未结三态（三张统计卡 + 服务端筛选/分页）；
    - Tab 2「规则评估」：Prometheus `firing` / `pending`。
 4. **首页右栏改为 event 表未结告警**，标题「当前告警」，展示未结三态；
-   保留现有分页器（每页 5 条、数据池 8 条），不加内部滚动。
+   **取消分页**，改为卡内纵向滚动条展示全部未结告警（桌面约 360px、窄屏约 280px）。
+   为一次取满全量，新增不分页接口 `GET /alert-events/current`（见 §3.2）。
 5. **不补记「一出生就被静默/抑制」的告警**：用户明确「用户从没收到过通知，不算告警」，
    维持对账只补 `state=active` 的既有逻辑（`reconciler.go`）。
 6. 首页四格口径不变，仍来自 `/alert-events/stats`；与当前告警列表同一张表、同一 UTC+8 日界。
@@ -41,7 +42,15 @@
   仍支持原有七态精确过滤。
 - 其余参数、分页、排序、响应结构不变。
 
-### 3.2 `GET /api/v2/platform/alertmanager/alert-events/stats`
+### 3.2 `GET /api/v2/platform/alertmanager/alert-events/current`（新增）
+
+- 返回全部未结告警（`firing / silenced / inhibited`），**不分页**：
+  `{ "list": [...], "total": N }`。
+- 可选 `network_domain` 查询参数（当前首页暂不传）。
+- 首页「当前告警」卡一次取满全量，在卡内滚动浏览；历史告警页仍走 §3.1 的分页列表，
+  不受本接口影响。
+
+### 3.3 `GET /api/v2/platform/alertmanager/alert-events/stats`
 
 - 新增可选 `network_domain` 查询参数：全部统计指标按网域过滤（当前告警页网域筛选需要）。
 - 新增未结计数（不限今天，与 `status=open` 同口径）：
@@ -53,10 +62,12 @@
 
 ## 4. 影响范围
 
-- `platform/alertmanager/history/handler.go`：`status=open` 分组、stats 未结计数与网域过滤；
+- `platform/alertmanager/history/handler.go`：`status=open` 分组、`/alert-events/current`
+  不分页接口、stats 未结计数与网域过滤；
 - `ui-custom/web/src/pages/alerts/AlertStatusPage.tsx`：Tab 1 重写、Tab 2 改名「规则评估」；
-- `ui-custom/web/src/pages/home/HomePage.tsx`、`AlertStatusCard.tsx`：右栏改 event 表未结告警；
-- 首页告警卡请求从 3 条链路降为 2 条（stats + event open），不再调用 AM 通知状态与 M02 history；
+- `ui-custom/web/src/pages/home/HomePage.tsx`、`AlertStatusCard.tsx`：右栏改 event 表未结告警，
+  取消分页、改为卡内滚动；
+- 首页告警卡请求从 3 条链路降为 2 条（stats + current），不再调用 AM 通知状态与 M02 history；
 - 后端 `/api/v2/platform/alertmanager/alerts`（notify_status 四态）**保留**：对账内部仍使用
   `alerts.Proxy.ListActiveAlerts`，HTTP 代理仅为兼容保留，前端不再消费。
 
@@ -70,7 +81,8 @@ event 表由 webhook（通知中告警近实时）+ 分钟级对账写入，当�
 1. `/alert-status` 默认 Tab 为「当前告警」，三张卡为告警中 / 静默中 / 抑制中，不出现「待处理」。
 2. 状态筛选与网域筛选走服务端；切换筛选回到第 1 页。
 3. 历史告警页与当前告警页对同一 occurrence 的状态文案一致。
-4. 首页右栏出现静默中、抑制中告警；无未结告警时显示「当前无告警」。
+4. 首页右栏出现静默中、抑制中告警；无未结告警时显示「当前无告警」；
+   告警超过可视高度时出现卡内滚动条，不再出现分页器；全部未结告警均在列表内。
 5. 首页四格与当前告警列表均失败才整卡报错；单条失败局部降级。
 6. 首次即被静默/抑制、从未通知过的告警不出现在当前告警与历史告警中（符合用户口径）。
 

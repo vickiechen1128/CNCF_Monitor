@@ -67,7 +67,7 @@
  * - 三个内容行均为 **flex-wrap + flex-basis 折行**（不写断点魔法数）：
  *   资源管理行 ≈260+420+16、04+告警行 ≈936（对分）、采集+拨测行 ≈936（grow 填满），
  *   宽屏一行、窄容器各自折行堆叠；
- * - 告警卡固定 5 行/页为**定稿硬契约**（见 homeLayout.ts，已与视口解耦）。
+ * - 告警卡右栏为**卡内滚动**（全部未结告警，桌面约 360px / 窄屏约 280px），不再分页。
  *
  * 移动适配（手机竖屏，≤767px；见 homeResponsive.ts）：资源管理行两块折为上下堆叠
  * （云分布单列统计行、矩阵保留表格 + 横向滚动 + 固定首列，**不卡片化**——二维信息卡片化
@@ -95,14 +95,14 @@ import { useProductName } from '../../skinContext'
 import type { CloudSummary, DashboardSummary } from '../../api/dashboard'
 import { alertStatusApi } from '../../api/alertmanager'
 import type {
-  AlertEventData,
+  AlertEventCurrentData,
   AlertEventItem,
   AlertEventStats,
 } from '../../types/alertmanager'
 import type { ApiResponse } from '../../types/api'
 import { MainLayout } from '../../layouts/MainLayout'
 import { LoadingPlaceholder } from '../../components/LoadingPlaceholder'
-import { AlertStatusCard, LATEST_ALERT_LIMIT } from './AlertStatusCard'
+import { AlertStatusCard } from './AlertStatusCard'
 import type { AlertCounts } from './AlertStatusCard'
 import { OnboardingSteps } from './OnboardingSteps'
 import { ResourceTypeGrid } from './ResourceTypeGrid'
@@ -118,8 +118,6 @@ import {
   readResourcePanelsCollapsed,
   writeResourcePanelsCollapsed,
 } from './homePanelVisibility'
-
-/** 最新告警条数上限取自 AlertStatusCard.LATEST_ALERT_LIMIT（告警卡标题与本页截断共用一份） */
 
 /**
  * 「按云分布」静态预览样例（M05 PRD v1.11 / 决策 100）：数值与原型
@@ -500,7 +498,7 @@ const EMPTY_ALERT_STATS: AlertStatsCounts = {
 
 interface AlertGovernance {
   counts: AlertCounts
-  /** 当前未结告警：event 表 open 分组，按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条 */
+  /** 当前未结告警：event 表 open 分组，按 starts_at 倒序分页取满全部 */
   latestAlerts: AlertEventItem[]
   loading: boolean
   currentError: string | null
@@ -519,7 +517,7 @@ function useAlertGovernance(
   mockCounts: AlertCounts,
   mockLatest: AlertEventItem[],
 ): AlertGovernance {
-  const [currentRes, setCurrentRes] = useState<ApiResponse<AlertEventData> | null>(null)
+  const [currentRes, setCurrentRes] = useState<ApiResponse<AlertEventCurrentData> | null>(null)
   const [statsRes, setStatsRes] = useState<ApiResponse<AlertEventStats> | null>(null)
   const [currentError, setCurrentError] = useState<string | null>(null)
   const [statsError, setStatsError] = useState<string | null>(null)
@@ -532,12 +530,7 @@ function useAlertGovernance(
     }
     let cancelled = false
     Promise.allSettled([
-      alertStatusApi.getAlertEvents({
-        status: 'open',
-        sort: 'starts_at desc',
-        page: 1,
-        page_size: LATEST_ALERT_LIMIT,
-      }),
+      alertStatusApi.getCurrentAlerts(),
       alertStatusApi.getAlertEventStats(),
     ]).then(([current, stats]) => {
       if (cancelled) return
@@ -566,9 +559,9 @@ function useAlertGovernance(
   }, [isStaticPreview, mockCounts, statsRes])
 
   const latestAlerts = useMemo(() => {
-    if (isStaticPreview) return mockLatest.slice(0, LATEST_ALERT_LIMIT)
-    // 服务端已按 starts_at desc + status=open 返回，无需前端再过滤/排序
-    return (currentRes?.data?.list ?? []).slice(0, LATEST_ALERT_LIMIT)
+    if (isStaticPreview) return mockLatest
+    // getCurrentAlerts 已按 starts_at desc 返回全部未结告警，无需前端再过滤/排序
+    return currentRes?.data?.list ?? []
   }, [isStaticPreview, mockLatest, currentRes])
 
   const retry = () => {

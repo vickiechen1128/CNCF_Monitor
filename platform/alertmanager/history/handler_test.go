@@ -3,6 +3,7 @@ package history
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -158,6 +159,55 @@ func TestListEventsStatusGroupOpen(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, firing, 1)
+}
+
+// TestListOpenEventsReturnsAllWithoutPagination 当前告警专用链路不受列表 page_size=100 上限影响：
+// 全部未结告警一次返回，终态不混入，网域过滤生效。
+func TestListOpenEventsReturnsAllWithoutPagination(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now().UTC()
+	for i := range 120 {
+		seedEvent(t, db, fmt.Sprintf("open-%03d", i), models.AlertEventStatusFiring, now.Add(-time.Duration(i)*time.Minute), nil, nil)
+	}
+	closed := now.Add(-time.Minute)
+	seedEvent(t, db, "resolved", models.AlertEventStatusResolved, now.Add(-2*time.Hour), &closed, &closed)
+
+	list, total, err := ListOpenEvents(db, "")
+	require.NoError(t, err)
+	assert.EqualValues(t, 120, total, "超过列表单页上限 100 也必须全部返回")
+	require.Len(t, list, 120)
+	for _, ev := range list {
+		assert.True(t, models.IsOpenAlertEventStatus(ev.Status), "不得混入终态：%s", ev.Status)
+	}
+
+	sameDomain, total, err := ListOpenEvents(db, "mc-test")
+	require.NoError(t, err)
+	assert.EqualValues(t, 120, total)
+	assert.Len(t, sameDomain, 120)
+
+	otherDomain, total, err := ListOpenEvents(db, "mc-other")
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, total)
+	assert.Empty(t, otherDomain)
+}
+
+// TestCurrentEventsHandler 路由返回 { list, total } 信封（无分页字段）。
+func TestCurrentEventsHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newTestDB(t)
+	now := time.Now().UTC()
+	seedEvent(t, db, "open-1", models.AlertEventStatusSilenced, now.Add(-time.Hour), nil, nil)
+
+	r := gin.New()
+	r.GET("/alert-events/current", CurrentEventsHandler(NewService(db)))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/alert-events/current", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"total":1`)
+	assert.Contains(t, w.Body.String(), `"list"`)
+	assert.NotContains(t, w.Body.String(), `"page_size"`, "当前告警接口不分页，不应返回分页字段")
 }
 
 // TestParseListQueryStatusGroupOpen status=open 是分组别名，不能按非法七态报错；

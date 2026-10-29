@@ -4,7 +4,7 @@
  * 受控展示型组件：数据由 HomePage 的 useAlertGovernance 单次请求持有，
  * 本组件不再自行取数（避免与首页指标卡重复请求同一接口），只负责渲染：
  *   四格历史指标（今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复）
- *   → 当前告警（event 表未结三态，近 8 条两行制，行 2 携带告警具体内容）。
+ *   → 当前告警（event 表未结三态，全部两行制，行 2 携带告警具体内容）。
  *
  * 版式（design-proposal §2.3，2026-10-17 定稿）：卡体**两栏**——左统计块（220px 固定，
  * 四格**纵排**）/ 右列表（当前告警，flex:1）。整宽单列下四格被拉通全宽
@@ -23,9 +23,9 @@
  *   告警卡撑满行高，残余落差由左栏参考行 margin-top:auto 吸收、沉在统计块底部
  *   （落在白底上，不悬在卡片中段）（旧布局「双列区 min-height 420px 兜底」随独立整宽
  *   形态一同废止，本行不再需要）；
- * - 列表为**固定分页约束**：每页最多 homeLayout.ALERT_PAGE_SIZE（5）行，超出才出现分页器，
- *   与视口高度彻底解耦（二版按实测高度反推行数，版式随分辨率漂移，已废弃）；
- * - 数据池仍为「最新 8 条」（决策 73），因此满池时是「5 行 + 第 2 页 3 行」。
+ * - 列表为**卡内滚动**：展示接口返回的全部未结告警，超出可视高度时出现纵向滚动条
+ *   （桌面约 360px、窄屏约 280px），与视口高度解耦；不再分页。
+ * - 取数上限为接口单页上限 100 条；超出时按钮下方提示「仅展示最近 100 条」。
  * 「查看全部 →」指向 /alert-status 兜底；卡内不再重复「查看告警中心」入口（用户反馈 2026-09-14）。
  *
  * 口径（M08 event 表单一事实源：/alert-events/stats + /alert-events?status=open）：
@@ -38,9 +38,8 @@
  * 权威设计：docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §5.2、
  * docs/05-execution-records/module-05/design-decisions.md「决策 73」。
  */
-import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Alert, Button, Empty, List, Pagination, Spin, Tag, Tooltip, Typography, theme } from 'antd'
+import { Alert, Button, Empty, List, Spin, Tag, Tooltip, Typography, theme } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { useSkin } from '../../skinContext'
@@ -55,7 +54,6 @@ import {
   severityText,
   severityTone,
 } from '../alerts/alertmanagerConstants'
-import { computeAlertPageSize } from './homeLayout'
 import { useNarrowLayout } from './homeResponsive'
 import { SurfaceCard } from './SurfaceCard'
 
@@ -77,20 +75,13 @@ export interface AlertCounts {
 }
 
 /**
- * 首页告警卡「当前告警」展示条数（决策 73 §3）：
- * 由 10 条单行改为 8 条两行制（单条信息量翻倍，总信息量不降，「查看全部 →」兜底）。
- * 由 HomePage 取数时按此上限截断，本组件用它渲染标题（两边不得各写一份数字）。
- */
-export const LATEST_ALERT_LIMIT = 8
-
-/**
- * 当前告警列表标题：数据来自 event 表未结三态，按开始时间倒序取前 8 条。
+ * 当前告警列表标题：数据来自 event 表未结三态，按开始时间倒序。
  */
 export const LATEST_ALERT_TITLE = '当前告警'
 
 interface AlertStatusCardProps {
   counts: AlertCounts
-  /** 当前未结告警（HomePage 已按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条） */
+  /** 当前未结告警（HomePage 已分页取满全部，按 starts_at 倒序） */
   latestAlerts: AlertEventItem[]
   loading?: boolean
   /** 当前告警链路错误（M08 /alert-events?status=open） */
@@ -442,18 +433,8 @@ export function AlertStatusCard({
   const partialError = !loading && !allFailed && (currentError !== null || statsError !== null)
   const errorText = [currentError, statsError].filter(Boolean).join('；')
 
-  /**
-   * 固定分页约束（用户 2026-09-18 二次反馈）：每页行数由常量 ALERT_PAGE_SIZE 决定，
-   * 与窗口高度、分辨率无关——同一份数据在任何电脑上都渲染成同一版式。
-   * 数据池仍是「最新 8 条」（决策 73）：池子 ≤ 上限时单页展示、分页器不出现。
-   */
-  const [page, setPage] = useState(1)
-  const pageSize = computeAlertPageSize(latestAlerts.length)
-  const pageCount = Math.max(1, Math.ceil(latestAlerts.length / pageSize))
-  // 数据刷新（条数变少）后停在越界页会渲染空列表，直接夹取到最后一页，不引入额外 effect
-  const currentPage = Math.min(page, pageCount)
-  const pageOffset = (currentPage - 1) * pageSize
-  const visibleAlerts = latestAlerts.slice(pageOffset, pageOffset + pageSize)
+  // 卡内滚动：展示取回的全部未结告警；超出可视高度时出现滚动条（不再分页）。
+  const scrollMaxHeight = narrow ? 280 : 360
 
   // 卡片左边框仅表示是否存在告警数据，不再用整卡空态替换四格指标。
   // 统计不可用时 openTotal 为 0，用列表长度兜底，避免「有告警但边框仍显示无告警」。
@@ -480,7 +461,7 @@ export function AlertStatusCard({
     <SurfaceCard
       data-testid="alert-status-card"
       title="告警状态"
-      /* 卡内只展示近 8 条，完整列表在 /alert-status（决策 73 §3「查看全部 →」兜底） */
+      /* 卡内展示全部未结告警（最多 100 条），完整列表在 /alert-status（「查看全部 →」兜底） */
       extra={
         <Link to="/alert-status" style={{ fontSize: HOME_FONT.label }}>
           查看全部 →
@@ -561,7 +542,14 @@ export function AlertStatusCard({
               >
                 <div
                   data-testid="latest-alert-region"
-                  style={{ marginTop: narrow ? 4 : 0, marginBottom: 10 }}
+                  style={{
+                    marginTop: narrow ? 4 : 0,
+                    marginBottom: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    minHeight: 0,
+                  }}
                 >
                   <Typography.Text
                     strong
@@ -570,6 +558,7 @@ export function AlertStatusCard({
                       fontSize: HOME_FONT.label,
                       fontWeight: HOME_WEIGHT.title,
                       marginBottom: 2,
+                      flexShrink: 0,
                     }}
                   >
                     {LATEST_ALERT_TITLE}
@@ -591,39 +580,32 @@ export function AlertStatusCard({
                       />
                     </div>
                   ) : (
-                    /* 固定分页：每页最多 ALERT_PAGE_SIZE 行，列表高度随行数自然增减，
-                       不再测量高度、不再 overflow 兜底（页面按内容滚动，见 HomePage） */
-                    <div>
+                    /* 卡内滚动：全部未结告警一次性渲染，超出可视高度出现纵向滚动条；
+                       不再分页、不测量视口高度。 */
+                    <div
+                      data-testid="latest-alert-scroll"
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        maxHeight: scrollMaxHeight,
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        paddingRight: 4,
+                      }}
+                    >
                       <List
                         size="small"
                         split={false}
                         data-testid="latest-alert-list"
-                        dataSource={visibleAlerts}
+                        dataSource={latestAlerts}
                         renderItem={(item, index) => (
                           <AlertRow
                             item={item}
-                            /* 测试 id 用数据池内的全局序号（翻页后不重复、不重置） */
-                            index={pageOffset + index}
-                            isLast={index === visibleAlerts.length - 1}
+                            index={index}
+                            isLast={index === latestAlerts.length - 1}
                           />
                         )}
                       />
-                      {/* 分页器仅在池子超过单页上限时出现（少量告警时保持单页观感） */}
-                      {pageCount > 1 && (
-                        <div
-                          data-testid="latest-alert-pager"
-                          style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}
-                        >
-                          <Pagination
-                            size="small"
-                            showSizeChanger={false}
-                            current={currentPage}
-                            pageSize={pageSize}
-                            total={latestAlerts.length}
-                            onChange={setPage}
-                          />
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>

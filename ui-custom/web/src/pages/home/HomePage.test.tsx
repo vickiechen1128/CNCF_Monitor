@@ -4,8 +4,6 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { HomePage } from './HomePage'
 import { severityBg } from '../alerts/alertmanagerConstants'
-import { LATEST_ALERT_LIMIT } from './AlertStatusCard'
-import { ALERT_PAGE_SIZE } from './homeLayout'
 import { DEFAULT_SKIN, skinTokens } from '../../skins'
 import { DEFAULT_PRODUCT_NAME } from '../../productNamePreference'
 import { setupAntdTest } from '../../test/antdTestUtils'
@@ -31,8 +29,8 @@ const renderPage = () =>
   )
 
 const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
-/** M08 event 表当前未结告警（status=open，与历史告警、首页四格同源） */
-const CURRENT_ALERTS_PATH = '/api/v2/platform/alertmanager/alert-events'
+/** M08 event 表当前未结告警（不分页，一次返回全部；与历史告警、首页四格同源） */
+const CURRENT_ALERTS_PATH = '/api/v2/platform/alertmanager/alert-events/current'
 /** M08 历史告警统计（首屏四格 + 当前未结计数） */
 const STATS_PATH = '/api/v2/platform/alertmanager/alert-events/stats'
 
@@ -332,14 +330,12 @@ const CURRENT_ALERTS_OK = {
       },
     ],
     total: 5,
-    page: 1,
-    page_size: 8,
   },
 }
 
 const CURRENT_ALERTS_EMPTY = {
   status: 'success',
-  data: { list: [], total: 0, page: 1, page_size: 8 },
+  data: { list: [], total: 0 },
 }
 
 /** 历史告警统计空态（首屏四格全 0）。 */
@@ -1471,8 +1467,8 @@ describe('HomePage', () => {
     expect(within(alertCard).queryByRole('link', { name: '配置告警通知' })).not.toBeInTheDocument()
   })
 
-  it('caps the latest alert pool at 8 and paginates it at the fixed page size', async () => {
-    // 12 条当前告警：数据池上限仍为 8（决策 73 §3），卡内按固定页大小分页，其余走 /alert-status
+  it('renders all current alerts inside a scrollable list without pagination', async () => {
+    // 12 条当前告警：全部渲染到卡内滚动区，不再按每页 5 条分页
     const list = Array.from({ length: 12 }, (_, i) => ({
       id: i + 1,
       alert_name: `批量告警-${i}`,
@@ -1485,26 +1481,24 @@ describe('HomePage', () => {
       instance_address: `10.0.0.${i}:9100`,
     }))
     setupHomeMock({
-      [CURRENT_ALERTS_PATH]: { status: 'success', data: { list, total: 12, page: 1, page_size: 8 } },
+      [CURRENT_ALERTS_PATH]: {
+        status: 'success',
+        data: { list, total: 12 },
+      },
     })
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId(`latest-alert-${ALERT_PAGE_SIZE - 1}`)).toBeInTheDocument()
+      expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
-    // 第 1 页恰为固定页大小条；池子外（≥ 8）与第 2 页条目都不渲染
-    expect(screen.getAllByTestId(/^latest-alert-\d+$/)).toHaveLength(ALERT_PAGE_SIZE)
-    expect(screen.queryByTestId(`latest-alert-${ALERT_PAGE_SIZE}`)).not.toBeInTheDocument()
-
-    // 第 2 页承接池内剩余 3 条（8 - 5），池子上限 8 之外的仍不可见。
-    // 限定在告警卡内点击分页（页面另有 L3 拨测分页，避免 getByTitle('2') 歧义）
-    fireEvent.click(within(screen.getByTestId('alert-status-card')).getByTitle('2'))
-    await waitFor(() => {
-      expect(screen.getByTestId('latest-alert-6')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('latest-alert-7')).toBeInTheDocument()
-    expect(screen.queryByTestId('latest-alert-8')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId(/^latest-alert-\d+$/)).toHaveLength(12)
+    expect(screen.getByTestId('latest-alert-11')).toBeInTheDocument()
+    // 无分页器；列表在固定最大高度的滚动容器内
+    expect(screen.queryByTestId('latest-alert-pager')).not.toBeInTheDocument()
+    const scroll = screen.getByTestId('latest-alert-scroll')
+    expect(scroll.style.overflowY).toBe('auto')
+    expect(scroll.style.maxHeight).toBe('360px')
   })
 
   it('requests each alert endpoint exactly once for counts and the latest list', async () => {
@@ -1519,10 +1513,13 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 两条只读链路各只请求一次（四格取 stats，当前告警取 event 表 open 列表，无重复取数）
+    // 两条只读链路各只请求一次（四格取 stats，当前告警走不分页接口，无重复取数）
     const paths = mockGet.mock.calls.map((call) => call[0] as string)
     expect(paths.filter((path) => path === CURRENT_ALERTS_PATH)).toHaveLength(1)
     expect(paths.filter((path) => path === STATS_PATH)).toHaveLength(1)
+    // 当前告警不分页：调用不携带 status/page/page_size 参数
+    const currentCall = mockGet.mock.calls.find(([path]) => path === CURRENT_ALERTS_PATH)
+    expect((currentCall?.[1] as { params?: unknown }).params).toBeUndefined()
     // 列表首条来自同一份响应
     expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('主机 CPU 使用率过高')
   })
@@ -1562,8 +1559,6 @@ describe('HomePage', () => {
             },
           ],
           total: 3,
-          page: 1,
-          page_size: 8,
         },
       },
     })
@@ -1903,8 +1898,7 @@ describe('HomePage', () => {
     expect(page.getAttribute('style') ?? '').not.toContain('min-height: 0')
   })
 
-  it('keeps the 5-rows-per-page contract on the side-by-side alert card', async () => {
-    // 有多条当前告警时验证固定分页
+  it('keeps the side-by-side alert card layout with an internal scroll area', async () => {
     setupHomeMock({ [CURRENT_ALERTS_PATH]: CURRENT_ALERTS_OK })
 
     renderPage()
@@ -1913,10 +1907,6 @@ describe('HomePage', () => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
 
-    // 决策 91：告警卡整宽后，「5 行/页 ↔ 下发 6 条」的左右列等高手段失效并已移除；
-    // 第五轮方案 A 改为与采集健康 2:1 并排，卡体两栏在 2/3 宽度（桌面约 776px+）下
-    // 原样保留，5 行/页仍只是告警卡自身的定稿硬契约（homeLayout.ALERT_PAGE_SIZE）。
-    expect(ALERT_PAGE_SIZE).toBe(5)
     const alertCard = screen.getByTestId('alert-status-card')
     // 并排容器是 flex 分区而非栅格列：告警卡的直接宿主是 home-alert-section，
     // 其上再没有 .ant-col（不落 24 栅格）
@@ -1929,12 +1919,13 @@ describe('HomePage', () => {
     expect(alertBody.style.flexDirection).toBe('column')
     expect(screen.queryByTestId('alert-card-footer')).not.toBeInTheDocument()
     expect(screen.getByTestId('alert-stat-column')).toBeInTheDocument()
+    // 列表改为卡内滚动容器
+    expect(screen.getByTestId('latest-alert-scroll')).toBeInTheDocument()
   })
 
-  it('paginates the latest alerts at a fixed page size, independent of the viewport', async () => {
-    // 8 条当前告警（恰为数据池上限）：单页固定 ALERT_PAGE_SIZE 行，第 2 页承接剩余 3 条。
-    // 旧版按卡内实测高度反推行数（stub ResizeObserver 才能驱动），新版不再测量——不再 stub。
-    const list = Array.from({ length: LATEST_ALERT_LIMIT }, (_, i) => ({
+  it('renders all fetched alerts in an internal scroll area independent of the viewport', async () => {
+    // 8 条当前告警：全部渲染，不分页；滚动由容器承担，不随视口高度变化
+    const list = Array.from({ length: 8 }, (_, i) => ({
       id: i + 1,
       alert_name: `批量告警-${i}`,
       status: 'firing',
@@ -1946,7 +1937,7 @@ describe('HomePage', () => {
       instance_address: `10.0.0.${i}:9100`,
     }))
     setupHomeMock({
-      [CURRENT_ALERTS_PATH]: { status: 'success', data: { list, total: 8, page: 1, page_size: 8 } },
+      [CURRENT_ALERTS_PATH]: { status: 'success', data: { list, total: 8 } },
     })
 
     renderPage()
@@ -1954,22 +1945,13 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('latest-alert-0')).toBeInTheDocument()
     })
-    // 单页行数 = 固定上限；分页器出现
-    expect(screen.getAllByTestId(/^latest-alert-\d+$/)).toHaveLength(ALERT_PAGE_SIZE)
-    expect(screen.getByTestId('latest-alert-pager')).toBeInTheDocument()
-    expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('批量告警-0')
+    expect(screen.getAllByTestId(/^latest-alert-\d+$/)).toHaveLength(8)
+    expect(screen.queryByTestId('latest-alert-pager')).not.toBeInTheDocument()
 
-    // 翻页：行序号沿用数据池全局序号，翻页后不重置、不重复。
-    // 限定在告警卡内点击分页（页面另有 L3 拨测分页，避免 getByTitle('2') 歧义）
-    fireEvent.click(within(screen.getByTestId('alert-status-card')).getByTitle('2'))
-    await waitFor(() => {
-      expect(screen.getByTestId('latest-alert-6')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('latest-alert-0')).not.toBeInTheDocument()
-
-    // 列表区不再是 flex 自适应容器（不测量高度、不 overflow 兜底）
-    const region = screen.getByTestId('latest-alert-region')
-    expect(region.style.display).toBe('')
+    const scroll = screen.getByTestId('latest-alert-scroll')
+    expect(scroll.style.overflowY).toBe('auto')
+    expect(scroll.style.maxHeight).toBe('360px')
+    expect(screen.getByTestId('latest-alert-region').style.display).toBe('flex')
   })
 
   it('does not render visualization screen entry', async () => {

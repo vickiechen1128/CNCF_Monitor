@@ -78,13 +78,30 @@ type Config struct {
 }
 
 // RegisterManagementRoutes 挂载历史告警查询接口到 /api/v2/platform/alertmanager/*。
-//   - GET /alert-events        服务端分页查询
-//   - GET /alert-events/stats  首页统计（当日 / 近 7 天 / 通知中 / 静默 · 抑制）
+//   - GET /alert-events          服务端分页查询
+//   - GET /alert-events/current  全部未结告警（不分页，首页「当前告警」卡用）
+//   - GET /alert-events/stats    首页统计（当日 / 近 7 天 / 通知中 / 静默 · 抑制）
 func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, cfg Config) {
 	svc := NewService(db)
 	am := platform.Group("/alertmanager")
 	am.GET("/alert-events", ListEventsHandler(svc))
+	am.GET("/alert-events/current", CurrentEventsHandler(svc))
 	am.GET("/alert-events/stats", StatsHandler(svc, cfg))
+}
+
+// CurrentEventsHandler 处理 GET /api/v2/platform/alertmanager/alert-events/current。
+// 一次返回全部未结告警（firing/silenced/inhibited），不分页；
+// 首页告警卡用滚动条浏览，历史告警页仍走 /alert-events 分页。
+func CurrentEventsHandler(svc *Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		domain := strings.TrimSpace(c.Query("network_domain"))
+		list, total, err := ListOpenEvents(svc.db, domain)
+		if err != nil {
+			response.InternalServerError(c, err)
+			return
+		}
+		response.OK(c, gin.H{"list": list, "total": total})
+	}
 }
 
 // ListEventsHandler 处理 GET /api/v2/platform/alertmanager/alert-events。
@@ -268,6 +285,37 @@ func ListEvents(db *gorm.DB, q ListQuery) ([]EventView, int64, error) {
 		}
 		view.InstanceFields = query.InstanceFieldsOf(labels, identities)
 		views = append(views, view)
+	}
+	return views, total, nil
+}
+
+// ListOpenEvents 返回全部未结告警（firing / silenced / inhibited），不分页。
+// networkDomain 非空时按网域过滤；排序与列表一致（starts_at desc）。
+//
+// 复用 ListEvents 的筛选与视图转换：先取未结总数，再以该总数作为单页大小查询，
+// 避免在「当前告警」专用链路上复制一套过滤 / 实例回连逻辑。
+func ListOpenEvents(db *gorm.DB, networkDomain string) ([]EventView, int64, error) {
+	base := db.Model(&models.AlertEvent{}).Where("status IN ?", models.AlertEventOpenStatuses)
+	if networkDomain != "" {
+		base = base.Where("network_domain = ?", networkDomain)
+	}
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count open alert events: %w", err)
+	}
+	if total == 0 {
+		return []EventView{}, 0, nil
+	}
+
+	views, _, err := ListEvents(db, ListQuery{
+		Page:          1,
+		PageSize:      int(total),
+		StatusGroup:   statusGroupOpen,
+		NetworkDomain: networkDomain,
+		Sort:          "starts_at desc",
+	})
+	if err != nil {
+		return nil, 0, err
 	}
 	return views, total, nil
 }
