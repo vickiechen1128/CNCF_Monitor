@@ -55,10 +55,31 @@
   margin: 0;
 }
 
+/* 当前账号是下拉菜单触发器（点击展开「退出登录」）：透明按钮样式融入深色头部 */
 .app-header-account {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   line-height: 1;
+  padding: 4px 8px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.app-header-account:hover,
+.app-header-account:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.app-header-account-caret {
+  font-size: 10px;
 }
 
 /* AWS 式「横向文字 tab + 选中下划线」一级模块导航（紧跟品牌右侧，深色头部白字） */

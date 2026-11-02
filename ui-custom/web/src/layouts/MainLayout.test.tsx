@@ -43,12 +43,18 @@ vi.mock('../api/dashboardPanels', () => ({
   dashboardPanelApi: { list: listPanelsMock },
 }))
 
+// 账号下拉菜单的登出动作：只断言「调用了登出并回到登录页」，真实 API 调用由
+// api/auth.ts 的单元职责覆盖，布局测试不触网。
+const { logoutMock } = vi.hoisted(() => ({ logoutMock: vi.fn() }))
+vi.mock('../api/auth', () => ({ logout: logoutMock }))
+
 describe('MainLayout', () => {
   setupAntdTest()
 
   // 侧栏折叠偏好落在 localStorage（跨模块 / 跨刷新共用），用例间必须清干净，避免相互污染
   beforeEach(() => {
     window.localStorage.clear()
+    logoutMock.mockReset()
     listPanelsMock.mockReset()
     listPanelsMock.mockResolvedValue({
       status: 'success',
@@ -392,6 +398,26 @@ describe('MainLayout', () => {
     expect(screen.getByText('管理员')).toBeInTheDocument()
     expect(screen.getByText('admin')).toBeInTheDocument()
     expect(screen.getByText('home-content')).toBeInTheDocument()
+  })
+
+  it('opens the account dropdown and logs out back to /login', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+          <Route path="/login" element={<div>login-content</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 点击右上角账号名展开下拉菜单，菜单中有「退出登录」
+    fireEvent.click(screen.getByTestId('account-menu-trigger'))
+    const logoutItem = await screen.findByText('退出登录')
+    fireEvent.click(logoutItem)
+
+    // 调用登出（服务端会话销毁 + 本地凭据清理），并跳转登录页
+    await waitFor(() => expect(logoutMock).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('login-content')).toBeInTheDocument()
   })
 
   it('renders M08 独立顶级模块「告警收敛与通知管理」及两个二级子项并高亮（/alert-config）', async () => {

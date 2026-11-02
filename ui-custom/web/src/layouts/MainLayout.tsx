@@ -1,4 +1,4 @@
-import { Layout, Menu, Tag, Tooltip, Typography } from 'antd'
+import { Dropdown, Layout, Menu, Tag, Tooltip, Typography, message } from 'antd'
 import {
   ApartmentOutlined,
   ApiOutlined,
@@ -12,10 +12,12 @@ import {
   DatabaseOutlined,
   DeploymentUnitOutlined,
   DesktopOutlined,
+  DownOutlined,
   FileSearchOutlined,
   FileTextOutlined,
   FundProjectionScreenOutlined,
   HddOutlined,
+  LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PartitionOutlined,
@@ -29,6 +31,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuProps } from 'antd'
 import { getStoredUser } from '../api/client'
+import { logout } from '../api/auth'
 import {
   SIDER_COLLAPSED_WIDTH,
   SIDER_WIDTH,
@@ -403,6 +406,20 @@ export function MainLayout({ children }: MainLayoutProps) {
   const authUser = getStoredUser()
   const roleLabel = authUser?.role === 'admin' ? '管理员' : authUser?.role === 'user' ? '普通用户' : ''
 
+  // 账号下拉菜单：登出先尽力销毁服务端会话，再清本地凭据并回登录页。
+  // logout() 内部保证即使服务端调用失败（会话已过期 / 网络异常）也完成本地清理。
+  const handleLogout = async () => {
+    await logout()
+    message.success('已退出登录')
+    navigate('/login', { replace: true })
+  }
+  const accountMenu: MenuProps = {
+    items: [{ key: 'logout', label: '退出登录', icon: <LogoutOutlined /> }],
+    onClick: ({ key }) => {
+      if (key === 'logout') void handleLogout()
+    },
+  }
+
   return (
     <Layout className="app-layout">
       <Header className="app-header">
@@ -454,7 +471,21 @@ export function MainLayout({ children }: MainLayoutProps) {
                   {roleLabel}
                 </Tag>
               )}
-              <span className="app-header-account">{authUser.username}</span>
+              <Dropdown
+                menu={accountMenu}
+                trigger={['click']}
+                placement="bottomRight"
+              >
+                <button
+                  type="button"
+                  className="app-header-account"
+                  data-testid="account-menu-trigger"
+                  aria-label="账号菜单"
+                >
+                  {authUser.username}
+                  <DownOutlined className="app-header-account-caret" />
+                </button>
+              </Dropdown>
             </>
           ) : null}
         </div>
