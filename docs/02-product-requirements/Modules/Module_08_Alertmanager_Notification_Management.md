@@ -1,9 +1,9 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.21
+> **PRD 版本**: v1.22
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.3-a / v0.3-b / v0.3-c / v1.0
-> **原型版本**: v1.7（**v1.21 为 event 表单一事实源回填轮**——吸收 design-proposal `alert-history-model-and-home-metrics`（2026-10-26）与 `alert-event-single-source`（2026-10-29），历史告警 / 当前告警 / 首页四指标口径整体改写，属契约级修订、**原型待后续原型轮承接**；v1.13「历史告警」、v1.15「实例列口径」为 Track B 轻量增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；「路由规则」页（`RoutesPage.tsx`）的拖拽排序 / 根路由锁定等增量待跟进，见 prototype-designer 评审记录；PL-3 通知渠道/通知模板页原型增量、#32 派生预览绑定展示与 v1.20 #45–#48 的渠道/模板/路由 IA 增量，待后续原型轮承接，本轮仅回写 PRD；以 `docs/prototypes/module-08/package.json` 为准）
+> **原型版本**: v1.7（**v1.22 为告警抑制独立功能回填轮**——抑制由「仅网域离线自动生成」改为独立页面 + 独立 `/inhibitions` API + 可编辑规则，与路由保存共用同一生成器与变更单，属契约级修订、**原型待后续原型轮承接**；**v1.21 为 event 表单一事实源回填轮**——吸收 design-proposal `alert-history-model-and-home-metrics`（2026-10-26）与 `alert-event-single-source`（2026-10-29），历史告警 / 当前告警 / 首页四指标口径整体改写，属契约级修订、**原型待后续原型轮承接**；v1.13「历史告警」、v1.15「实例列口径」为 Track B 轻量增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；「路由规则」页（`RoutesPage.tsx`）的拖拽排序 / 根路由锁定等增量待跟进，见 prototype-designer 评审记录；PL-3 通知渠道/通知模板页原型增量、#32 派生预览绑定展示与 v1.20 #45–#48 的渠道/模板/路由 IA 增量，待后续原型轮承接，本轮仅回写 PRD；以 `docs/prototypes/module-08/package.json` 为准）
 > **更新日期**: 2026-11-05
 > **对应原型**: `docs/prototypes/module-08/`
 
@@ -41,7 +41,7 @@
 **阶段 4：风暴抑制期——「网域离线时，几百条告警同时爆发」**
 - 某网域整体离线时，该网域内所有主机的 `up=0` 告警会瞬间形成告警风暴
 - 痛点：次生告警淹没根因，运维无法快速定位问题
-- 对应能力：自动生成 `inhibit_rules`（网域离线时抑制 `inhibitable=true` 的次生告警）
+- 对应能力：告警抑制规则（独立「告警抑制」页维护 `inhibit_rules`；预置「网域离线时抑制 `inhibitable=true` 次生告警」场景）
 
 **阶段 5：状态可视化期——「告警到底通知了没有？」**
 - 用户需要知道告警是否已路由、是否被静默/抑制
@@ -86,7 +86,7 @@
 本模块对应 **告警收敛与通知管理域**，回答「告警如何通知、通知给谁、是否收敛、是否静默」的问题：
 
 1. **通知路由与接收人管理（MVP 批次 / v0.3 / v1.0）**：维护 Alertmanager 的 `route` / `receiver` 配置，按告警标签（如 `severity`、`team`、`network_domain`）决定通知渠道与接收人。默认配置由平台 seed 入库；路由规则在「路由规则」页以树形表单编辑，保存时由**后端**生成 `alertmanager.yml` 并进入 M09 变更确认；告警配置页只读查看，不再提供整份手写/导入入口。**路由（`route`）前台化**分期交付：**v0.3-a** 只读渲染路由树（看懂顺序与匹配）、**v0.3-b** 表单可写（后端生成路由，已提前落地）、**v0.3-c** 联动（接收人下拉、标签联想），v1.0 完整 UI。
-2. **静默与抑制管理（MVP / v1.0）**：提供静默规则 UI（创建/查询/删除）和自动抑制规则（如网域离线时抑制该网域 `inhibitable=true` 的可达性风暴）。静默作为 Alertmanager 运行时 API 状态，MVP 提供极简 UI（创建/列表/删除三个动作，API 直调即时生效）。
+2. **静默与抑制管理（MVP / v1.0；v1.22 抑制改独立功能）**：提供静默规则 UI（创建/查询/删除）与**告警抑制规则管理页**——抑制规则不再只由平台按网域离线场景自动生成，用户可在「告警抑制」页新增 / 编辑 / 删除 / 启停通用抑制规则（`source_matchers` / `target_matchers` / `equal`），保存后与路由共用同一 `alertmanager.yml` 生成与 M09 变更确认链。静默作为 Alertmanager 运行时 API 状态，MVP 提供极简 UI（创建/列表/删除三个动作，API 直调即时生效）。
 3. **告警状态查看（MVP 起，v1.21 起以 `alert_events` 为单一事实源）**：
    - **当前告警**：本模块维护 `alert_events` 事件表，由 Alertmanager webhook 留痕 + 分钟级对账写入；告警状态页「当前告警」页签展示事件表**未结三态**（告警中 / 静默中 / 抑制中），回答「现在有哪些告警、是否被静默/抑制」。
    - **历史告警**：同一事件表回答「某条告警何时触发、何时恢复、是否已结束」，一行 = 一次告警发生，按 Alertmanager `fingerprint` + `starts_at` 去重合并；恢复时间只有真实恢复才写值，其余留空不伪造。
@@ -116,7 +116,7 @@
 - M08-OPS-06：配置告警通知模板（summary / description 格式），使通知内容清晰可读（MVP 批次 PL-3）。
 - M08-OPS-07：配置告警升级策略（如 5 分钟未确认升级给主管）（v1.0）。
 - M08-OPS-08：查看历史告警（含已恢复），确认某条告警何时触发、何时恢复、何时关闭，并支持按条件筛选导出 CSV 用于日报（MVP 起；v1.21 改由 `alert_events` 事件表承载，一行 = 一次告警发生）。
-- M08-ARCH-01：当某个网域整体离线时，自动抑制该网域内 `inhibitable=true` 的可达性告警风暴，只保留 `EdgeSiteOffline` 根因告警（MVP 起，通过 Alertmanager `inhibit_rules` 自动生成）。
+- M08-ARCH-01：当某个网域整体离线时，抑制该网域内 `inhibitable=true` 的可达性告警风暴，只保留 `EdgeSiteOffline` 根因告警（MVP 起，v1.22 该场景作为一条预置抑制规则承载，用户可在「告警抑制」页启停/调整）。
 - M08-ARCH-02：在边缘网域断网场景下，边缘本地 Alertmanager 继续通过本地通知通道（本地飞书/钉钉 webhook）发送自治告警（v0.4+，与 M09 边缘配置下发配合）。
 
 ---
@@ -132,7 +132,7 @@
 | **通知渠道管理** | 管理飞书 / 钉钉 / 企业微信 / 自定义 Webhook 渠道：增删改查；Webhook 地址 SSRF 校验（默认拒绝私网 / 环回 / link-local / 云元数据，显式开关放行内网例外）；渠道无启停字段；飞书/钉钉/企业微信必须绑定模板，Webhook 禁止模板；仅被路由引用的渠道物化 receiver（`?id=<渠道ID>`）；列表显示名称/类型/被引用次数/创建时间/操作；删除被引用渠道返回 409。 | P0 / MVP 批次（PL-3，v1.20） |
 | **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间；`route` 段唯一作者=平台：默认配置 seed 提供根路由，前端只提交 `{base_checksum, route_tree}`，后端生成 YAML；路由页默认只读、点「编辑路由」进入编辑；无模式开关/导入/重新载入；接收人候选 = `default` ∪ 全部渠道 `notify-<渠道ID>`。 | P0 / MVP 批次（v0.3-a 只读 / v0.3-b 可写，已提前落地） |
 | **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、静态配置无法表达 | P0 / MVP |
-| **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
+| **告警抑制规则** | 独立页面「告警抑制」维护 Alertmanager `inhibit_rules`：通用 `source_matchers` / `target_matchers` / `equal` / `enabled`，支持新增 / 编辑 / 删除 / 启停与整份保存；网域离线抑制场景作为预置规则承载；与路由保存共用同一生成器、`amtool` 校验、M09 变更单与 reload（v1.22） | P0 / MVP |
 | **告警事件留痕与对账（v1.21）** | 平台为每个 Alertmanager receiver（含 `default`）追加内置 webhook 留痕（`POST /api/v1/webhooks/alerts`，对 AM 永远 2xx，由平台生成、不可删除）；分钟级对账拉取 AM 活跃告警与 uptime，补插漏记、关闭消失行、对齐静默/抑制状态；一行 = 一次告警发生，按 `fingerprint` + `starts_at` 去重（`occurrence_key`）。 | P0 / MVP |
 | **当前告警（事件表未结三态）** | 告警状态页默认页签展示事件表未结三态：告警中（`firing`）/ 静默中（`silenced`）/ 抑制中（`inhibited`），支持服务端筛选与分页；首页告警卡右栏同源展示全部未结告警（不分页、卡内滚动）。 | P0 / MVP |
 | **历史告警（事件表）** | 独立页面展示告警发生历史：一行 = 一次发生，七态（告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）），字段含触发时间、恢复时间、关闭时间、持续时长、实例名、网域、摘要、描述；支持按网域 / 告警名 / 实例 / 状态 / 描述 / 时间范围筛选，并按当前筛选导出 CSV（日报用途）。 | P0 / MVP |
@@ -294,11 +294,23 @@ UI 编写引导（表单）：
 - **实例级静默**：`instance` / `resource_id` 均在标签全集内，matcher 直写即实例级；表单提供「按实例选择」入口——复用 M01 资源列表搜索，选中后自动生成 **`resource_id` matcher**（UUID 稳定，不随 IP / 端口变化）；手填 `instance` 须提示其值为 `ip:exporter端口`；
 - **AND 语义提示**：同一静默内多条 matcher 为 AND 关系（`alertname + resource_id` = 静默某实例的某类告警；单 `resource_id` = 静默该实例全部告警）。
 
-### 4.3 告警抑制规则
+### 4.3 告警抑制规则（v1.22：独立页面 + 独立 API）
 
-当某个网域整体离线时，该网域内数百台主机的 `up=0` 告警会瞬间形成告警风暴。MetricCenter 通过自动生成 Alertmanager `inhibit_rules` 来抑制此类次生告警。
+当某个网域整体离线时，该网域内数百台主机的 `up=0` 告警会瞬间形成告警风暴。MetricCenter 通过 Alertmanager `inhibit_rules` 抑制此类次生告警；v1.22 起抑制规则由**独立页面「告警抑制」**承载，用户可自助新增 / 编辑 / 删除 / 启停通用规则，「网域离线抑制」只是其中一条预置规则，不再由平台单方面写死。
 
-**抑制规则生成逻辑：**
+**页面与写入口**：
+
+- **页面**：菜单「告警收敛与通知管理 → 告警抑制」（`/inhibitions`），初始只读；点「编辑抑制」进入编辑态，支持新增 / 修改 / 删除 / 启停，编辑后「保存提交」或「放弃」。
+- **API**：`GET /api/v2/platform/alertmanager/inhibitions` 只读视图（`{ items, effective_checksum, pending }`，已登录可读）；`POST /api/v2/platform/alertmanager/inhibitions` 整份保存（`{ base_checksum, inhibit_rules }`，管理员写）。**不把抑制字段塞进 `/routes` 请求体**——`/routes` 契约不变，仍为 `{base_checksum, route_tree}`。
+- **数据模型**：不新增数据库表，以最新产品视图 YAML 为配置源；字段为 `name` / `source_matchers` / `target_matchers` / `equal` / `enabled`，**禁用项与编辑态 ID 不进入 YAML，名称以 `# 抑制规则名称: ...` 注释往返保留**。
+
+**共用生成与下发**：底层共用 `SaveAlertmanagerConfig(routeTree, inhibitRules, ...)`——保存路由时使用修改后路由并**保留当前抑制**，保存抑制时**保留当前路由**并使用修改后抑制；两端都经 `BuildAlertmanagerConfig` 整份生成 `global + route + inhibit_rules + receivers`，然后复用既有 `amtool check-config`、版本留痕、M09 pending 变更单、人工确认、写盘与 reload 链，**不即时生效**。保存路由时 `inhibit_rules = nil` 表示保留当前规则；共享函数收到**显式空数组**表示清空。M09 草稿生成 / 重校同样提取并保留抑制规则。
+
+**分配置段 pending 提示**：`pending` 增加 `route_changed` / `inhibit_rules_changed` 布尔字段（比较当前 pending 与上一确认版本的对应配置段）——路由页仅在 `route_changed !== false` 时显示待确认提示，抑制页仅在 `inhibit_rules_changed !== false` 时显示；两段都变化则两页都显示；**变更单仍只有一个，确认仍针对完整 YAML**。字段缺省兼容旧客户端按 `true` 处理。
+
+**校验**：源 / 目标 matcher 均至少一条，标签名和值非空，正则合法；`equal` 标签非空且不重复；失败返回 400 `bad_request`，checksum 冲突返回 409 `conflict`，非管理员写入返回 403。
+
+**预置规则示例（网域离线抑制）：**
 
 ```yaml
 inhibit_rules:
@@ -410,16 +422,18 @@ inhibit_rules:
 | created\_by | string | 选填（服务端维护） | 创建人 | 创建人 |
 | status | enum | 选填（服务端维护） | 状态 | active / expired / pending |
 
-### 5.4 抑制规则（InhibitionRule）
+### 5.4 抑制规则（InhibitionRule，v1.22 独立化）
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|-----------|------|
-| id | string | 必填 | 抑制规则 ID | 唯一标识 |
-| source\_matchers | []Matcher | 必填 | 源告警匹配 | 触发抑制的根因告警匹配条件 |
-| target\_matchers | []Matcher | 必填 | 目标告警匹配 | 被抑制的目标告警匹配条件 |
-| equal | []string | 选填 | 等同标签 | 源与目标必须相同的标签键，如 `network_domain` |
-| is\_builtin | bool | 选填 | 内置规则 | 是否平台自动生成（如 EdgeSiteOffline 抑制规则） |
-| enabled | bool | 选填 | 启用状态 | 是否启用 |
+| id | string | 服务端维护 | 仅技术信息 | 编辑态顺序标识（`inhibit-1`…）；**不进入 YAML、不落盘** |
+| name | string | 选填 | 规则名称 | 展示用名称；以 `# 抑制规则名称: ...` 注释在 YAML 中往返保留 |
+| source\_matchers | []Matcher | 必填 | 源告警匹配 | 触发抑制的根因告警匹配条件，至少一条 |
+| target\_matchers | []Matcher | 必填 | 目标告警匹配 | 被抑制的目标告警匹配条件，至少一条 |
+| equal | []string | 选填 | 等同标签 | 源与目标必须相同的标签键，如 `network_domain`；非空且不重复 |
+| enabled | bool | 必填 | 启用状态 | 是否启用；**禁用项不输出到 YAML**（配置源保留，仅生成时剔除） |
+
+> **与 v1.20 口径的差异**：删除 `is_builtin`（原「平台自动生成」标记）——v1.22 起所有规则统一走独立页面维护，「网域离线抑制」以预置规则形态存在，不再是特殊分支；模型不落库，以最新产品视图 YAML 为配置源。
 
 ### 5.5 Matcher 结构
 
@@ -600,6 +614,18 @@ inhibit_rules:
 
 > **旧接口兼容**：M02 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 反推）保留可用，但首页与告警状态页**不再消费**，仅作历史兼容；新功能一律以本节事件端点为准。
 
+### 6.9 抑制规则 API（v1.22 新增）
+
+| 能力 | 端点 | 鉴权 | 说明 |
+|------|------|------|------|
+| 抑制规则视图 | `GET /api/v2/platform/alertmanager/inhibitions` | 全局认证（只读） | 成功 `{ items, effective_checksum, pending }`；数据源 = 平台最新产物视图（待确认草稿 > 配置版本 > 默认 seed） |
+| 抑制规则保存 | `POST /api/v2/platform/alertmanager/inhibitions` | RequireAdmin | 请求 `{ base_checksum, inhibit_rules }`（`inhibit_rules` 必填，显式空数组 = 清空）；`base_checksum` 与生效产物不一致返回 409；后端校验规则并整份生成 `alertmanager.yml`（**保留当前路由**），经 `amtool` 后落版本并触发 M09；返回 `version` 与 `change_no`（如有） |
+
+- **与路由保存的关系**：`/routes` 请求体不变（`{base_checksum, route_tree}`），两端共用 `SaveAlertmanagerConfig`——保存路由保留当前抑制、保存抑制保留当前路由；因此**不存在两条独立下发链**。
+- **pending 分段**：`pending` 含 `route_changed` / `inhibit_rules_changed`，两页各自只消费自己那段提示（详见 §4.3）。
+- **校验与错误**：规则名校验（源 / 目标 matcher 至少各一条、标签名值非空、正则合法、`equal` 非空不重复）失败 400；checksum 冲突 409；非管理员写入 403。
+- **兼容**：本节取代早期「`inhibit_rules` 未 UI 化、不生成」的旧口径；`templates` / `mute_time_intervals` 仍不生成。
+
 ---
 
 ## 7. 依赖
@@ -729,7 +755,10 @@ stateDiagram-v2
 - [ ] {P0} 告警配置页只读展示当前生效配置与历史版本；无导入/手写/重新挂载/模式开关入口；调整统一回路由规则页保存。
 - [ ] {v0.3} 「路由规则」页交互规则：`group_interval` 不整除 `repeat_interval` 时给出**警告级**提示（不阻断，与 AM 行为一致）；`group_interval` 兼作通知管道 timeout 给出说明性 Tooltip；`continue` 有解释（关闭=命中即停，打开=继续匹配下一级）。
 - [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
-- [ ] {P0} 当网域整体离线时，自动生成 `inhibit_rules` 抑制该网域 `inhibitable=true` 的告警风暴（只保留根因告警）。
+- [ ] {P0，v1.22} 「告警抑制」页可查看、新增、编辑、删除、启停抑制规则，支持「保存提交」与「放弃」；保存只提交 `{base_checksum, inhibit_rules}`，不与路由树混在一个请求里；非管理员写入返回 403。
+- [ ] {P0，v1.22} 抑制规则保存与路由保存互不覆盖：保存路由保留当前抑制规则、保存抑制保留当前路由；显式空数组可清空抑制规则；禁用规则不输出到 YAML、名称以注释往返保留；M09 草稿生成 / 重校同样保留抑制规则。
+- [ ] {P0，v1.22} 分配置段 pending 提示：`pending.route_changed` / `pending.inhibit_rules_changed` 分别驱动路由页与抑制页的待确认提示，只变一段只提示一页、两段都变两页都提示；变更单仍只有一张、确认仍针对完整 YAML。
+- [ ] {P0，MVP} 预置「网域离线抑制」规则可生效：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警（只保留根因告警），且用户可在抑制页启停 / 调整该规则。
 - [ ] {P0} 可查看当前告警（事件表未结三态：告警中 / 静默中 / 抑制中），AM `unprocessed`「待处理」不再对外展示。
 - [ ] {P0} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
 - [ ] {P0，v1.12} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）默认页签为「当前告警」：展示事件表未结三态（告警中 / 静默中 / 抑制中）三张统计卡 + 列表，支持按网域与状态服务端筛选、分页；第二页签「规则评估」展示 Prometheus firing / pending（文案「观察中」），只读参考；页面不出现「待处理」字样。
@@ -757,7 +786,8 @@ stateDiagram-v2
 - [ ] {P0} **投递链路**：中心 `prometheus.yml` 含 `alerting.alertmanagers[].static_configs[].targets` 且指向注入的 AM 地址（**非硬编码**）；`alertmanager.yml` 无产物时中心不生成 `alerting` 段；边缘配置包不含 `alerting` / `rule_files`（vmagent / prometheus-agent 硬限制）；`promtool check config` 对含 `alerting` 段的产物校验通过。承载方为 M09 生成器（见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §6.4.4）。
 - [ ] {P0} 修改路由/抑制策略后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
-- [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
+- [ ] {P0，v1.22} **抑制规则 API 契约**：`GET /inhibitions` 返回 `{items, effective_checksum, pending}`；`POST /inhibitions` 请求 `{base_checksum, inhibit_rules}`，校验失败 400（源 / 目标 matcher 至少各一条、标签名值非空、正则合法、`equal` 非空不重复）、checksum 冲突 409、非管理员 403；抑制页与路由页共用同一 `amtool check-config` → `AlertmanagerConfigVersion` → M09 pending → 人工确认 → 写盘 → reload 链路，不即时生效。
+- [ ] {P0，v1.22} 抑制规则不落库：以最新产品视图 YAML 为配置源，`id` / 编辑态字段不落盘，名称以注释往返保留；`templates` / `mute_time_intervals` 仍不生成。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
 - [ ] {P0，v1.21} 历史告警与当前告警消费事件端点：`GET /alert-events`（分页 + 七态/`open` 别名筛选 + `description`/`summary` 模糊 + 网域/实例/时间范围）、`GET /alert-events/current`（不分页全量未结）、`GET /alert-events/stats`（四指标 + 未结计数 + 真实/未知拆分）；授权网域过滤由服务端强制注入；空结果返回 `[]` 而非 `null`。
 - [ ] {P0，v1.21} **事件写入链路**：内置 webhook `POST /api/v1/webhooks/alerts` 对 AM 永远 2xx；按 `occurrence_key` 去重（重复 firing 不新增行、不复活已结束发生；重复 resolved 幂等）；resolved 缺有效 `endsAt` 不写入、不伪造恢复时间；`mutedBy` 归一为静默；**不新增 match-all 兜底子路由**。
@@ -782,7 +812,7 @@ stateDiagram-v2
 | `Receiver` | 平台接收人 | 平台按被路由引用的渠道物化的 Alertmanager 通知目标，名称恒为 `notify-<渠道ID>`；`default` 为空接收人（不通知），不提供用户手写 receiver |
 | `Route` | 路由规则 | 按告警标签决定通知到哪个接收人、如何分组、何时重复；唯一作者=平台 |
 | `Silence` | 静默规则 | 临时屏蔽匹配告警的通知，常用于计划内变更 |
-| `InhibitionRule` | 抑制规则 | 当根因告警存在时，自动抑制相关次生告警，减少告警风暴 |
+| `InhibitionRule` | 抑制规则 | 当根因告警存在时，自动抑制相关次生告警，减少告警风暴；v1.22 起在独立「告警抑制」页维护（`source_matchers` / `target_matchers` / `equal` / `enabled`），与路由共用生成与下发链 |
 | `AlertmanagerConfigVersion` | 配置版本 | M08 自身维护的 `alertmanager.yml` 内容留痕；默认 seed 为 `system`，页面只读，不提供重新挂载 |
 | `alertmanager.yml` | Alertmanager 配置 | 由平台生成（默认 seed + 路由树 + 被引用渠道 receiver），模板/密钥/历史手写 receiver 不落盘 |
 | `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态；v1.21 起仅作对账内部与兼容保留数据源，`unprocessed` 不再对外展示 |
@@ -826,6 +856,7 @@ stateDiagram-v2
 | 告警收敛与通知管理 / 告警状态 | 告警状态页 | 菜单进入 | MVP |
 | 告警收敛与通知管理 / 历史告警 | 历史告警页 | 菜单进入 | MVP |
 | 告警收敛与通知管理 / 静默管理 | 静默管理页 | 菜单进入，创建走抽屉 | MVP |
+| 告警收敛与通知管理 / 告警抑制 | 告警抑制页 | 菜单进入，默认只读；点「编辑抑制」进入编辑态（v1.22） | MVP |
 | 告警收敛与通知管理 / 告警配置 | Alertmanager 配置页 | 菜单进入，只读 | MVP |
 | 告警收敛与通知管理 / 通知渠道 | 通知渠道页 | 菜单进入，编辑走抽屉 | MVP 批次（PL-3） |
 | 告警收敛与通知管理 / 通知模板 | 通知模板页 | 菜单进入，按渠道类型 Tab，编辑走抽屉 | MVP 批次（PL-3） |
@@ -930,6 +961,27 @@ stateDiagram-v2
 
 跨模块跳转：接收人下拉数据源来自「通知渠道」；保存产物经 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 变更确认管道下发；分组键联想复用静默管理页能力。
 
+### 11.8 告警抑制页（v1.22 新增）
+
+**用户任务**：在根因告警存在时自动屏蔽次生告警，减少告警风暴；自助维护通用抑制规则，无需手写 YAML。
+
+入口与路径：菜单「告警收敛与通知管理 / 告警抑制」。
+
+布局与列设计：列表以表格展示抑制规则（规则名称 / 源告警匹配 / 目标告警匹配 / 等同标签 / 启用状态 / 操作）；匹配条件单元格内联展示多条 matcher（多条为 AND 关系）；顶部操作位仅「编辑抑制」（只读态）与「保存提交 / 放弃」（编辑态）。
+
+关键交互规则：
+
+- **进入编辑先刷新**：点「编辑抑制」先 `GET /inhibitions` 拉取最新视图载入编辑区，避免用旧数据覆盖他人改动。
+- **编辑态能力**：新增 / 修改 / 删除 / 启停规则；「启用」决定是否输出到 YAML，禁用规则保留在配置源但生成时剔除；规则名称仅作展示、以注释往返保留。
+- **保存 = `POST /inhibitions`**：请求只带 `{base_checksum, inhibit_rules}`，后端校验后**保留当前路由**整份生成 `alertmanager.yml`，经 `amtool` 后产 M09 变更单；成功回只读态并提示「待确认下发」；`base_checksum` 过期返回 409 提示重新载入；**不即时生效**。
+- **pending 提示**：仅当 `inhibit_rules_changed !== false` 时显示「当前显示的是待确认版本」横幅（路由变化由路由页提示，互不串扰）。
+- **匹配条件编辑**：源 / 目标 matcher 各至少一条，标签名 / 值非空，`is_regex=true` 时前端预校验正则合法性（AM 侧 400 兜底保留）；`equal` 标签非空且不重复；标签名联想复用静默页四层并集键联想能力。
+- **放弃编辑**：丢弃本地改动并回到只读态，不产生任何后端写入。
+
+状态与边界：本页只改 `inhibit_rules`，不改路由与接收人；保存成功不即时生效，需 M09 变更单人工确认后 reload；静默是运行时 API 状态、仍归静默管理页，不进本页。
+
+跨模块跳转：变更确认与下发由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 配置中心承接；「网域离线抑制」预置规则的根因告警来源见 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md)；`inhibitable` 标签约定见 [Module\_01](Module_01_Metric_Collection_Center.md) 规则编辑。
+
 ---
 
 ## Change Log
@@ -938,8 +990,8 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响章节 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.22 | 2026-11-05 | 修改 | **告警抑制独立功能回填（M08-INHIBIT-01）**：①§1 目标 2 / §2 M08-ARCH-01 / §3.1 功能表——抑制由「仅网域离线自动生成」改为独立页面 + 独立 API + 可编辑通用规则；②§4.3 重写——页面 `/inhibitions`、`GET/POST /inhibitions`、不与路由混请求、共用 `SaveAlertmanagerConfig` 互不覆盖、显式空数组清空、分配置段 pending（`route_changed` / `inhibit_rules_changed`）、校验与错误码；③§5.4 模型改 `name` + 五字段并删除 `is_builtin`（不落库、名称注释往返）；④新增 §6.9 抑制规则 API；⑤§9 补页面 / 互不覆盖 / pending 分段 / API 契约验收；⑥§10 术语、§11.1 页面矩阵、新增 §11.8 告警抑制页同步。 | 1 / 2 / 3.1 / 4.3 / 5.4 / 6.9 / 9 / 10 / 11.1 / 11.8 / Change Log | MVP 生效 | ready |
 | v1.21 | 2026-11-05 | 修改 | **event 表单一事实源回填（吸收 design-proposal `alert-history-model-and-home-metrics` + `alert-event-single-source`）**：①§1 / §2 / §3.1 / §3.2 / §4.4 改写——当前告警 = 事件表未结三态（告警中 / 静默中 / 抑制中）、规则评估降为只读参考、AM 通知状态四态降为兼容保留、「待处理」下线；②新增 §5.9 `AlertEvent` 模型（`occurrence_key` / `closed_at` / 七态 / UTC+8 / 180 天保留 + 四指标互斥口径）；③新增 §6.8 事件端点（`/alert-events`、`/alert-events/current`、`/alert-events/stats`、前端 CSV 导出），旧 M02 `/api/v1/alerts/history` 标兼容保留；④§4.4 补 webhook 留痕 + 分钟级对账 + 安全阀口径；⑤§9 补四指标 / 当前告警不分页 / 导出 / 写入对账 / schema 验收；⑥§10 补事件七态与四指标术语；⑦§11.3 / §11.4 页面契约改写（当前告警页签 + 历史页七态 / 关闭时间 / 导出）。 | 1 / 2 / 3.1 / 3.2 / 4.4 / 5.9 / 6.3 / 6.8 / 7.1 / 9 / 10 / 11.3 / 11.4 / Change Log | MVP 生效 | ready |
 | v1.20 | 2026-10-23 | 修改 | 收割 dev-feedback #45–#48：①默认 `alertmanager.yml` 入库 seed，路由页只读/编辑同源，删除前端合成空树；②路由保存改为 `POST /routes`（`base_checksum` + `route_tree`），后端生成整份 YAML，删除 `route-setting`/模式开关/导入/重挂载/托管预置 seed/最小运行骨架；③接收人集合收敛为 `default` ∪ 全部渠道 `notify-<ID>`，仅物化被路由引用渠道，删除 `dead_receivers`；④通知渠道去启停/接收人配置/receiver-snippet/桥令牌，列表五列 + 引用计数 + 删除保护，钉钉加签；⑤通知模板改可变实体（去版本历史/remount/status/checksum、按类型 Tab、内置只读、模板退出 yml、`?id=`）；⑥新增自定义 Webhook 类型（原样转发、模板禁令、掩码/必填）。 | 1 / 3.1 / 3.4 / 4.1 / 4.1.1 / 5.1 / 5.2 / 5.6-5.8 / 6.4-6.7 / 7.1 / 8.1 / 9 / 10 / 11.1 / 11.6 / 11.7 | MVP/v0.3 | ready |
-| v1.19 | 2026-10-15 | 修改 | 收割 dev-feedback #17/#21/#29-#44：新增 §3.4「通知渠道、通知模板与渲染桥（PL-3）」与 §5.7/§5.8/§6.5-§6.7 端点与模型全量回写（#29 去重键、#30 渠道↔模板绑定三级优先级、#41 Makefile `?=` 默认值）；§4.1/§6.4 落两段式人工闸门（#43）；§4.1.1/§6.7 清除 `route_files` 残留、补 Mode 持久化（#36）与托管预置种子（#33）、根兜底接管不判 mode 关键事实；§5.6 扩 `discarded` 终态与废弃联动（#44）；§11.6 四卡 IA 重构 + PageIntro 统一（#38/#39/#42）、§11.7 首屏自动导入与 declared/dead 口径（#40/#41）、模式改名「我来编辑 \| 平台生成」（#40）；§11.1 页面矩阵补通知渠道/通知模板页。 | 3.1 / 3.4 / 4.1 / 4.1.1 / 5.6 / 5.7 / 5.8 / 6.4-6.7 / 10 / 11 | v0.3 | ready |
-> 完整 Change Log 历史（v1.18 及更早）见 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」。
+> 完整 Change Log 历史（v1.19 及更早）见 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」。
 
