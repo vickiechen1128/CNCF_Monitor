@@ -1,9 +1,9 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
-> 版本：v2.2
+> 版本：v2.3
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-09-02
+> 更新日期：2026-11-05
 
 ---
 
@@ -55,7 +55,7 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | **Module_10 监控源登记册** | - | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入（由 v0.2 后移） | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
 | **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
 | **Module_03 网关与认证** | - | - | 统一入口路由；Ingestion 路由（由 v0.2 后移） | - | 认证鉴权中间件；请求级审计；多租户路由 |
-| **Module_05 自定义前端门户** | 首页 MVP 子集（决策 72）：系统快速入口 + 使用指引（五步开箱动线）+ 告警状态数字（AM 治理态为主，空态引导） | - | Custom UI 门户；PromQL 查询页；告警状态页；**监控大屏（Grafana iframe 嵌入 + 预置仪表盘模板，决策 51）**；首页升级概览 Dashboard（轻量图表 ECharts/AntV + 采集覆盖率卡片 + 大屏快捷入口） | - | Dashboard-as-Code 治理（M11 预留：dashboard 版本化 / 按租户分发） |
+| **Module_05 自定义前端门户** | 首页 MVP 子集（决策 72）：系统快速入口 + 使用指引（五步开箱动线）+ 告警状态数字（AM 治理态为主，空态引导）+ **面板挂载（Grafana URL 登记 + 首页「自定义大屏」动态菜单 + iframe 展示，M05 PRD v1.15 提前落地）** | - | Custom UI 门户；PromQL 查询页；告警状态页；**监控大屏（Grafana iframe 嵌入 + 预置仪表盘模板，决策 51；URL 挂载已提前 MVP、预置模板仍 v0.3）**；首页升级概览 Dashboard（轻量图表 ECharts/AntV + 采集覆盖率卡片 + 大屏快捷入口） | - | Dashboard-as-Code 治理（M11 预留：dashboard 版本化 / 按租户分发） |
 
 > **P0/P1/P2 说明**：本矩阵只标注该版本是否包含某模块能力；模块内部的优先级（P0/P1/P2）详见各模块 PRD 功能范围表。
 
@@ -261,6 +261,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
+| v2.3 | 2026-11-05 | 修改 | M05 面板挂载提前到 MVP（feature/zwq 回填批次 E，M05 PRD v1.15）：§1.5 矩阵 Module_05 MVP 列补「面板挂载（Grafana URL 登记 + 首页『自定义大屏』动态菜单 + iframe 展示）」，v0.3 列标注「URL 挂载已提前 MVP、预置仪表盘模板仍 v0.3」；不改 M05 其余版本归属 | 功能-版本矩阵（Module_05 行） |
 | v2.2 | 2026-09-02 | 修改 | v0.2 范围定版（2026-09-02 v0.2 规划评审，与产品负责人逐项确认）：①M03（统一入口/Ingestion 路由）与 M10（监控源登记册/外部 Remote Write/Ingestion Gateway）整体后移 v0.3——外联需求优先级低；②M01 克隆 Job（移出待评估）/草稿批量提交/业务健康度看板/service_discovery 后移 v0.3，filter（决策 53）/Job 多网域扇出（决策 54）/网域覆盖表保留 v0.2，新增实例级端口覆盖（`Resource.scrape_port`）与 cAdvisor 容器资源监控口径（docker_sd 降级 v0.3+ 预留）；③M09 保留扇出/filter，补 target 端口解析链与 K8s 划域备忘（overlay CNI 独立建域、VPC 原生 CNI 可并入）；④M07 IP 推导（决策 52/58）后移 v0.3、新增 `scrape_port` 字段；M06 `ip_cidrs` 后移 v0.3、新增划域指导原则；⑤§1 里程碑/§1.5 矩阵/§2.2 集成模式开关 {v0.3}/§3 Phase 5/§4.7 同步 | 全文档 | 决策 60 落版同步：§1.5 矩阵 Module_08 MVP 列补「alertmanager.yml 变更经 M09 变更确认下发（管理域 scope、不扇出）」；Module_09 MVP 列补「alertmanager.yml 纳入变更确认」；修订此前「MVP 单域 M08 直接 reload」口径 |
 | v2.0 | 2026-08-31 | 修改 | 决策 59 落版（M08 MVP 告警分发最小闭环）：§1.5 矩阵 Module_08 MVP 列由「-」补为「alertmanager.yml 文件挂载（接收人/路由/抑制低频配置）+ 静默管理极简 UI（API 直调）」，v0.3 列改为接收人/路由表单化 UI + 告警状态页（决策 55）+ 告警抑制引擎；§4.5 告警 MVP~v0.3 行补文件挂载 + 静默 UI 说明；修正 M08 PRD（P0/MVP）与矩阵（MVP 空缺）的不一致 |
 | v1.9 | 2026-08-31 | 修改 | 决策 51~54 落版同步：①§1.5 矩阵 M01 v0.2 补 filter 模式（决策 53，由 v0.3 提前；新增资源自动纳入）与 Job 多网域扇出（决策 54），v0.3 列移除 filter（已提前）；M09 v0.2 补扇出生成与 filter 实时求值；M06 v0.2 补 `ip_cidrs`（决策 52）；M07 v0.2 补导入 IP 推导、v0.4 补归属四级解析链；M05 v0.3 补监控大屏（Grafana 嵌入）与首页轻量图表/引导，v1.0 列改 M11 预留（不再自研看板编辑器）；M08 行更名「告警收敛与通知管理」并标注决策 49；②§4.6 前端可视化 v0.3 改「Grafana iframe 嵌入 + ECharts/AntV」 | 功能-版本矩阵 / §4.6 |
