@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.20
+> **PRD 版本**: v1.21
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.3-a / v0.3-b / v0.3-c / v1.0
-> **原型版本**: v1.7（v1.13「历史告警」、v1.15「实例列口径」为 Track B 轻量增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；「路由规则」页（`RoutesPage.tsx`）的拖拽排序 / 根路由锁定等增量待跟进，见 prototype-designer 评审记录；PL-3 通知渠道/通知模板页原型增量、#32 派生预览绑定展示与 v1.20 #45–#48 的渠道/模板/路由 IA 增量，待后续原型轮承接，本轮仅回写 PRD；以 `docs/prototypes/module-08/package.json` 为准）
-> **更新日期**: 2026-10-23
+> **原型版本**: v1.7（**v1.21 为 event 表单一事实源回填轮**——吸收 design-proposal `alert-history-model-and-home-metrics`（2026-10-26）与 `alert-event-single-source`（2026-10-29），历史告警 / 当前告警 / 首页四指标口径整体改写，属契约级修订、**原型待后续原型轮承接**；v1.13「历史告警」、v1.15「实例列口径」为 Track B 轻量增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；「路由规则」页（`RoutesPage.tsx`）的拖拽排序 / 根路由锁定等增量待跟进，见 prototype-designer 评审记录；PL-3 通知渠道/通知模板页原型增量、#32 派生预览绑定展示与 v1.20 #45–#48 的渠道/模板/路由 IA 增量，待后续原型轮承接，本轮仅回写 PRD；以 `docs/prototypes/module-08/package.json` 为准）
+> **更新日期**: 2026-11-05
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -73,7 +73,7 @@
 | 临时静默已知故障 | 运维工程师 | 计划内数据库迁移 | 创建静默规则避免告警轰炸 | 静默期间匹配告警不再通知，过期自动恢复 | 原始需求 |
 | 抑制告警风暴 | 运维架构师 | 某网域整体离线 | 自动抑制该网域内次生告警 | 只保留根因告警，通知量显著下降 | 原始需求 |
 | 静默 API 版本迁移 | 运维工程师 | Alertmanager 升级到 ≥0.27 | 静默管理功能正常可用 | 静默列表/创建/删除走 v2 API，不再报 410 Gone | F-3 / 决策 61 |
-| 查看告警通知状态 | 运维工程师 | 告警触发后确认是否已通知 | 查看告警是否已路由、是否被静默/抑制 | 告警状态页展示 active/silenced/inhibited/unprocessed | 决策 55 |
+| 查看当前告警 | 运维工程师 | 告警触发后确认是否还在发生 | 查看当前未结束的告警、是否被静默/抑制 | 告警状态页「当前告警」展示事件表未结三态（告警中/静默中/抑制中） | 决策 55 / v1.21 |
 
 > 本模块覆盖的用户故事详见 [§2 用户故事](#2-用户故事)。
 
@@ -87,11 +87,12 @@
 
 1. **通知路由与接收人管理（MVP 批次 / v0.3 / v1.0）**：维护 Alertmanager 的 `route` / `receiver` 配置，按告警标签（如 `severity`、`team`、`network_domain`）决定通知渠道与接收人。默认配置由平台 seed 入库；路由规则在「路由规则」页以树形表单编辑，保存时由**后端**生成 `alertmanager.yml` 并进入 M09 变更确认；告警配置页只读查看，不再提供整份手写/导入入口。**路由（`route`）前台化**分期交付：**v0.3-a** 只读渲染路由树（看懂顺序与匹配）、**v0.3-b** 表单可写（后端生成路由，已提前落地）、**v0.3-c** 联动（接收人下拉、标签联想），v1.0 完整 UI。
 2. **静默与抑制管理（MVP / v1.0）**：提供静默规则 UI（创建/查询/删除）和自动抑制规则（如网域离线时抑制该网域 `inhibitable=true` 的可达性风暴）。静默作为 Alertmanager 运行时 API 状态，MVP 提供极简 UI（创建/列表/删除三个动作，API 直调即时生效）。
-3. **告警状态查看（MVP 起）**：
-   - 通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例（回答「当前触发了哪些规则」）。
-   - 本模块直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
-   - **历史告警**：通过 Module\_02 的 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发/恢复区间），展示规则级告警的触发时间、恢复时间与持续时长。恢复时间为 Prometheus 求值视角的近似值，不等同于故障真实恢复时间。
-   - **实例口径**：三个视图中的「实例」统一拆分为**「实例名」+「采集地址」两列**——「实例名」取 [Module\_07](Module_07_Monitoring_Object_Management.md) 资源清单的口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`），由服务端按告警标签 `resource_id` 回连 M01 资源表回填；「采集地址」为 Prometheus 抓取地址（`ip:exporter端口` 或拨测 URL，即 `instance` 标签值），表头必须标注「采集器地址，非业务端口」，避免用户把 `:9100`（exporter 端口）误读为业务端口（详见 [4.4 节](#44-告警状态查看)）。
+3. **告警状态查看（MVP 起，v1.21 起以 `alert_events` 为单一事实源）**：
+   - **当前告警**：本模块维护 `alert_events` 事件表，由 Alertmanager webhook 留痕 + 分钟级对账写入；告警状态页「当前告警」页签展示事件表**未结三态**（告警中 / 静默中 / 抑制中），回答「现在有哪些告警、是否被静默/抑制」。
+   - **历史告警**：同一事件表回答「某条告警何时触发、何时恢复、是否已结束」，一行 = 一次告警发生，按 Alertmanager `fingerprint` + `starts_at` 去重合并；恢复时间只有真实恢复才写值，其余留空不伪造。
+   - **规则评估（只读参考）**：通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示规则求值态 firing/pending（文案「观察中」），仅作技术参考，不再是首页与告警状态页的主数据源。
+   - **通知状态代理**：本模块仍保留 Alertmanager `/api/v2/alerts` 通知状态代理（兼容保留，前端不再消费为单一视图）。
+   - **实例口径**：告警列表的「实例」拆分为**「实例名」+「采集地址」两列**——「实例名」取 [Module\_07](Module_07_Monitoring_Object_Management.md) 资源清单口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`），由服务端按告警标签 `resource_id` 回连 M01 资源表回填；「采集地址」为 Prometheus 抓取地址（`ip:exporter端口` 或拨测 URL，即 `instance` 标签值），表头标注「采集器地址，非业务端口」（详见 [4.4 节](#44-告警状态查看)）。历史告警页的实例名随事件行携带的 `resource_name` 展示，缺失显示 `-`。
 4. **通知渠道与模板（MVP 批次）**：维护飞书/钉钉/企业微信/自定义 Webhook 等通知渠道与消息模板，支撑告警通知内容格式化；模板为可变实体，不进入 `alertmanager.yml`。
 
 ### 边界与配置形态
@@ -109,12 +110,12 @@
 
 - M08-OPS-01：配置通知渠道（飞书/钉钉/企业微信/自定义 Webhook）与通知模板，指定渠道参数与内容格式（MVP 批次 PL-3；渠道无启停，IM 必须绑定模板）。
 - M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 批次默认只读，v0.3-b 起路由页可编辑；保存由后端生成 YAML）。
-- M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（MVP 起，v1.12 由 v0.3 提前）。
+- M08-OPS-03：查看当前告警（事件表未结三态：告警中 / 静默中 / 抑制中），判断告警是否仍在发生、是否被静默/抑制（MVP 起；v1.21 由「通知状态四态」收敛为事件表口径）。
 - M08-OPS-04：创建临时静默规则，避免计划内变更或已知故障引发告警轰炸（MVP 起）。
 - M08-OPS-05：查看并删除正在生效的静默规则（MVP 起）。
 - M08-OPS-06：配置告警通知模板（summary / description 格式），使通知内容清晰可读（MVP 批次 PL-3）。
 - M08-OPS-07：配置告警升级策略（如 5 分钟未确认升级给主管）（v1.0）。
-- M08-OPS-08：查看历史告警（含已恢复），确认某条告警何时触发、何时恢复（MVP 起，基于 Prometheus `ALERTS` 时间序列重建触发/恢复区间，恢复时间为求值视角近似值）。
+- M08-OPS-08：查看历史告警（含已恢复），确认某条告警何时触发、何时恢复、何时关闭，并支持按条件筛选导出 CSV 用于日报（MVP 起；v1.21 改由 `alert_events` 事件表承载，一行 = 一次告警发生）。
 - M08-ARCH-01：当某个网域整体离线时，自动抑制该网域内 `inhibitable=true` 的可达性告警风暴，只保留 `EdgeSiteOffline` 根因告警（MVP 起，通过 Alertmanager `inhibit_rules` 自动生成）。
 - M08-ARCH-02：在边缘网域断网场景下，边缘本地 Alertmanager 继续通过本地通知通道（本地飞书/钉钉 webhook）发送自治告警（v0.4+，与 M09 边缘配置下发配合）。
 
@@ -132,24 +133,28 @@
 | **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间；`route` 段唯一作者=平台：默认配置 seed 提供根路由，前端只提交 `{base_checksum, route_tree}`，后端生成 YAML；路由页默认只读、点「编辑路由」进入编辑；无模式开关/导入/重新载入；接收人候选 = `default` ∪ 全部渠道 `notify-<渠道ID>`。 | P0 / MVP 批次（v0.3-a 只读 / v0.3-b 可写，已提前落地） |
 | **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、静态配置无法表达 | P0 / MVP |
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
-| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP（v1.12 由 v0.3 提前） |
-| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费；实例列口径同「实例名 + 采集地址」（v1.15） | —（依赖 M02） |
-| **历史告警** | 独立页面展示规则级告警的触发/恢复历史（含已恢复）：触发时间、恢复时间（按 Prometheus 求值近似）、持续时长、实例、网域、摘要；数据由 [Module\_02: 查询中心](Module_02_Query_Center.md) `/api/v1/alerts/history` 提供，本模块只读消费；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP |
+| **告警事件留痕与对账（v1.21）** | 平台为每个 Alertmanager receiver（含 `default`）追加内置 webhook 留痕（`POST /api/v1/webhooks/alerts`，对 AM 永远 2xx，由平台生成、不可删除）；分钟级对账拉取 AM 活跃告警与 uptime，补插漏记、关闭消失行、对齐静默/抑制状态；一行 = 一次告警发生，按 `fingerprint` + `starts_at` 去重（`occurrence_key`）。 | P0 / MVP |
+| **当前告警（事件表未结三态）** | 告警状态页默认页签展示事件表未结三态：告警中（`firing`）/ 静默中（`silenced`）/ 抑制中（`inhibited`），支持服务端筛选与分页；首页告警卡右栏同源展示全部未结告警（不分页、卡内滚动）。 | P0 / MVP |
+| **历史告警（事件表）** | 独立页面展示告警发生历史：一行 = 一次发生，七态（告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知）），字段含触发时间、恢复时间、关闭时间、持续时长、实例名、网域、摘要、描述；支持按网域 / 告警名 / 实例 / 状态 / 描述 / 时间范围筛选，并按当前筛选导出 CSV（日报用途）。 | P0 / MVP |
+| **规则评估（只读参考）** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示规则求值态 firing/pending（文案「观察中」），仅作技术参考，不再是首页与告警状态页主数据源。 | —（依赖 M02） |
+| **通知状态代理（兼容保留）** | 保留 Alertmanager `/api/v2/alerts` 通知状态代理（active / silenced / inhibited / unprocessed）；事件表对账内部仍消费该数据，前端不再以该四态作为主视图。 | P0 / MVP（v1.21 起降为兼容保留） |
 | **通知模板管理** | 管理告警通知的 title / body 模板（Go template，支持 `{{ $labels }}`、`{{ $value }}`、`{{ $annotations }}` 等变量）：内置模板 + 自定义模板；模板是可变实体，原地新建/编辑/复制/删除，无版本历史/remount/status/checksum 展示；按渠道类型 Tab；内置只读、可复制；被渠道绑定的模板禁止删除；模板不进入 `alertmanager.yml`，桥按渠道 ID 实时读取。自 v1.0 提前至 MVP 批次落地（PL-3，v1.20） | P0 / MVP 批次（PL-3，v1.20；原 P2 / v1.0） |
 | **告警升级与降噪** | 升级策略（未确认超时升级）、值班组、告警降噪（合并相似告警） | P2 / v1.0 |
 | **边缘本地通知通道** | 断网场景下边缘 Alertmanager 使用本地 webhook 通知（v0.4+ 多网域） | P2 / v0.4+ |
 
-### 3.2 Prometheus 告警状态 vs Alertmanager 通知状态
+### 3.2 告警事件事实源 vs 规则求值 / 通知状态（v1.21 收敛）
 
-| 维度 | Prometheus `/api/v1/alerts` | Alertmanager `/api/v2/alerts` / 通知状态 API |
-|------|------------------------------|-----------------------------------------------|
-| 语义 | 「什么出了问题」—— 告警规则求值状态 | 「谁正在被通知」—— 路由、静默、抑制后的通知状态 |
-| 数据来源 | Prometheus 规则管理器求值结果 | Alertmanager 接收到的告警及处理结果 |
-| 包含状态 | firing / pending | active / suppressed / silenced / unprocessed |
-| 模块归属 | 由 [Module\_02](Module_02_Query_Center.md) 代理 | 由 Module_08 负责集成与展示 |
-| 适用场景 | 查看当前有哪些规则被触发、影响哪些对象 | 查看告警是否已路由、是否被静默、通知发送情况 |
+> **v1.21 关键决策**：以 `alert_events` 事件表为**唯一事实源**——当前告警、历史告警、首页四格统计全部同源；取消「AM 通知状态四态」与「Prometheus firing/pending」作为主视图的地位，二者降级为参考/兼容数据源。详见 design-proposal `alert-event-single-source`。
 
-> UI 设计建议：告警状态页可同时展示「Prometheus 当前触发告警」与「Alertmanager 通知状态」两个视图，并在图例/说明中明确区分二者语义，避免用户混淆。
+| 维度 | `alert_events` 事件表（本模块，主事实源） | Prometheus `/api/v1/alerts`（规则求值，参考） | Alertmanager `/api/v2/alerts`（通知状态，兼容保留） |
+|------|------------------------------------------|----------------------------------------------|------------------------------------------------|
+| 语义 | 「这条告警发生了没有、现在什么状态、何时恢复/关闭」 | 「规则现在求值成什么状态」 | 「告警经过路由、静默、抑制后正在被谁通知」 |
+| 数据来源 | AM webhook 留痕 + 分钟级对账 | Prometheus 规则管理器求值结果 | Alertmanager 接收到的告警及处理结果 |
+| 包含状态 | 七态：firing / silenced / inhibited / resolved / silenced_closed / inhibited_closed / lost | firing / pending | active / suppressed / silenced / unprocessed |
+| 时间口径 | UTC+8 带偏移存储；`closed_at` 为所有终态的关闭时刻，统计统一用它 | 求值采样时间 | AM 事件时间 |
+| 适用场景 | 当前告警页、历史告警页、首页四格统计 | 「规则评估」只读参考页签 | 对账内部消费；前端不作主视图 |
+
+**「待处理」口径**：AM `unprocessed` 不再对外展示（对账本就按 `firing` 处理，无信息丢失）；Prometheus `pending` 文案统一为「观察中」，不作行动对象。
 
 ### 3.3 中心/边缘告警灾备边界
 
@@ -324,22 +329,31 @@ inhibit_rules:
 
 > `inhibitable` 字段来自 Module_01 的 `MonitoringRule.labels` 或 `annotations` 约定（建议在规则编辑 UI 中默认提供并允许用户覆盖）。M08 生成 `inhibit_rules` 时消费该字段。
 
-### 4.4 告警状态查看
+### 4.4 告警状态查看（v1.21：事件表单一事实源）
 
-用户动线为「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」的连续任务链。「告警状态页」归属本模块（告警域工作台）；Module_02 只交付注入代理 API，不出告警相关页面。三个视图如下：
+用户动线为「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」的连续任务链。「告警状态页」归属本模块（告警域工作台）；Module_02 只交付注入代理 API，不出告警相关页面。v1.21 起收敛为「两个页签 + 一个独立历史页」：
 
-- **Prometheus 当前触发告警**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
-- **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。代理时必须在服务端强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter，前端筛选只承担 UX、不构成权限。
-- **历史告警**：作为独立页面「历史告警」交付（菜单「告警收敛与通知管理 → 历史告警」），不复用「当前告警状态」列表语义——当前视图只回答「现在有哪些告警」，历史视图回答「某条告警何时触发、何时恢复」。数据由 Module\_02 `/api/v1/alerts/history` 提供（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发区间），支持按 `network_domain` / `alertname` / `instance` / 状态（触发中 / 已恢复）/ 时间范围筛选；默认时间窗 24h、最大 7d。恢复时间为 Prometheus 求值视角的近似值（最后一次 firing 样本时间 + 一个求值步长），UI 列名必须标注「恢复时间（按 Prometheus 求值）」，不得表述为「故障恢复时间」。
+- **当前告警（默认页签，事件表未结三态）**：数据源 `GET /api/v2/platform/alertmanager/alert-events?status=open`，展示 `firing`（告警中）/ `silenced`（静默中）/ `inhibited`（抑制中），三张统计卡 + 服务端筛选 / 分页；支持按 `network_domain` 筛选。**不再展示 AM 通知状态四态，「待处理」下线。**
+- **规则评估（第二页签，只读参考）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`，展示规则求值态 firing / pending（文案「观察中」），仅作技术参考，不作行动对象。
+- **历史告警（独立页面）**：菜单「告警收敛与通知管理 → 历史告警」，数据源 `GET /api/v2/platform/alertmanager/alert-events`，一行 = 一次告警发生；默认时间窗 24h、最大 7d；支持按 `network_domain` / `alertname` / 实例 / 状态（七态）/ 描述 / 时间范围筛选；提供手动刷新与**按当前筛选导出 CSV**（日报用途）。
 
-**实例列口径（三个视图统一）**：告警列表原「实例」列展示的是 Prometheus 抓取地址（`instance` 标签 = `ip:exporter端口`，如 `1.15.94.116:9100`），`:9100` 是 exporter 监听端口，用户从未填写，极易被误读为「业务端口配错了」或「这是另一台机器」。三个视图统一拆为两列：
+**首页四格（本模块统计口径的消费方）**：`GET /api/v2/platform/alertmanager/alert-events/stats` 返回四指标（今日告警 / 今日告警今日恢复 / 历史遗留告警 / 历史遗留今日恢复）与真实恢复 / 恢复时间未知拆分；四指标与当前告警列表同表同源、同一 UTC+8 日界。详见 [Module_05](Module_05_Custom_UI.md) §4.2 / §11.3。
 
-- **「实例名」**：取资源清单口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`，与 [Module\_07](Module_07_Monitoring_Object_Management.md) §5.12 的展示口径一致）。服务端以告警标签 `resource_id` 批量回连 M01 五类资源表回填，与资源改名实时一致、覆盖存量告警（无需重新下发）；无 `resource_id` 时显示 `-`，不回落成地址（否则两列同值，等于没修）。
+**实例列口径（当前告警 / 历史告警统一）**：告警列表原「实例」列展示的是 Prometheus 抓取地址（`instance` 标签 = `ip:exporter端口`，如 `1.15.94.116:9100`），`:9100` 是 exporter 监听端口，用户从未填写，极易被误读为「业务端口配错了」或「这是另一台机器」。两个视图统一拆为两列：
+
+- **「实例名」**：取资源清单口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`，与 [Module\_07](Module_07_Monitoring_Object_Management.md) §5.12 的展示口径一致）。当前告警由服务端以告警标签 `resource_id` **一次性批量**回连 M01 五类资源表回填，与资源改名实时一致、覆盖存量告警（无需重新下发）；历史告警页展示事件行携带的 `resource_name`，缺失显示 `-`，不回落成采集地址（否则两列同值，等于没修）。
 - **「采集地址」**：`instance` 标签原文（原「实例」列的取值），表头必须挂 tooltip「采集器地址，非业务端口」。
-- **例外与回落**（不得假设一定有 `resource_id`）：① 拨测（blackbox）Job 的 target 组 `Labels` 为空 map、无 `resource_id`；② 聚合 / 全局规则（`sum(...) by (...)`）会抹掉 `instance` 与 `resource_id`；③ 用户自写规则若未选取 M01 下发的序列。以上三类「实例名」显示 `-`、「采集地址」显示原值，聚合 / 全局规则的「采集地址」沿用「全局/聚合」。
+- **例外与回落**（不得假设一定有 `resource_id`）：① 拨测（blackbox）告警无 `resource_id`；② 聚合 / 全局规则（`sum(...) by (...)`）会抹掉 `instance` 与 `resource_id`；③ 用户自写规则若未选取 M01 下发的序列。以上三类「实例名」显示 `-`、「采集地址」显示原值，聚合 / 全局规则的「采集地址」沿用「全局/聚合」。
 - **筛选口径**：历史告警页的「实例」筛选框同时匹配实例名与采集地址（展示改造后若只匹配地址，用户看到 `ceshi` 却搜不到）。
 - 不做「点击实例跳转 M01 资源详情」。
 - **标签侧增量（规划中）**：让 `targets/*.json` 直接带上 `instance_name` 标签（补 Module\_07 §5.12 已声明但未实现的映射），范围仅 4 类静态资源（host / database / middleware / generic_target；application 已有 `service_name`、拨测 URL 与容器不加），价值是「资源删除后历史告警仍可读」与「PromQL 可读」，不阻塞实例名回连方案。
+
+**写入与对账口径（v1.21）**：
+
+- **webhook 留痕**：由唯一生成规则给每个 receiver（含 `default`）追加 `webhook_configs → POST /api/v1/webhooks/alerts`，平台生成、用户不可删除；**不加 match-all 兜底子路由**（会吞掉 AM 根 receiver 的默认投递）。对 AM 永远 2xx，缺口由对账补。
+- **去重**：按 `occurrence_key`（`fingerprint` + 归一化 UTC 毫秒 `starts_at` 的 SHA-256）合并同一次发生；firing 只刷新展示字段、不复活已结束的发生；resolved 回填 `ends_at = closed_at`，缺 `endsAt` 不伪造恢复时间；`mutedBy` 与 `silencedBy` 同义归入静默。
+- **对账**：每分钟拉 AM 活跃告警（含 `silencedBy` / `inhibitedBy`）+ uptime——对齐未结三态、补插漏记（只补 `state=active`，首次触发即被静默/抑制的不补插）、关闭消失行（静默中 → 静默期间结束、抑制中 → 抑制期间结束、其余 → 已结束（恢复时间未知））；安全阀：AM 不可达整轮跳过、AM 启动不足 3 分钟不关行、行创建不足 2 分钟不关/不补、活跃集连续 2 轮为空才允许关行、单轮关闭占比 >50% 且 >10 条先缓一轮。
+- **保留清理**：终态行默认保留 180 天（`ALERT_EVENT_RETENTION_DAYS` 可配），未结行永不清理。
 
 - **边缘本地告警状态（P2）**：通过 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) EdgeHeartbeat 上报，展示在 Module_11 采集节点状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
@@ -471,6 +485,40 @@ inhibit_rules:
 > - 模板内容与绑定**不进入** `alertmanager.yml`；桥在投递时按渠道 ID 实时读取 `default_template_id`，换绑/改内容不产生 M09 变更单、不 reload。
 > - 模板类型仅限飞书/钉钉/企业微信；自定义 Webhook 不使用模板。
 
+### 5.9 告警事件（AlertEvent，v1.21 新增）
+
+事件表为**告警状态页「当前告警」、历史告警页与首页四格统计的唯一事实来源**；一行 = 一次告警发生，按 Alertmanager `fingerprint` + `starts_at` 合并去重。
+
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | uint | 必填 | 仅技术信息 | 唯一标识 |
+| fingerprint | string | 选填 | 仅技术信息 | Alertmanager 告警指纹；空指纹报文原样落库、不参与唯一约束 |
+| occurrence\_key | string | 选填 | 仅技术信息 | 一次发生的去重键：SHA-256(`fingerprint` + 归一化 UTC 毫秒 `starts_at`)；非空时全表部分唯一，兜底 webhook 与对账并发 / 迟到推送 / 跨库精度差异 |
+| status | enum | 必填 | 状态 | 七态：`firing`（告警中）/ `silenced`（静默中）/ `inhibited`（抑制中）/ `resolved`（已恢复）/ `silenced_closed`（静默期间结束）/ `inhibited_closed`（抑制期间结束）/ `lost`（已结束，恢复时间未知） |
+| starts\_at | datetime | 必填 | 触发时间 | 告警开始时间，UTC+8 带偏移存储；四指标「今日告警」按它计数 |
+| ends\_at | datetime | 选填 | 恢复时间 | 仅 `resolved` 写真实恢复时间（= AM `endsAt`）；其余终态留空、不伪造 |
+| closed\_at | datetime | 选填 | 关闭时间 | 所有终态都有值：`resolved` 时 = `ends_at`，其余终态 = 对账发现时刻；统计统一用它，已建索引 |
+| summary / description | string | 选填 | 摘要 / 描述 | 告警内容与详细描述，供列表与筛选、导出使用 |
+| resource\_name | string | 选填 | 实例名 | 告警标签 `resource_id` 回连资源表得到的可读实例名；无 `resource_id` 时为空，前端显示 `-` |
+| network\_domain / network\_domain\_name | string | 选填 | 网域 | 事件行携带的网域标签与中文展示名；缺失显示 `-`，不回连网域配置 |
+| labels | json | 选填 | 仅技术信息 | 告警标签快照，供对账与筛选使用 |
+| source / receiver / group\_key / last\_notified\_at | — | 选填 | 仅技术信息 | 诊断字段：投递来源、接收人、分组键、最后通知时间（多 receiver 场景排障用） |
+| created\_at / updated\_at | datetime | 服务端维护 | 仅技术信息 | 创建 / 更新时间 |
+
+**状态机与统计口径**：
+
+- **未结三态**（`firing` / `silenced` / `inhibited`）按 `fingerprint` 部分唯一；对账在三态间互跳，判定关闭后重新活跃时在原行恢复未结状态并清空 `closed_at` / `ends_at`（已真实 resolved 的不复活）。
+- **终态四类**：`resolved`（真实恢复，`closed_at` = 恢复时间）/ `silenced_closed` / `inhibited_closed` / `lost`（恢复信息丢失，`ends_at` 留空）。
+- **四指标**（`GET .../alert-events/stats`，全部按 UTC+8 自然日、互斥不重复）：
+  | 指标 | 口径 |
+  |------|------|
+  | 今日告警 | `starts_at` 落在今天自然日内的发生数（严格按开始时间；昨天开始今天仍在持续的不计入） |
+  | 今日告警今日恢复 | `starts_at` 与 `closed_at` **均**落在今天（不含历史告警今天恢复） |
+  | 历史遗留告警 | `starts_at` 早于今天 0 点，且当前未结或今天关闭 |
+  | 历史遗留今日恢复 | 上项中 `closed_at` 落在今天的子集 |
+- 时间边界先转 UTC+8 再进 SQL；历史表时间字段统一按 UTC+8 带偏移存储，迁移只处理本表，其他表历史时间不重写。
+- 保留清理：启动先清一次、之后每 24 小时清理 `closed_at` 早于保留期（默认 180 天，`ALERT_EVENT_RETENTION_DAYS` 可配）的终态行；未结行永不清理。
+
 ---
 
 ## 6. 接口设计
@@ -494,12 +542,13 @@ inhibit_rules:
 - 按 §4.2.1 四层并集口径返回分组键集：target_system 固定清单（`resource_id` / `instance` / `job`）∪ 被 `enabled + draft_status=ready` Job 实际引用模板的 enabled mappings TargetLabel ∪ `enabled + ready + central/both` 规则的 `alertname` / `severity` / 自定义 labels 键 ∪ external 固定清单（`network_domain_id` / `zone_type`）。
 - 分组与键去重；模板键缺失时对应组为空；不改既有静默三端点契约。
 
-### 6.3 通知状态代理
+### 6.3 通知状态代理（v1.21 起兼容保留）
 
 `GET /api/v2/platform/alertmanager/alerts`（对 Alertmanager `/api/v2/alerts` 的封装）。
 
 - 返回告警经过路由、静默、抑制后的通知状态，映射为 active / silenced / inhibited / unprocessed。
 - 服务端强制注入当前用户授权网域集合 filter，不信任前端传参；授权 = 全部网域时不附加 filter。
+- **v1.21**：事件表对账内部仍消费本端点数据；前端不再以该四态作为主视图（当前告警改由 §6.8 事件端点承载），端点保留以兼容既有调用方。
 
 ### 6.4 路由保存与变更确认
 
@@ -540,6 +589,17 @@ inhibit_rules:
 
 > `declared_receivers` 仅为当前 YAML `receivers:` 段的只读展示辅助；**不参与**路由接收人可选集合、合法性校验或物化判定。前端悬空判据固定为 `default` ∪ 全部渠道 `notify-<渠道ID>`；`dead_receivers` 已删除，未引用渠道是正常状态，由通知渠道页「被引用次数」表达。
 
+### 6.8 告警事件查询（v1.21 新增）
+
+| 能力 | 端点 | 鉴权 | 说明 |
+|------|------|------|------|
+| 事件列表 | `GET /api/v2/platform/alertmanager/alert-events` | 全局认证（只读） | 服务端分页查询事件表；Query：`status`（七态精确值，或分组别名 `open` = 未结三态 `firing/silenced/inhibited`）、`network_domain`、`alertname`、实例、`description`（模糊）、`summary`（模糊）、时间范围、`page` / `page_size`；按 `starts_at` 倒序；授权网域过滤由服务端强制注入 |
+| 当前告警（不分页） | `GET /api/v2/platform/alertmanager/alert-events/current` | 全局认证（只读） | 一次返回全部未结告警（`firing/silenced/inhibited`），响应 `{ list, total }`；可选 `network_domain`；供首页「当前告警」卡一次取满、卡内滚动浏览（历史页仍走分页列表） |
+| 统计（四指标） | `GET /api/v2/platform/alertmanager/alert-events/stats` | 全局认证（只读） | 返回四指标（今日告警 / 今日告警今日恢复 / 历史遗留告警 / 历史遗留今日恢复）+ 真实恢复 / 恢复时间未知拆分 + 未结计数（`open_total` / `open_firing` / `open_silenced` / `open_inhibited`，不限今天）；可选 `network_domain` 过滤；所有时间边界先转 UTC+8 |
+| 历史告警导出 | 前端 CSV 导出（无独立后端端点） | 全局认证 | 与列表共用筛选参数，按 100 条/页拉取当前筛选下全部记录，生成带 UTF-8 BOM 的 CSV；字段：告警名称、状态、网域、实例名、摘要、描述、触发时间、恢复时间、关闭时间、持续秒数；CSV 转义引号/换行并中和表格公式前缀；不导出采集地址 |
+
+> **旧接口兼容**：M02 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 反推）保留可用，但首页与告警状态页**不再消费**，仅作历史兼容；新功能一律以本节事件端点为准。
+
 ---
 
 ## 7. 依赖
@@ -550,11 +610,12 @@ inhibit_rules:
 |------|-------------------|-------------------|
 | 告警规则求值 | 不介入 | Prometheus Rule Manager / vmalert 执行 |
 | 告警收敛 | 通过 UI 配置生成 `route` / `group_by` | 原生 group 执行 |
-| 告警抑制规则生成 | **自动生成 `inhibit_rules`（网域离线场景）** | 原生执行抑制 |
+| 告警事件留痕与对账 | 内置 webhook 留痕（`/api/v1/webhooks/alerts`，平台生成、不可删除）+ 分钟级对账写入 `alert_events` | 原生投递与状态计算 |
+| 告警抑制规则生成 | **生成 `inhibit_rules`（v1.21 起由「告警抑制」页独立维护并与路由共用生成器）** | 原生执行抑制 |
 | 静默 | 调用 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询 | 原生 silence 管理 |
 | 通知路由 | 平台生成 `route` 段 + 仅物化被引用渠道的 `receiver`（`default` 为空接收人） | 原生 route 执行 |
 | 通知发送 | 通知渲染桥 + 可扩展 Webhook | 飞书/钉钉/企业微信/自定义 Webhook 等实际发送 |
-| 通知状态查询 | Module_08 代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API | 原生提供告警处理状态 |
+| 通知状态查询 | Module_08 代理 Alertmanager `/api/v2/alerts`（v1.21 起兼容保留，主视图改用事件表） | 原生提供告警处理状态 |
 | `rules.yml` 生成与下发 | 不介入 | 不介入 |
 
 > **通知路由归属补充（v1.20）**：「生成 `route` / `receiver`」为 MetricCenter 职责，且 **`route` 段唯一作者 = 平台**；`receivers` 只物化 `default` 与被路由引用的渠道，不存在手写 receiver / 平台槽位双作者。详见 [4.1.1](#411-route-段唯一作者与默认配置)。
@@ -606,7 +667,7 @@ stateDiagram-v2
     expired --> [*]
 ```
 
-### 8.3 告警通知状态（Alertmanager 对告警的处理结果）
+### 8.3 告警通知状态（Alertmanager 对告警的处理结果，v1.21 起为内部/兼容视图）
 
 ```mermaid
 stateDiagram-v2
@@ -617,6 +678,31 @@ stateDiagram-v2
     silenced --> [*]: 静默到期
     inhibited --> active: 根因告警恢复
 ```
+
+> 该状态机是 Alertmanager 内部处理结果，v1.21 起**仅作事件表对账的输入与兼容数据源**，不再作为前端主视图；对外统一使用 §8.4 事件状态。
+
+### 8.4 告警事件状态（AlertEvent，v1.21 新增）
+
+```mermaid
+stateDiagram-v2
+    [*] --> firing: webhook 插入 / 对账补插
+    firing --> silenced: 对账对齐命中静默
+    firing --> inhibited: 对账对齐命中抑制
+    silenced --> firing: 静默解除
+    inhibited --> firing: 抑制解除（根因恢复）
+    firing --> resolved: resolved webhook 回填真实恢复
+    silenced --> silenced_closed: 对账发现消失（静默期间结束）
+    inhibited --> inhibited_closed: 对账发现消失（抑制期间结束）
+    firing --> lost: 对账发现消失且无恢复信息（已结束，恢复时间未知）
+    resolved --> [*]
+    silenced_closed --> [*]
+    inhibited_closed --> [*]
+    lost --> [*]
+```
+
+- 未结三态（`firing` / `silenced` / `inhibited`）按 `fingerprint` 部分唯一；对账判定关闭后重新活跃时在原行恢复未结状态并清空 `closed_at` / `ends_at`（已真实 resolved 的不复活）。
+- `closed_at` 为所有终态的关闭时刻，四指标统计统一用它；`ends_at` 仅 `resolved` 有真实恢复时间。
+- 同 `fingerprint` 不同 `starts_at` 视为不同 occurrence：旧行按原规则关闭、新行按补插规则创建。
 
 ---
 
@@ -638,17 +724,20 @@ stateDiagram-v2
 - [ ] {P0，桥安全} 桥端点不再使用 `NOTIFY_BRIDGE_TOKEN` / Bearer；依赖部署层网络限制；文档明示任何能访问端点的人都能伪造通知。
 - [ ] {P0，签名} 钉钉加签（timestamp+sign 拼 URL query）与飞书 body 注入签名可用；签名开关可清空历史密钥；企业微信无加签；自定义 Webhook 不签名。
 - [ ] {P0} 端到端告警链路可验证：触发一条告警规则 → Alertmanager 按平台生成配置路由 → 渠道实际收到通知。
-- [ ] {P0} **告警可投递到 Alertmanager**：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「Alertmanager 通知状态」视图可见该告警。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §6.4.4）；此前未接线时本视图恒为空。
+- [ ] {P0，v1.12} 告警可投递到 Alertmanager：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「当前告警」页签可见该告警（v1.21 起由事件表承载）。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §6.4.4）；此前未接线时本视图恒为空。
 - [ ] {P0} 通知渠道可配置飞书 / 钉钉 / 企业微信 / 自定义 Webhook 中至少一种；IM 渠道必须绑定模板，Webhook 禁止模板。
 - [ ] {P0} 告警配置页只读展示当前生效配置与历史版本；无导入/手写/重新挂载/模式开关入口；调整统一回路由规则页保存。
 - [ ] {v0.3} 「路由规则」页交互规则：`group_interval` 不整除 `repeat_interval` 时给出**警告级**提示（不阻断，与 AM 行为一致）；`group_interval` 兼作通知管道 timeout 给出说明性 Tooltip；`continue` 有解释（关闭=命中即停，打开=继续匹配下一级）。
 - [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
 - [ ] {P0} 当网域整体离线时，自动生成 `inhibit_rules` 抑制该网域 `inhibitable=true` 的告警风暴（只保留根因告警）。
-- [ ] {P0} 可查看 Alertmanager 通知状态（active / silenced / inhibited / unprocessed）。
+- [ ] {P0} 可查看当前告警（事件表未结三态：告警中 / 静默中 / 抑制中），AM `unprocessed`「待处理」不再对外展示。
 - [ ] {P0} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
-- [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
-- [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看规则级告警触发/恢复历史：列表展示告警名称、实例、网域、状态（触发中 / 已恢复）、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要，支持按 `network_domain` / `alertname` / `instance` / 状态 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；历史深度受 Prometheus TSDB 保留策略限制，页面需有对应提示。
-- [ ] {P0，v1.15} 告警状态页两个视图与历史告警页的「实例」列均拆为**「实例名」+「采集地址」两列**：实例名显示用户在 M01 资源清单中填写的名字（如主机 `ceshi`），采集地址显示采集器地址（如 `1.15.94.116:9100`）且表头提示「采集器地址，非业务端口」；M01 中改名后告警列实时跟随；无 `resource_id` 的告警（拨测 / 聚合 / 自写规则）实例名显示 `-`、不回落成地址；聚合 / 全局规则采集地址显示「全局/聚合」；历史告警页「实例」筛选框输入实例名或采集地址均可命中。
+- [ ] {P0，v1.12} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）默认页签为「当前告警」：展示事件表未结三态（告警中 / 静默中 / 抑制中）三张统计卡 + 列表，支持按网域与状态服务端筛选、分页；第二页签「规则评估」展示 Prometheus firing / pending（文案「观察中」），只读参考；页面不出现「待处理」字样。
+- [ ] {P0，v1.21} 首页告警卡与「当前告警」页签同源：`GET /alert-events/current` 一次返回全部未结告警，首页右栏不分页、改为卡内纵向滚动展示全部未结告警（超可视高度出现滚动条）；无未结告警时显示「当前无告警」，统计接口失败时四格显示 `-`、不阻塞当前告警列表。
+- [ ] {P0，v1.21} 四指标统计口径互斥：今日告警严格按 `starts_at`；今日告警今日恢复要求今天触发且今天关闭（不含历史告警今天恢复）；历史遗留告警 = 今天 0 点前触发且当前未结或今天关闭；历史遗留今日恢复为其中今天关闭的子集；四指标与当前告警列表同表同源、同一 UTC+8 日界；「首次触发即被静默/抑制、从未通知」的告警不补插进事件表。
+- [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看告警发生历史：一行 = 一次发生，展示告警名称、实例名、网域、状态（七态）、触发时间、恢复时间、关闭时间、持续时长、摘要、描述，支持按 `network_domain` / `alertname` / 实例 / 状态 / 描述 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；恢复时间仅真实恢复才有值，「已结束（恢复时间未知）」为中性色终态。
+- [ ] {P0，v1.21} 历史告警页提供「导出」：与列表共用筛选参数拉取全部命中记录，生成带 UTF-8 BOM 的 CSV（字段含告警名称、状态、网域、实例名、摘要、描述、触发/恢复/关闭时间、持续秒数），转义引号/换行并中和表格公式前缀，不导出采集地址。
+- [ ] {P0，v1.15} 告警状态页两个页签与历史告警页的「实例」列均拆为**「实例名」+「采集地址」两列**：实例名显示用户在 M01 资源清单中填写的名字（如主机 `ceshi`），采集地址显示采集器地址（如 `1.15.94.116:9100`）且表头提示「采集器地址，非业务端口」；M01 中改名后告警列实时跟随；无 `resource_id` 的告警（拨测 / 聚合 / 自写规则）实例名显示 `-`、不回落成地址；聚合 / 全局规则采集地址显示「全局/聚合」；历史告警页「实例」筛选框输入实例名或采集地址均可命中。
 - [ ] {P0，v1.16} 创建静默表单提供 matcher 编写引导：①标签名输入框按「系统与采集 / 标签模板 / 规则标签 / 网域标识」四组联想可匹配键（§4.2.1 四层并集，聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`）；②勾选正则时前端预校验正则合法性（非法正则提交前拦截）；③提供「按实例选择」入口——从 M01 资源清单搜索选中后自动生成 `resource_id` 匹配条件（实例级静默），手填 `instance` 时提示其值为采集地址 `ip:exporter端口`；④表单明示多条匹配条件为 AND 关系。
 - [ ] {v1.0} 告警升级策略（模板已 MVP 批次交付）。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
@@ -670,8 +759,12 @@ stateDiagram-v2
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
-- [ ] {P0，v1.13} 历史告警页消费 Module\_02 `/api/v1/alerts/history`：返回字段含 `alertname` / `instance` / `network_domain` / `state`（firing/resolved）/ `fired_at` / `resolved_at` / `duration_seconds` / `summary` / `value`，空结果返回 `[]` 而非 `null`；授权网域过滤由服务端强制注入。
-- [ ] {P0，v1.15} 三条告警读取链路（M02 `/api/v1/alerts`、M02 `/api/v1/alerts/history`、M08 `/api/v2/platform/alertmanager/alerts`）的响应均新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address` 字段：服务端按告警标签 `resource_id` **一次性批量**回连 M01 五类资源表（禁止逐条 N+1），`resource_name` 取值口径为 host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`；无 `resource_id` 或回连未命中时 `resource_name` 为空串、`instance_address` 保留原 `instance` 标签值（不丢失既有展示）；`instance_display`（兼容字段）语义修订为「`resource_name` 非空取之，否则取 `instance_address`」。回连为**只读**跨表查询，不写 M01 任何表。
+- [ ] {P0，v1.21} 历史告警与当前告警消费事件端点：`GET /alert-events`（分页 + 七态/`open` 别名筛选 + `description`/`summary` 模糊 + 网域/实例/时间范围）、`GET /alert-events/current`（不分页全量未结）、`GET /alert-events/stats`（四指标 + 未结计数 + 真实/未知拆分）；授权网域过滤由服务端强制注入；空结果返回 `[]` 而非 `null`。
+- [ ] {P0，v1.21} **事件写入链路**：内置 webhook `POST /api/v1/webhooks/alerts` 对 AM 永远 2xx；按 `occurrence_key` 去重（重复 firing 不新增行、不复活已结束发生；重复 resolved 幂等）；resolved 缺有效 `endsAt` 不写入、不伪造恢复时间；`mutedBy` 归一为静默；**不新增 match-all 兜底子路由**。
+- [ ] {P0，v1.21} **分钟级对账**：补插只补 `state=active`、首次触发即被静默/抑制的不补插；对齐未结三态；关闭消失行按原状态归 `silenced_closed` / `inhibited_closed` / `lost`；AM 不可达整轮跳过、AM 启动不足 3 分钟不关行、行创建不足 2 分钟不关/不补、活跃集连续 2 轮为空才允许关行、单轮关闭占比 >50% 且 >10 条先缓一轮；同 `fingerprint` 不同 `starts_at` 的新 occurrence 在宽限期内旧行不提前关闭。
+- [ ] {P0，v1.21} **schema 与保留清理**：`alert_events` 含 `occurrence_key` / `closed_at` 列与索引；时间字段按 UTC+8 带偏移存储；终态行默认保留 180 天（`ALERT_EVENT_RETENTION_DAYS` 可配）启动即清一次、之后每 24 小时清理，未结行永不清理；迁移只处理本表、其他表历史时间不重写。
+- [ ] {P0，v1.21} **导出**：CSV 带 UTF-8 BOM、字段与 §6.8 一致、跟随当前筛选参数、转义引号/换行并中和表格公式前缀、不导出采集地址。
+- [ ] {P0，v1.15} 告警读取链路（M02 `/api/v1/alerts`、M08 事件端点、M08 `/api/v2/platform/alertmanager/alerts`）的响应均新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address` 字段：服务端按告警标签 `resource_id` **一次性批量**回连 M01 五类资源表（禁止逐条 N+1），`resource_name` 取值口径为 host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`；无 `resource_id` 或回连未命中时 `resource_name` 为空串、`instance_address` 保留原 `instance` 标签值（不丢失既有展示）；`instance_display`（兼容字段）语义修订为「`resource_name` 非空取之，否则取 `instance_address`」。回连为**只读**跨表查询，不写 M01 任何表。
 - [ ] {P0，v1.15} 实例展示回落链修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（删除默认标签模板从不产出的死键 `hostname`；补入 application 实际产出的 `service_name`）。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
 - [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的平台生成 `alertmanager.yml`（含默认 seed；校验失败不落库、仅返回行级错误）；管道版本与下发状态以 M09 `ConfigVersion` 为准。
@@ -692,9 +785,16 @@ stateDiagram-v2
 | `InhibitionRule` | 抑制规则 | 当根因告警存在时，自动抑制相关次生告警，减少告警风暴 |
 | `AlertmanagerConfigVersion` | 配置版本 | M08 自身维护的 `alertmanager.yml` 内容留痕；默认 seed 为 `system`，页面只读，不提供重新挂载 |
 | `alertmanager.yml` | Alertmanager 配置 | 由平台生成（默认 seed + 路由树 + 被引用渠道 receiver），模板/密钥/历史手写 receiver 不落盘 |
-| `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态 |
-| `firing` / `resolved`（历史告警） | 触发中 / 已恢复 | 历史告警页状态：`firing`=查询窗口结束时仍在触发；`resolved`=触发区间已结束（恢复时间为 Prometheus 求值近似值） |
-| `fired_at` / `resolved_at` | 触发时间 / 恢复时间（按 Prometheus 求值） | 由 Module\_02 `/api/v1/alerts/history` 基于 `ALERTS` 时间序列重建 |
+| `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态；v1.21 起仅作对账内部与兼容保留数据源，`unprocessed` 不再对外展示 |
+| `AlertEvent`（事件表） | 告警发生记录 | 一行 = 一次告警发生，按 `fingerprint` + `starts_at` 去重；当前告警 / 历史告警 / 首页四格的唯一事实来源（v1.21） |
+| `firing` / `silenced` / `inhibited`（未结三态） | 告警中 / 静默中 / 抑制中 | 当前告警页签与首页右栏展示的未结状态 |
+| `resolved` / `silenced_closed` / `inhibited_closed` / `lost`（终态四类） | 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知） | 历史告警页终态；仅 `resolved` 有真实恢复时间，其余终态 `ends_at` 留空 |
+| `starts_at` / `ends_at` / `closed_at` | 触发时间 / 恢复时间 / 关闭时间 | 事件表时间字段，UTC+8 带偏移；统计统一用 `closed_at`，恢复时间仅真实恢复才有值 |
+| 今日告警 | 今日告警 | `starts_at` 落在今天自然日内的发生数（严格按开始时间），首页四格之一（v1.21） |
+| 今日告警今日恢复 | 今日告警今日恢复 | 今天触发且今天关闭的终态数，不含历史告警今天恢复（v1.21） |
+| 历史遗留告警 | 历史遗留告警 | 今天 0 点前触发且当前未结或今天关闭（v1.21） |
+| 历史遗留今日恢复 | 历史遗留今日恢复 | 历史遗留告警中今天关闭的子集（v1.21） |
+| 当前告警 | 当前告警 | 事件表未结三态（告警中 / 静默中 / 抑制中），当前告警页签与首页右栏同源 |
 | `resource_id` / `resource_name` / `resource_category` | 资源标识 / 实例名 / 资源类型 | 服务端按告警标签 `resource_id` 回连 Module\_01 资源表得到（v1.15）；`resource_name` 即用户在资源清单中看到的实例名 |
 | `instance` 标签 / `instance_address` 字段 | 采集地址 | Prometheus 抓取地址 `ip:exporter端口`（拨测为 URL）；**不是业务端口、不是实例名**，UI 表头须提示「采集器地址，非业务端口」 |
 | `instance_display` | 实例展示值（兼容字段） | `resource_name` 非空取之，否则取 `instance_address`；两者皆空表示聚合 / 全局告警 |
@@ -737,33 +837,36 @@ stateDiagram-v2
 - 数据为空展示空态占位，并提供进入创建或配置的引导入口。
 - 列表类页面提供手动刷新；历史类数据不自动轮询。
 
-### 11.3 告警状态页
+### 11.3 告警状态页（v1.21：当前告警 + 规则评估）
 
-**用户任务**：查看当前触发告警及其通知状态（是否已路由、被静默、被抑制）。
+**用户任务**：一眼看清现在还有哪些告警没结束、其中哪些被静默/抑制；需要技术参考时再看规则求值态。
 
-入口与路径：菜单「告警收敛与通知管理 / 告警状态」。
+入口与路径：菜单「告警收敛与通知管理 / 告警状态」，默认页签「当前告警」。
 
-布局与列设计：页面分「Prometheus 当前触发告警」与「Alertmanager 通知状态」两个视图区块；告警列表含告警名称、实例名、采集地址、网域、状态、触发时间列；实例列拆为「实例名 + 采集地址」两列，采集地址列表头带「采集器地址，非业务端口」提示。
+布局与列设计：页面分两个页签——
 
-关键交互规则：支持按网域筛选；实例名随资源改名实时跟随；无法回连资源标识的告警实例名展示为「-」，不回落成地址。
+- **当前告警（默认）**：顶部三张统计卡（告警中 / 静默中 / 抑制中，取 `open_firing` / `open_silenced` / `open_inhibited`）+ 服务端筛选与分页的列表；列表列含告警名称、实例名、采集地址、网域、状态、触发时间，实例列拆为「实例名 + 采集地址」两列，采集地址列表头带「采集器地址，非业务端口」提示。
+- **规则评估（只读参考）**：展示 Prometheus firing / pending（文案「观察中」），明示「仅供参考，不作行动对象」。
 
-状态与边界：通知状态覆盖 active / silenced / inhibited / unprocessed；本页只读消费数据，不在此页修改配置。
+关键交互规则：支持按网域与状态服务端筛选，切换筛选回到第 1 页；实例名随资源改名实时跟随；无法回连资源标识的告警实例名展示为「-」，不回落成地址；历史告警页与当前告警页对同一 occurrence 的状态文案一致；页面不出现「待处理」字样。
 
-跨模块跳转：实例名数据回连 [Module\_01](Module_01_Metric_Collection_Center.md) 资源清单；Prometheus 视图数据依赖 [Module\_02](Module_02_Query_Center.md) 代理接口，本模块只读消费。
+状态与边界：状态枚举为告警中 / 静默中 / 抑制中（未结三态）；本页只读消费数据，不在此页修改配置；事件表由 webhook + 分钟级对账写入，当前告警视图最多约 1 分钟滞后（换取单一事实源，产品侧已确认接受）。
 
-### 11.4 历史告警页
+跨模块跳转：实例名数据回连 [Module\_01](Module_01_Metric_Collection_Center.md) 资源清单；规则评估页数据依赖 [Module\_02](Module_02_Query_Center.md) 代理接口，本模块只读消费。
 
-**用户任务**：查询某条规则级告警何时触发、何时恢复。
+### 11.4 历史告警页（v1.21：事件表 + 筛选导出）
 
-入口与路径：菜单「告警收敛与通知管理 / 历史告警」。
+**用户任务**：查询某条告警何时触发、何时恢复、何时关闭，并按条件导出用于告警处理日报。
 
-布局与列设计：表格列含告警名称、实例名、采集地址、网域、状态（触发中 / 已恢复）、触发时间、恢复时间、持续时长、摘要；顶部筛选区含网域、告警名、实例、状态、时间范围。
+入口与路径：菜单「告警收敛与通知管理 / 历史告警」；操作区提供「刷新」与「导出」。
 
-关键交互规则：默认时间窗 24 小时、最大 7 天，提供手动刷新；「实例」筛选项同时匹配实例名与采集地址；恢复时间列表头标注「按 Prometheus 求值」。
+布局与列设计：表格列含告警名称、实例名、网域、状态（七态）、触发时间、恢复时间、关闭时间、持续时长、摘要、描述（长文本省略并悬浮全文）；顶部筛选区含网域、告警名、实例、状态、描述、时间范围。
 
-状态与边界：状态枚举为触发中 / 已恢复；历史深度受 Prometheus TSDB 保留策略限制，页面展示对应提示。
+关键交互规则：默认时间窗 24 小时、最大 7 天，提供手动刷新；「实例」筛选项同时匹配实例名与采集地址；「导出」与列表共用筛选参数，按当前筛选拉取全部命中记录生成 CSV（字段与 §6.8 一致，带 UTF-8 BOM）；描述支持模糊搜索并与摘要筛选独立并存。
 
-跨模块跳转：数据由 [Module\_02](Module_02_Query_Center.md) 的 `/api/v1/alerts/history` 提供，本模块只读消费。
+状态与边界：状态枚举为七态（告警中 / 静默中 / 抑制中 / 已恢复 / 静默期间结束 / 抑制期间结束 / 已结束（恢复时间未知））；恢复时间仅 `resolved` 有真实值，其余终态留空不伪造；「已结束（恢复时间未知）」用中性色，不使用易误解为未恢复的红色；历史深度受事件表保留期（默认 180 天）限制，页面需有对应提示。
+
+跨模块跳转：数据由本模块 `GET /api/v2/platform/alertmanager/alert-events` 提供；旧 M02 `/api/v1/alerts/history` 仅作兼容保留、本页不再消费。
 
 ### 11.5 静默管理页
 
@@ -835,7 +938,8 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响章节 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.21 | 2026-11-05 | 修改 | **event 表单一事实源回填（吸收 design-proposal `alert-history-model-and-home-metrics` + `alert-event-single-source`）**：①§1 / §2 / §3.1 / §3.2 / §4.4 改写——当前告警 = 事件表未结三态（告警中 / 静默中 / 抑制中）、规则评估降为只读参考、AM 通知状态四态降为兼容保留、「待处理」下线；②新增 §5.9 `AlertEvent` 模型（`occurrence_key` / `closed_at` / 七态 / UTC+8 / 180 天保留 + 四指标互斥口径）；③新增 §6.8 事件端点（`/alert-events`、`/alert-events/current`、`/alert-events/stats`、前端 CSV 导出），旧 M02 `/api/v1/alerts/history` 标兼容保留；④§4.4 补 webhook 留痕 + 分钟级对账 + 安全阀口径；⑤§9 补四指标 / 当前告警不分页 / 导出 / 写入对账 / schema 验收；⑥§10 补事件七态与四指标术语；⑦§11.3 / §11.4 页面契约改写（当前告警页签 + 历史页七态 / 关闭时间 / 导出）。 | 1 / 2 / 3.1 / 3.2 / 4.4 / 5.9 / 6.3 / 6.8 / 7.1 / 9 / 10 / 11.3 / 11.4 / Change Log | MVP 生效 | ready |
 | v1.20 | 2026-10-23 | 修改 | 收割 dev-feedback #45–#48：①默认 `alertmanager.yml` 入库 seed，路由页只读/编辑同源，删除前端合成空树；②路由保存改为 `POST /routes`（`base_checksum` + `route_tree`），后端生成整份 YAML，删除 `route-setting`/模式开关/导入/重挂载/托管预置 seed/最小运行骨架；③接收人集合收敛为 `default` ∪ 全部渠道 `notify-<ID>`，仅物化被路由引用渠道，删除 `dead_receivers`；④通知渠道去启停/接收人配置/receiver-snippet/桥令牌，列表五列 + 引用计数 + 删除保护，钉钉加签；⑤通知模板改可变实体（去版本历史/remount/status/checksum、按类型 Tab、内置只读、模板退出 yml、`?id=`）；⑥新增自定义 Webhook 类型（原样转发、模板禁令、掩码/必填）。 | 1 / 3.1 / 3.4 / 4.1 / 4.1.1 / 5.1 / 5.2 / 5.6-5.8 / 6.4-6.7 / 7.1 / 8.1 / 9 / 10 / 11.1 / 11.6 / 11.7 | MVP/v0.3 | ready |
 | v1.19 | 2026-10-15 | 修改 | 收割 dev-feedback #17/#21/#29-#44：新增 §3.4「通知渠道、通知模板与渲染桥（PL-3）」与 §5.7/§5.8/§6.5-§6.7 端点与模型全量回写（#29 去重键、#30 渠道↔模板绑定三级优先级、#41 Makefile `?=` 默认值）；§4.1/§6.4 落两段式人工闸门（#43）；§4.1.1/§6.7 清除 `route_files` 残留、补 Mode 持久化（#36）与托管预置种子（#33）、根兜底接管不判 mode 关键事实；§5.6 扩 `discarded` 终态与废弃联动（#44）；§11.6 四卡 IA 重构 + PageIntro 统一（#38/#39/#42）、§11.7 首屏自动导入与 declared/dead 口径（#40/#41）、模式改名「我来编辑 \| 平台生成」（#40）；§11.1 页面矩阵补通知渠道/通知模板页。 | 3.1 / 3.4 / 4.1 / 4.1.1 / 5.6 / 5.7 / 5.8 / 6.4-6.7 / 10 / 11 | v0.3 | ready |
-| v1.18 | 2026-09-30 | 修改 | 吸收 design-proposal `alert-route-frontend-editor.md`（prototype-designer 评审通过）：路由前台化分期（v0.3-a 只读 / v0.3-b 表单可写 / v0.3-c 联动）；新增 §4.1.1「route 段作者模式与最小运行骨架」（单一作者 + 模式开关、receivers 双作者命名空间）；§5.2 补编辑态/落盘字段；新增 §11.7 路由规则页交互契约；§11.6 补模式开关与默认接收人；§9 补验收；§10 补术语。 | 0 / 1 / 2 / 3.1 / 4.1 / 5.2 / 7.1 / 9 / 10 / 11 | v0.3 | ready |
+> 完整 Change Log 历史（v1.18 及更早）见 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」。
 

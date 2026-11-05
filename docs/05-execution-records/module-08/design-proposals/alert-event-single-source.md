@@ -1,6 +1,6 @@
 # event 表单一事实源：当前告警 / 首页右栏口径收敛
 
-状态：approved（2026-10-29，用户确认）
+状态：merged（2026-11-05 吸收进 Module_08 PRD v1.21 / Module_05 PRD v1.14；原 approved 2026-10-29，用户确认）
 模块：Module_08（主）/ Module_05（首页）
 关联：`alert-history-model-and-home-metrics.md`（2026-10-26 历史告警模型与首页四指标）
 
