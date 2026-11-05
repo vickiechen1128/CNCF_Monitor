@@ -63,7 +63,11 @@
 
 ### Change Log（完整历史）
 
-> 主 PRD `Module_11_Edge_Access_and_Agent_Delivery.md` 的 Change Log 仅保留最近 3 版，更早版本迁至此表。
+> 主 PRD `Module_11_Edge_Access_and_Agent_Delivery.md` 的 Change Log 仅保留最近 3 版，更早版本迁至此表（v0.9 于 2026-11-05 v0.12 落版后迁入）。
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v0.9 | 2026-10-15 | 修订 | 收割 dev-feedback F-39 / F-40 / F-42 / F-43：① 心跳回传观测——`queue_backlog_bytes` 升级 max 口径，新增 `remote_write_dropped_total` / `remote_write_retries_total`（counter 求和、omitempty 向后兼容），心跳 Save Omit 指令位字段防覆盖（§5.2 / §5.3 / §6.2）；② 回传延迟——节点列表新增「回传延迟」列（`AgentView.remote_write_lag_seconds`，24h 窗口、30s TTL、三档着色）（§3.2 / §5.2 / §11.4；**该列已于 2026-10-25 M11-F24 撤除，见 dev-feedback**）；③ 回传参数产品化——`maxDiskUsagePerURL` 分层默认（平台硬兜底 1–2GB / 生产 50GB）、网域「回传参数」分组覆盖、`metadata.json` 下发、supervisor 滚动重启 vmagent 生效（§3.1 / §6.3 / §6.4.1）；④ 远程指令通道——force_restart 边界由「不做」改为 seq 心跳透传（outbound-only 不变），节点「更多」菜单重启采集进程 / 清空回传积压，新增 restart / flush-backlog 两端点与两段式护栏（§1.2 / §3.2 / §6.2 / §6.5 / §9 / §11.4）。（2026-11-05 v0.12 落版后自 PRD Change Log 轮转迁入） | §1.2 / §3.1 / §3.2 / §5.2 / §5.3 / §6.2 / §6.3 / §6.4.1 / §6.5 / §9 / §11.4 | {v0.2} | 设计中 |
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|

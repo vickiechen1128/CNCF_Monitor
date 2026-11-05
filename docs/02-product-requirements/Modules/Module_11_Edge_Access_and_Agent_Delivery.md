@@ -2,13 +2,13 @@
 
 > **PRD 状态**：draft
 >
-> **PRD 版本**：v0.11
+> **PRD 版本**：v0.12
 >
 > **产品版本覆盖**：MVP / v0.2 / v0.3 / v1.0（MVP 子集 = default 网域与 local 通道只读展示；{v0.2} 为核心交付段；{v0.3} = 升级流程增强；v1.0 = mTLS 与证书轮转；{v0.4+} = K8s 采集、同域多节点演化占位）
 >
-> **原型版本**：已同步（随 module-09 原型 v1.73；与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）。**v0.9 收割增量（采集节点列表「回传延迟」列、行内「更多」菜单「重启采集进程 / 清空回传积压」、网域抽屉「回传参数」分组）待后续原型轮承接，本轮仅回写 PRD**。**v0.10 为 dev-feedback 收割（F-23 / G1），页面结构与交互不变，原型无需同步**。
+> **原型版本**：已同步（随 module-09 原型 v1.73；与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）。**v0.12 为心跳历史保留策略回填（2026-11-05，用户指定 12 项中的 5）**——默认保留 7 天、`EDGE_HEARTBEAT_RETENTION_DAYS` 可调、启动即清 + 每 24 小时、每批 1000 条、单网域上限 10 万条，属存储治理、**原型无需同步**；**v0.9 收割增量（采集节点列表「回传延迟」列、行内「更多」菜单「重启采集进程 / 清空回传积压」、网域抽屉「回传参数」分组）待后续原型轮承接，本轮仅回写 PRD**。**v0.10 为 dev-feedback 收割（F-23 / G1），页面结构与交互不变，原型无需同步**。
 >
-> **更新日期**：2026-10-23
+> **更新日期**：2026-11-05
 >
 > **模块类型**：核心能力模块（v0.2+）
 >
@@ -303,6 +303,16 @@ flowchart TD
 | config_apply_failed_version | string | 否 | 应用失败版本 | 应用失败的配置版本，与 `config_apply_error` 同生命周期 |
 | targets | json | 否 | 边缘 target 快照 | F-11 定版 B 方案：Agent 每轮心跳尝试拉取本机 vmagent `/api/v1/targets` 的 active targets 转为快照随心跳上报（字段 snake_case：`network_domain_id` / `job` / `instance` / `resource_id` / `health` / `last_scrape` / `last_error` / `scrape_duration_seconds`；去重键 `(job, instance)`、每心跳上限截断；`omitempty`，无 targets 且无成功标记时不发送），供中心落库 `edge_target_snapshots` 并供 M02 `/api/v1/targets` 融合展示 |
 | targets_collected | bool | 否 | targets 采集成功标记 | 本轮 targets 采集是否成功（vmagent 正常响应且解析成功，**包括空列表**；`omitempty` 向后兼容，老版本 Agent 不发送）。中心判定——非空 targets 或 `targets_collected=true`（含空列表）→ 本轮真实结果，clear-then-insert 覆盖落库（空列表同样清库，避免已删除 / 停用 Job 残留「未知」快照）；空 targets 且无标记（采集失败 / 老 Agent）→ 保留上轮快照，不把「拉取失败」误判为「真实为空」 |
+
+**心跳历史保留策略（v0.12，存储治理）**：`edge_heartbeats` 每轮心跳新增一行，缺清理会无限增长，故内置保留策略——
+
+- **默认保留 7 天**，由环境变量 `EDGE_HEARTBEAT_RETENTION_DAYS` 调整（缺失 / 非法 / ≤0 时回退 7 天并记日志）；
+- **触发时机**：进程启动先清理一次，之后每 24 小时执行一次；每批物理删除 1000 条（分批避免长事务）；
+- **单网域上限**：每个 `network_domain_id` 最多保留最新 100000 条，超出按 `id` 从旧到新分批删除；
+- **索引**：`(network_domain_id, timestamp)` 组合索引支撑清理与按域查询（goose migration `20261026_0003_edge_heartbeats_retention_index.sql`）；
+- **边界**：清理只作用于心跳历史表，**不影响 `edge_agents` 最新状态与 `edge_target_snapshots`**；未结 / 在用数据不在此策略内。
+
+**快照口径（v0.12）**：`targets` 快照不区分 `job_type`——standard 与 blackbox 拨测 target 一并随心跳上报、落库并进入 M02 `/api/v1/targets` 融合展示（与 M02 PRD v1.19 同口径）；`health` 仍为抓取链路状态，拨测业务结果由 `probe_success` 承载。
 
 ### 5.4 离线包版本（{v0.3} 占位）
 
@@ -644,6 +654,8 @@ stateDiagram-v2
 | restart 指令经心跳响应 `vmagent_restart_seq` 透传、agent 比对本地 seq 幂等执行；离线节点下发返回 400；心跳 Save Omit 指令位六字段防覆盖（F-42） | P0 | {v0.2} |
 | 心跳上报 `targets` 快照与 `targets_collected`：空 targets + 成功标记 → 中心 clear-then-insert 清库（含空列表）；空 targets + 无标记 → 保留旧快照，老版本 Agent 兼容不误清 | P0 | {v0.2} |
 | 删除资源 / 删除（清空）采集 Job / 退纳管与级联删除网域后，`edge_target_snapshots` 按 `resource_id` / `(network_domain_id, job)` / `network_domain_id` 对应键同步清理，快照清理按网域维度执行（换 Agent / 重注册不残留、不阻塞同键重插）——「监控目标状态」不再残留已删目标 | P0 | {v0.2} |
+| 心跳历史按保留策略清理（v0.12）：默认保留 7 天（`EDGE_HEARTBEAT_RETENTION_DAYS` 可调，缺失 / 非法 / ≤0 回退 7 天）、启动即清一次 + 每 24 小时执行、每批物理删除 1000 条、单网域最多保留最新 100000 条（按 `id` 从旧到新）；清理**只作用于 `edge_heartbeats`**，不影响 `edge_agents` 最新状态与 `edge_target_snapshots`；`(network_domain_id, timestamp)` 组合索引存在 | P0 | {v0.2} |
+| 快照不区分 `job_type`（v0.12）：standard 与 blackbox 拨测 target 均随心跳上报并进入 M02 `/api/v1/targets` 融合展示 | P0 | {v0.2} |
 | flush-backlog 执行 Stop vmagent → 删除持久队列目录 → Start，效果由下轮心跳 `queue_backlog_bytes` 归零验证；队列目录从 `-remoteWrite.tmpDataPath` 推导（回落 `EDGE_WAL_DIR` / `vmagent-cache`）（F-43） | P0 | {v0.2} |
 | `maxDiskUsagePerURL` 经 `metadata.json` 下发后由 supervisor 滚动重启 vmagent 生效（agent 本体不重启、队列数据不丢），老版本 agent 忽略新字段维持默认（F-42） | P1 | {v0.2} |
 
@@ -721,6 +733,6 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v0.12 | 2026-11-05 | 修订 | 心跳历史保留策略回填（M11 F-25，用户指定 12 项中的 5）：① §5.3 新增保留策略——默认 7 天、`EDGE_HEARTBEAT_RETENTION_DAYS` 可调、启动即清 + 每 24 小时、每批 1000 条、单网域上限 10 万条、`(network_domain_id, timestamp)` 索引，只作用于 `edge_heartbeats`；② 补快照口径——`targets` 不区分 `job_type`，standard / blackbox 统一上报并进入 M02 `/api/v1/targets` 融合（与 M02 PRD v1.19 同轮）；③ §9.2 补两条技术验收 | 5.3 / 9.2 / Change Log | {v0.2} | 设计中 |
 | v0.11 | 2026-10-23 | 修订 | 心跳契约补目标快照上报与清理（F-11 承接 + 边缘目标状态快照清理修复）：① §5.3 / §6.2 新增 `targets`（快照数组）与 `targets_collected`（采集成功标记、含空列表）字段——非空或成功标记 clear-then-insert 落库，空 + 无标记保留旧快照（老 Agent 兼容）；② 删除路径同步清理：删除资源按 `resource_id`、删除/清空 Job 按 `(network_domain_id, job)`、退纳管/级联删网域按 `network_domain_id` 清理 `edge_target_snapshots`，清理统一改网域维度（换 Agent / 重注册不残留）；③ §9.2 补两条技术验收 | 5.3 / 6.2 / 9.2 / Change Log | {v0.2} | 设计中 |
 | v0.10 | 2026-10-23 | 修订 | 收割 dev-feedback F-23 / G1：① F-23 空白平台引导配置——已纳管 `agent_pull` 网域无任何已确认版本时，心跳入口幂等生成并自动确认系统初始化空配置版本组件就绪等待态——按生效配置入口文件判定就绪，未就绪且进程未运行置 `not_deployed`（不计重启 / 退避 / 熔断，随心跳上报），配置应用成功自动复位 `crash_loop` 并按就绪拉起；③ G1 交付包启动参数基线——中心 Prometheus 固定 `--web.enable-lifecycle` + `--web.enable-remote-write-receiver`，交付包 `start.sh` 同口径且打包校验缺失即中止，开发 `make run-prometheus` 监听收束 `127.0.0.1:9090`，跨公网经 G2 nginx（IP 白名单 + TLS + 每网域 Token）承接，安全边界见决策 1 | §1.2 / §3.4 / §4.2 / §4.3 / §6.4 / §6.4.2 / §7.1 / §7.2 / §8.4 / §9.1 / §9.2 / §10 / §11.4 | {v0.2} | 设计中 |
-| v0.9 | 2026-10-15 | 修订 | 收割 dev-feedback F-39 / F-40 / F-42 / F-43：① 心跳回传观测——`queue_backlog_bytes` 升级 max 口径，新增 `remote_write_dropped_total` / `remote_write_retries_total`（counter 求和、omitempty 向后兼容），心跳 Save Omit 指令位字段防覆盖（§5.2 / §5.3 / §6.2）；② 回传延迟——节点列表新增「回传延迟」列（`AgentView.remote_write_lag_seconds`，24h 窗口、30s TTL、三档着色）（§3.2 / §5.2 / §11.4）；③ 回传参数产品化——`maxDiskUsagePerURL` 分层默认（平台硬兜底 1–2GB / 生产 50GB）、网域「回传参数」分组覆盖、`metadata.json` 下发、supervisor 滚动重启 vmagent 生效（§3.1 / §6.3 / §6.4.1）；④ 远程指令通道——force_restart 边界由「不做」改为 seq 心跳透传（outbound-only 不变），节点「更多」菜单重启采集进程 / 清空回传积压，新增 restart / flush-backlog 两端点与两段式护栏（§1.2 / §3.2 / §6.2 / §6.5 / §9 / §11.4） | §1.2 / §3.1 / §3.2 / §5.2 / §5.3 / §6.2 / §6.3 / §6.4.1 / §6.5 / §9 / §11.4 | {v0.2} | 设计中 |

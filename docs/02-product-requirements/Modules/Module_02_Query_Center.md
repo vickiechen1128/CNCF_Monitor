@@ -1,10 +1,10 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.18
+> **PRD 版本**: v1.19
 > **产品版本覆盖**: MVP / v0.2 / v0.3
-> **原型版本**: v1.7（未对齐，待按 v1.10 修订；v1.13 为 Track B 轻量增量「历史告警 API」，免高保真原型，豁免记录见 `docs/05-execution-records/module-02/design-decisions.md`；以 `docs/prototypes/module-02/package.json` 为准）；PRD v1.16 为章节对齐 11 章模板 + 去历史化纯文档轮——注入与授权校验规则归 §6.4、模块边界矩阵归 §7.2、验收归 §9、术语归 §10、新增 §11 前端交互契约，规格语义零变更、原型无需同步
-> **更新日期**: 2026-10-23
+> **原型版本**: v1.7（**v1.19 为目标状态纳入拨测回填轮（2026-11-05，用户指定 12 项中的 5）**：`/api/v1/targets` 融合链路移除 blackbox 黑名单，standard / blackbox 统一进入目标状态展示，`health` 口径明确为「采集链路状态」而非拨测业务结果；属口径修订、原型无需同步；v1.7 未对齐，待按 v1.10 修订；v1.13 为 Track B 轻量增量「历史告警 API」，免高保真原型，豁免记录见 `docs/05-execution-records/module-02/design-decisions.md`；以 `docs/prototypes/module-02/package.json` 为准）；PRD v1.16 为章节对齐 11 章模板 + 去历史化纯文档轮——注入与授权校验规则归 §6.4、模块边界矩阵归 §7.2、验收归 §9、术语归 §10、新增 §11 前端交互契约，规格语义零变更、原型无需同步
+> **更新日期**: 2026-11-05
 > **对应原型**: `docs/prototypes/module-02/`
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
@@ -172,13 +172,14 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 
 > **落点修订（决策 47）**：目标状态能力分为「API」与「独立页面」两层——**API（`/api/v1/targets`** **代理）为 P0/MVP**，是 M01 Job 实例采集状态回显（M01 §5.10）与 M07 资源列表三态 badge（经健康度/覆盖率 API）的共同数据源；**独立「目标状态页」前端降为 P1**（极简列表），定位收敛为「跨 Job 全局排障入口」。
 
-- 数据来源：中心 Prometheus `/api/v1/targets` **与边缘 target 快照融合**（M11 F-11 定版 B 方案——边缘域 target 经心跳快照 `edge_target_snapshots` 由查询侧融合返回，中心直连域与采集节点域统一呈现；`job_type=blackbox` 的 target 不入融合结果，拨测结果走 `probe_success` 口径），按认证用户注入租户/网域上下文后返回；
+- 数据来源：中心 Prometheus `/api/v1/targets` **与边缘 target 快照融合**（M11 F-11 定版 B 方案——边缘域 target 经心跳快照 `edge_target_snapshots` 由查询侧融合返回，中心直连域与采集节点域统一呈现；**v1.19 起 standard 与 blackbox 拨测 target 统一进入融合结果**——此前「`job_type=blackbox` 不入融合」的黑名单已移除，local / edge 两侧同口径），按认证用户注入租户/网域上下文后返回；
 
 - 搜索：按「实例名 / 实例IP」模糊搜索（大小写不敏感 contains，`search` 参数）。「实例名」**权威来源为 M07 资源台账**（host→`instance_name` / application→`service_name` / generic_target→`target_name` / database、middleware→`ip:port`，经 target `resource_id` 标签回连取值，**不是 Job 名**）；「实例IP」取 target `instance`（`host:port`）的 host 部分直接命中。target 无 `resource_id` 标签或台账缺资源时实例名为空（前端降级 `-`），仅按 IP 命中；
 
 - 快照清理与残留防护（M11 边缘目标状态快照清理修复，2026-10-22）：删除资源按 `resource_id`、删除（清空）采集 Job 按 `(network_domain_id, job)`、退纳管与级联删除网域按 `network_domain_id` 同步清理 `edge_target_snapshots`（契约见 Module_11 §6.2）——页面上已删目标不再以 `health=unknown` 长期残留；Agent 空 targets 且上报采集成功（`targets_collected=true`）时快照本轮清空，采集失败或老版本 Agent 保留上轮快照不误清；
 
 - 字段：`job`、`instance`、所属网域（`network_domain` 标签）、health（up/down/unknown）、`lastScrape`、`lastError`、`scrapeDuration`；
+- **`health` 语义（v1.19）**：`health` 表示**采集链路状态**（抓取 exporter / blackbox_exporter 的动作是否成功），**不等于拨测业务结果**——blackbox target 的 `health=up` 只说明抓取成功，目标是否可用看 `probe_success`（首页拨测单卡与 M01 实例状态消费）；两者并存、互不替代；
 
 - 筛选：按网域（v0.2+ 多网域生效）、按 Job、按 health 状态；
 
@@ -317,7 +318,7 @@ Module\_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pr
 | -------------------------- | ---- | -------------------------------------------------------------------------------- |
 | /api/v1/query              | POST | 执行 PromQL instant query                                                          |
 | /api/v1/query\_range       | POST | 执行 PromQL range query                                                            |
-| /api/v1/targets            | GET  | **目标状态列表（代理 + 边缘快照融合，决策 47 / F-11）**，注入租户/网域上下文；支持 `search`「实例名 / 实例IP」模糊搜索（实例名经 `resource_id` 回连 M07 台账，响应逐项附 `instance_name`）；同时供 M01 Job 回显与 M07 badge 消费（决策 47） |
+| /api/v1/targets            | GET  | **目标状态列表（代理 + 边缘快照融合，决策 47 / F-11；v1.19 起 standard + blackbox 统一）**，注入租户/网域上下文；支持 `search`「实例名 / 实例IP」模糊搜索（实例名经 `resource_id` 回连 M07 台账，响应逐项附 `instance_name`）；同时供 M01 Job 回显与 M07 badge 消费（决策 47） |
 | /api/v1/health/coverage    | GET  | 采集健康度/覆盖率聚合（三态数据，按 `resource_id` 回连资源），供 Module\_07 badge 消费（决策 47-3，由 v0.2 提前）  |
 | /api/v1/labels             | GET  | 获取所有 label names（注入租户/网域上下文）                                                     |
 | /api/v1/label/:name/values | GET  | 获取 label 所有值（注入租户/网域上下文）                                                         |
@@ -475,7 +476,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 2  | 单网域租户的查询结果与直接查 Prometheus 一致，无额外干扰信息                                                                                         | P0  | MVP  |
 | 3  | 目标状态 API 返回 job / instance / 网域 / health / lastScrape / lastError，支持按网域、Job、health 过滤；M01 Job 详情/编辑抽屉与 M07 资源列表 badge 可消费该数据 | P0  | MVP  |
 | 3a | 独立目标状态页（跨 Job 全局排障视图，极简列表）展示上述字段并支持筛选（含「实例名 / 实例IP」模糊搜索与「实例名」列；实例名权威来源为 M07 台账经 `resource_id` 回连）                                                                                        | P1  | MVP  |
-| 4  | blackbox 拨测目标可通过目标状态 API（及 M01 Job 回显）与 `probe_success` / `probe_duration_seconds` 查询查看结果                                    | P0  | MVP  |
+| 4  | blackbox 拨测目标可通过目标状态 API（及 M01 Job 回显）与 `probe_success` / `probe_duration_seconds` 查询查看结果（v1.19 起 blackbox target 直接进入 `/api/v1/targets` 融合结果，`health` 表达采集链路状态、业务拨测结果看 `probe_success`） | P0  | MVP  |
 | 5  | 查询响应包含 envelope 元数据：`data_source`、`freshness_at`、`network_domains`                                                           | P0  | MVP  |
 | 6  | 多网域租户默认查询全部授权网域，UI 提示当前查询范围覆盖 N 个网域                                                                                          | P0  | v0.2 |
 | 7  | 用户显式指定 `network_domain` matcher 时，越权取值返回空结果                                                                                  | P0  | v0.2 |
@@ -491,6 +492,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 1  | PromQL instant / range 查询自动注入 `tenant` 与 `network_domain`，两键名均与采集侧实际标签对齐（`network_domain` ← M09 `external_labels`；`tenant` ← M07 LabelTemplate target 级注入） | P0  | MVP  |
 | 2  | 未授权租户/网域的数据不可见（注入即权限隔离）                                                                           | P0  | MVP  |
 | 3  | 代理 `/api/v1/targets` 返回目标列表，注入租户/网域上下文                                                            | P0  | MVP  |
+| 3a | v1.19：`/api/v1/targets` 融合链路对 standard 与 blackbox **同口径**——按 `ScrapeJob.job_type='blackbox'` 精确匹配的黑名单已移除，local 与边缘快照均不再排除拨测 target；响应字段与结构不变；`health` 只表达采集链路状态（抓取是否成功），拨测业务结果仍由 `probe_success` / `probe_duration_seconds` 承载，两者并存互不替代 | P0  | MVP  |
 | 4  | 查询响应包含完整 envelope 元数据                                                                             | P0  | MVP  |
 | 5  | 代理 `/api/v1/alerts` 返回 firing/pending 告警实例（v1.12 由 v0.3 提前至 MVP；MVP 阶段注入骨架恒通过，授权过滤机制保留） | P0  | MVP  |
 | 6  | Open API 返回与 Prometheus 兼容的数据格式                                                                   | P0  | MVP  |
@@ -528,7 +530,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | `data_source`         | 数据来源        | 指标数据的采集方式：中心抓取或边缘异步写入                  |
 | `freshness_at`        | 数据时间        | 指标数据的最新样本时间戳                           |
 | target                | 采集目标        | 被监控的实例端点（`host:port`）                  |
-| health                | 采集状态        | 采集目标是否正常：up（正常）/ down（异常）/ unknown（未知） |
+| health                | 采集状态        | 采集目标是否正常：up（正常）/ down（异常）/ unknown（未知）；**语义为采集链路状态（抓取动作是否成功），不等于拨测业务结果**（v1.19）——blackbox target 业务可用性看 `probe_success` |
 | `lastScrape`          | 最后采集时间      | 最近一次采集完成的时间                            |
 | `lastError`           | 最后错误        | 最近一次采集遇到的错误信息                          |
 | `scrapeDuration`      | 采集耗时        | 单次采集操作的耗时                              |
@@ -560,10 +562,10 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 ## Change Log
 
-> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.15 及以前逐版详情）已迁移至 `docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 8 状态机 / 9 验收标准 / 10 术语映射）。
+> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.16 及以前逐版详情，v1.16 已于 2026-11-05 迁入）已迁移至 `docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 8 状态机 / 9 验收标准 / 10 术语映射）。
 
 | 版本    | 日期         | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态  |
 | ----- | ---------- | ---- | ---- | ---- | ------ | --- |
+| v1.19 | 2026-11-05 | 修改 | **目标状态纳入拨测回填（M11 F-25，用户指定 12 项中的 5）**：①§3.2 数据来源移除「`job_type=blackbox` 不入融合」旧口径，standard / blackbox 统一进入 `/api/v1/targets` 融合结果（local 与边缘快照同口径）；②补 `health` 语义——采集链路状态 ≠ 拨测业务结果，业务可用性看 `probe_success`；③§5.3 / §6.1 / §9.1 / §9.2 / §10 同步；④与 M11 心跳保留策略同轮（M11 PRD v0.12）。 | 3.2 / 5.3 / 6.1 / 9.1 / 9.2 / 10 / Change Log | MVP 生效 | ready |
 | v1.18 | 2026-10-23 | 修改 | **dev-feedback 回填 + 跨模块口径对齐**：① §5.3 / §3.2 / §6.1 / §9.1 —— `/api/v1/targets` 数据来源改为「中心 targets + 边缘 target 快照融合（M11 F-11，blackbox 不入融合）」，新增 `search`「实例名 / 实例IP」模糊搜索与逐项 `instance_name` 字段（实例名权威来源 M07 台账经 `resource_id` 回连）；快照清理防护——已删资源 / 清空 Job / 退纳管网域对应目标不再残留（Module_11 契约）；② 决策 90 回填（module-02 dev-feedback 已修复项）——§5.4 / §6.1 / §9.2(14a) 补「`step` 为期望粒度、服务端按窗口归一化抬高（只抬不压，7d 窗口 30s→55s）、响应 `data.step` 回显」，验收「7d + 不传 step 返回 200 且 `data.step ≥ 55`」；③ F-30 收敛——§3.1 / §6.4 / §10 去 `svc` 标签与四层聚合，改三层聚合 `platform / app / resource_id` + 业务域横切 `biz`，`platform` 注入口径对齐 M07 决策 110（`platform_code` 一等字段，应用主平台兜底） | 3.1 / 3.2 / 5.3 / 5.4 / 6.1 / 6.4 / 9.1 / 9.2 / 10 / Change Log | MVP 生效 | ready |
 | v1.17 | 2026-09-27 | 修改 | 标签体系同步（M07 决策 109）：查询辅助标签建议动态来自 M07 标签模板 + 四层聚合写法；§7.1 聚合示例升级；§10 补 `svc` / `platform` 术语与四层聚合消歧；§6.4.1 注入契约表不变 | 3.1 / 6.4.1 / 7.1 / 10 | v0.3 | ready |
-| v1.16 | 2026-09-16 | 精简 | 章节对齐 11 章模板 + 去历史化：注入与授权校验规则归 §6.4、边界矩阵归 §7.2、验收归 §9、术语归 §10，新增 §11；8 处决策标注迁 DD；字段表补「必填」列；规格语义零变更 | 全文 | 文档自身 | ready |

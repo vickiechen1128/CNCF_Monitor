@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.53
+> **PRD 版本**: v2.55
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v2.47（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步；v2.49 为对象关系与拓扑建模增量（吸收 design-proposal `object-relation-topology`：A 层字典关系提前至 MVP——应用↔平台改 M:N（`app_platform_rel`）+ 资源行 `platform_code` 一等字段化 + `platform` 定性纠正 + label 维度分层 + 新增 §5.24，决策 110~112），属契约级修订、**原型需同步**（应用字典页平台多选 + 主平台标记、平台字典页关联应用列表、服务字典页业务 / 应用归属、资源表单平台字段级联、资源列表平台列；聚合拓扑视图归 {v0.2} 原型））；v2.50 为标签模板删除的引用保护（决策 119：引用面补齐 CI 类型映射表、停用 Job 引用同样禁删、软删记录不计入、新增 `GET /label-templates/{template_id}/references` 聚合接口、删除被引用模板返回 `forbidden` 并回传引用清单），属错误码与约束契约修订、原型删除按钮的 403 提示文案需同步（列表与详情两处），删除交互形态不变）；v2.51 为 PM 生产前端复核四项裁定的契约同步（dev-feedback §14 F-16~F-19）：①`generic_target` 展示名以 PRD 为准（实现项，PRD 无需改动）；②**列显隐配置由 `P1｜后续版本` 提前为 `P0｜MVP`**（原定 P1，因 F-13 列头分组方案撤销后宽表体感无出口，由用户体感驱动提前；偏好按 `resource_category` 分区持久化、主标识列与操作列不可关闭、原 F-13 的业务归属分组改为「列设置」下拉内分组小标题承载）；③**资源列表补平台 / 应用 / 服务三维筛选**（四层模型查询侧补齐，`service_code` 仅 application / generic_target 两类出现；契约先落，代码实现由后续轮次排期）；④**服务↔业务 N:1 主归属降级 {v0.3+}**（判定为过度设计——`biz_code` 只写不读无消费方，「所属应用」`app_code` 保留在 MVP，后端字段与 CRUD 保留不动、仅前端不暴露入口），属契约级修订、**本轮原型不同步**（原型不逐项跟改，待后续原型轮统一承接））；v2.52 为 dev-feedback F-21 / F-22 / F-27 遗留 + 端口提案回填的收割（五项全收）：①资源删除改软删放行（B 方案，二次确认弹窗回显引用 Job 数 + 新增 `GET /resources/{id}/referenced-by` 反查，**取代 v2.50 的 403 文案方案，删除按钮不再出现 403 提示**）；②`cluster` 必填口径前后端对齐（db/mw/app 必填，前端补必填）；③`zone_env` 从主机模板移除（存量兼容）；④F-27 遗留落档（声明通道边界 / 网域无声明通道）；⑤`scrape_port` 改 v0.1 已落地 + 四级链、generic\_target 端口 / 路径 / 协议改「随资源登记」（D3b），属契约级修订、**原型需在后续原型轮承接**（删除确认弹窗回显引用 Job 数、generic\_target 表单出现端口 / 采集路径 / 协议三字段、cluster 必填校验、主机模板去 zone_env 列）；v2.53 为 dev-feedback F-28 / F-30 / F-32 收割 + 四项直改点回填（接口服务成为第六类资源：api_name / api_url 必填、资源列表 Tab 与 Excel 导入契约；删除服务字典、聚合模型四层改三层，决策 105 作废；转换规则新增字典翻译 dict；环境枚举收敛 OPS / PRD / UAT；资源列表实例列默认宽 300px + 列宽拖拽为会话内临时态；标准采集默认标签模板须显式提交 default_label_template_id 才生效），属契约级修订、**原型需同步**（接口服务 Tab 与表单、列宽拖拽、dict 转换下拉、环境枚举三值、平台 / 应用两维筛选、三层模型页面收敛）
-> **更新日期**: 2026-10-23
+> **原型版本**: v2.47（**v2.55 为标签映射批量编辑回填轮（2026-11-05，用户指定 12 项中的 13）**：映射维护由「逐条新增立即保存」改为「编辑进入表格、本地草稿、批量增删改后一次保存」，新增 `PUT /label-templates/{id}/mappings` 整组替换接口（同事务校验 + 写入 + 审计快照，空数组清空、默认模板只读），单条接口保留兼容；属交互 + 契约修订、**原型待后续原型轮承接**；**v2.54 为应用服务字段与主机开通时间回填轮（2026-11-05，用户指定 12 项中的 3/4/11/12）**：application `health_check_url` 改必填、`endpoint` / `port` 改选填、判重键改 `(domain, service_name, health_check_url)`，新增负责人1/2 及联系方式、运维人员及联系方式、应用上线时间，Host 新增开通时间 `activated_at`；属契约级修订、**原型待后续原型轮承接**；健康检查地址不做多选（一行一个 URL，多环境登记多行）；以下为既有版本说明——决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步；v2.49 为对象关系与拓扑建模增量（吸收 design-proposal `object-relation-topology`：A 层字典关系提前至 MVP——应用↔平台改 M:N（`app_platform_rel`）+ 资源行 `platform_code` 一等字段化 + `platform` 定性纠正 + label 维度分层 + 新增 §5.24，决策 110~112），属契约级修订、**原型需同步**（应用字典页平台多选 + 主平台标记、平台字典页关联应用列表、服务字典页业务 / 应用归属、资源表单平台字段级联、资源列表平台列；聚合拓扑视图归 {v0.2} 原型））；v2.50 为标签模板删除的引用保护（决策 119：引用面补齐 CI 类型映射表、停用 Job 引用同样禁删、软删记录不计入、新增 `GET /label-templates/{template_id}/references` 聚合接口、删除被引用模板返回 `forbidden` 并回传引用清单），属错误码与约束契约修订、原型删除按钮的 403 提示文案需同步（列表与详情两处），删除交互形态不变）；v2.51 为 PM 生产前端复核四项裁定的契约同步（dev-feedback §14 F-16~F-19）：①`generic_target` 展示名以 PRD 为准（实现项，PRD 无需改动）；②**列显隐配置由 `P1｜后续版本` 提前为 `P0｜MVP`**（原定 P1，因 F-13 列头分组方案撤销后宽表体感无出口，由用户体感驱动提前；偏好按 `resource_category` 分区持久化、主标识列与操作列不可关闭、原 F-13 的业务归属分组改为「列设置」下拉内分组小标题承载）；③**资源列表补平台 / 应用 / 服务三维筛选**（四层模型查询侧补齐，`service_code` 仅 application / generic_target 两类出现；契约先落，代码实现由后续轮次排期）；④**服务↔业务 N:1 主归属降级 {v0.3+}**（判定为过度设计——`biz_code` 只写不读无消费方，「所属应用」`app_code` 保留在 MVP，后端字段与 CRUD 保留不动、仅前端不暴露入口），属契约级修订、**本轮原型不同步**（原型不逐项跟改，待后续原型轮统一承接））；v2.52 为 dev-feedback F-21 / F-22 / F-27 遗留 + 端口提案回填的收割（五项全收）：①资源删除改软删放行（B 方案，二次确认弹窗回显引用 Job 数 + 新增 `GET /resources/{id}/referenced-by` 反查，**取代 v2.50 的 403 文案方案，删除按钮不再出现 403 提示**）；②`cluster` 必填口径前后端对齐（db/mw/app 必填，前端补必填）；③`zone_env` 从主机模板移除（存量兼容）；④F-27 遗留落档（声明通道边界 / 网域无声明通道）；⑤`scrape_port` 改 v0.1 已落地 + 四级链、generic\_target 端口 / 路径 / 协议改「随资源登记」（D3b），属契约级修订、**原型需在后续原型轮承接**（删除确认弹窗回显引用 Job 数、generic\_target 表单出现端口 / 采集路径 / 协议三字段、cluster 必填校验、主机模板去 zone_env 列）；v2.53 为 dev-feedback F-28 / F-30 / F-32 收割 + 四项直改点回填（接口服务成为第六类资源：api_name / api_url 必填、资源列表 Tab 与 Excel 导入契约；删除服务字典、聚合模型四层改三层，决策 105 作废；转换规则新增字典翻译 dict；环境枚举收敛 OPS / PRD / UAT；资源列表实例列默认宽 300px + 列宽拖拽为会话内临时态；标准采集默认标签模板须显式提交 default_label_template_id 才生效），属契约级修订、**原型需同步**（接口服务 Tab 与表单、列宽拖拽、dict 转换下拉、环境枚举三值、平台 / 应用两维筛选、三层模型页面收敛）
+> **更新日期**: 2026-11-05
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -192,6 +192,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | 默认模板 | 六类资源各预置一套默认模板；模板清单见 5.13 | P0 | MVP |
 | 创建工作流 | 选择资源类型 → 基于默认模板克隆 / 新建 → 编辑映射 → 保存前校验 → 保存 | P0 | MVP |
 | 保存前校验 | 目标标签不得为保护 label（`instance` / `job` 等，`composite → instance` 例外）；同一模板内目标标签唯一 | P0 | MVP |
+| 映射编辑方式（v2.55） | 「编辑映射」进入**表格批量编辑**：本地草稿中连续新增 / 修改 / 删除，最后统一「保存」整组提交（`PUT .../mappings`）；取消或服务端校验失败**不落库且保留编辑内容**；去掉「逐条新增立即保存」的旧交互，原单条接口保留兼容 | P0 | MVP |
 
 #### 3.2.2 关联实例可见性
 
@@ -574,6 +575,7 @@ status_mapping:
 | instance\_ip | string | ✅  | 目标 IP  | 管理 IP           |
 | os\_type     | string | ✅  | 操作系统类型 | 操作系统类型，**host 必填**——采集实例定位强依赖它（`linux`/`windows` 监控类型由 `os_type` 推导，为空/拼错的主机被排除出采集候选）；**内置字典选择**（AutoComplete 下拉，可搜索/自定义），按「规范名 → 家族」归一化（Ubuntu/CentOS/openEuler/Kylin…→linux，Windows Server/Windows 10/11…→windows），合法选项见 `GET /api/v2/platform/os-options`，字典可按需扩展规范名 |
 | os\_version  | string | ❌  | 系统版本   | 系统版本            |
+| activated\_at | datetime | ❌  | 开通时间   | 主机开通时间（**仅主机**，2026-10-29 新增）；RFC3339 或 `YYYY-MM-DD`，前端为日期时间选择器（可选）；落详情抽屉、Excel 模板、CSV 导出与标签来源字段；**仅作资源画像 / CMDB 类资产属性**，不参与采集与判重，空值不注入标签 |
 
 **物理列备注（CMDB 遗留列名 ↔ PRD 语义字段）**：主机表与主机 Excel 模板沿用 CMDB 历史列名，与 PRD 语义字段名**不完全同名**；列名**不改名**（改名会破坏 Excel 导入与既有集成），差异按下表收敛——
 
@@ -621,17 +623,22 @@ status_mapping:
 | ------------------ | ------ | -- | -------- | ----------------------------------------------------------- |
 | service\_name      | string | ✅  | 服务名      | 应用服务名                                                         |
 | biz\_code   | string | ✅  | 业务   | 业务归属**不可变编码**（如 payment、data-api）；对应业务分组字典主键；**MVP 必填**；导入时填写编码，UI 展示取字典 `biz_name`；经标签模板映射为 `biz` label；编码创建后不可变，展示名可改；停用条目不可被新资源/编辑选用，存量资源保留历史值 |
-| health\_check\_url | string | ❌  | 健康检查 URL | 应用实际 URL（业务健康检查）；**可选**、仅资源画像与标签来源，**不参与采集地址**（展示名保持「健康检查 URL」）；Blackbox 拨测由 Module\_01 负责 |
-| protocol           | string | ❌  | 协议       | http / https / tcp（可选，仅资源画像）                                          |
-| endpoint           | string | ✅  | 业务指标端点   | 应用采集地址主机（IPv4/域名）；与 `port` 共同构成 application 采集地址 `endpoint:port`，**必填**；参与唯一键 `category\|domain\|service_name\|endpoint` 与标签映射 |
-| port               | int    | ✅  | 端口       | 应用采集端口（1~65535）；与 `endpoint` 共同构成采集地址 `endpoint:port`，**必填**（原「endpoint 自带端口可省略」口径废止）                                        |
+| health\_check\_url | string | ✅  | 健康检查 URL | **blackbox 拨测目标地址（v2.54 改必填）**；必须为含主机的 `http` / `https` / `tcp` URL；参与判重键与标签映射；**一行一个 URL**——同一应用多环境 / 多入口时登记多行，不做单行多选 |
+| protocol           | string | ❌  | 协议       | http / https / tcp（选填，仅资源画像）                                          |
+| endpoint           | string | ❌  | 业务指标端点   | 应用采集地址主机（IPv4/域名），**选填（v2.54）**；与 `port` 共同构成 standard 指标采集地址 `endpoint:port`；与 `health_check_url` **互不代填**——仅填 URL 的资源配置 standard Job 时由生成侧 `address_empty` 诊断拦截，不用拨测 URL 冒充指标端点 |
+| port               | int    | ❌  | 端口       | 应用采集端口（1~65535），**选填（v2.54）**；`port=0` 表示未设置；与 `endpoint` 共同构成 `endpoint:port` |
+| owner1 / owner1\_contact | string | ❌  | 负责人1 / 负责人1联系方式 | 应用负责人1姓名与联系方式（可选，2026-10-28 新增）；旧 `owner` 保留、存量 migration 回填 `owner1`；表单横排（左姓名右联系方式）；可作标签来源字段，空值不注入 |
+| owner2 / owner2\_contact | string | ❌  | 负责人2 / 负责人2联系方式 | 应用负责人2姓名与联系方式（可选）；同上 |
+| ops\_person / ops\_person\_contact | string | ❌  | 运维人员 / 运维人员联系方式 | 应用运维人员姓名与联系方式（可选，2026-10-29 新增）；表单与负责人横排；可作标签来源字段 |
+| go\_live\_at | datetime | ❌  | 应用上线时间 | 应用上线时间（可选，2026-10-28 新增）；RFC3339，Excel 同时接受 `YYYY-MM-DD`；可作标签来源字段 |
 
 **资源粒度说明（粒度 = 可抓取实例）**：application 资源**一行 = 一个可抓取实例**。「服务」作为逻辑概念不单独建表、不设服务字典——纵向归属为 `platform(1) → app(N) → 资源实例(K)`，与横向业务域 `biz` 正交（与 5.15 关联键契约自洽）——
 
-- **单实例**（一台机器一个进程）：1 行资源，`service_name + endpoint`；
+- **单实例**（一台机器一个进程）：1 行资源，身份键 = `service_name + health_check_url`（v2.54 判重键，见 5.16.2）；
+- **多环境 / 多健康检查地址**（v2.54）：**一行一个健康检查 URL**——同一应用有 2 个环境、各自一个健康检查地址时登记 **2 行资源**（`service_name` 相同、`health_check_url` 不同，判重键不冲突），各自参与拨测；**不提供单行多 URL 多选**；
 - **多副本服务**（同服务部署在 N 台 VM）：**N 行资源**，共享 `app_code` / `biz_code`，PromQL `sum by (app)` / `sum by (biz)` 天然完成应用级 / 业务类型级聚合，单实例用 `instance` 区分；
 - **K8s 动态实例**（扩缩容 / 漂移）：MVP 不手工表达，{v0.3} 走服务发现（5.15 已预留 `__meta_*`）；
-- **用户侧唯一入口**（LB / VIP / 域名）：**拨测语义**（服务对外是否存活），由 `health_check_url` 承载、M01 Blackbox 消费，不决定资源粒度；纯拨测资源行的 `endpoint` 填拨测地址（与 `health_check_url` 一致）。
+- **用户侧唯一入口**（LB / VIP / 域名）：**拨测语义**（服务对外是否存活），由 `health_check_url` 承载、M01 Blackbox 消费，不决定资源粒度；standard 指标采集地址由选填的 `endpoint` + `port` 承载，**两者互不代填**。
 
 依据：Prometheus 的 scrape target 必须是具体 host:port，M09 生成配置时本就是逐实例 N 行 `static_configs`——资源表直接一行一实例，模型最扁，不引入「服务级资源 + 实例列表」嵌套模型（避免复杂化 M01 实例选择与 M09 配置生成）。
 
@@ -693,6 +700,8 @@ status_mapping:
 
 **映射校验规则**：目标标签不得为保护 label（`PROTECTED_PROMETHEUS_LABELS`，`composite→instance` 例外）；同一模板内 `target_label` 必须唯一，保存时校验并阻止重复。
 
+**整组统一保存（v2.55）**：映射的新增 / 修改 / 删除在编辑态先落在**本地草稿**，点「保存」时经 `PUT /label-templates/{template_id}/mappings` 以**完整替换**语义一次性提交——请求体 `{ mappings: MappingInput[] }`，空数组表示清空全部映射；整组校验（来源 / 转换 / 保护标签 / 唯一性）、模板写入与本批增删改审计快照（OldValue / NewValue）在**同一事务**内完成，任一项失败全部回滚；无实际变化不写快照；**默认模板只读**（写请求返回 `bad_request`）。原单条 `POST` / `PUT` / `DELETE mappings` 接口保留兼容，不再作为前端主路径。
+
 > **命名规约（跨模块基线）**：**`target_label` 一律不带 `_id` 后缀**——`_id` 后缀只属 DB 列与 API JSON 字段（如 `Tenant.id`、`NetworkDomain.tenant_id`，ID 语义）。即「资源字段（①层，可带 `_id`）」→「标签（②层，不带 `_id`）」是本表的固有映射语义：`tenant_id → tenant`、`biz_code → biz`、`app_code → app` 皆是该规约的实例。新增映射时若来源字段带 `_id`，目标标签应去掉该后缀（`resource_id → resource_id` 为例外——它是 M02 coverage 三态聚合与 M07 badge 回连的**稳定身份键**，属约定俗成的保留名）。
 
 **`tenant_id` → `tenant` 映射（内置默认前瞻口径）**：MVP 单租户**不注入**（默认模板不含此映射，注入骨架恒通过）；**{v0.2} 起为六类默认模板的内置默认映射**——由 `DefaultMappingBuilders` 统一生成 `{SourceField: "tenant_id", TargetLabel: "tenant"}`，把资源字段 `tenant_id` 映射为 target 级 **`tenant`** 标签（写入 `targets/*.json` 的 `static_configs[].labels`）。
@@ -717,6 +726,10 @@ status_mapping:
 | 数据库 | `database_type`       | `database_type`      | 数据库类型                 |
 | 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型                      |
 | 应用服务       | `service_name`       | `service_name`       | 应用服务名                                            |
+| 主机         | `activated_at`       | `activated_at`       | 主机开通时间（可选，v2.54）；日期时间值；仅画像与可选注入，不参与采集与判重 |
+| 应用服务       | `owner1` / `owner1_contact` / `owner2` / `owner2_contact` | 同名 | 应用负责人1/2 及联系方式（可选，v2.54）；空值不注入；旧 `owner` 存量回填 `owner1` |
+| 应用服务       | `ops_person` / `ops_person_contact` | 同名 | 应用运维人员及联系方式（可选，v2.54）；空值不注入 |
+| 应用服务       | `go_live_at`         | `go_live_at`         | 应用上线时间（可选，v2.54）；日期时间值；空值不注入 |
 | 通用 | `platform_code` | `platform` | 平台层归属标签（决策 110，修订决策 104）；**资源行一等业务字段**——值取资源 `platform_code`（平台字典，见 5.21）；资源行未显式填写时**兜底**取所属应用 `is_primary` 平台（见 5.19 / 5.24）；未填且应用无主平台时不注入（空值不注入） |
 | 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_module_path`   | `cmdb_module_path`   | CMDB 接入后由 Module\_04 同步                          |
@@ -903,7 +916,7 @@ status_mapping:
 
 MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
-**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
+**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status` / `activated_at`
 
 其中 `instance_name` 为必填（host 模板必填项，生成 `instance_name` label（与 §5.12.1 A 一致），见 5.2 / 5.12.1）。
 
@@ -916,11 +929,11 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
 **数据库导入模板列**：`network_domain` / `database_type` / `instance_ip` / `port` / `version` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
-**应用服务导入模板列**：`network_domain` / `service_name` / `biz_code` / `health_check_url` / `protocol` / `endpoint` / `port` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
+**应用服务导入模板列**：`network_domain` / `service_name` / `biz_code` / `health_check_url` / `protocol` / `endpoint` / `port` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status` / `owner1` / `owner1_contact` / `owner2` / `owner2_contact` / `go_live_at` / `ops_person` / `ops_person_contact`
 
-其中 `biz_code`（业务类型）为**必填项**：导入时填写业务编码，映射为 `biz` 标签。
+其中 `biz_code`（业务类型）为**必填项**：导入时填写业务编码，映射为 `biz` 标签；`health_check_url` 为**必填列（v2.54）**，`endpoint` / `port` 为选填列（留空不提交），`owner1` / `owner1_contact` / `owner2` / `owner2_contact` / `go_live_at` / `ops_person` / `ops_person_contact` 均为可选列（v2.54；`go_live_at` 接受 RFC3339 或 `YYYY-MM-DD`）。
 
-> **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + endpoint`，见 5.16.2）；N 行共享同一 `app_code`（**必填**，不再「留空默认取 service_name」）。
+> **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`health_check_url` / `endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + health_check_url`，见 5.16.2）；多环境同理（一行一个健康检查地址）；N 行共享同一 `app_code`（**必填**，不再「留空默认取 service_name」）。
 
 **其他监控目标导入模板列**：`network_domain` / `target_name` / `instance_ip` / `port` / `metrics_path` / `scheme` / `exporter_type` / `custom_labels` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
@@ -962,7 +975,7 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 | 平台存在性（决策 110） | `platform_code` 为**可选列**（主机 / 中间件 / 数据库 / 应用服务 / 其他监控目标五类模板均含），留空不校验、走所属应用 `is_primary` 平台**兜底**；填值时须对应已**启用**的平台字典条目、或落在本次导入文件「平台声明」sheet，且**与所属 `app_code` 的平台集合自洽**（填值须为所属应用关联平台之一，避免资源平台与应用平台矛盾）；编码规范：小写字母、数字、连字符，长度 ≤ 64；**停用条目不可新选，编辑已属停用平台时提示、允许保留历史值**；**`platform_code` 不参与资源判重键**（见 5.2 / 5.21 / 5.24） |
 | 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
 | 状态枚举    | Excel/CSV 导入时 `status` 列允许业务语言，经 5.5 状态映射字典转为 `online/offline/maintenance`；手动录入 / API 写请求必须直接为 `online/offline/maintenance` 之一 |
-| 重复检测    | 判重键按资源类型明确（均按 `network_domain_id` 收敛：政务云虽规划层保证跨区 IP 不重复，但按网域收敛可兼容其他客户跨区 IP 复用场景，并使"跨区迁移主机"语义正确）——**host = (domain, `instance_ip`)；database / middleware / generic\_target = (domain, `instance_ip`, `port`)；application = (domain, `service_name`, `endpoint`)；interface\_service = (domain, `api_url`)** |
+| 重复检测    | 判重键按资源类型明确（均按 `network_domain_id` 收敛：政务云虽规划层保证跨区 IP 不重复，但按网域收敛可兼容其他客户跨区 IP 复用场景，并使"跨区迁移主机"语义正确）——**host = (domain, `instance_ip`)；database / middleware / generic\_target = (domain, `instance_ip`, `port`)；application = (domain, `service_name`, `health_check_url`)（v2.54 由 `endpoint` 改 `health_check_url`，避免端点可空后误合并）；interface\_service = (domain, `api_url`)** |
 | 其他监控目标必填 | 其他监控目标 `instance_ip` 必填且符合 IPv4/域名格式                            |
 | 其他监控目标协议枚举 | 其他监控目标 `scheme` 必须是 `http/https` 之一 |
 | 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
@@ -1295,7 +1308,8 @@ status: "online"
 | DELETE | `/api/v2/platform/label-templates/{template_id}`                       | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）                                                                                                              |
 | POST   | `/api/v2/platform/label-templates/{template_id}/clone`                 | 克隆模板（含全部 mappings，新模板 is\_default=false）                                                                                                       |
 | GET    | `/api/v2/platform/label-templates/{template_id}/resources`             | 关联实例查询：按模板 resource\_category 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
-| POST | `/api/v2/platform/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一）                                                                                                    |
+| POST | `/api/v2/platform/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一；v2.55 起为兼容接口）                                                                                                    |
+| PUT    | `/api/v2/platform/label-templates/{template_id}/mappings`            | **整组替换映射（v2.55 新增，前端主路径）**：请求 `{mappings: [...]}` 完整替换，空数组 = 清空；整组校验 + 写入 + 审计快照同事务 |
 | PUT    | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）                                                                                                                              |
 | DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | 删除映射                                                                                                                                           |
 
@@ -1358,9 +1372,12 @@ status: "online"
 | POST | `/api/v2/platform/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
 | GET | `/api/v2/platform/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_category 匹配的资源列表 | `not_found` |
 | GET | `/api/v2/platform/label-templates/{template_id}/references` | — | `{ refs: [{ source, id, name, network_domain_id?, monitor_type?, enabled? }], total: N }`：引用该模板的采集 Job 与 CI 类型映射清单（决策 119 新增） | `not_found` |
-| POST | `/api/v2/platform/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
-| PUT | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
-| DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
+| POST | `/api/v2/platform/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表（**v2.55 起为兼容接口，前端主路径改整组替换**） | `bad_request`：保护 label / 同模板 target_label 重复 |
+| PUT | `/api/v2/platform/label-templates/{template_id}/mappings` | `{ mappings: MappingInput[] }`（**完整替换**，空数组 = 清空；v2.55 新增） | 统一保存后的完整 mappings 列表 | `bad_request`：缺省 mappings / 保护 label / 同模板 target_label 重复 / 默认模板只读；`not_found` |
+| PUT | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表（v2.55 起为兼容接口） | `not_found`；`bad_request` |
+| DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }`（v2.55 起为兼容接口） | `not_found` |
+
+> **整组保存事务语义（v2.55）**：`PUT .../mappings` 的整组校验、模板写入与本批 OldValue/NewValue 审计快照在同一事务内完成，任一项失败全部回滚；空数组合法（清空）；无实际变化不写快照；默认模板只读。
 
 > `transform_rule=dict`（字典翻译，见 5.11）组合约束：仅 `source_type=resource_field` 且 `source_field` 为可翻译字段（应用编码 / 业务编码 / 平台编码 / 网域 ID / 环境，`app_name` 为历史兼容键）时可携带；`source_type` 为 `composite` / `prometheus_builtin` / `cmdb_field` 时携带 dict 保存返回 `bad_request`（400）；字典条目未命中时标签值回退原始编码（不产生异常）。
 
@@ -1544,6 +1561,8 @@ stateDiagram-v2
 - [ ] {P1} 模板列表展示模板 ID（可复制），便于与 Module\_01 的模板引用对应
 - [ ] {P0} 标签模板页左侧模板列表支持按资源类型 Tab 切换、搜索框与「默认/自定义」筛选
 - [ ] {P0} 模板与映射的新增/编辑使用右侧抽屉，编辑时保留模板与映射上下文；映射明细按来源类型分组展示
+- [ ] {P0，v2.55} 映射维护为**表格批量编辑**：进入编辑后可在表格中连续新增 / 修改 / 删除多行，最后一次「保存」整组提交；取消或服务端校验失败不落库且**保留已编辑内容**；不再提供「逐条新增立即保存」主路径
+- [ ] {P0，v2.55} `PUT /label-templates/{template_id}/mappings` 整组替换契约：请求 `{mappings: [...]}` 完整替换、空数组表示清空；整组校验（保护 label / 同模板 target_label 唯一 / 来源与转换合法）、模板写入与本批 OldValue/NewValue 审计快照同事务，任一项失败全部回滚；无实际变化不写快照；默认模板只读（`bad_request`）；原单条接口保留兼容
 - [ ] {P0} 资源新增/编辑使用右侧抽屉（与标签模板页编辑方式一致）
 - [ ] {P0} {v2.51 由 P1 提前} 资源列表支持「列设置」入口，可勾选显示/隐藏列（含中间件类型、网域、来源等），不影响默认列与数据；主标识列与操作列不可关闭，勾选偏好按资源类型分区记忆
 - [ ] {P1} 其他监控目标可配置 `custom_labels`（自定义标签），并随标签模板透传
@@ -1556,6 +1575,10 @@ stateDiagram-v2
 - [ ] {P0} 用户添加的标签 key 与模板映射目标冲突时，提示「该标签由标签模板生成，如需修改请前往标签模板管理」，引导类型级变更
 - [ ] {P0} 静态资源（主机 / 数据库 / 中间件 / 其他监控目标）标签只读展示来源（system / cmdb / Excel 带入），不提供实例级打标入口
 - [ ] {P0} 资源新增/编辑按类型执行 `biz_code` 必填口径（application / interface\_service 必填；host / database / middleware 可空；generic\_target 与 `app_code` 二选一），详情页展示业务展示名 `biz_name`；停用业务以「业务名（已停用）」标识
+- [ ] {P0，v2.54} 应用服务登记 `health_check_url` **必填**（HTTP/TCP URL 格式、含主机），`endpoint` / `port` **选填**（`port=0` 表示未设置）；blackbox 拨测取 `health_check_url`、standard 指标采集取 `endpoint:port`，两者互不代填——仅填 URL 的资源配置 standard Job 时生成侧以 `address_empty` 诊断拦截；表单、Excel 模板与导入校验、详情与导出同步
+- [ ] {P0，v2.54} 应用服务判重键为 `(network_domain_id, service_name, health_check_url)`：同一服务多环境 / 多健康检查地址登记为多行（一行一个 URL），互不误合并；`create_only` 与 `upsert` 均按该键定位
+- [ ] {P0，v2.54} 应用服务可维护负责人1/2 及联系方式、运维人员及联系方式、应用上线时间（均可选）：表单横排（左姓名右联系方式）、详情抽屉、Excel 模板与导入、CSV 导出、标签来源字段同步；旧 `owner` 存量回填 `owner1`；空值不注入标签
+- [ ] {P0，v2.54} 主机可维护「开通时间」`activated_at`（可选）：表单日期时间选择器、详情抽屉、Excel 模板与导入、CSV 导出、标签来源字段同步；仅主机出现该字段，不参与采集与判重
 - [ ] {P0} 业务类型资源（application / interface\_service）开放「自定义标签」编辑（user 来源）；其余静态资源标签编辑入口隐藏/禁用
 - [ ] {P0} 标签模板可新增 `biz_code → biz` 映射；所有资源类型默认模板包含 `biz_code → biz` 映射；业务指标经抓取注入带 `app` / `biz` 标签，可按业务类型聚合
 - [ ] {P0} 资源列表「采集状态」列展示三态 badge（采集中 / 已下发未采到 / 未监控），支持按采集状态筛选（`collection_status`）；「已下发未采到」高饱和展示；badge 数据只读消费 M01 选中关系 + M02 健康度 API
@@ -1569,7 +1592,7 @@ stateDiagram-v2
 
 - [ ] {P0} 导入时能够基于资源类型校验必填字段，并校验 `network_domain_id` 存在性
 - [ ] {P0} 导入时 Excel 中文 `status` 能够映射到 `Resource.status` 枚举（如 `运行中` → `online`）
-- [ ] {P0} 导入 upsert：按类型判重键（host=(domain, `instance_ip`)；database/middleware/generic\_target=(domain, `instance_ip`, `port`)；application=(domain, `service_name`, `endpoint`)）定位已有资源并覆盖更新，结果返回 `updated` 计数；`create_only` 下判重命中计入 failed
+- [ ] {P0} 导入 upsert：按类型判重键（host=(domain, `instance_ip`)；database/middleware/generic\_target=(domain, `instance_ip`, `port`)；application=(domain, `service_name`, `health_check_url`)）定位已有资源并覆盖更新，结果返回 `updated` 计数；`create_only` 下判重命中计入 failed
 - [ ] {P1} {组合字段出值} 模板 API 保存 composite 映射（`instance_ip:port → instance`）时仅存规则、不存实例值；生成配置阶段 `instance` 标签 = `Resource.instance_ip` + 策略层 `default_port` 拼接（契约见 5.12.3 / 6.3）
 - [ ] {P1} {composite 例外} 保存映射时校验保护 label：`source_type=composite && target_label=instance` 跳过拦截（composite→`instance` 例外），其余保护 label（`job`/`scheme`/`__address__` 等）一律阻止
 - [ ] {P1} ResourceLabel 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源；`system` 为系统保护标签不可被 `user` 覆盖，同 key 冲突优先级为 `cmdb` > `user`（与 8 数据模型状态机一致）
@@ -1706,6 +1729,7 @@ stateDiagram-v2
 - **破坏性操作二次确认**：删除资源、删除模板等操作前弹出 Modal 二次确认，并明确提示影响范围——删除资源被 Job 引用时**不阻止（软删放行，F-21 B 方案）**：确认弹窗先调只读反查接口 `GET /api/v2/platform/resources/{resource_id}/referenced-by` 回显「该资源正被 N 个采集 Job 引用」，并提供「查看引用 Job」跳转（M01 Job 列表）；用户知情确认后放行，后端删除时同步回收引用 Job `SelectedInstanceIDs` 中该 resource_id（与 offline 静默自愈对齐，M01 §5.10 在线数分母随之收敛）。⚠️ 若未来改为硬 purge 须回退 403 契约（见 6.6.1）；删除模板提示默认模板禁止删除 / 被引用时阻止。
 - **表单校验错误位置**：字段校验失败时错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：创建 / 编辑 / 保存按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
+- **资源表单画像字段布局（v2.54）**：应用服务表单中「负责人1 / 负责人1联系方式」「负责人2 / 负责人2联系方式」「运维人员 / 运维人员联系方式」各自**横排一行**（左姓名、右联系方式），「应用上线时间」为日期时间选择器；主机表单新增可选「开通时间」日期时间选择器；上述字段在详情抽屉、Excel 模板与 CSV 导出中同名展示，缺省显示 `-`。
 - **网域列默认展示且单网域模式不可隐藏**：即使单网域模式（`multi_site_enabled=false`），资源列表 / 详情 / Excel 模板仍保留「网域」列；列显隐配置中隐藏需用户主动关闭；资源详情页将「网域」作为基础属性置顶展示。
 - **业务 / 应用列展示（按类型分化，决策 93 / 95 / 96）**：资源列表与资源详情页默认展示**每类 Tab 落固定列**——host 显「应用」列（`biz` 可空留 `-`）；application 显「应用 + 业务」列；database / middleware 显「应用」列（`biz` 可空留 `-`）+ 多库 1:N 提示（决策 94）；generic\_target 显「业务 / 应用」灵活列（`app_code` / `biz_code` 至少一列有值，决策 95）。业务列显示字典 `biz_name`，停用业务以「业务名（已停用）」标识；`biz_code` / `app_code` 在新增 / 编辑表单中按下拉选择（`biz_code` 按类型分化：host/database/middleware 可空后补、application 必填、generic\_target 与 app 二选一必填；仅含启用条目，停用条目不可选）。
 - **云标识与网络分区（决策 98 / 101 / 103 / M06 决策 78）**：①资源列表 host Tab **默认展示「云」列**（显示字典 `cloud_name`，停用条目以「云名（已停用）」标识，样式对齐「应用」列）；②资源新增 / 编辑表单**不再提供「云」下拉**——云归属由所选网域派生、只读展示（见 ③）；云字典（5.20）仅用于网域登记与列表 / 详情解析；③主机详情抽屉展示「云（只读，继承所属网域）+ 网络分区（只读，继承所属网域）」——二者均经所属网域派生、无编辑入口（`cloud` 来自网域 `cloud_code`、`zone` 来自网域 `zone_type`，决策 103 / M06 决策 78）；④「云」列与筛选**不得**出现 `cloud_type` / `carrier` 作为独立列或独立筛选维度（二者仅为云字典描述属性，非告警维度）；⑤枚举与命名不在页面硬编码，一律走字典（见 5.20 / 5.6 / M06 §5.2）；⑥云归属唯一事实来源在网域（M06 §5.2，`cloud_code` 必填），资源侧不冗余、只读派生；云字典**不提供任何管理界面**。
@@ -1722,7 +1746,7 @@ stateDiagram-v2
 - **采集状态三态 badge**：资源列表「采集状态」列展示三态（采集中 / 已下发未采到 / 未监控），支持筛选；异常驱动展示——仅「已下发未采到」高饱和并可附提醒「已选中但未采集到数据（含变更未确认下发情形），请检查变更下发状态、采集器安装与网络连通」；数据 = M01 选中关系（`is_monitored` 只读映射）+ M02 健康度 / 覆盖率 API（聚合调用，禁止逐行查询）；「待采集 vs 已下发未采到」细分归 M01 Job 回显（见 5.2）。
 
 - **标签模板页 Tab 顶部说明文案**：被引用 Job Tab 顶部说明「本模板被 {N} 个采集 Job 引用。修改模板后，引用的 Job 会按新映射重新生成标签，配置变更需在配置中心确认后生效（MVP 阶段重新生成并立即生效）。」；关联实例 Tab 顶部说明「本模板适用于 {资源类型} 类型，该类型下所有 {N} 个实例自动适用本模板的标签映射，无需手动关联。如需查看具体实例清单，请浏览下方列表。」
-- **标签模板页布局**：左右分栏——左栏为模板列表（资源类型 Tab 切换 + 搜索框 + 默认 / 自定义筛选），右栏为选中模板的详情；左栏模板卡片只呈现「名称 + 默认 / 自定义 Tag + 映射数 +（仅业务类型资源）关联实例数 badge」，明细一律在右栏查看；右栏以 2~3 个 `Tabs` 承载视图——映射明细（所有类别）、关联实例（仅业务类型资源）、被引用 Job（所有类别），关联实例与引用 Job 均用完整 Table 承载（分页 + 关键字搜索），不用弹窗承载大数据集。
+- **标签模板页布局**：左右分栏——左栏为模板列表（资源类型 Tab 切换 + 搜索框 + 默认 / 自定义筛选），右栏为选中模板的详情；左栏模板卡片只呈现「名称 + 默认 / 自定义 Tag + 映射数 +（仅业务类型资源）关联实例数 badge」；**映射编辑为表格批量（v2.55）**——点「编辑映射」后映射区变为可编辑表格（本地草稿），支持行内新增 / 修改 / 删除，底部「保存」整组提交、「放弃」丢弃草稿且不落库，校验失败保留编辑内容；去掉逐条「新增映射 →立即保存」交互，单条接口仅作兼容，明细一律在右栏查看；右栏以 2~3 个 `Tabs` 承载视图——映射明细（所有类别）、关联实例（仅业务类型资源）、被引用 Job（所有类别），关联实例与引用 Job 均用完整 Table 承载（分页 + 关键字搜索），不用弹窗承载大数据集。
 - **列表「列设置」入口（{v2.51} 由 P1 提前至 P0｜MVP）**：列表工具栏提供「列设置」入口，用户可勾选显示 / 隐藏列；隐藏仅影响当前用户视图，不改变数据与默认列。「网域」列默认展示，隐藏需用户主动关闭。**主标识列与操作列不可关闭**；勾选偏好按 `resource_category` 分区持久化（切换 Tab 各自恢复上次勾选）；「列设置」下拉内以**分组小标题**标注列的业务归属分组（不占表头，见 3.1.3）。
 - **资源列表结构**：资源列表采用「资源类型 Tab + 表格 + 行点击详情抽屉（含标签管理）」结构，不做左右分栏（资源字段差异大，分栏信息密度失衡）；六类资源类型为固定粗粒度枚举，导航保持 Tab 不变，后续细粒度类型（如 MySQL / Redis / Kafka）在 Tab 内通过子类型字段筛选承接，不新增顶层导航（见 5.1）。
 - **实例列宽度与列宽拖拽**：资源列表实例名列默认宽度 300px（避免接口地址等长实例名被截断），列头列宽支持拖拽调整；拖拽结果为会话内临时态、不做持久化（刷新后恢复默认宽度）。
@@ -1730,12 +1754,12 @@ stateDiagram-v2
 
 ## Change Log
 
-> **Change Log 定位**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v2.50 及以前逐版详情，含 v2.28 起历次轮转迁入，v2.50 已于 2026-10-23 迁入）已迁移至** **`docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 状态机 / 9 验收标准）。
+> **Change Log 定位**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v2.52 及以前逐版详情，含 v2.28 起历次轮转迁入，v2.52 已于 2026-11-05 迁入）已迁移至** **`docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 状态机 / 9 验收标准）。
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 落点章节 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------- | --- |
+| v2.55 | 2026-11-05 | 修改 | **标签映射批量编辑回填（F-35，用户指定 12 项中的 13）**：①§3.2.1 新增「映射编辑方式」——编辑进入表格批量编辑、本地草稿、批量增删改后统一保存，去掉逐条立即保存；②§5.11 补整组统一保存语义（完整替换、空数组清空、同事务校验 + 写入 + 审计快照、无变化不写快照、默认模板只读）；③§6.3 / §6.6.3 新增 `PUT /label-templates/{id}/mappings`，原单条接口标注兼容；④§9 补批量编辑与事务契约验收；⑤§11.2 补标签模板页表格编辑交互。 | 3.2.1 / 5.11 / 6.3 / 6.6.3 / 9 / 11.2 / Change Log | MVP 生效 | ready |
+| v2.54 | 2026-11-05 | 修改 | **应用服务字段与主机开通时间回填（用户指定 12 项中的 3/4/11/12）**：①application `health_check_url` 改**必填**（blackbox 拨测目标）、`endpoint` / `port` 改**选填**（`port=0`=未设置），判重键改 `(domain, service_name, health_check_url)`，双 Job 口径明确互不代填；②新增 `owner1` / `owner1_contact` / `owner2` / `owner2_contact` / `ops_person` / `ops_person_contact` / `go_live_at`（均可选，旧 `owner` 存量回填 `owner1`）；③Host 新增 `activated_at` 开通时间（仅主机，画像属性）；④§5.6 / §5.8 / §5.12.1 / §5.16.1 / §5.16.2 / §9 / §11.2 同步（表单横排、详情、Excel 模板与导入、CSV 导出、标签来源）；⑤明确健康检查地址**不做多选**（一行一个 URL，多环境登记多行）。 | 5.6 / 5.8 / 5.12.1 / 5.16.1 / 5.16.2 / 9 / 11.2 / Change Log | MVP 生效 | ready |
 | v2.53 | 2026-10-23 | 修改 | **接口服务第六类、三层聚合与字典翻译收割**：F-28 interface_service（api_name/api_url 必填、Excel 契约；判重键 `(network_domain_id, api_url)`；模板不含 `platform_code` 列、`platform` 走所属应用主平台兜底；用户标签写权限与 `application` 对齐）；F-30 删服务字典改三层（决策 105 作废）；F-32 转换规则新增 dict；环境枚举收敛 OPS/PRD/UAT；实例列 300px+列宽拖拽；默认模板显式提交生效；纯拨测 URL 须登记为接口服务资源（`api_url`）或使用应用服务 `health_check_url`，不再支持裸 URL（F-29 跨模块边界）；F-29/F-31/F-33 归 M01/M09/M05 | 3 / 5 / 6 / 9 / 10 / 11 / Change Log | MVP 生效 | ready |
-| v2.52 | 2026-10-15 | 修改 | **dev-feedback F-21 / F-22 / F-27 遗留 + 端口提案回填的收割（五项全收）**：F-21 **资源删除改软删放行（B 方案）**——被 ScrapeJob 引用不再 403，二次确认弹窗先调新增只读反查 `GET /resources/{id}/referenced-by` 回显引用 Job 数与「查看引用 Job」跳转，知情确认后放行、后端同步回收引用 Job `SelectedInstanceIDs`（与 offline 自愈对齐）；F-22③ **`cluster` 必填口径前后端对齐**（database / middleware / application 必填、前端补必填校验，host / generic\_target 可空）；F-22④ **`zone_env` 列从主机模板移除**（冗余列，存量 Excel 兼容容忍、物理列保留）；F-27 遗留落档（声明 sheet 仅覆盖导入动线、网域无声明通道只能去 M06 登记）；端口提案回填——`scrape_port` 去 {v0.2} 标注改 v0.1 已落地并按 M01 §5.1 **四级权威链**改写，D3b **generic\_target 端口 / 采集路径 / 协议改「端点自身属性随资源登记」**（修正原「不进表单」口径，不进四级链） | 3.1.1 / 5.2 / 5.6 / 5.9 / 6.6.1 / 9 / 11.2 / 5.16.1 / Change Log | MVP 生效 | ready |
-| v2.51 | 2026-10-03 | 修改 | **PM 生产前端复核四项裁定的契约同步（dev-feedback §14 F-16~F-19）**：F-16 `generic_target` 展示名以 PRD 为准（实现项，PRD 正文无改动）；F-17 **列显隐配置由 `P1｜后续版本` 提前为 `P0｜MVP`**（原定 P1，F-13 列头分组撤销后宽表体感无出口、用户体感驱动提前；偏好按 `resource_category` 分区持久化、主标识列与操作列不可关闭、业务归属分组改由「列设置」下拉内分组小标题承载）；F-18 **资源列表补平台 / 应用 / 服务三维筛选**（四层模型查询侧补齐，`service_code` 仅 application / generic_target 出现；全部筛选须下沉后端，`biz_code` / `status` 前端过滤为已知裁剪待修；契约先落、实现另轮排期）；F-19 **服务↔业务 N:1 主归属由 MVP 降级 `{v0.3+}`**（判定为过度设计——`biz_code` 只写不读无消费方；「所属应用」`app_code` 保留 MVP，后端字段与 CRUD 保留不动、仅前端不暴露入口） | 3.1.3 / 5.22 / 5.24 / 6.1 / 9.1 / 9.2 / 10 / 11.1 / 11.2 / Change Log | MVP 生效（列显隐提前进 MVP；服务↔业务降 {v0.3+}；三维筛选契约先落） | ready |
 > 完整 Change Log（v2.50 及以前）见 `docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」。
 

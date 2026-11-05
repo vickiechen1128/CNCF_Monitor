@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v3.53
+> **PRD 版本**: v3.54
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v3.41（⚠️ 原型待同步 v3.42：新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前。v3.48 为 M07 实体层级骨架同步——业务域语义升级为「服务子图」（决策 106）、术语表补 `svc` / `platform` 标签，属契约级修订、原型无需同步。v3.49 为 application_http 标签模板默认映射旧账订正——`app_name → app` 订正为 `app_code → app`、`business_domain → biz` 订正为 `biz_code → biz`，纯文档修正、原型无需同步；v3.50 为 `platform` 注入点同步——吸收 design-proposal `object-relation-topology`（决策 110~112）：`platform` 由「派生标签」订正为「资源行一等业务字段 `platform_code` 经标签模板 `resource_field` 映射注入（留空按所属应用主平台兜底）」，属契约级修订、采集落地走机制 A 标签注入不变、原型无需同步；v3.51 为 dev-feedback F-39 / F-40 / F-41 / F-11 收割——四级端口权威链显性化（`scrape_port` 标 v0.1 已落地、业务 `port` 兜底仅 db/mw）、§5.4 端口承载分口径矩阵与 `application_http` `metrics_path` 必填、「预览可用标签与注解」常驻独立入口、在线数分母=可解析选中实例数，属契约级修订、**原型待同步**（规则编辑页「预览可用标签与注解」常驻按钮 + 检查通过文案分层）。v3.52 为 dev-feedback F-40 采集三态 stale 口径收割——§5.10 实例状态表新增「回传延迟中（stale）」态、聚合优先级 `online > down > stale > pending`、列表计数分段醒目化与「回传积压 → 采集节点页」互相指引，属展示口径修订、**原型待同步（本轮不同步，待后续原型轮承接）**。v3.53 为 dev-feedback 收割——标准采集任务 `resource_type` 落库并显式提交资源类别默认模板 ID（存量不回填）；拨测目标改由 `selected_instance_ids` 从 `interface_service` / `application` 资源选择（手填 `blackbox_targets` 禁用、非空 400），`target_field` 按类别派生只读（接口服务 `api_url` / 应用服务 `health_check_url`）+ 拨测标签模板选择器（留空回落类别默认模板）；`dict` 字典转换生成期翻译；删除 `svc` 服务标签口径（M07 F-30 跨模块），服务层退出纵向实体链。属契约级修订、**原型待同步**（拨测表单资源类别与标签模板选择器）；另重写 §5.10 跨模块三套采集状态口径并存指引，属展示口径微调、原型无需同步。
-> **更新日期**: 2026-10-23
+> **原型版本**: v3.41（**v3.54 为新增 NPU 监控类型回填轮（2026-11-05，用户指定 12 项中的 9）**：`monitor_type` 新增 `npu`（主机附加采集能力，候选主机全集、不按 OS / 型号过滤），Job 表单与监控对象类型选择器同步；仅新增监控类型与前端选项，不新增采集器登记页；属枚举扩展、**原型待后续原型轮承接**；⚠️ 原型待同步 v3.42：新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前。v3.48 为 M07 实体层级骨架同步——业务域语义升级为「服务子图」（决策 106）、术语表补 `svc` / `platform` 标签，属契约级修订、原型无需同步。v3.49 为 application_http 标签模板默认映射旧账订正——`app_name → app` 订正为 `app_code → app`、`business_domain → biz` 订正为 `biz_code → biz`，纯文档修正、原型无需同步；v3.50 为 `platform` 注入点同步——吸收 design-proposal `object-relation-topology`（决策 110~112）：`platform` 由「派生标签」订正为「资源行一等业务字段 `platform_code` 经标签模板 `resource_field` 映射注入（留空按所属应用主平台兜底）」，属契约级修订、采集落地走机制 A 标签注入不变、原型无需同步；v3.51 为 dev-feedback F-39 / F-40 / F-41 / F-11 收割——四级端口权威链显性化（`scrape_port` 标 v0.1 已落地、业务 `port` 兜底仅 db/mw）、§5.4 端口承载分口径矩阵与 `application_http` `metrics_path` 必填、「预览可用标签与注解」常驻独立入口、在线数分母=可解析选中实例数，属契约级修订、**原型待同步**（规则编辑页「预览可用标签与注解」常驻按钮 + 检查通过文案分层）。v3.52 为 dev-feedback F-40 采集三态 stale 口径收割——§5.10 实例状态表新增「回传延迟中（stale）」态、聚合优先级 `online > down > stale > pending`、列表计数分段醒目化与「回传积压 → 采集节点页」互相指引，属展示口径修订、**原型待同步（本轮不同步，待后续原型轮承接）**。v3.53 为 dev-feedback 收割——标准采集任务 `resource_type` 落库并显式提交资源类别默认模板 ID（存量不回填）；拨测目标改由 `selected_instance_ids` 从 `interface_service` / `application` 资源选择（手填 `blackbox_targets` 禁用、非空 400），`target_field` 按类别派生只读（接口服务 `api_url` / 应用服务 `health_check_url`）+ 拨测标签模板选择器（留空回落类别默认模板）；`dict` 字典转换生成期翻译；删除 `svc` 服务标签口径（M07 F-30 跨模块），服务层退出纵向实体链。属契约级修订、**原型待同步**（拨测表单资源类别与标签模板选择器）；另重写 §5.10 跨模块三套采集状态口径并存指引，属展示口径微调、原型无需同步。
+> **更新日期**: 2026-11-05
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -344,13 +344,14 @@ MVP 阶段规则经 3.1「规则文件挂载」上传 / 粘贴完整 rules.yml �
 ### 5.1.8 监控对象类型来源与映射
 
 - [Module\_07](Module_07_Monitoring_Object_Management.md) 的 Resource 采用**粗粒度资源类别**（`resource_category`：host / database / middleware / application / interface\_service / generic\_target，六类；interface\_service 为拨测目标资源，可抓取实例为其余五类）+ **细粒度子类型** `database_type` / `middleware_type`（mysql / redis / kafka / ...）；
-- 本模块 `monitor_type` 使用**细粒度监控对象类型**（`host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp；增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`），直接映射 Exporter 绑定与指标库；
+- 本模块 `monitor_type` 使用**细粒度监控对象类型**（`host_linux` / `host_windows` / `npu` / mysql / redis / kafka / nginx / application\_http / snmp；增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`），直接映射 Exporter 绑定与指标库；
 - 映射表（`MONITOR_TYPE_DERIVATION_MAP`，监控对象类型**推导**表——名字即语义：这是由资源类别 + 子类型推导出来的策略维度，不是与 CMDB 的绑定；五大类（可抓取实例）+ 归类规则；interface\_service 不进本推导——其无需 monitor\_type，仅作 blackbox 拨测目标资源）：
 
 | Module\_07 粗粒度（resource\_category + database\_type / middleware\_type + os\_type） | Module\_01 细粒度 monitor\_type |
 | --- | --- |
 | host + os\_type=linux / unix | `host_linux` |
 | host + os\_type=windows | `host_windows` |
+| host（附加采集能力，NPU，v3.54） | `npu`——**主机附加采集能力**，候选主机为**全集**（不按 OS / 型号过滤），由用户在采集 Job 表单直接选择；不走 `os_type` 推导 |
 | database + mysql | mysql |
 | database + redis | redis |
 | middleware + kafka | kafka |
@@ -493,7 +494,7 @@ MVP 采用方式①，字段表保持不变；方式②作为 v0.2+ 演进选项
 | ------------------------- | --------- | --------------------- | ---------------- | ------------------------------------------------------------------ |
 | id | string | 平台生成 | Job ID | 唯一标识 |
 | job\_name | string | 用户输入 | Job 名称 | Prometheus job\_name |
-| monitor\_type | enum | Module\_07（资源类别 + 子类型推导） | 监控对象类型 | 关联监控对象类型（派生的策略维度）；`job_type=blackbox` 时留空（见下「blackbox 不占用监控对象类型 / 采集器语义」） |
+| monitor\_type | enum | Module\_07（资源类别 + 子类型推导） | 监控对象类型 | 关联监控对象类型（派生的策略维度）；可选值含 `npu`（主机附加采集能力，v3.54——候选主机全集、不按 OS / 型号过滤）；`job_type=blackbox` 时留空（见下「blackbox 不占用监控对象类型 / 采集器语义」） |
 | resource\_type | enum | 策略配置 | 资源类别 | 粗粒度资源类别（host / database / middleware / application / interface\_service 等）；标准与拨测任务均落库——标准任务必填、保存时随 `label_template_id` 显式提交该类别默认模板 ID；拨测任务仅允许 `interface_service` / `application` 两类（其余保存返回 400）；存量任务不回填，用户重新保存时按当前类别自行修正 |
 | exporter\_template\_id | string | CITypeExporterMapping | 默认采集器 | 关联默认采集器（采集实现）；可空（手填模式不选采集器，直接填采集参数） |
 | network\_domain\_id | string | Module\_09 | 网域 | 归属网域；**必填**，MVP 所有 ScrapeJob 必须绑定且仅绑定单一**已纳管网域**（未在 M09 完成监控纳管的网域不可选，保存时校验）；**v0.2 起扩展为网域集合**——一个逻辑 Job 可勾选多个已纳管网域，M09 生成器按域拆分扇出（每域独立 scrape_configs / targets / 变更单），MVP 存量单值自动迁移为单元素集合；「采集 Job」列表页提供网域查询条件（选项 = 已纳管网域） |
@@ -1127,6 +1128,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - [ ] {P0} 默认采集配置列表的「标签模板」列采用两行卡片展示（名称 + 默认/自定义标记 / 类别·模板ID），点击模板名称打开只读预览抽屉展示映射明细。
 - [ ] {P0} MVP 支持手动勾选实例；勾选结果持久化到 `ScrapeJob.selected_instance_ids`。
 - [ ] {P0} 选定 `monitor_type` 与 `network_domain_id` 后，实例候选自动收敛为「同类型 + 同网域」资源，支持一键全选/反选与关键字筛选（减少手动逐个勾选）
+- [ ] {P0，v3.54} 采集 Job 表单可选监控对象类型 `npu`：选择后实例候选为**主机全集**（不按 OS / 型号过滤），保存后按既有 standard 采集链路生成配置；「默认采集配置」与「采集 Job」表单的类型下拉均出现 `npu`（展示名「NPU」）；不新增采集器登记页，采集参数沿用主机 Job 流程
 - [ ] {P0} 采集 Job 支持 `filter` 实例选择模式：按资源属性条件表达式筛选并预览匹配结果；保存后 M07 新导入/同步的匹配资源在下一配置生成周期自动纳入 targets，无需编辑 Job；不再匹配的资源自动移出
 - [ ] {P0} 采集 Job 支持勾选多个已纳管网域；保存后 M09 按网域自动拆分生成各域配置与变更单，每域独立校验 / 确认 / 下发；MVP 单网域行为不变
 - [ ] {P0} 实例候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选）；已选实例转 `offline` 后 M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除，见 [Module_09 3.3 实例过滤](Module_09_Network_Domain_and_Edge_Config_Center.md)）
@@ -1249,7 +1251,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | ------------------------------------- | ---------------- | ------------------------------------------------------------ |
 | `CITypeExporterMapping` | 默认采集配置 / 采集器管理 | 监控对象类型 ↔ 默认采集器（采集实现）的绑定；采集实现层预设，不绑网域；每类型可多行、`is_default` 标记默认；含安装指南；入口为独立「采集器管理」页面（`/collectors`），与「采集 Job」页（`/scrape-jobs`）为「采集策略」一级模块下的 Sider 二级导航项（与「规则编辑」「指标库」并列，以生产导航为准），承担类型级采集器指引（该装什么、怎么装），实例级安装登记（可选）在选实例时（5.6） |
 | `CITypeExporterMappingOverride` | 网域级覆盖 | 按网域覆盖映射默认值（端口 / 协议 / 采集路径等），优先级高于映射默认值 |
-| `monitor_type`（细粒度） | 监控对象类型 | `host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp；增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`（generic_target 按端点子类型 `exporter_type` 推导）；派生的策略维度，只存在于监控平台内部、不回写 CMDB |
+| `monitor_type`（细粒度） | 监控对象类型 | `host_linux` / `host_windows` / `npu`（主机附加采集能力，候选主机全集，v3.54） / mysql / redis / kafka / nginx / application\_http / snmp；增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`（generic_target 按端点子类型 `exporter_type` 推导）；派生的策略维度，只存在于监控平台内部、不回写 CMDB |
 | `resource_category`（粗粒度） | 资源类别 | host / database / middleware / application / interface\_service / generic\_target（Module\_07 六类；本模块 monitor\_type 推导与 standard 采集覆盖可抓取五类，interface\_service 仅作 blackbox 拨测目标资源） |
 | `middleware_type` | 中间件类型 | kafka / elasticsearch / nginx / zookeeper 等（细粒度子类型） |
 | `database_type` | 数据库类型 | mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb 等（细粒度子类型） |
@@ -1397,8 +1399,8 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 落点章节 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|--------------|------|
+| v3.54 | 2026-11-05 | 契约 | **新增 NPU 监控类型（M01-NPU-01，用户指定 12 项中的 9）**：`monitor_type` 枚举新增 `npu`（主机附加采集能力，候选主机全集、不按 OS / 型号过滤），`ValidMonitorTypes()` 与前端类型下拉 / 分类常量同步；§5.1.8 类型清单与推导表、§5.4 字段说明、§9 验收、§10 术语同步；不新增采集器登记页，采集参数沿用主机 Job 流程。 | 5.1.8 / 5.4 / 9 / 10 / Change Log | MVP 生效 | ready |
 | v3.53 | 2026-10-23 | 契约 | **M07 dev-feedback 跨模块收割（F-28/F-29/F-30/F-31/F-32/F-33）**：①标准任务 `resource_type` 落库并显式提交类别默认模板 ID（存量不回填）；②拨测目标改由 `selected_instance_ids` 从 `interface_service` / `application` 资源选择（手填 `blackbox_targets` 禁用、非空 400），`target_field` 按类别派生只读，目标与 standard 同构携带资源标签；③拨测标签模板选择器 + `dict` 字典转换生成期翻译；④删除 `svc` 服务标签口径，业务域纵向链收敛为 `platform → app → 资源实例`；⑤§5.10 三套采集状态口径并存指引；⑥资源类别口径对齐 M07 第六类 interface_service（monitor_type 推导不覆盖、仅作拨测目标资源） | 3.1 / 5.1 / 5.4 / 5.7 / 5.9 / 5.10 / 6.2.2 / 9 / 10 | MVP 生效 | ready |
 | v3.52 | 2026-10-15 | 契约 | **M09 dev-feedback F-40 采集三态 stale 口径收割**：①§5.10 实例状态表新增「回传延迟中（stale）」（瞬时 5min lookback 无样本但 1h 内有历史样本，橙色、指引回传通道而非采集配置）；②双查询判定与聚合优先级 `online > down > stale > pending`、查询失败降级不误判；③列表计数分段醒目化（stale-only 整格橙 Tag / 混合态「延迟 n」小 Tag / anomaly 红优先）；④与 M09/M11 采集节点页「回传积压 → scrape_interval」互相指引；⑤blackbox 拨测不产 stale、coverage 三态边界补 stale 仅本模块回显承担 | 5.10 / 3.1 / 9 / 10 | MVP 生效 | ready |
-| v3.51 | 2026-10-15 | 契约 | **M01 dev-feedback 收割（F-39/F-40/F-41/F-11）**：①端口链 `scrape_port` 标「v0.1 已落地」、补四级权威链（业务 port 仅 db/mw 兜底）与「登记异步留空回填」动线、生效端口来源标注；②§5.4 补端口承载分口径矩阵（拨测→所选资源地址；application/generic_target→M07 直用）与 `application_http` `metrics_path` 必填不参与层叠；③「预览可用标签与注解」常驻独立入口 + 检查通过文案分层；④在线数分母=可解析选中实例数（分子分母同源） | 5.1.1 / 5.1.2 / 5.4 / 5.5 / 5.10 / 10 / 11.1 / 11.2 / 9 | MVP 生效 | ready |
 
-> 完整 Change Log 历史（v3.50 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。
+> 完整 Change Log 历史（v3.51 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。
