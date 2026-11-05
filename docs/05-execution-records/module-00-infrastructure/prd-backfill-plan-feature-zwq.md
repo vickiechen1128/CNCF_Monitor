@@ -1,6 +1,6 @@
 # feature/zwq 10-24 后 PRD 回填计划
 
-> **状态**：待执行（draft，2026-11-05）
+> **状态**：已执行（批次 A~H 全部完成，2026-11-05；§1.3 挂账项待确认）
 > **范围**：`docs/02-product-requirements/Modules/Module_01/02/03/05/07/08/11`、`Modules/README.md`
 > **依据**：`origin/feature/zwq` 2026-10-24 之后提交 + `docs/05-execution-records/module-*/` 执行记录与 design-proposal
 > **执行角色**：proposal-designer（项目无独立 Agent 文件，按 `prototype-designer` 规则执行）
@@ -304,14 +304,16 @@
 
 ## 7. 待办勾选
 
-- [ ] 批次 A：M08 事件模型 + M05 首页四指标 / 历史导出
-- [ ] 批次 B：M08 告警抑制
-- [ ] 批次 C：M07 应用服务字段 / 校验 + 主机开通时间
-- [ ] 批次 D：M07 标签映射批量编辑
-- [ ] 批次 E：M05 Grafana 面板挂载
-- [ ] 批次 F：M02 / M11 目标状态纳入拨测
-- [ ] 批次 G：M01 NPU 监控类型
-- [ ] 批次 H：M03 账号登出
+- [x] 批次 A：M08 事件模型 + M05 首页四指标 / 历史导出 —— commit `be876e4`（M08 v1.21 / M05 v1.14；两个 design-proposal 状态改 merged）
+- [x] 批次 B：M08 告警抑制 —— commit `35f35f3`（M08 v1.22）
+- [x] 批次 C：M07 应用服务字段 / 校验 + 主机开通时间 —— commit `429ebf7`（M07 v2.54）
+- [x] 批次 D：M07 标签映射批量编辑 —— commit `a49acd7`（M07 v2.55）
+- [x] 批次 E：M05 Grafana 面板挂载 —— commit `dfea189`（M05 v1.15；Roadmap v2.3 同步）
+- [x] 批次 F：M02 / M11 目标状态纳入拨测 —— commit `753211b`（M02 v1.19 / M11 v0.12）
+- [x] 批次 G：M01 NPU 监控类型 —— commit `ff34aaa`（M01 v3.54）
+- [x] 批次 H：M03 账号登出 —— commit `59232ce`（M03 v1.5）
+
+> 执行说明：按计划顺序 A→B→C→D→E→F→G→H 逐批提交，每批一个 commit，可独立 `git revert`；每批同步 `Modules/README.md` §1 与 §5 Change Log，并按「保留最近 3 版」规则把被轮转的历史版本迁入各模块 `design-decisions.md`「Change Log（完整历史）」。
 
 ---
 
@@ -320,3 +322,4 @@
 | 日期 | 变更 | 说明 |
 |---|---|---|
 | 2026-11-05 | 初稿 | 基于 `origin/feature/zwq` 2026-10-24 后提交整理；确认健康检查多选不做、Grafana 拨测面板不纳入、静默 `resource_id` 回显不做 |
+| 2026-11-05 | 执行完成 | 批次 A~H 全部回填并逐批提交（`be876e4` / `35f35f3` / `429ebf7` / `a49acd7` / `dfea189` / `753211b` / `ff34aaa` / `59232ce`）；PRD 版本推进：M01 v3.54、M02 v1.19、M03 v1.5、M05 v1.15、M07 v2.55、M08 v1.22、M11 v0.12、Roadmap v2.3；§1.3 挂账的 7 项相邻提交仍待确认 |
