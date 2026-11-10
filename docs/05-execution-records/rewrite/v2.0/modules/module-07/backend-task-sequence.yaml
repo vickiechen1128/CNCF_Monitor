@@ -1,0 +1,403 @@
+# Module 07 后端 / 数据模型重写任务序列（轻量 L3，mode: rewrite）
+# 来源：backend-assessment.md
+# 上级章程：docs/05-execution-records/rewrite/v2.0/charter.md
+# 分支：rewrite/v2.0
+# 约束：允许 API v3 / DB schema / 数据模型演进；schema 变更必须 migration + 回滚 + 对账
+
+phase: "M07 Rewrite Phase 2（后端 / 数据模型）"
+module: "module-07-resource-management"
+module_branch: "rewrite/v2.0"
+mode: "rewrite"
+milestone: "v2.0-m2"
+legacy_baseline: "v2.0-m0"
+api_version: "v3"
+owner: "orchestrator → backend-developer"
+
+verification:
+  targeted: "go test ./platform/modules/m07/... ./platform/db/..."
+  phase_gate: "go test ./platform/... && go vet ./platform/..."
+  contract: "v3 golden + 旧 vs 新行为矩阵"
+
+tasks:
+  - id: T07-B0-1
+    title: "数据模型基线 / ADR：主表 + 扩展表 + 约束 + 旧字段处置"
+    status: pending
+    depends_on: []
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "确认 resources 主表 + 六类扩展表的字段全集与命名"
+      - "确认 dedup_key / FK / 唯一索引 / 部分唯一索引 / 软删策略"
+      - "确认旧字段处置：app_name/sub_app_code/env_flag/cloud_code/service_code"
+      - "确认旧数据策略：none 或 legacy import"
+    acceptance: "backend-assessment.md 定稿；decisions.md 增加 D6/D7；chenrt 确认"
+    verify: ["人工评审"]
+    commit_unit: "独立（文档）"
+
+  - id: T07-B0-2
+    title: "API v3 契约草案：资源 / 字典 / 标签 / 导入"
+    status: pending
+    depends_on: [T07-B0-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "定义 /api/v3/platform/* 路由、请求/响应 DTO、错误码、分页"
+      - "定义资源公共字段 + attributes 结构（或六类扁平 DTO）"
+      - "定义旧 /api/v2 对照表与兼容窗口"
+    acceptance: "api-contract-snapshot-v3.md 评审通过；前端可据此并行"
+    verify: ["人工评审", "契约字段 grep 核对"]
+    commit_unit: "独立（文档）"
+
+  - id: T07-B1-1
+    title: "接入 migration runner（goose 或等价）"
+    status: pending
+    depends_on: []
+    schema_change: additive
+    migration_files: ["platform/db/migrations/"]
+    data_migration: none
+    api_version: v3
+    scope:
+      - "引入 migration 工具链；建立 schema_migrations"
+      - "增加 make migrate / migrate-status / migrate-down"
+      - "CI 在空库执行 migration"
+    acceptance: "空库可一键迁移；版本可查询；CI 通过"
+    verify: ["make migrate", "make migrate-status", "go test ./platform/db/..."]
+    commit_unit: "独立（基础设施）"
+
+  - id: T07-B1-2
+    title: "v3 schema baseline：resources + 六类扩展表 + 字典 FK + 索引"
+    status: pending
+    depends_on: [T07-B0-1, T07-B1-1]
+    schema_change: breaking
+    migration_files: ["platform/db/migrations/"]
+    data_migration: none
+    api_version: v3
+    scope:
+      - "创建 resources 主表与六类扩展表"
+      - "创建 resource_labels / 字典 FK / app_platform_rel 部分唯一索引"
+      - "开启 SQLite foreign_keys；补齐必要索引"
+    acceptance: "空库 Up 成功；约束/索引测试通过；Down 可回滚"
+    verify: ["migration Up/Down", "go test ./platform/db/..."]
+    commit_unit: "独立（schema）"
+
+  - id: T07-B1-3
+    title: "legacy import（可选）：旧库 -> v3 新库"
+    status: pending
+    depends_on: [T07-B1-2]
+    schema_change: none
+    data_migration: backfill
+    api_version: v3
+    scope:
+      - "新增 cmd/legacy-import：读旧表、映射、校验、写新库"
+      - "支持 dry-run / 计数 / 错误报告 / 幂等"
+      - "不修改旧库；执行前备份"
+    acceptance: "dry-run 计数一致；导入后对账通过；可重跑"
+    verify: ["legacy-import --dry-run", "对账 SQL"]
+    commit_unit: "独立（工具）"
+
+  - id: T07-B1-4
+    title: "migration 测试：空库 / 基线库 / Up-Down / 约束"
+    status: pending
+    depends_on: [T07-B1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "空库执行全部 migration"
+      - "旧基线副本执行 migration"
+      - "验证唯一键 / FK / 部分唯一索引 / 软删"
+    acceptance: "测试覆盖 Up/Down 与关键约束；CI 通过"
+    verify: ["go test ./platform/db/..."]
+    commit_unit: "独立（测试）"
+
+  - id: T07-B2-0
+    title: "新 v3 包骨架：platform/modules/m07"
+    status: pending
+    depends_on: [T07-B0-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "创建 module/domain/dto/repository/service/handler/importer 目录"
+      - "旧 platform/config/resource 保持 v2 冻结"
+    acceptance: "包可编译；无循环依赖；旧 v2 不受影响"
+    verify: ["go build ./platform/..." ]
+    commit_unit: "独立（结构）"
+
+  - id: T07-B2-1
+    title: "domain：Resource / Category / DedupKey / 校验 / 错误类型"
+    status: pending
+    depends_on: [T07-B0-1, T07-B2-0]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "领域实体与值对象，不依赖 GORM/Gin"
+      - "判重键规范函数"
+      - "ValidationError / NotFoundError / ConflictError"
+    acceptance: "domain 单测覆盖判重键、必填、不可变字段、错误类型"
+    verify: ["go test ./platform/modules/m07/domain/..."]
+    commit_unit: "独立"
+
+  - id: T07-B2-2
+    title: "repository：resources 主表 + 扩展表事务读写"
+    status: pending
+    depends_on: [T07-B1-2, T07-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "ResourceRepository 接口 + GORM 实现"
+      - "Create/Get/List/Update/SoftDelete/FindByDedupKey"
+      - "主表 + 扩展表同事务；批量加载避免 N+1"
+    acceptance: "repository 测试覆盖 CRUD、事务回滚、唯一冲突、软删"
+    verify: ["go test ./platform/modules/m07/repository/..."]
+    commit_unit: "独立"
+
+  - id: T07-B2-3
+    title: "字典 repository/service：business/app/platform/cloud/os/zone"
+    status: pending
+    depends_on: [T07-B2-1, T07-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "统一字典解析接口；停用条目校验"
+      - "app_platform_rel 主平台唯一校验"
+    acceptance: "字典单测覆盖启用/停用/不存在/主平台唯一"
+    verify: ["go test ./platform/modules/m07/dictionary/..."]
+    commit_unit: "独立"
+
+  - id: T07-B2-4
+    title: "resource service：List/Get/Create/Update/Delete + 事务"
+    status: pending
+    depends_on: [T07-B2-2, T07-B2-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "用例编排；事务边界在 service"
+      - "判重冲突映射为 conflict"
+      - "删除清理标签/快照（通过适配器）"
+    acceptance: "service 单测覆盖正常/冲突/不存在/回滚"
+    verify: ["go test ./platform/modules/m07/service/..."]
+    commit_unit: "独立"
+
+  - id: T07-B2-5
+    title: "label service/repository：标签策略 + 唯一索引"
+    status: pending
+    depends_on: [T07-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "user 标签写边界（application/interface_service）"
+      - "system 标签实时计算不落库"
+      - "(resource_id,key,source) 唯一"
+    acceptance: "标签单测覆盖 403/唯一冲突/删除清理"
+    verify: ["go test ./platform/modules/m07/service/..."]
+    commit_unit: "独立"
+
+  - id: T07-B3-1
+    title: "DTO + mapper：六类资源 typed 请求/响应"
+    status: pending
+    depends_on: [T07-B0-2, T07-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "公共字段 + attributes（或六类扁平 DTO）"
+      - "列表/详情/创建/更新响应"
+      - "禁止 map[string]interface{} 作为对外契约"
+    acceptance: "DTO 单测覆盖六类映射；契约快照一致"
+    verify: ["go test ./platform/modules/m07/dto/..."]
+    commit_unit: "独立"
+
+  - id: T07-B3-2
+    title: "资源 handler v3：list/get/create/update/delete"
+    status: pending
+    depends_on: [T07-B2-4, T07-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "handler 只解析/调用 service/响应"
+      - "分页默认 20 上限 100"
+      - "错误映射 bad_request/not_found/conflict"
+    acceptance: "httptest 覆盖六类 CRUD；无 *gorm.DB"
+    verify: ["go test ./platform/modules/m07/handler/..."]
+    commit_unit: "独立"
+
+  - id: T07-B3-3
+    title: "字典 handler v3 + app-platform-rel"
+    status: pending
+    depends_on: [T07-B2-3, T07-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "business-domains / application-dict / platform-dict / cloud-dict / os-options"
+      - "app-platform-rel 列表/新增/主平台切换/解绑"
+    acceptance: "字典与关系接口 httptest 通过"
+    verify: ["go test ./platform/modules/m07/handler/..."]
+    commit_unit: "独立"
+
+  - id: T07-B3-4
+    title: "标签 handler v3 + referenced-by"
+    status: pending
+    depends_on: [T07-B2-5, T07-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "资源标签 GET/POST/PUT/DELETE"
+      - "referenced-by 只读反查"
+    acceptance: "标签与引用接口 httptest 通过"
+    verify: ["go test ./platform/modules/m07/handler/..."]
+    commit_unit: "独立"
+
+  - id: T07-B4-1
+    title: "importer：Excel 解析 / 行校验 / 声明 sheet"
+    status: pending
+    depends_on: [T07-B0-2, T07-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "解析六类模板 + 业务/应用/平台声明 sheet"
+      - "行级校验与错误明细"
+      - "模板下载与取值说明"
+    acceptance: "解析/校验单测覆盖正常/缺列/非法值/声明冲突"
+    verify: ["go test ./platform/modules/m07/importer/..."]
+    commit_unit: "独立"
+
+  - id: T07-B4-2
+    title: "import service：create_only/upsert + 批量 + 幂等"
+    status: pending
+    depends_on: [T07-B2-4, T07-B4-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "批量事务；dedup unique 兜底"
+      - "create_only 冲突计 failed；upsert 更新"
+      - "ImportRecord 落库"
+    acceptance: "导入单测覆盖成功/部分失败/并发冲突/幂等"
+    verify: ["go test ./platform/modules/m07/service/..."]
+    commit_unit: "独立"
+
+  - id: T07-B4-3
+    title: "导入 handler v3 + 导入记录查询"
+    status: pending
+    depends_on: [T07-B4-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "POST /resources/import；GET /imports；GET /imports/:id"
+      - "文件大小/类型校验"
+    acceptance: "httptest 覆盖导入与记录查询"
+    verify: ["go test ./platform/modules/m07/handler/..."]
+    commit_unit: "独立"
+
+  - id: T07-B5-1
+    title: "module 自注册：platform/modules/m07/module.go"
+    status: pending
+    depends_on: [T07-B3-2, T07-B3-3, T07-B3-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "依赖装配 + RegisterRoutes"
+      - "main.go 不再手工构造 M07 store"
+    acceptance: "main.go 只调用 module；R4 检查通过"
+    verify: ["go build ./platform/...", "go test ./platform/cmd/metric-center/..."]
+    commit_unit: "独立"
+
+  - id: T07-B5-2
+    title: "跨模块适配器：ScrapeJob / EdgeTargetSnapshot 只读接口"
+    status: pending
+    depends_on: [T07-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "定义窄接口；不在 M07 service 直接查 M01/M09 表"
+      - "删除清理通过适配器"
+    acceptance: "适配器单测 + 引用/删除测试通过"
+    verify: ["go test ./platform/modules/m07/..."]
+    commit_unit: "独立"
+
+  - id: T07-B5-3
+    title: "v3 路由挂载：/api/v3/platform/*"
+    status: pending
+    depends_on: [T07-B5-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "在 v3 组挂载 M07 module"
+      - "旧 /api/v2 保持可用（legacy）"
+    acceptance: "v3 路由可访问；v2 不回归"
+    verify: ["服务启动 + curl /api/v3/platform/resources"]
+    commit_unit: "独立"
+
+  - id: T07-B6-1
+    title: "契约 / 回归测试：v3 golden + 旧 vs 新矩阵"
+    status: pending
+    depends_on: [T07-B3-2, T07-B3-3, T07-B3-4, T07-B4-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "v3 关键接口 golden JSON"
+      - "旧 v2 保留项 / 变更项 / 删除项矩阵"
+    acceptance: "矩阵逐项有结论；CI 通过"
+    verify: ["go test ./platform/modules/m07/..."]
+    commit_unit: "独立（测试）"
+
+  - id: T07-B6-2
+    title: "集成 / 并发测试：约束、事务、判重、迁移"
+    status: pending
+    depends_on: [T07-B1-4, T07-B2-2, T07-B4-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "并发导入同 dedup_key 只落一行"
+      - "事务回滚不留半成品"
+      - "FK / 唯一索引 / 软删测试"
+    acceptance: "`go test -race` 通过；关键约束有回归"
+    verify: ["go test -race ./platform/modules/m07/..."]
+    commit_unit: "独立（测试）"
+
+  - id: T07-B6-3
+    title: "安全审查：凭证、鉴权、SSRF、上传"
+    status: pending
+    depends_on: [T07-B3-2, T07-B3-3, T07-B3-4, T07-B4-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "connection_string 加密/secret ref/脱敏"
+      - "v3 写接口鉴权"
+      - "URL/上传校验"
+    acceptance: "security-reviewer PASS；问题闭环"
+    verify: ["security-review"]
+    commit_unit: "独立（记录）"
+
+  - id: T07-B6-4
+    title: "handover：数据模型 / API / 迁移 / runbook"
+    status: pending
+    depends_on: [T07-B6-1, T07-B6-2, T07-B6-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "更新 handover.md 的 M07 行"
+      - "数据模型 / API / 迁移 / runbook / 已知问题"
+    acceptance: "handover checklist 全绿"
+    verify: ["人工评审"]
+    commit_unit: "独立（文档）"

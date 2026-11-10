@@ -89,6 +89,8 @@ legacy_baseline: "v1.0.0"
 
 ## 6. 当前聚焦：M07
 
-- 现有评估：`modules/module-07/assessment.md`
-- 现有任务：`modules/module-07/task-sequence.yaml`
+- 前端评估：`modules/module-07/assessment.md`
+- 前端任务：`modules/module-07/task-sequence.yaml`
+- 后端评估：`modules/module-07/backend-assessment.md`
+- 后端任务：`modules/module-07/backend-task-sequence.yaml`
 - 注意：原“行为等价 / 不改 schema / 不改 PRD”约束已失效；以本计划与章程为准。
