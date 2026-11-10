@@ -32,12 +32,14 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Create(&businessDomainRecord{Code: "payment", Name: "支付", Enabled: true}).Error)
 	require.NoError(t, db.Create(&businessDomainRecord{Code: "legacy", Name: "旧业务", Enabled: false}).Error)
 	require.NoError(t, db.Create(&applicationDictRecord{AppCode: "order-service", AppName: "订单服务", Status: "enabled"}).Error)
+	require.NoError(t, db.Create(&applicationDictRecord{AppCode: "new-app", AppName: "新应用", Status: "enabled"}).Error)
 	require.NoError(t, db.Create(&applicationDictRecord{AppCode: "legacy-app", AppName: "旧应用", Status: "disabled"}).Error)
 	require.NoError(t, db.Create(&platformDictRecord{PlatformCode: "ecommerce", PlatformName: "电商平台", Enabled: true}).Error)
 	require.NoError(t, db.Create(&platformDictRecord{PlatformCode: "lab", PlatformName: "实验室", Enabled: true}).Error)
+	require.NoError(t, db.Create(&platformDictRecord{PlatformCode: "new-platform", PlatformName: "新平台", Enabled: true}).Error)
 	require.NoError(t, db.Create(&platformDictRecord{PlatformCode: "legacy-platform", PlatformName: "旧平台", Enabled: false}).Error)
-	require.NoError(t, db.Create(&appPlatformRelRecord{AppCode: "order-service", PlatformCode: "ecommerce", IsPrimary: true}).Error)
-	require.NoError(t, db.Create(&appPlatformRelRecord{AppCode: "order-service", PlatformCode: "lab", IsPrimary: false}).Error)
+	require.NoError(t, db.Create(&appPlatformRelRecord{ID: "rel-1", AppCode: "order-service", PlatformCode: "ecommerce", IsPrimary: true}).Error)
+	require.NoError(t, db.Create(&appPlatformRelRecord{ID: "rel-2", AppCode: "order-service", PlatformCode: "lab", IsPrimary: false}).Error)
 	require.NoError(t, db.Create(&cloudDictRecord{CloudCode: "PUB-TX", CloudName: "腾讯云", Enabled: true}).Error)
 	require.NoError(t, db.Create(&zoneTypeRecord{Code: "internet", DisplayName: "互联网区", Enabled: true}).Error)
 	return db
@@ -111,6 +113,29 @@ func TestServicePrimaryPlatform(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestServiceAppPlatformRelCRUD(t *testing.T) {
+	svc := NewService(NewGORMRepository(openDictionaryTestDB(t)))
+	ctx := context.Background()
+
+	rel, err := svc.CreateAppPlatformRel(ctx, "new-app", "new-platform", false)
+	require.NoError(t, err)
+	assert.NotEmpty(t, rel.RelID)
+
+	updated, err := svc.SetPrimaryAppPlatformRel(ctx, rel.RelID, true)
+	require.NoError(t, err)
+	assert.True(t, updated.IsPrimary)
+
+	rels, err := svc.ListAppPlatformRels(ctx, "new-app", "")
+	require.NoError(t, err)
+	require.Len(t, rels, 1)
+	assert.True(t, rels[0].IsPrimary)
+
+	require.NoError(t, svc.DeleteAppPlatformRel(ctx, rel.RelID))
+	rels, err = svc.ListAppPlatformRels(ctx, "new-app", "")
+	require.NoError(t, err)
+	assert.Empty(t, rels)
+}
+
 func TestServiceList(t *testing.T) {
 	svc := NewService(NewGORMRepository(openDictionaryTestDB(t)))
 	ctx := context.Background()
@@ -121,11 +146,11 @@ func TestServiceList(t *testing.T) {
 
 	apps, err := svc.ListApplications(ctx)
 	require.NoError(t, err)
-	assert.Len(t, apps, 2)
+	assert.Len(t, apps, 3)
 
 	platforms, err := svc.ListPlatforms(ctx)
 	require.NoError(t, err)
-	assert.Len(t, platforms, 3)
+	assert.Len(t, platforms, 4)
 
 	clouds, err := svc.ListClouds(ctx)
 	require.NoError(t, err)

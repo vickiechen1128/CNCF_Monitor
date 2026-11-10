@@ -1,6 +1,10 @@
 package dictionary
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type businessDomainRecord struct {
 	Code    string `gorm:"column:code;primaryKey"`
@@ -50,9 +54,12 @@ type networkDomainRecord struct {
 func (networkDomainRecord) TableName() string { return "network_domains" }
 
 type appPlatformRelRecord struct {
+	ID           string         `gorm:"column:id;primaryKey"`
 	AppCode      string         `gorm:"column:app_code"`
 	PlatformCode string         `gorm:"column:platform_code"`
 	IsPrimary    bool           `gorm:"column:is_primary"`
+	CreatedAt    time.Time      `gorm:"column:created_at"`
+	UpdatedAt    time.Time      `gorm:"column:updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"column:deleted_at"`
 }
 

@@ -110,6 +110,35 @@ func (s *Service) ListAppPlatformRels(ctx context.Context, appCode, platformCode
 	return s.repo.ListAppPlatformRels(ctx, appCode, platformCode)
 }
 
+// CreateAppPlatformRel creates an app↔platform relation after validating both refs.
+func (s *Service) CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error) {
+	ok, err := s.repo.ApplicationEnabled(ctx, appCode)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, &domain.ValidationError{Field: "app_code", Message: fmt.Sprintf("application %q is missing or disabled", appCode)}
+	}
+	ok, err = s.repo.PlatformEnabled(ctx, platformCode)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, &domain.ValidationError{Field: "platform_code", Message: fmt.Sprintf("platform %q is missing or disabled", platformCode)}
+	}
+	return s.repo.CreateAppPlatformRel(ctx, appCode, platformCode, isPrimary)
+}
+
+// SetPrimaryAppPlatformRel toggles the primary flag.
+func (s *Service) SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error) {
+	return s.repo.SetPrimaryAppPlatformRel(ctx, relID, isPrimary)
+}
+
+// DeleteAppPlatformRel removes an app↔platform relation.
+func (s *Service) DeleteAppPlatformRel(ctx context.Context, relID string) error {
+	return s.repo.DeleteAppPlatformRel(ctx, relID)
+}
+
 func (s *Service) ListOSOptions(ctx context.Context) ([]OSOption, error) {
 	return s.repo.ListOSOptions(ctx)
 }

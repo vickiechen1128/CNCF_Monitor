@@ -5,9 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"gorm.io/gorm"
+)
+
+var (
+	ErrAppPlatformRelExists   = errors.New("app-platform relation already exists")
+	ErrAppPlatformRelNotFound = errors.New("app-platform relation not found")
+	ErrPrimaryPlatformExists  = errors.New("primary platform already exists")
 )
 
 // BusinessDomain is a read-only business dictionary entry.
@@ -47,6 +55,7 @@ type ZoneType struct {
 
 // AppPlatformRel is an application↔platform relation.
 type AppPlatformRel struct {
+	RelID        string
 	AppCode      string
 	PlatformCode string
 	IsPrimary    bool
@@ -73,6 +82,9 @@ type Repository interface {
 	ListClouds(ctx context.Context) ([]Cloud, error)
 	ListZoneTypes(ctx context.Context) ([]ZoneType, error)
 	ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error)
+	CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error)
+	SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error)
+	DeleteAppPlatformRel(ctx context.Context, relID string) error
 	ListOSOptions(ctx context.Context) ([]OSOption, error)
 }
 
@@ -226,12 +238,97 @@ func (r *GORMRepository) ListAppPlatformRels(ctx context.Context, appCode, platf
 	out := make([]AppPlatformRel, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, AppPlatformRel{
+			RelID:        row.ID,
 			AppCode:      row.AppCode,
 			PlatformCode: row.PlatformCode,
 			IsPrimary:    row.IsPrimary,
 		})
 	}
 	return out, nil
+}
+
+func (r *GORMRepository) CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&appPlatformRelRecord{}).
+		Where("app_code = ? AND platform_code = ?", appCode, platformCode).
+		Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("check app-platform relation: %w", err)
+	}
+	if count > 0 {
+		return nil, ErrAppPlatformRelExists
+	}
+	if isPrimary {
+		if err := r.db.WithContext(ctx).Model(&appPlatformRelRecord{}).
+			Where("app_code = ? AND is_primary = ?", appCode, true).
+			Count(&count).Error; err != nil {
+			return nil, fmt.Errorf("check primary platform: %w", err)
+		}
+		if count > 0 {
+			return nil, ErrPrimaryPlatformExists
+		}
+	}
+
+	id, err := domain.NewResourceID()
+	if err != nil {
+		return nil, err
+	}
+	rec := &appPlatformRelRecord{
+		ID:           id,
+		AppCode:      appCode,
+		PlatformCode: platformCode,
+		IsPrimary:    isPrimary,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
+		return nil, fmt.Errorf("create app-platform relation: %w", err)
+	}
+	return &AppPlatformRel{
+		RelID: rec.ID, AppCode: rec.AppCode, PlatformCode: rec.PlatformCode, IsPrimary: rec.IsPrimary,
+	}, nil
+}
+
+func (r *GORMRepository) SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error) {
+	var out *AppPlatformRel
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rec appPlatformRelRecord
+		if err := tx.Where("id = ?", relID).First(&rec).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAppPlatformRelNotFound
+			}
+			return fmt.Errorf("load app-platform relation: %w", err)
+		}
+		if isPrimary {
+			if err := tx.Model(&appPlatformRelRecord{}).
+				Where("app_code = ? AND is_primary = ?", rec.AppCode, true).
+				Update("is_primary", false).Error; err != nil {
+				return fmt.Errorf("clear primary platform: %w", err)
+			}
+		}
+		if err := tx.Model(&rec).Updates(map[string]any{
+			"is_primary": isPrimary,
+			"updated_at": time.Now().UTC(),
+		}).Error; err != nil {
+			return fmt.Errorf("set primary platform: %w", err)
+		}
+		rec.IsPrimary = isPrimary
+		out = &AppPlatformRel{
+			RelID: rec.ID, AppCode: rec.AppCode, PlatformCode: rec.PlatformCode, IsPrimary: rec.IsPrimary,
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (r *GORMRepository) DeleteAppPlatformRel(ctx context.Context, relID string) error {
+	result := r.db.WithContext(ctx).Where("id = ?", relID).Delete(&appPlatformRelRecord{})
+	if result.Error != nil {
+		return fmt.Errorf("delete app-platform relation: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrAppPlatformRelNotFound
+	}
+	return nil
 }
 
 func (r *GORMRepository) ListOSOptions(ctx context.Context) ([]OSOption, error) {
