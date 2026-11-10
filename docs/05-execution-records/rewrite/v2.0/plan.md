@@ -29,7 +29,7 @@
 | 顺序 | 模块 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | M00 基础设施 / 数据模型 | todo | 先定共享模型、迁移工具链（goose 或等价）、API v3 基础 |
-| 2 | M07 监控对象管理 | doing | 前端 Phase 1 已拆解；后端 B0/B1/B2 全部完成（domain/repository/dictionary/service/label）；B3 API v3 待推进 |
+| 2 | M07 监控对象管理 | doing | 前端 Phase 1 已拆解；后端 B0/B1/B2/B3 完成（schema/domain/repository/service/dictionary/label/API v3）；B4 导入待推进 |
 | 3 | M06 多租户 / 网域 | todo | 依赖 M00 数据模型 |
 | 4 | M01 指标采集中心 | todo | 依赖 M07 / M06 |
 | 5 | M09 配置中心 / 下发 | todo | 依赖 M01 / M06 |

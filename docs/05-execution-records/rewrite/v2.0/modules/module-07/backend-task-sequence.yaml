@@ -247,7 +247,8 @@ tasks:
 
   - id: T07-B3-1
     title: "DTO + mapper：六类资源 typed 请求/响应"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/dto：Create/Update/Response/List、六类 attributes、dictionary/label/references DTO + 单测"
     depends_on: [T07-B0-2, T07-B2-1]
     schema_change: none
     data_migration: none
@@ -262,7 +263,8 @@ tasks:
 
   - id: T07-B3-2
     title: "资源 handler v3：list/get/create/update/delete"
-    status: pending
+    status: done
+    evidence: "handler/resource_handler.go：分页 20/100、筛选、错误映射、referenced-by + routes_test"
     depends_on: [T07-B2-4, T07-B3-1]
     schema_change: none
     data_migration: none
@@ -277,7 +279,8 @@ tasks:
 
   - id: T07-B3-3
     title: "字典 handler v3 + app-platform-rel"
-    status: pending
+    status: done
+    evidence: "handler/dictionary_handler.go：字典列表 + app-platform-rel CRUD；dictionary service 写方法 + 单测"
     depends_on: [T07-B2-3, T07-B3-1]
     schema_change: none
     data_migration: none
@@ -291,7 +294,8 @@ tasks:
 
   - id: T07-B3-4
     title: "标签 handler v3 + referenced-by"
-    status: pending
+    status: done
+    evidence: "handler/label_handler.go + resource_handler References + references reader + routes_test"
     depends_on: [T07-B2-5, T07-B3-1]
     schema_change: none
     data_migration: none
