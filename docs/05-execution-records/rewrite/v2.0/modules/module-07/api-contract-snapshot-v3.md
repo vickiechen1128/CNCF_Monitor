@@ -187,10 +187,12 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/v3/platform/resources/import-templates/{resource_category}` | 模板下载 |
-| POST | `/api/v3/platform/resources/import` | Excel 导入（multipart） |
+| GET | `/api/v3/platform/import-templates/{resource_category}` | 模板列定义 |
+| POST | `/api/v3/platform/imports` | Excel 导入（multipart） |
 | GET | `/api/v3/platform/imports` | 导入记录 |
 | GET | `/api/v3/platform/imports/{import_id}` | 导入详情 |
+
+> 为避免 Gin `/:resource_id` 与静态 `import` 路径冲突，v3 将导入接口放在 `/imports`，模板列定义放在 `/import-templates/{category}`。
 
 - Form：`file`、`resource_category`、`mode=create_only|upsert`。
 - 文件 ≤ 10MB；仅 xlsx。
