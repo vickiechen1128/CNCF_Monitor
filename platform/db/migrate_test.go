@@ -11,7 +11,7 @@ import (
 func TestMigrateV3Lifecycle(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "metric_center_v3.db")
 
-	require.NoError(t, MigrateV3(dsn), "apply v3 migrations")
+	require.NoError(t, MigrateV3("sqlite", dsn), "apply v3 migrations")
 
 	sqlDB, err := sql.Open("sqlite3", sqliteDSNWithForeignKeys(dsn))
 	require.NoError(t, err)
@@ -22,23 +22,23 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	requireTableCount(t, sqlDB, "host_resources", 1)
 
 	// Up is idempotent: a second run must not fail or duplicate rows.
-	require.NoError(t, MigrateV3(dsn), "second apply should be a no-op")
-	require.NoError(t, MigrateV3Status(dsn), "status should be readable")
+	require.NoError(t, MigrateV3("sqlite", dsn), "second apply should be a no-op")
+	require.NoError(t, MigrateV3Status("sqlite", dsn), "status should be readable")
 
 	// 00002 is the latest migration; one Down drops the resource schema.
-	require.NoError(t, MigrateV3Down(dsn), "rollback latest migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback latest migration")
 	requireTableCount(t, sqlDB, "resources", 0)
 	requireTableCount(t, sqlDB, "schema_meta", 1)
 
 	// 00001 is now the latest; second Down removes the baseline marker.
-	require.NoError(t, MigrateV3Down(dsn), "rollback baseline migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback baseline migration")
 	requireTableCount(t, sqlDB, "schema_meta", 0)
 }
 
 func TestMigrateV3ForeignKeysEnabled(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "metric_center_v3_fk.db")
 
-	sqlDB, err := openSQLiteForMigration(dsn)
+	sqlDB, err := openMigrationDB("sqlite", dsn)
 	require.NoError(t, err)
 	defer sqlDB.Close()
 
@@ -49,9 +49,9 @@ func TestMigrateV3ForeignKeysEnabled(t *testing.T) {
 
 func TestMigrateV3ResourceConstraints(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "metric_center_v3_constraints.db")
-	require.NoError(t, MigrateV3(dsn))
+	require.NoError(t, MigrateV3("sqlite", dsn))
 
-	sqlDB, err := openSQLiteForMigration(dsn)
+	sqlDB, err := openMigrationDB("sqlite", dsn)
 	require.NoError(t, err)
 	defer sqlDB.Close()
 

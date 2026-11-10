@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS resources (
   source_type TEXT NOT NULL CHECK (source_type IN ('manual', 'import', 'cmdb')),
   scrape_port INTEGER NOT NULL DEFAULT 0 CHECK (scrape_port BETWEEN 0 AND 65535),
   dedup_key TEXT NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id),
   FOREIGN KEY (network_domain_id) REFERENCES network_domains(id),
   FOREIGN KEY (biz_code) REFERENCES business_domains(code),
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS host_resources (
   instance_ip TEXT NOT NULL,
   os_type TEXT NOT NULL,
   os_version TEXT,
-  activated_at DATETIME,
+  activated_at TIMESTAMP,
   FOREIGN KEY (resource_id) REFERENCES resources(resource_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_host_resources_ip ON host_resources(instance_ip);
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS application_resources (
   owner2_contact TEXT,
   ops_person TEXT,
   ops_person_contact TEXT,
-  go_live_at DATETIME,
+  go_live_at TIMESTAMP,
   FOREIGN KEY (resource_id) REFERENCES resources(resource_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_application_resources_service ON application_resources(service_name);
@@ -116,14 +116,14 @@ CREATE TABLE IF NOT EXISTS interface_service_resources (
 CREATE INDEX IF NOT EXISTS idx_interface_service_resources_url ON interface_service_resources(api_url);
 
 CREATE TABLE IF NOT EXISTS resource_labels (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   key TEXT NOT NULL,
   value TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('system', 'user', 'cmdb')),
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP,
   FOREIGN KEY (resource_id) REFERENCES resources(resource_id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_resource_labels_resource_key_source
@@ -132,13 +132,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_resource_labels_resource_key_source
 CREATE INDEX IF NOT EXISTS idx_resource_labels_resource ON resource_labels(resource_id);
 
 CREATE TABLE IF NOT EXISTS app_platform_rels (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   app_code TEXT NOT NULL,
   platform_code TEXT NOT NULL,
   is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP,
   FOREIGN KEY (app_code) REFERENCES application_dicts(app_code),
   FOREIGN KEY (platform_code) REFERENCES platform_dicts(platform_code)
 );
@@ -150,13 +150,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_app_platform_rel_primary
   WHERE is_primary = 1 AND deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS resource_audit_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   operation TEXT NOT NULL,
   operator TEXT,
   before_json TEXT,
   after_json TEXT,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_resource_audit_logs_resource ON resource_audit_logs(resource_id, created_at);
 

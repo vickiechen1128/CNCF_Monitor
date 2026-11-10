@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', 'v3');
+INSERT INTO schema_meta(key, value)
+SELECT 'schema_version', 'v3'
+WHERE NOT EXISTS (SELECT 1 FROM schema_meta WHERE key = 'schema_version');
 
 -- +goose Down
 DROP TABLE IF EXISTS schema_meta;

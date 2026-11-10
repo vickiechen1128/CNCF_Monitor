@@ -126,7 +126,7 @@ export GOROOT := $(GO_DIR)
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-prometheus dev-ui test-platform migrate migrate-status migrate-down clean repo-map \
+        run-metric-center run-prometheus dev-ui test-platform test-postgres migrate migrate-status migrate-down clean repo-map \
         check-repo-map sync-skills check-skills install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
@@ -146,7 +146,8 @@ help:
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
 	@echo "  make test-platform      运行 platform/ 测试"
-	@echo "  make migrate            执行 v3 schema migrations"
+	@echo "  make test-postgres      运行 v3 PostgreSQL migration 集成测试（需 METRIC_CENTER_TEST_POSTGRES_DSN）"
+	@echo "  make migrate            执行 v3 schema migrations（METRIC_CENTER_DB_DRIVER=sqlite|postgres）"
 	@echo "  make migrate-status     查看 v3 migration 状态"
 	@echo "  make migrate-down       回滚一个 v3 migration（仅开发）"
 	@echo "  make repo-map           生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md（可选）"
@@ -538,7 +539,15 @@ test-platform: ensure-go ensure-cgo
 	@echo ">>> Running platform tests"
 	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" test ./platform/...
 
-# v3 schema migrations (goose). Legacy `platform/db/migrations/` remains
+test-postgres: ensure-go ensure-cgo
+	@if [ -z "$(METRIC_CENTER_TEST_POSTGRES_DSN)" ]; then \
+		echo "METRIC_CENTER_TEST_POSTGRES_DSN is required (see docs/05-execution-records/rewrite/v2.0/postgres-testing.md)"; \
+		exit 1; \
+	fi
+	@echo ">>> Running PostgreSQL migration integration test"
+	@cd "$(PROJECT_ROOT)" && METRIC_CENTER_TEST_POSTGRES_DSN="$(METRIC_CENTER_TEST_POSTGRES_DSN)" "$(GO_BIN)" test ./platform/db -run TestMigrateV3Postgres -v
+
+# v3 schema migrations. Legacy `platform/db/migrations/` remains
 # archive-only; new v2.0 schema changes live in `platform/db/migrations/v3/`.
 migrate: ensure-go ensure-cgo
 	@echo ">>> Applying v3 migrations"

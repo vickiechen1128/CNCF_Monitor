@@ -115,6 +115,27 @@ func TestAlertEventMigrationBackfillsTimesAndKey(t *testing.T) {
 	assert.EqualValues(t, 1, cnt)
 }
 
+func TestInitRejectsPostgresDriver(t *testing.T) {
+	t.Setenv("METRIC_CENTER_DB_DRIVER", "postgres")
+	t.Setenv("METRIC_CENTER_DB_DSN", "postgres://example.invalid/metric_center")
+	require.ErrorContains(t, Init(), "reserved for the v3 line")
+}
+
+func TestInitV3SQLite(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "metric_center_v3_init.db")
+	t.Setenv("METRIC_CENTER_DB_DRIVER", "sqlite")
+	t.Setenv("METRIC_CENTER_DB_DSN", dsn)
+
+	require.NoError(t, InitV3())
+	require.NotNil(t, DB)
+
+	var cnt int64
+	require.NoError(t, DB.Raw(
+		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='resources'`,
+	).Scan(&cnt).Error)
+	assert.EqualValues(t, 1, cnt, "v3 resources table should exist")
+}
+
 func TestSharedTablesCreatedAndHealthOK(t *testing.T) {
 	t.Setenv("METRIC_CENTER_DB_DSN", "file::memory:?cache=shared")
 	require.NoError(t, Init())

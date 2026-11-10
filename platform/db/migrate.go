@@ -5,10 +5,10 @@
 // replayable on an empty database. New v2.0 schema changes live in
 // `migrations/v3/`.
 //
-// The runner is deliberately small and SQLite-focused. It understands the
-// `-- +goose Up` / `-- +goose Down` markers used by the existing migration
-// files, so the files stay compatible with goose if the project adopts it
-// later.
+// The runner is deliberately small and supports SQLite (dev/test) and
+// PostgreSQL (v3 production). It understands the `-- +goose Up` /
+// `-- +goose Down` markers used by the migration files, so the files stay
+// compatible with goose if the project adopts it later.
 package db
 
 import (
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -46,19 +47,34 @@ func sqliteDSNWithForeignKeys(dsn string) string {
 	return dsn + separator + "_foreign_keys=on"
 }
 
-func openSQLiteForMigration(dsn string) (*sql.DB, error) {
-	sqlDB, err := sql.Open("sqlite3", sqliteDSNWithForeignKeys(dsn))
-	if err != nil {
-		return nil, fmt.Errorf("open sqlite for migration: %w", err)
+func openMigrationDB(driver, dsn string) (*sql.DB, error) {
+	switch driver {
+	case "sqlite":
+		sqlDB, err := sql.Open("sqlite3", sqliteDSNWithForeignKeys(dsn))
+		if err != nil {
+			return nil, fmt.Errorf("open sqlite for migration: %w", err)
+		}
+		// SQLite in-memory DSNs are per-connection unless shared; one connection also
+		// avoids lock surprises while applying multiple statements.
+		sqlDB.SetMaxOpenConns(1)
+		if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("enable sqlite foreign_keys: %w", err)
+		}
+		return sqlDB, nil
+	case "postgres":
+		sqlDB, err := sql.Open("pgx", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("open postgres for migration: %w", err)
+		}
+		if err := sqlDB.Ping(); err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("ping postgres for migration: %w", err)
+		}
+		return sqlDB, nil
+	default:
+		return nil, fmt.Errorf("unsupported migration driver %q (want sqlite or postgres)", driver)
 	}
-	// SQLite in-memory DSNs are per-connection unless shared; one connection also
-	// avoids lock surprises while applying multiple statements.
-	sqlDB.SetMaxOpenConns(1)
-	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		_ = sqlDB.Close()
-		return nil, fmt.Errorf("enable sqlite foreign_keys: %w", err)
-	}
-	return sqlDB, nil
 }
 
 func loadV3Migrations() ([]migration, error) {
@@ -130,7 +146,7 @@ func ensureMigrationTable(sqlDB *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
-			applied_at DATETIME NOT NULL
+			applied_at TIMESTAMP NOT NULL
 		)
 	`)
 	if err != nil {
@@ -158,8 +174,8 @@ func appliedVersions(sqlDB *sql.DB) (map[int64]bool, error) {
 }
 
 // MigrateV3 applies all pending v3 migrations.
-func MigrateV3(dsn string) error {
-	sqlDB, err := openSQLiteForMigration(dsn)
+func MigrateV3(driver, dsn string) error {
+	sqlDB, err := openMigrationDB(driver, dsn)
 	if err != nil {
 		return err
 	}
@@ -204,8 +220,8 @@ func MigrateV3(dsn string) error {
 }
 
 // MigrateV3Status prints the current v3 migration status.
-func MigrateV3Status(dsn string) error {
-	sqlDB, err := openSQLiteForMigration(dsn)
+func MigrateV3Status(driver, dsn string) error {
+	sqlDB, err := openMigrationDB(driver, dsn)
 	if err != nil {
 		return err
 	}
@@ -233,8 +249,8 @@ func MigrateV3Status(dsn string) error {
 }
 
 // MigrateV3Down rolls back the latest applied v3 migration (development only).
-func MigrateV3Down(dsn string) error {
-	sqlDB, err := openSQLiteForMigration(dsn)
+func MigrateV3Down(driver, dsn string) error {
+	sqlDB, err := openMigrationDB(driver, dsn)
 	if err != nil {
 		return err
 	}

@@ -1,36 +1,80 @@
-// Package db manages the SQLite database connection and GORM migrations
-// for the MetricCenter platform.
+// Package db manages database connections and migrations for MetricCenter.
+//
+// Legacy v2 uses SQLite + AutoMigrate. The v3 line targets PostgreSQL in
+// production and keeps SQLite for local development and fast tests.
 package db
 
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-const defaultDSN = "metric_center.db"
+const (
+	defaultDriver = "sqlite"
+	defaultDSN    = "metric_center.db"
+)
 
 // DB is the package-level GORM database handle.
-// It is initialized by Init.
+// It is initialized by Init (legacy v2) or InitV3 (v3 line).
 var DB *gorm.DB
 
-// Init opens the SQLite database using the METRIC_CENTER_DB_DSN environment
-// variable, falling back to the default "metric_center.db" file.
-// It also runs AutoMigrate to create tables.
-func Init() error {
+// DBDriver returns the configured database driver.
+//
+// Supported values: sqlite (default), postgres/pgsql.
+func DBDriver() string {
+	driver := strings.ToLower(strings.TrimSpace(os.Getenv("METRIC_CENTER_DB_DRIVER")))
+	if driver == "" {
+		return defaultDriver
+	}
+	if driver == "pgsql" {
+		return "postgres"
+	}
+	return driver
+}
+
+// DSN returns the configured database DSN.
+func DSN() string {
 	dsn := os.Getenv("METRIC_CENTER_DB_DSN")
 	if dsn == "" {
-		dsn = defaultDSN
+		return defaultDSN
+	}
+	return dsn
+}
+
+// OpenDB opens a GORM connection for the given driver.
+func OpenDB(driver, dsn string) (*gorm.DB, error) {
+	switch driver {
+	case "sqlite":
+		return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	case "postgres":
+		return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	default:
+		return nil, fmt.Errorf("unsupported database driver %q (want sqlite or postgres)", driver)
+	}
+}
+
+// Init opens the legacy v2 database and runs AutoMigrate + seed.
+//
+// PostgreSQL is reserved for the v3 line; use InitV3 once the v3 module wiring
+// is in place. Keeping this guard prevents the legacy handlers from silently
+// starting against a v3 schema they cannot query.
+func Init() error {
+	driver := DBDriver()
+	if driver != "sqlite" {
+		return fmt.Errorf("database driver %q is reserved for the v3 line; use InitV3", driver)
 	}
 
 	var err error
-	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	DB, err = OpenDB(driver, DSN())
 	if err != nil {
-		return fmt.Errorf("failed to open database %q: %w", dsn, err)
+		return fmt.Errorf("failed to open database %q: %w", DSN(), err)
 	}
 
 	err = AutoMigrate()
@@ -42,6 +86,26 @@ func Init() error {
 	// domain, zone_type dictionary, label templates, built-in exporters).
 	if err := seed.Run(DB); err != nil {
 		return fmt.Errorf("failed to seed platform core data: %w", err)
+	}
+	return nil
+}
+
+// InitV3 opens the v3 database and applies versioned migrations.
+//
+// It is intentionally separate from Init: the legacy v2 handlers still expect
+// the old AutoMigrate schema. The v3 module wiring will switch to this entry
+// point once the new module is mounted.
+func InitV3() error {
+	driver := DBDriver()
+	dsn := DSN()
+
+	var err error
+	DB, err = OpenDB(driver, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to open v3 database %q: %w", dsn, err)
+	}
+	if err := MigrateV3(driver, dsn); err != nil {
+		return fmt.Errorf("failed to apply v3 migrations: %w", err)
 	}
 	return nil
 }
