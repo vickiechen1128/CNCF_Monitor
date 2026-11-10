@@ -39,7 +39,7 @@
 | 模块 | PRD | 代码 | 测试 | 迁移 | handover | 状态 |
 |---|---|---|---|---|---|---|
 | M00 | todo | todo | todo | todo | todo | todo |
-| M07 | doing | doing | todo | todo | todo | doing |
+| M07 | doing | done | done | none | doing | doing |
 | M06 | todo | todo | todo | todo | todo | todo |
 | M01 | todo | todo | todo | todo | todo | todo |
 | M09 | todo | todo | todo | todo | todo | todo |
@@ -47,3 +47,60 @@
 | M08 | todo | todo | todo | todo | todo | todo |
 | M05 | todo | todo | todo | todo | todo | todo |
 | 其他 | todo | todo | todo | todo | todo | todo |
+
+---
+
+## 6. M07 v3 交接说明
+
+### 入口
+
+```text
+platform/modules/m07/
+├── module.go          # 装配入口
+├── domain/
+├── repository/
+├── service/
+├── handler/
+├── dto/
+├── importer/
+├── dictionary/
+└── references/
+```
+
+旧 `platform/config/resource` 为 v2 legacy，保持冻结。
+
+### 运行
+
+```bash
+# SQLite 开发/测试
+METRIC_CENTER_DB_DRIVER=sqlite METRIC_CENTER_DB_DSN=metric_center_v3.db make migrate
+make run-metric-center
+
+# PostgreSQL（需 M00/M06 参考表就绪后）
+METRIC_CENTER_DB_DRIVER=postgres \
+METRIC_CENTER_DB_DSN='postgres://...' \
+make migrate
+```
+
+### API
+
+- 新线：`/api/v3/platform/*`
+- 旧线：`/api/v2/platform/*`（兼容窗口内保留）
+- 契约：`modules/module-07/api-contract-snapshot-v3.md`
+
+### 测试
+
+```bash
+go test ./platform/modules/m07/...
+go test -race ./platform/modules/m07/...
+make test-postgres   # 需 METRIC_CENTER_TEST_POSTGRES_DSN
+```
+
+### 已知遗留
+
+- 多租户查询过滤（S-1）；
+- `connection_secret_ref` 解析 / 加密（S-3）；
+- 审计写链路（S-6）；
+- PG v3-only 启动依赖 M00/M06 参考表与认证表；
+- v2/v3 并行窗口结束后删除旧 v2 包。
+

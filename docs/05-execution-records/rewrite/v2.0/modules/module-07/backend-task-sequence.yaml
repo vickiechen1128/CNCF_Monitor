@@ -401,7 +401,8 @@ tasks:
 
   - id: T07-B6-1
     title: "契约 / 回归测试：v3 golden + 旧 vs 新矩阵"
-    status: pending
+    status: done
+    evidence: "handler/golden_test.go + regression.md：资源/列表/错误 golden + 保留/变更/删除矩阵"
     depends_on: [T07-B3-2, T07-B3-3, T07-B3-4, T07-B4-3]
     schema_change: none
     data_migration: none
@@ -415,7 +416,8 @@ tasks:
 
   - id: T07-B6-2
     title: "集成 / 并发测试：约束、事务、判重、迁移"
-    status: pending
+    status: done
+    evidence: "repository/concurrency_test.go：并发 dedup 只落一行 + 扩展表失败事务回滚；go test -race 通过"
     depends_on: [T07-B1-4, T07-B2-2, T07-B4-2]
     schema_change: none
     data_migration: none
@@ -430,7 +432,8 @@ tasks:
 
   - id: T07-B6-3
     title: "安全审查：凭证、鉴权、SSRF、上传"
-    status: pending
+    status: done
+    evidence: "security-review.md：PASS（带遗留 S-1/S-3/S-6）；导入 operator 取认证用户 + .xlsx 校验"
     depends_on: [T07-B3-2, T07-B3-3, T07-B3-4, T07-B4-3]
     schema_change: none
     data_migration: none
@@ -445,7 +448,8 @@ tasks:
 
   - id: T07-B6-4
     title: "handover：数据模型 / API / 迁移 / runbook"
-    status: pending
+    status: done
+    evidence: "handover.md M07 行 + 入口/运行/API/测试/遗留说明"
     depends_on: [T07-B6-1, T07-B6-2, T07-B6-3]
     schema_change: none
     data_migration: none
