@@ -200,7 +200,8 @@ tasks:
 
   - id: T07-B2-3
     title: "字典 repository/service：business/app/platform/cloud/os/zone"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/dictionary：只读仓库 + Resolver 校验 + 列表 + 单测"
     depends_on: [T07-B2-1, T07-B2-2]
     schema_change: none
     data_migration: none
@@ -214,7 +215,8 @@ tasks:
 
   - id: T07-B2-4
     title: "resource service：List/Get/Create/Update/Delete + 事务"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/service/resource_service.go：默认值/ID/平台兜底/字典校验/不可变字段 + 单测"
     depends_on: [T07-B2-2, T07-B2-3]
     schema_change: none
     data_migration: none
@@ -229,7 +231,8 @@ tasks:
 
   - id: T07-B2-5
     title: "label service/repository：标签策略 + 唯一索引"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/domain/label.go + repository/label_repository.go + service/label_service.go + 单测"
     depends_on: [T07-B2-2]
     schema_change: none
     data_migration: none
