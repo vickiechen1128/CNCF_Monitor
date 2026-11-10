@@ -1,121 +1,27 @@
 import { useEffect, useState } from 'react'
-import {
-  Alert,
-  Badge,
-  Button,
-  Descriptions,
-  Divider,
-  Drawer,
-  Empty,
-  Input,
-  Modal,
-  Skeleton,
-  Space,
-  Tag,
-  Tooltip,
-  Typography,
-  message,
-} from 'antd'
-import {
-  CloseOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  LockOutlined,
-  PlusOutlined,
-  SaveOutlined,
-} from '@ant-design/icons'
+import { Badge, Button, Descriptions, Drawer, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { isApiError } from '../../api/client'
-import { resourceApi, cloudDictApi, platformDictApi } from '../../api/resources'
-import { labelTemplateApi } from '../../api/labelTemplates'
+import { cloudDictApi, platformDictApi } from '../../api/resources'
 import { zoneTypeApi } from '../../api/domain'
-import { EllipsisText } from '../../components/EllipsisText'
 import type { NetworkDomain, ZoneType } from '../../types/domain'
-import type {
-  BusinessDomain,
-  CloudDict,
-  PlatformDict,
-  ResourceCategory,
-  ResourceLabelItem,
-} from '../../types/resource'
-import type { LabelTemplateListItem } from '../../types/label'
+import type { BusinessDomain, CloudDict, PlatformDict } from '../../types/resource'
 import type { ResourceListItem } from './useResources'
+import { RESOURCE_TYPE_MAP, STATUS_MAP, statusColor, SOURCE_TYPE_MAP } from './resourceMeta'
 import { useSkin } from '../../skinContext'
-import type { SkinTokens } from '../../skins'
+import { useResourceLabels } from './useResourceLabels'
+import { ResourceLabelsTab } from './ResourceLabelsTab'
 
-const { Text, Title, Link } = Typography
+const { Text, Link } = Typography
 
 /**
- * 资源详情抽屉（Module_07 §3.3/§5.3/§11.1，L3 任务 T07-F6）。
+ * 资源详情抽屉（Module_07 §3.3/§5.3/§11.1，L3 任务 T07-F6；T07-R8 拆分标签区）。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  * - 详情基础属性置顶展示（资源 ID / 网域 / 业务 biz_name / 运行状态 / 来源，§5.4 网域置顶）；
  * - 「适用模板」行展示该类型默认模板名 + ID（labelTemplateApi.list({resource_category, is_default}) 取首条），
  *   点击跳转标签模板页（/label-templates）；
- * - 标签卡展示全量标签（resourceApi.labels）：system 标注「来自 XX 模板 · source_map」并可跳转模板页；
- *   user 标注「手动添加」；cmdb 以「v0.4+ 预留」占位（§3.3 统一口径）；
- * - user 标签编辑（新增/编辑/删除）仅 resource_category=application 开放（标题「自定义标签（非必须）」
- *   并附引导文案）；静态资源只读展示来源、不提供打标入口；写返回 403 时 Alert 提示
- *   「该资源为静态资源，标签由 CMDB / Excel 带入，不支持手动打标」；
- * - 新增/编辑 key 与模板映射目标冲突时提示「该标签由标签模板生成，如需修改请前往标签模板管理」。
+ * - 标签卡状态与增删改动线收敛到 useResourceLabels，标签区展示收敛到 ResourceLabelsTab
+ *   （system 标注「来自 XX 模板 · source_map」、user 标注「手动添加」、cmdb 以「v0.4+ 预留」占位）。
  */
-
-/** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP / ResourceFormDrawer） */
-const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
-  host: '主机',
-  database: '数据库',
-  middleware: '中间件',
-  application: '应用服务',
-  generic_target: '其他监控目标',
-  interface_service: '接口服务',
-}
-
-/** 运行状态展示名（§5.2 / 决策 32，UI 展示名「运行状态」） */
-const STATUS_MAP: Record<string, string> = {
-  online: '在线',
-  offline: '离线',
-  maintenance: '维护中',
-  orphan: '孤儿',
-}
-
-/** 运行状态色（对齐原型 STATUS_COLOR，走皮肤 token） */
-function statusColor(tokens: SkinTokens): Record<string, string> {
-  return {
-    online: tokens.colorSuccess,
-    offline: tokens.colorError,
-    maintenance: tokens.colorWarning,
-    orphan: tokens.colorTextTertiary,
-  }
-}
-
-/** 数据来源展示名（§5.2；cmdb 为 v0.4+ 预留） */
-const SOURCE_TYPE_MAP: Record<string, string> = {
-  manual: '手动录入',
-  import: 'Excel 导入',
-  cmdb: 'CMDB 同步',
-}
-
-/** 保护 label 清单（§5.3/§5.11：禁止作为标签 key），与后端 PROTECTED_PROMETHEUS_LABELS 一致 */
-const PROTECTED_PROMETHEUS_LABELS = [
-  'instance',
-  'job',
-  'scheme',
-  '__address__',
-  '__scheme__',
-  '__metrics_path__',
-  '__name__',
-]
-
-/** key 校验规则：小写字母 / 数字 / 下划线（§5.3） */
-const LABEL_KEY_RE = /^[a-z0-9_]+$/
-
-/** 标签卡左侧边框色（对齐原型：system 灰 / user 青 / cmdb 蓝，走皮肤 token） */
-function labelSourceBorder(tokens: SkinTokens): Record<string, string> {
-  return {
-    system: tokens.colorTextTertiary,
-    user: tokens.colorPrimary,
-    cmdb: tokens.colorInfo,
-  }
-}
 
 interface ResourceDetailDrawerProps {
   open: boolean
@@ -128,35 +34,13 @@ interface ResourceDetailDrawerProps {
   onCancel: () => void
 }
 
-/** key 前端预校验（§5.3：小写/下划线/禁 __ 开头/≤128/禁内置 label/不重复） */
-function validateLabelKey(key: string, existing: ResourceLabelItem[]): string | null {
-  if (!key) return '请输入标签 Key'
-  if (key.length > 128) return 'Key 长度不能超过 128 字符'
-  if (key.startsWith('__')) return 'Key 禁止以 __ 开头'
-  if (!LABEL_KEY_RE.test(key)) return 'Key 仅支持小写字母 / 数字 / 下划线'
-  if (PROTECTED_PROMETHEUS_LABELS.includes(key)) return '禁止覆盖 Prometheus 内置标签'
-  if (existing.some((l) => l.key === key)) return '该 Key 已存在'
-  return null
-}
-
 /**
  * 资源详情抽屉（Module_07 §11.1 页面状态矩阵）。
- * 打开抽屉时抓取：标签全量（resourceApi.labels）+ 适用模板（labelTemplateApi.list is_default）。
- * 标签卡状态矩阵：加载骨架屏 / 空态「暂无自定义标签（非必须）」/ 接口错误 Alert + 重新加载 /
- * 写操作 403 提示。user 标签编辑入口仅 application 资源展示。
+ * 打开抽屉时抓取：标签全量 + 适用模板（useResourceLabels），以及详情展示只读字典
+ * （云 / 网络分区 / 平台）。标签卡状态矩阵见 ResourceLabelsTab。
  */
 export function ResourceDetailDrawer({ open, record, networkDomains, businessDomains, onCancel }: ResourceDetailDrawerProps) {
   const navigate = useNavigate()
-  const [labels, setLabels] = useState<ResourceLabelItem[]>([])
-  const [labelsLoading, setLabelsLoading] = useState(false)
-  const [labelsError, setLabelsError] = useState<string | null>(null)
-  const [template, setTemplate] = useState<LabelTemplateListItem | null>(null)
-  const [writeError, setWriteError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [newKey, setNewKey] = useState('')
-  const [newValue, setNewValue] = useState('')
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editValue, setEditValue] = useState('')
   // 决策 103 scheme-B：云字典（部署级只读，cloud_code → cloud_name 展示名解析；
   // 云的取值由所属网域派生，此处仅做展示名解析）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
@@ -167,6 +51,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
 
   const { tokens } = useSkin()
   const isApplication = record?.resource_category === 'application'
+  const labelsTab = useResourceLabels(open, record)
 
   /** 网域 ID → 展示名（M06 网域清单），未匹配兜底展示 ID */
   const domainNameOf = (id: string) => networkDomains.find((d) => d.id === id)?.name ?? id
@@ -218,29 +103,9 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     return !!p && !p.enabled
   }
 
-  /** 打开抽屉时重置状态并抓取标签 + 适用模板（沿用本模块既有 set-state-in-effect 模式） */
+  /** 打开抽屉时抓取详情展示只读字典（云 / 网络分区 / 平台） */
   useEffect(() => {
     if (!open || !record) return
-    // 打开抽屉时同步重置标签卡状态；异步请求回调内才异步 setState
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLabelsLoading(true)
-    setLabelsError(null)
-    setWriteError(null)
-    setEditingId(null)
-    setNewKey('')
-    setNewValue('')
-    setLabels([])
-    setTemplate(null)
-    resourceApi
-      .labels(record.resource_id)
-      .then((res) => {
-        setLabels(res.data?.items ?? [])
-        setLabelsLoading(false)
-      })
-      .catch((err: Error) => {
-        setLabelsError(err.message || '标签数据加载失败，请稍后重试')
-        setLabelsLoading(false)
-      })
     // 只读字典（云字典 §5.20 / 决策 98；M06 网络分区字典 / 决策 103 scheme-B）：
     // 二者均不影响详情主渲染，加载失败静默降级（缺条目回退编码）
     cloudDictApi
@@ -257,138 +122,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       .list()
       .then((res) => setPlatformDicts(res.data?.list ?? []))
       .catch(() => setPlatformDicts([]))
-    // 适用模板：该资源类别默认模板（labelTemplateApi.list({resource_category, is_default}) 取首条，§5.3）
-    labelTemplateApi
-      .list({ resource_category: record.resource_category, is_default: true, page: 1, page_size: 10 })
-      .then((res) => {
-        setTemplate(res.data?.list?.[0] ?? null)
-      })
-      .catch(() => {
-        // 模板加载失败不阻塞详情展示
-        setTemplate(null)
-      })
   }, [open, record])
-
-  /** 标签数据重新加载（接口错误 Alert 的「重新加载」） */
-  const reloadLabels = () => {
-    if (!record) return
-    setLabelsLoading(true)
-    setLabelsError(null)
-    resourceApi
-      .labels(record.resource_id)
-      .then((res) => {
-        setLabels(res.data?.items ?? [])
-        setLabelsLoading(false)
-      })
-      .catch((err: Error) => {
-        setLabelsError(err.message || '标签数据加载失败，请稍后重试')
-        setLabelsLoading(false)
-      })
-  }
-
-  /** 写操作错误统一处理：403 → 静态资源只读提示（§11.1/§6.2），其余透传后端文案 */
-  const handleWriteError = (err: unknown) => {
-    if (isApiError(err) && err.code === 403) {
-      setWriteError('该资源为静态资源，标签由 CMDB / Excel 带入，不支持手动打标')
-    } else {
-      setWriteError(err instanceof Error ? err.message : '标签操作失败，请稍后重试')
-    }
-  }
-
-  /** key 是否被适用模板映射为生成目标（§3.3/§5.3 冲突提示；system 标签保护、引导走模板） */
-  const isTemplateMappedLabel = (key: string) => !!template && template.mappings.some((m) => m.target_label === key)
-
-  /**
-   * key 与模板映射目标冲突时弹出确认：提示「该标签由标签模板生成，如需修改请前往标签模板管理」，
-   * 「前往标签模板」跳转模板页；「仍要继续」放行实例级操作。返回是否命中冲突（命中则已弹窗）。
-   */
-  const guardTemplateConflict = (key: string, onOk: () => void) => {
-    if (isTemplateMappedLabel(key)) {
-      Modal.confirm({
-        title: '该标签由标签模板生成',
-        content: `「${key}」由标签模板生成，如需修改请前往标签模板管理。确认仍要继续吗？`,
-        okText: '仍要继续',
-        cancelText: '前往标签模板',
-        onOk: () => onOk(),
-        onCancel: () => navigate('/label-templates'),
-      })
-      return true
-    }
-    return false
-  }
-
-  /** 新增 user 标签（仅 application 展示入口；key 冲突 / 校验失败拦截） */
-  const handleAddLabel = () => {
-    if (!record) return
-    const key = newKey.trim()
-    const value = newValue.trim()
-    const keyError = validateLabelKey(key, labels)
-    if (keyError) {
-      message.error(keyError)
-      return
-    }
-    if (guardTemplateConflict(key, () => doAddUserLabel(key, value))) return
-    doAddUserLabel(key, value)
-  }
-
-  const doAddUserLabel = (key: string, value: string) => {
-    if (!record) return
-    setSubmitting(true)
-    setWriteError(null)
-    resourceApi
-      .createLabel(record.resource_id, { key, value })
-      .then((res) => {
-        setLabels((prev) => [...prev, res.data])
-        setNewKey('')
-        setNewValue('')
-        message.success('标签已添加')
-      })
-      .catch((err: unknown) => handleWriteError(err))
-      .finally(() => setSubmitting(false))
-  }
-
-  /** 进入编辑态（仅 application 的 user 标签） */
-  const handleEditValue = (label: ResourceLabelItem) => {
-    setEditingId(label.id)
-    setEditValue(label.value)
-  }
-
-  /** 编辑 user 标签值（key 不可改，仅更新 value，§6.2/PUT）；key 命中模板映射同样弹冲突提示 */
-  const handleSaveEdit = (label: ResourceLabelItem) => {
-    if (!record) return
-    if (guardTemplateConflict(label.key, () => doUpdateLabel(label))) return
-    doUpdateLabel(label)
-  }
-
-  const doUpdateLabel = (label: ResourceLabelItem) => {
-    if (!record) return
-    setSubmitting(true)
-    setWriteError(null)
-    resourceApi
-      .updateLabel(record.resource_id, label.id, { value: editValue })
-      .then((res) => {
-        setLabels((prev) => prev.map((l) => (l.id === label.id ? res.data : l)))
-        setEditingId(null)
-        message.success('标签已更新')
-      })
-      .catch((err: unknown) => handleWriteError(err))
-      .finally(() => setSubmitting(false))
-  }
-
-  /** 删除 user 标签 */
-  const handleDeleteLabel = (label: ResourceLabelItem) => {
-    if (!record) return
-    setSubmitting(true)
-    setWriteError(null)
-    resourceApi
-      .removeLabel(record.resource_id, label.id)
-      .then(() => {
-        setLabels((prev) => prev.filter((l) => l.id !== label.id))
-        message.success('标签已删除')
-      })
-      .catch((err: unknown) => handleWriteError(err))
-      .finally(() => setSubmitting(false))
-  }
 
   /** 基础属性（资源 ID / 网域 / 业务 biz_name / 运行状态 / 来源 置顶，§5.4 网域置顶） */
   const baseItems = record
@@ -444,7 +178,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         {
           key: 'resource_category',
           label: '资源类型',
-          children: RESOURCE_CATEGORY_MAP[record.resource_category],
+          children: RESOURCE_TYPE_MAP[record.resource_category],
         },
         { key: 'env', label: '环境', children: record.env || '-' },
         { key: 'app_code', label: '应用', children: record.app_code || '-' },
@@ -481,9 +215,9 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         {
           key: 'apply_template',
           label: '适用模板',
-          children: template ? (
+          children: labelsTab.template ? (
             <Link style={{ fontSize: 12 }} onClick={() => navigate('/label-templates')}>
-              {template.name}（{template.id}）
+              {labelsTab.template.name}（{labelsTab.template.id}）
             </Link>
           ) : (
             '-'
@@ -558,157 +292,6 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       })()
     : []
 
-  // 紧凑单行标签行：来源 Tag 极简化（去实心块），保证文本仍可被 getByText 命中
-  const minimalTagStyle = { marginInlineEnd: 0, fontSize: 12, lineHeight: '18px', padding: '0 6px', borderRadius: 3 }
-
-  /** 标签来源 Tag（cmdb 以「v0.4+ 预留」占位，§3.3 统一口径） */
-  const renderSourceTag = (label: ResourceLabelItem) => {
-    if (label.source === 'cmdb')
-      return (
-        <Tag bordered={false} style={minimalTagStyle}>
-          CMDB · v0.4+ 预留
-        </Tag>
-      )
-    if (label.source === 'user')
-      return (
-        <Tag bordered={false} color="cyan" style={minimalTagStyle}>
-          用户
-        </Tag>
-      )
-    return (
-      <Tag bordered={false} style={minimalTagStyle}>
-        系统
-      </Tag>
-    )
-  }
-
-  /** 来源说明统一为 12px 次要文字 + 单行省略（紧凑行内渲染，仍保留在 DOM 中） */
-  const annotationStyle = {
-    fontSize: 12,
-    color: tokens.colorTextTertiary,
-    flex: '0 1 auto',
-    minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  } as const
-
-  /** 标签来源标注（§5.3 联动呈现：system → 模板·source_map；user → 手动添加；cmdb → 预留说明） */
-  const renderAnnotation = (label: ResourceLabelItem) => {
-    if (label.source === 'system') {
-      if (!template) return <Text style={annotationStyle}>来自标签模板</Text>
-      return (
-        <Text style={{ ...annotationStyle, cursor: 'pointer' }} onClick={() => navigate('/label-templates')}>
-          <Tooltip title="前往标签模板管理">
-            {label.source_map ? `来自 ${template.name} · ${label.source_map}` : `来自 ${template.name}`}
-          </Tooltip>
-        </Text>
-      )
-    }
-    if (label.source === 'user') {
-      return <Text style={annotationStyle}>手动添加</Text>
-    }
-    return <Text style={annotationStyle}>CMDB 同步（v0.4+ 接入后生效，MVP 仅占位展示）</Text>
-  }
-
-  /** 单条标签行（紧凑单行）：system/cmdb 与静态资源的 user 标签只读；application 的 user 标签可编辑/删除 */
-  const renderLabelRow = (label: ResourceLabelItem) => {
-    const canEdit = isApplication && label.source === 'user'
-    const isEditing = editingId === label.id
-    return (
-      <div
-        key={label.id}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'nowrap',
-          gap: 8,
-          borderLeft: `4px solid ${labelSourceBorder(tokens)[label.source]}`,
-          borderBottom: `1px solid ${tokens.colorBorderSecondary}`,
-          padding: '6px 10px',
-          borderRadius: 4,
-        }}
-      >
-        {canEdit && isEditing ? (
-          <Space.Compact block>
-            <Input
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onPressEnter={() => handleSaveEdit(label)}
-              placeholder="标签值"
-            />
-            <Tooltip title="保存">
-              <Button
-                type="primary"
-                size="small"
-                aria-label="保存"
-                icon={<SaveOutlined />}
-                loading={submitting}
-                onClick={() => handleSaveEdit(label)}
-              />
-            </Tooltip>
-            <Tooltip title="取消">
-              <Button
-                size="small"
-                aria-label="取消"
-                icon={<CloseOutlined />}
-                disabled={submitting}
-                onClick={() => setEditingId(null)}
-              />
-            </Tooltip>
-          </Space.Compact>
-        ) : (
-          <>
-            <Text strong style={{ flex: '0 0 auto' }}>
-              {label.key}
-            </Text>
-            <Text type="secondary" style={{ flex: '0 0 auto', fontSize: 12 }}>
-              =
-            </Text>
-            <span style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden' }}>
-              <EllipsisText maxWidth={260}>{label.value || '-'}</EllipsisText>
-            </span>
-            {renderAnnotation(label)}
-            <span style={{ marginLeft: 'auto', flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-              {renderSourceTag(label)}
-              {isApplication && !canEdit && (
-                <Tooltip title="只读">
-                  <LockOutlined style={{ color: tokens.colorTextTertiary, fontSize: 12 }} />
-                </Tooltip>
-              )}
-              {canEdit && (
-                <>
-                  {/* icon-only 按钮必须显式 aria-label：antd 图标的 aria-label 会混入 accessible name */}
-                  <Tooltip title="编辑">
-                    <Button
-                      type="text"
-                      size="small"
-                      aria-label="编辑"
-                      icon={<EditOutlined />}
-                      disabled={submitting}
-                      onClick={() => handleEditValue(label)}
-                    />
-                  </Tooltip>
-                  <Tooltip title="删除">
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      aria-label="删除"
-                      icon={<DeleteOutlined />}
-                      disabled={submitting}
-                      onClick={() => handleDeleteLabel(label)}
-                    />
-                  </Tooltip>
-                </>
-              )}
-            </span>
-          </>
-        )}
-      </div>
-    )
-  }
-
   return (
     <Drawer
       title="资源详情"
@@ -716,7 +299,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       open={open}
       onClose={onCancel}
       extra={
-        <Button onClick={onCancel} disabled={submitting}>
+        <Button onClick={onCancel} disabled={labelsTab.submitting}>
           关闭
         </Button>
       }
@@ -725,78 +308,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         <>
           <Descriptions column={2} size="small" title="基础信息" items={baseItems} />
           <Descriptions column={2} size="small" title="类型字段" style={{ marginTop: 16 }} items={typeItems} />
-          <Divider />
-          <Title level={5}>{isApplication ? '自定义标签（非必须）' : '自定义标签（静态资源只读）'}</Title>
-          {writeError && (
-            <Alert
-              type="error"
-              showIcon
-              message="标签操作失败"
-              description={writeError}
-              style={{ marginBottom: 12 }}
-            />
-          )}
-          {labelsLoading ? (
-            <Skeleton active paragraph={{ rows: 3 }} />
-          ) : labelsError ? (
-            <Alert
-              type="error"
-              showIcon
-              message="标签数据加载失败，请稍后重试"
-              description={labelsError}
-              action={
-                <Button size="small" onClick={reloadLabels}>
-                  重新加载
-                </Button>
-              }
-            />
-          ) : (
-            <>
-              {isApplication ? (
-                <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    大多数场景下，标签模板已自动生成所需标签；仅当个别实例需要额外标签时使用。
-                  </Text>
-                  <Space.Compact block>
-                    <Input
-                      placeholder="标签 Key，如 team"
-                      value={newKey}
-                      onChange={(e) => setNewKey(e.target.value)}
-                      onPressEnter={handleAddLabel}
-                    />
-                    <Input
-                      placeholder="标签值"
-                      value={newValue}
-                      onChange={(e) => setNewValue(e.target.value)}
-                      onPressEnter={handleAddLabel}
-                    />
-                    <Button type="primary" icon={<PlusOutlined />} loading={submitting} onClick={handleAddLabel}>
-                      添加
-                    </Button>
-                  </Space.Compact>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    key 规则：小写字母 / 数字 / 下划线；禁止 __ 开头；长度 ≤128；禁止覆盖 Prometheus 内置标签。
-                  </Text>
-                </Space>
-              ) : (
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                  静态资源标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口。如需修改标签，请前往 CMDB 或更新导入数据。
-                </Text>
-              )}
-              {labels.length === 0 ? (
-                <Empty description="暂无自定义标签（非必须）" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    标签模板已自动生成所需标签，仅当个别实例需要额外标签时使用。
-                  </Text>
-                </Empty>
-              ) : (
-                // 紧凑列表：行间距 4，超过一屏时容器内部滚动，避免抽屉被撑长
-                <Space direction="vertical" size={4} style={{ width: '100%', maxHeight: 320, overflowY: 'auto' }}>
-                  {labels.map((label) => renderLabelRow(label))}
-                </Space>
-              )}
-            </>
-          )}
+          <ResourceLabelsTab {...labelsTab} isApplication={isApplication} tokens={tokens} />
         </>
       )}
     </Drawer>

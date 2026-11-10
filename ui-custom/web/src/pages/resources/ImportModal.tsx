@@ -22,18 +22,9 @@ import { resourceApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportResult, ResourceCategory } from '../../types/resource'
 import { triggerBlobDownload } from '../../utils/triggerBlobDownload'
 import { useSkin } from '../../skinContext'
+import { RESOURCE_TYPE_MAP } from './resourceMeta'
 
 const { Text } = Typography
-
-/** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP / ResourcesPage） */
-const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
-  host: '主机',
-  database: '数据库',
-  middleware: '中间件',
-  application: '应用服务',
-  generic_target: '其他监控目标',
-  interface_service: '接口服务',
-}
 
 /** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新）。文案经 F-9 用户评审改为场景化人话，标签与后端 mode 枚举对应，默认 create_only */
 const MODE_OPTIONS: { value: ImportMode; label: string; hint: string }[] = [

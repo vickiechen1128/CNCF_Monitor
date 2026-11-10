@@ -4,18 +4,9 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { resourceApi } from '../../api/resources'
 import type { ApplicationDict, BusinessDomain, ResourceCategory } from '../../types/resource'
 import { triggerBlobDownload } from '../../utils/triggerBlobDownload'
+import { RESOURCE_TYPE_MAP } from './resourceMeta'
 
 const { Text } = Typography
-
-/** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP / ResourcesPage） */
-const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
-  host: '主机',
-  database: '数据库',
-  middleware: '中间件',
-  application: '应用服务',
-  generic_target: '其他监控目标',
-  interface_service: '接口服务',
-}
 
 /**
  * 各资源类别「填写要点」（用户语汇，F-7-③）：**必填项按类别分化**。

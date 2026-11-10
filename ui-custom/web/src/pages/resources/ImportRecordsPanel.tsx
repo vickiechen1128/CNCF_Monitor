@@ -26,21 +26,9 @@ import { importApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportRecord, ResourceCategory } from '../../types/resource'
 import type { Paginated } from '../../types/api'
 import { useSkin } from '../../skinContext'
+import { RESOURCE_TYPES, RESOURCE_TYPE_MAP } from './resourceMeta'
 
 const { Text } = Typography
-
-/** 六类资源类别（Module_07 §5.1 / 决策 D19；含接口服务） */
-const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'interface_service', 'generic_target']
-
-/** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
-const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
-  host: '主机',
-  database: '数据库',
-  middleware: '中间件',
-  application: '应用服务',
-  generic_target: '其他监控目标',
-  interface_service: '接口服务',
-}
 
 /** 导入模式展示名（§6.1 / T07-10） */
 const MODE_MAP: Record<ImportMode, string> = {
