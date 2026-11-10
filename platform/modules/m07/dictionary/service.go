@@ -142,3 +142,8 @@ func (s *Service) DeleteAppPlatformRel(ctx context.Context, relID string) error 
 func (s *Service) ListOSOptions(ctx context.Context) ([]OSOption, error) {
 	return s.repo.ListOSOptions(ctx)
 }
+
+// EnsureDeclarations applies declaration sheets before resource validation.
+func (s *Service) EnsureDeclarations(ctx context.Context, biz, app, platform []DeclaredEntry) error {
+	return s.repo.EnsureDeclarations(ctx, biz, app, platform)
+}

@@ -59,7 +59,12 @@ func (f *fakeRepository) SoftDelete(_ context.Context, resourceID string) error 
 	return nil
 }
 
-func (f *fakeRepository) FindByDedupKey(_ context.Context, _ domain.Category, _ string) (*domain.Resource, bool, error) {
+func (f *fakeRepository) FindByDedupKey(_ context.Context, category domain.Category, dedupKey string) (*domain.Resource, bool, error) {
+	for _, resource := range f.resources {
+		if resource.Category == category && resource.DedupKey == dedupKey {
+			return resource, true, nil
+		}
+	}
 	return nil, false, nil
 }
 

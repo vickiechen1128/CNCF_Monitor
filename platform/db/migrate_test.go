@@ -20,17 +20,23 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	requireTableCount(t, sqlDB, "schema_meta", 1)
 	requireTableCount(t, sqlDB, "resources", 1)
 	requireTableCount(t, sqlDB, "host_resources", 1)
+	requireTableCount(t, sqlDB, "import_records", 1)
 
 	// Up is idempotent: a second run must not fail or duplicate rows.
 	require.NoError(t, MigrateV3("sqlite", dsn), "second apply should be a no-op")
 	require.NoError(t, MigrateV3Status("sqlite", dsn), "status should be readable")
 
-	// 00002 is the latest migration; one Down drops the resource schema.
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback latest migration")
+	// 00003 is the latest migration; one Down drops import_records only.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback import records migration")
+	requireTableCount(t, sqlDB, "import_records", 0)
+	requireTableCount(t, sqlDB, "resources", 1)
+
+	// 00002 is now the latest; second Down drops the resource schema.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback resource schema")
 	requireTableCount(t, sqlDB, "resources", 0)
 	requireTableCount(t, sqlDB, "schema_meta", 1)
 
-	// 00001 is now the latest; second Down removes the baseline marker.
+	// 00001 is now the latest; third Down removes the baseline marker.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback baseline migration")
 	requireTableCount(t, sqlDB, "schema_meta", 0)
 }

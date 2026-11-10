@@ -86,6 +86,7 @@ type Repository interface {
 	SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error)
 	DeleteAppPlatformRel(ctx context.Context, relID string) error
 	ListOSOptions(ctx context.Context) ([]OSOption, error)
+	EnsureDeclarations(ctx context.Context, biz, app, platform []DeclaredEntry) error
 }
 
 // GORMRepository is the GORM-backed dictionary repository.

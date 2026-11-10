@@ -31,6 +31,10 @@ func TestMigrateV3Postgres(t *testing.T) {
 
 	requirePostgresTable(t, sqlDB, "resources", true)
 	requirePostgresTable(t, sqlDB, "host_resources", true)
+	requirePostgresTable(t, sqlDB, "import_records", true)
+
+	require.NoError(t, MigrateV3Down("postgres", dsn))
+	requirePostgresTable(t, sqlDB, "import_records", false)
 
 	require.NoError(t, MigrateV3Down("postgres", dsn))
 	requirePostgresTable(t, sqlDB, "resources", false)

@@ -3,9 +3,11 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m07/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -57,6 +60,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	resourceSvc := service.NewResourceService(resourceRepo, dictionarySvc)
 	labelSvc := service.NewLabelService(repository.NewGORMLabelRepository(gormDB), resourceRepo)
 	refs := references.NewGORMReader(gormDB)
+	importSvc := service.NewImportService(resourceRepo, repository.NewGORMImportRepository(gormDB), dictionarySvc, dictionarySvc)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -64,6 +68,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewResourceHandler(resourceSvc, refs),
 		NewDictionaryHandler(dictionarySvc),
 		NewLabelHandler(labelSvc),
+		NewImportHandler(importSvc),
 	)
 	return router, gormDB
 }
@@ -151,6 +156,55 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/business-domains", "")
 	require.Equal(t, http.StatusOK, code, out)
 	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
+}
+
+func TestV3ImportRoute(t *testing.T) {
+	router, _ := newTestRouter(t)
+	data := buildImportXLSX(t)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "host.xlsx")
+	require.NoError(t, err)
+	_, err = part.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("resource_category", "host"))
+	require.NoError(t, writer.WriteField("mode", "create_only"))
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v3/platform/imports", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	dataMap := out["data"].(map[string]any)
+	assert.EqualValues(t, 1, dataMap["total"])
+	assert.EqualValues(t, 1, dataMap["success"])
+	assert.Equal(t, "success", dataMap["status"])
+
+	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/imports", "")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
+}
+
+func buildImportXLSX(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	defer f.Close()
+	require.NoError(t, f.SetSheetName(f.GetSheetName(0), "Sheet1"))
+	rows := [][]any{
+		{"network_domain", "instance_name", "hostname", "instance_ip", "os_type", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status", "scrape_port", "activated_at"},
+		{"default", "web-01", "web-01", "10.0.0.9", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
+	}
+	for i := range rows {
+		require.NoError(t, f.SetSheetRow("Sheet1", "A"+strconv.Itoa(i+1), &rows[i]))
+	}
+	var buf bytes.Buffer
+	require.NoError(t, f.Write(&buf))
+	return buf.Bytes()
 }
 
 func TestV3ResourceValidation(t *testing.T) {
