@@ -1,0 +1,129 @@
+# Module 07 重写任务序列（轻量 L3，mode: rewrite）
+# 来源：docs/05-execution-records/rewrite/v2.0/modules/module-07/assessment.md
+# 上级章程：docs/05-execution-records/rewrite/v2.0/charter.md
+# 分支：rewrite/v2.0（基线 = origin/develop @ 5dc058d）
+# 约束：模块级重写；允许 PRD / API v3 / DB schema 演进；schema 变更必须 migration + 回滚 + 对账
+# commit：docs: / refactor: / schema: / feat: 分开；每任务独立 commit
+
+phase: "M07 Rewrite Phase 1（前端止血 + 结构重写）"
+module: "module-07-resource-management"
+module_branch: "rewrite/v2.0"
+track: "rewrite（v2.0）"
+owner: "orchestrator → frontend-developer"
+
+schema_change: "none"        # Phase 1 前端不改 schema；后端阶段按任务填写 additive / breaking
+data_migration: "none"       # Phase 1 不涉及数据迁移；后端阶段按任务填写
+api_version: "v3"            # 新线契约目标；Phase 1 前端可先沿用现有 API，切换在后端阶段
+
+verification:
+  targeted: "cd ui-custom/web && pnpm vitest run src/pages/resources"
+  phase_gate: "pnpm run typecheck:test && pnpm lint && pnpm build"
+  full_test: "仅按 testing-tdd §4.2 允许时执行 pnpm test"
+
+tasks:
+  - id: T07-R0
+    title: "基线冻结：测试基线 + 分支核对 + 评估记录"
+    status: done
+    evidence: "后端 resource 包 78.9% / 1.8s；前端 12 文件 244 用例 141s 全绿；HEAD 与 origin/develop 0 差异"
+    commit_unit: "独立（文档）"
+
+  - id: T07-R1
+    title: "抽取资源展示元数据到 resourceMeta.ts + 删除死代码 ResourcePage.tsx"
+    status: done
+    evidence: "resourceMeta.ts 新增；6 个消费者去重；ResourcePage.tsx 删除；244 用例全绿"
+    scope:
+      - "新建 src/pages/resources/resourceMeta.ts：RESOURCE_TYPES / RESOURCE_TYPE_MAP / SUBTYPE_FIELD / STATUS_MAP / statusColor / SOURCE_TYPE_MAP / resourceDisplayName"
+      - "更新 resources 目录内消费者：ResourcesPage / ResourceFormDrawer / ResourceDetailDrawer / ImportModal / TemplateDownloadModal / ImportRecordsPanel"
+      - "删除无引用文件 src/pages/resources/ResourcePage.tsx"
+    not_in_scope:
+      - "pages/label-templates/labelTemplateConstants.ts"
+      - "pages/home/resourceTypeMeta.ts"
+      - "任何 API / 类型 / 测试断言改动"
+    acceptance: "无重复常量；资源目录测试 244 用例全绿；typecheck + lint 通过；git diff 仅 resources 目录"
+    commit_unit: "独立"
+
+  - id: T07-R2
+    title: "抽取列表列定义 buildColumns → resourceColumns.tsx"
+    status: done
+    evidence: "resourceColumns.tsx 575 行；ResourcesPage 1483→998；244 用例全绿"
+    depends_on: T07-R1
+    scope:
+      - "把 ResourcesPage.tsx 内 buildColumns 及其列渲染辅助（约 600-1049 行）迁到 resourceColumns.tsx"
+      - "以参数对象传入 tokens / 字典解析器 / 回调，保持列集合、列宽、render 行为不变"
+    acceptance: "ResourcesPage 减少约 450 行；资源目录测试全绿"
+    commit_unit: "独立"
+
+  - id: T07-R3
+    title: "抽取字典加载与展示名解析 → useResourceDictionaries.ts"
+    status: done
+    evidence: "useResourceDictionaries.ts 199 行；ResourcesPage 998→890；244 用例全绿"
+    depends_on: T07-R2
+    scope:
+      - "收敛 networkDomains / businessDomains / applicationDomains / cloudDicts / platformDicts / appPlatformRels 的加载与 map 解析"
+      - "保留加载失败静默降级行为"
+    acceptance: "ResourcesPage 减少约 200 行；F-18 相关用例全绿"
+    commit_unit: "独立"
+
+  - id: T07-R4
+    title: "抽取列偏好 / 列宽 hook → useResourceColumnPrefs.ts"
+    status: done
+    evidence: "useResourceColumnPrefs.ts 205 行；ResourcesPage 890→771；F-17 全绿"
+    depends_on: T07-R3
+    scope:
+      - "收敛 columnWidths / selectedColumnKeys / localStorage 读写 / ResizeObserver 逻辑"
+      - "localStorage 键名与脏数据回退语义保持不变"
+    acceptance: "F-17 全部用例全绿；ResourcesPage 减少约 150 行"
+    commit_unit: "独立"
+
+  - id: T07-R5
+    title: "抽取删除确认与引用预检 → useResourceDelete.tsx + DeleteResourceConfirm.tsx"
+    status: done
+    evidence: "useResourceDelete.tsx 72 行 + DeleteResourceConfirm.tsx 49 行；ResourcesPage 771→675"
+    depends_on: T07-R4
+    scope:
+      - "迁出 referenced-by 预检、modal.confirm、deletingId 状态"
+      - "保留「查看引用 Job」跳转与无引用提示文案"
+    acceptance: "删除相关用例全绿"
+    commit_unit: "独立"
+
+  - id: T07-R6
+    title: "抽取筛选区与表格展示组件，ResourcesPage 收敛为容器（目标 <300 行）"
+    status: done
+    evidence: "ResourceFilterBar/ResourceListAlerts/ResourceTable/ResourceCategoryTabs 拆出；ResourcesPage 294 行"
+    depends_on: T07-R5
+    scope:
+      - "抽取 ResourceFilterBar（筛选 UI）与 ResourceTable（表格 + 分页 + 空态/错误态）"
+      - "容器只保留深链解析、模式状态与组件编排"
+    acceptance: "ResourcesPage <300 行；资源目录测试全绿"
+    commit_unit: "独立"
+
+  - id: T07-R7
+    title: "拆分 ResourceFormDrawer（mappers + 分类型字段组件，目标 <500 行）"
+    status: done
+    evidence: "ResourceFormDrawer 1080→319；resourceFormMappers.ts 213 + resourceFormFields.tsx 632；244 用例全绿"
+    depends_on: T07-R6
+    scope:
+      - "迁出 buildCreateInput / buildUpdateInput / buildTypeFields / recordToFormValues → resourceFormMappers.ts"
+      - "renderSharedFields / renderTypeFields 拆为 components/form/ 下独立组件"
+      - "保留 forceRender / 字段级联 / 校验与提交行为"
+    acceptance: "资源目录测试全绿；FormDrawer <500 行"
+    commit_unit: "独立"
+
+  - id: T07-R8
+    title: "拆分 ResourceDetailDrawer（标签 Tab 独立，目标 <500 行）"
+    status: done
+    evidence: "ResourceDetailDrawer 771→318；useResourceLabels.ts 259 + ResourceLabelsTab.tsx 303；详情 29 用例 + 目录 244 用例全绿"
+    depends_on: T07-R7
+    scope:
+      - "迁出标签管理 Tab → ResourceLabelsTab.tsx；展示常量改用 resourceMeta"
+      - "保留标签增删改、保护标签与来源描边语义"
+    acceptance: "详情抽屉用例全绿；DetailDrawer <500 行"
+    commit_unit: "独立"
+
+  - id: T07-R9
+    title: "前端 Phase 收尾回归"
+    status: done
+    evidence: "typecheck:test / eslint(resources) / pnpm build / 244 用例 / dev server GET / 与 /resources 均 200 全通过（2026-11-10）"
+    depends_on: T07-R8
+    acceptance: "typecheck:test / lint / build / resources 目录测试 / dev server 页面 200 全通过"
+    commit_unit: "独立（记录）"
