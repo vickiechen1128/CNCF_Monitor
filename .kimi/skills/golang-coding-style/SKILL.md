@@ -95,7 +95,7 @@ func CreateXxx(db *gorm.DB) gin.HandlerFunc { ... }
 
 ### 3.2 Migration
 
-- 工具：`pressly/goose` 或 `go-gormigrate/gormigrate`（团队统一后固定一种）。
+- 工具：`pressly/goose` / `go-gormigrate/gormigrate` 或等价 runner（当前 v3 使用 `platform/db` 内置 SQL runner，兼容 goose 标记；后续可替换）。
 - 文件放在 `platform/db/migrations/`，按版本命名。
 - migration 必须可向前执行；破坏性变更需提供回滚说明。
 - 禁止只通过 `AutoMigrate` 注册新 schema。

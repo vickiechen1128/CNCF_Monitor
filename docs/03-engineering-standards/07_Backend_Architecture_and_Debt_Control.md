@@ -181,7 +181,7 @@ func CreateXxx(svc *XxxService) gin.HandlerFunc { ... }
 ### R2：新增表 / 字段必须写 migration
 
 - 目录：`platform/db/migrations/`
-- 工具：`pressly/goose`（优先）或 `go-gormigrate/gormigrate`
+- 工具：`pressly/goose`（优先）或 `go-gormigrate/gormigrate`；当前 v3 使用 `platform/db` 内置 SQL runner（兼容 goose 标记），后续可替换
 - 触发条件：新增表、字段、索引、删列、改列类型
 - 禁止：只改 `platform/db/db.go` 的 `AutoMigrate` 列表
 
