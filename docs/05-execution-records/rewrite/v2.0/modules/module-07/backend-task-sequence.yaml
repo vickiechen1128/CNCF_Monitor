@@ -356,7 +356,8 @@ tasks:
 
   - id: T07-B5-1
     title: "module 自注册：platform/modules/m07/module.go"
-    status: pending
+    status: done
+    evidence: "module.go：装配 repository/service/handler + RegisterRoutes；main 只调用 NewModule"
     depends_on: [T07-B3-2, T07-B3-3, T07-B3-4]
     schema_change: none
     data_migration: none
@@ -370,7 +371,8 @@ tasks:
 
   - id: T07-B5-2
     title: "跨模块适配器：ScrapeJob / EdgeTargetSnapshot 只读接口"
-    status: pending
+    status: done
+    evidence: "references.GORMReader 只读 scrape_jobs；EdgeTargetSnapshot 清理仍由 M09 负责"
     depends_on: [T07-B2-2]
     schema_change: none
     data_migration: none
@@ -384,7 +386,8 @@ tasks:
 
   - id: T07-B5-3
     title: "v3 路由挂载：/api/v3/platform/*"
-    status: pending
+    status: done
+    evidence: "main.go：db.MigrateV3(sqlite) + m07.NewModule + /api/v3/platform 挂载；旧 /api/v2 保留"
     depends_on: [T07-B5-1]
     schema_change: none
     data_migration: none
