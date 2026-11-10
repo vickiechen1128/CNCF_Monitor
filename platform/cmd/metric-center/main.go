@@ -51,6 +51,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/edge"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
@@ -121,6 +122,12 @@ func main() {
 
 	if err := db.Init(); err != nil {
 		log.Fatalf("failed to initialize database: %v", err)
+	}
+	// v2.0: v3 schema is additive alongside the legacy v2 AutoMigrate schema.
+	// SQLite is the dev/test path; PostgreSQL v3-only startup will be wired once
+	// M00/M06 reference tables are migrated.
+	if err := db.MigrateV3("sqlite", db.DSN()); err != nil {
+		log.Fatalf("failed to apply v3 migrations: %v", err)
 	}
 
 	// 决策 48：业务分组字典权威存储落 DB；business_domains.yaml 仅首次启动 seed
@@ -267,6 +274,14 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
 		return nil, err
 	}
+
+	// v2.0 M07 v3 API: mounted alongside legacy /api/v2 during the transition.
+	apiV3 := r.Group("/api/v3")
+	m07Module, err := m07.NewModule(db.DB)
+	if err != nil {
+		return nil, fmt.Errorf("register m07 v3 module: %w", err)
+	}
+	m07Module.RegisterRoutes(apiV3.Group("/platform"))
 
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
 	if staticDir != "" {
