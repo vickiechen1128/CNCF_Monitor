@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/importer"
@@ -50,6 +51,10 @@ func (h *ImportHandler) Import(c *gin.Context) {
 		response.BadRequest(c, fmt.Errorf("file is too large (max 10MB)"))
 		return
 	}
+	if !strings.HasSuffix(strings.ToLower(fileHeader.Filename), ".xlsx") {
+		response.BadRequest(c, fmt.Errorf("file must be .xlsx"))
+		return
+	}
 	file, err := fileHeader.Open()
 	if err != nil {
 		response.BadRequest(c, fmt.Errorf("open uploaded file: %w", err))
@@ -62,7 +67,11 @@ func (h *ImportHandler) Import(c *gin.Context) {
 		return
 	}
 
-	record, err := h.svc.Import(c.Request.Context(), category, mode, data, "platform_admin")
+	operator := auth.CurrentUsername(c)
+	if operator == "" {
+		operator = "platform_admin"
+	}
+	record, err := h.svc.Import(c.Request.Context(), category, mode, data, operator)
 	if err != nil {
 		respondError(c, err)
 		return

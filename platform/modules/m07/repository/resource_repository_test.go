@@ -19,7 +19,7 @@ func openRepositoryTestDB(t *testing.T) *gorm.DB {
 	dsn := filepath.Join(t.TempDir(), "m07_repository.db")
 	require.NoError(t, db.MigrateV3("sqlite", dsn))
 
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{
+	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on&_busy_timeout=5000"), &gorm.Config{
 		Logger: logger.Discard,
 	})
 	require.NoError(t, err)
