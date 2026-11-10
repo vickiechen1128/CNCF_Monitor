@@ -309,7 +309,8 @@ tasks:
 
   - id: T07-B4-1
     title: "importer：Excel 解析 / 行校验 / 声明 sheet"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/importer：模板列、ParseExcel、Row.ToDomain、ValidateRows、声明 sheet 解析/校验 + 单测"
     depends_on: [T07-B0-2, T07-B2-1]
     schema_change: none
     data_migration: none
@@ -324,7 +325,8 @@ tasks:
 
   - id: T07-B4-2
     title: "import service：create_only/upsert + 批量 + 幂等"
-    status: pending
+    status: done
+    evidence: "service/import_service.go：create_only/upsert、判重、声明落库、ImportRecord + 单测"
     depends_on: [T07-B2-4, T07-B4-1]
     schema_change: none
     data_migration: none
@@ -339,7 +341,8 @@ tasks:
 
   - id: T07-B4-3
     title: "导入 handler v3 + 导入记录查询"
-    status: pending
+    status: done
+    evidence: "handler/import_handler.go + import_records migration/repository + 路由集成测试"
     depends_on: [T07-B4-2]
     schema_change: none
     data_migration: none
