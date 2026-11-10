@@ -153,7 +153,8 @@ tasks:
 
   - id: T07-B2-0
     title: "新 v3 包骨架：platform/modules/m07"
-    status: pending
+    status: done
+    evidence: "domain/repository 已落地；service/handler/dto/importer/dictionary/references 包骨架已建"
     depends_on: [T07-B0-1]
     schema_change: none
     data_migration: none
@@ -167,7 +168,8 @@ tasks:
 
   - id: T07-B2-1
     title: "domain：Resource / Category / DedupKey / 校验 / 错误类型"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/domain：category/status/attributes/resource/dedup/errors + 单测"
     depends_on: [T07-B0-1, T07-B2-0]
     schema_change: none
     data_migration: none
@@ -182,7 +184,8 @@ tasks:
 
   - id: T07-B2-2
     title: "repository：resources 主表 + 扩展表事务读写"
-    status: pending
+    status: done
+    evidence: "platform/modules/m07/repository：GORM 主表+扩展表、Create/Get/List/Update/SoftDelete/FindByDedupKey + 单测"
     depends_on: [T07-B1-2, T07-B2-1]
     schema_change: none
     data_migration: none
