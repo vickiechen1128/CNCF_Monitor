@@ -1,6 +1,6 @@
 # Module 07 后端与数据模型重写评估（v2.0）
 
-> **状态**：draft（待 chenrt 评审后进入 B0）
+> **状态**：approved（2026-11-10，chenrt 确认；旧数据不迁移）
 > **分支**：`rewrite/v2.0`
 > **上级章程**：`docs/05-execution-records/rewrite/v2.0/charter.md`
 > **范围**：M07 资源管理后端、数据模型、API v3、导入、字典、标签、迁移与 handover
@@ -20,7 +20,7 @@
 | 6 | 分层缺失 | 12+ handler 直接接收 `*gorm.DB`；`validate.go` 689 行、`excel.go` 613 行、`template.go` 508 行 | 业务规则、HTTP、SQL、Excel 混在一起，无法独立测试/复用 |
 | 7 | 动态字段访问 | `models.GetResourceField` / `LegacyFieldMap` 在列表、更新、标签、生成器中使用 | R3 违规；字段调整靠全局搜索；类型安全弱 |
 | 8 | DTO 缺失 | 列表返回 `map[string]interface{}`，字段靠反射拼装 | 契约漂移无法编译期发现；v3 无法稳定演进 |
-| 9 | 迁移不可控 | 运行时靠 `AutoMigrate`；`platform/db/migrations/` 只是文件记录，未接 goose，无版本表/回滚 | 升级、回滚、重放不可靠 |
+| 9 | 迁移不可控 | 运行时靠 `AutoMigrate`；`platform/db/migrations/` 只是文件记录，无版本表/回滚 | 升级、回滚、重放不可靠 |
 | 10 | 敏感字段 | `connection_string` 明文存储（Database/Middleware） | 凭证泄露风险；API 回显/日志需脱敏 |
 | 11 | 死表/死列 | 服务字典已删除，但旧库可能残留 `service_dicts` / `service_code`；`cloud_code` 兼容列仍在 | schema 越来越难解释；handover 成本高 |
 | 12 | API 版本与契约 | 现有 `/api/v2/platform/*`；分页默认 50（API 标准默认 20）；`is_monitored` 参数解析但不生效 | 旧新并行/契约断代不清晰；分页语义不一致 |
@@ -184,13 +184,13 @@ platform/modules/m07/
 
 步骤：
 
-1. B1-1 接入 migration runner（goose 或等价），建立 `schema_migrations`。
+1. B1-1 接入 migration runner（内置 SQL runner，兼容 goose 标记），建立 `schema_migrations`。
 2. B1-2 新建 v3 schema baseline（`resources` + 扩展表 + 字典 FK + 索引）。
 3. B1-3（可选）`cmd/legacy-import`：读旧库 → 映射 → 校验 → 写新库；支持 dry-run、计数、错误报告；不修改旧库。
 4. B1-4 migration 测试：空库 Up、基线库 Up/Down、约束/索引验证。
 5. 发布前：旧库备份；新库初始化；如导入旧数据，执行 legacy import + 对账。
 
-**默认 `data_migration: none`**：M07 旧数据价值有限；若 chenrt 要求保留，再启用 legacy import。
+**已确认 `data_migration: none`（2026-11-10，chenrt）**：M07 旧数据不迁移；v3 从新 schema 开始。旧库只做备份/归档；`cmd/legacy-import` 保留为可选工具，不在本轮执行。
 
 ---
 

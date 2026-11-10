@@ -21,7 +21,8 @@ verification:
 tasks:
   - id: T07-B0-1
     title: "数据模型基线 / ADR：主表 + 扩展表 + 约束 + 旧字段处置"
-    status: pending
+    status: done
+    evidence: "2026-11-10 chenrt 确认：resources 主表 + 六类扩展表；旧数据不迁移；decisions.md D6/D7"
     depends_on: []
     schema_change: none
     data_migration: none
@@ -37,7 +38,8 @@ tasks:
 
   - id: T07-B0-2
     title: "API v3 契约草案：资源 / 字典 / 标签 / 导入"
-    status: pending
+    status: done
+    evidence: "api-contract-snapshot-v3.md draft 已产出；待 B1-2 后冻结"
     depends_on: [T07-B0-1]
     schema_change: none
     data_migration: none
@@ -51,18 +53,19 @@ tasks:
     commit_unit: "独立（文档）"
 
   - id: T07-B1-1
-    title: "接入 migration runner（goose 或等价）"
-    status: pending
+    title: "接入 migration runner（内置 SQL runner，兼容 goose 标记）"
+    status: done
+    evidence: "platform/db/migrate.go + platform/cmd/migrate + make migrate/migrate-status/migrate-down；v3 迁移测试通过"
     depends_on: []
     schema_change: additive
-    migration_files: ["platform/db/migrations/"]
+    migration_files: ["platform/db/migrations/v3/"]
     data_migration: none
     api_version: v3
     scope:
-      - "引入 migration 工具链；建立 schema_migrations"
+      - "建立 schema_migrations；支持 Up/Status/Down"
       - "增加 make migrate / migrate-status / migrate-down"
-      - "CI 在空库执行 migration"
-    acceptance: "空库可一键迁移；版本可查询；CI 通过"
+      - "v3 迁移目录与旧 migrations 归档隔离"
+    acceptance: "空库可一键迁移；版本可查询；Down 可回滚"
     verify: ["make migrate", "make migrate-status", "go test ./platform/db/..."]
     commit_unit: "独立（基础设施）"
 
