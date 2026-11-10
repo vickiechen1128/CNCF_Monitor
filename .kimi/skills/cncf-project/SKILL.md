@@ -20,7 +20,7 @@ MVP 聚焦：**配置管理 + 手动 CMDB + Prometheus 配置下发**。
 |------|------|------|
 | 控制面后端 | Go 1.26.1 | `go.mod` 声明；项目级工具链 `.tools/go/` |
 | Web 框架 | Gin v1.10 | 路由、中间件、HTTP API |
-| 元数据存储 | SQLite + GORM | 开发期零运维；`METRIC_CENTER_DB_DSN` 可覆盖 |
+| 元数据存储 | PostgreSQL（v3 生产）/ SQLite（开发/测试）+ GORM | `METRIC_CENTER_DB_DRIVER=sqlite|postgres`；旧 v2 继续 SQLite |
 | 数据面引擎 | Prometheus | `upstream/prometheus/` 子模块 |
 | 前端 | React 18 + TypeScript 5.5 + Vite 5 | `ui-custom/web/` |
 | UI 组件 | Ant Design 5 | 企业级后台组件库 |

@@ -4,6 +4,7 @@
 > **分支**：`rewrite/v2.0`
 > **上级章程**：`docs/05-execution-records/rewrite/v2.0/charter.md`
 > **范围**：M07 资源管理后端、数据模型、API v3、导入、字典、标签、迁移与 handover
+> **数据库目标**：PostgreSQL 为 v3 生产目标；SQLite 仅开发/测试；旧 v2 继续 SQLite
 > **原则**：按“可移交给正式开发团队”的产品级标准维护，不按一次性项目脚本标准。
 
 ---
@@ -184,11 +185,12 @@ platform/modules/m07/
 
 步骤：
 
-1. B1-1 接入 migration runner（内置 SQL runner，兼容 goose 标记），建立 `schema_migrations`。
-2. B1-2 新建 v3 schema baseline（`resources` + 扩展表 + 字典 FK + 索引）。
+1. B1-1 接入 migration runner（内置 SQL runner，兼容 goose 标记；支持 sqlite/postgres），建立 `schema_migrations`。
+2. B1-2 新建 v3 schema baseline（`resources` + 扩展表 + 字典 FK + 索引）；DDL 保持 sqlite/postgres 可移植。
 3. B1-3（可选）`cmd/legacy-import`：读旧库 → 映射 → 校验 → 写新库；支持 dry-run、计数、错误报告；不修改旧库。
-4. B1-4 migration 测试：空库 Up、基线库 Up/Down、约束/索引验证。
-5. 发布前：旧库备份；新库初始化；如导入旧数据，执行 legacy import + 对账。
+4. B1-4 migration 测试：空库 Up、Up/Down、约束/索引验证；PostgreSQL 集成测试通过 `METRIC_CENTER_TEST_POSTGRES_DSN` 启用。
+5. B1-5 DB driver 抽象：`METRIC_CENTER_DB_DRIVER=sqlite|postgres`；v3 生产用 PG，开发/测试用 SQLite。
+6. 发布前：旧库备份；新库初始化；如导入旧数据，执行 legacy import + 对账。
 
 **已确认 `data_migration: none`（2026-11-10，chenrt）**：M07 旧数据不迁移；v3 从新 schema 开始。旧库只做备份/归档；`cmd/legacy-import` 保留为可选工具，不在本轮执行。
 
@@ -213,10 +215,12 @@ platform/modules/m07/
 |---|---|---|---|
 | B0 | B0-1 数据模型基线 / ADR | `backend-assessment.md` 定稿 + `decisions.md` D6/D7 | 1-2d |
 | B0 | B0-2 API v3 契约草案 | `api-contract-snapshot-v3.md` | 1-2d |
-| B1 | B1-1 migration runner | `make migrate*` + `schema_migrations` | 1-2d |
-| B1 | B1-2 v3 schema baseline | migration + 索引/约束/FK | 2-3d |
+| B1 | B1-1 migration runner | `make migrate*` + `schema_migrations`（sqlite/postgres） | 1-2d |
+| B1 | B1-2 v3 schema baseline | migration + 索引/约束/FK（可移植 DDL） | 2-3d |
 | B1 | B1-3 legacy import（可选） | `cmd/legacy-import` + dry-run/对账 | 2-3d |
-| B1 | B1-4 migration 测试 | 空库/基线库 Up/Down 测试 | 1d |
+| B1 | B1-4 migration 测试 | 空库 Up/Down + 约束测试；PG 集成测试 | 1-2d |
+| B1 | B1-5 DB driver 抽象 | `METRIC_CENTER_DB_DRIVER` + `OpenDB` + PG 测试入口 | 1-2d |
+| B1 | B1-6 v3 schema 可移植化 | 去 SQLite 方言（AUTOINCREMENT/DATETIME/INSERT OR IGNORE） | 1-2d |
 | B2 | B2-1 domain 模型 | 实体/值对象/判重键/错误 | 1-2d |
 | B2 | B2-2 repository | base+extension 事务读写 | 2-3d |
 | B2 | B2-3 字典 service/repo | 字典解析/校验 | 1-2d |

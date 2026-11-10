@@ -55,7 +55,7 @@ tasks:
   - id: T07-B1-1
     title: "接入 migration runner（内置 SQL runner，兼容 goose 标记）"
     status: done
-    evidence: "platform/db/migrate.go + platform/cmd/migrate + make migrate/migrate-status/migrate-down；v3 迁移测试通过"
+    evidence: "platform/db/migrate.go + platform/cmd/migrate + make migrate/migrate-status/migrate-down；sqlite/postgres 双 driver；v3 迁移测试通过"
     depends_on: []
     schema_change: additive
     migration_files: ["platform/db/migrations/v3/"]
@@ -117,6 +117,39 @@ tasks:
     acceptance: "测试覆盖 Up/Down 与关键约束；CI 通过"
     verify: ["go test ./platform/db/..."]
     commit_unit: "独立（测试）"
+
+  - id: T07-B1-5
+    title: "DB driver 抽象：sqlite / postgres"
+    status: done
+    evidence: "platform/db/db.go: DBDriver/DSN/OpenDB/InitV3；cmd/migrate -driver；旧 v2 继续 SQLite"
+    depends_on: [T07-B1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "METRIC_CENTER_DB_DRIVER=sqlite|postgres"
+      - "OpenDB / InitV3；v3 生产用 PG，开发/测试用 SQLite"
+      - "旧 Init 继续 SQLite + AutoMigrate，避免 v2 误连 v3 schema"
+    acceptance: "两种 driver 可打开；sqlite 测试通过；PG 测试可按 DSN 启用"
+    verify: ["go test ./platform/db/...", "METRIC_CENTER_TEST_POSTGRES_DSN=... go test ./platform/db -run Postgres"]
+    commit_unit: "独立（基础设施）"
+
+  - id: T07-B1-6
+    title: "v3 schema 可移植化：去 SQLite 方言"
+    status: done
+    evidence: "00001/00002 改为 TIMESTAMP / TEXT PK / 可移植 INSERT；PG 迁移测试已加入"
+    depends_on: [T07-B1-2]
+    schema_change: additive
+    migration_files: ["platform/db/migrations/v3/"]
+    data_migration: none
+    api_version: v3
+    scope:
+      - "移除 AUTOINCREMENT / DATETIME / INSERT OR IGNORE"
+      - "保留 CHECK / FK / 部分唯一索引 / 级联删除"
+      - "SQLite 与 PostgreSQL 共用一套 DDL"
+    acceptance: "SQLite migration 测试通过；PG migration 测试可按 DSN 启用"
+    verify: ["go test ./platform/db/...", "METRIC_CENTER_TEST_POSTGRES_DSN=... go test ./platform/db"]
+    commit_unit: "独立（schema）"
 
   - id: T07-B2-0
     title: "新 v3 包骨架：platform/modules/m07"

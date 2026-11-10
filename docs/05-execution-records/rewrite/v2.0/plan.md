@@ -4,6 +4,7 @@
 > **分支**：`rewrite/v2.0`
 > **章程**：`docs/05-execution-records/rewrite/v2.0/charter.md`
 > **说明**：本计划替代完整 L2 实施地图矩阵；保留模块顺序、依赖、里程碑与关键门禁。
+> **数据库**：PostgreSQL 为 v3 生产目标；SQLite 仅开发/测试；旧 v2 继续 SQLite。
 
 ---
 
@@ -28,7 +29,7 @@
 | 顺序 | 模块 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | M00 基础设施 / 数据模型 | todo | 先定共享模型、迁移工具链（goose 或等价）、API v3 基础 |
-| 2 | M07 监控对象管理 | doing | 前端 Phase 1 已拆解；后端 B0-1/B0-2/B1-1/B1-2/B1-4 已完成；B2 domain/repository 待推进 |
+| 2 | M07 监控对象管理 | doing | 前端 Phase 1 已拆解；后端 B0/B1 全部完成（PG 目标 + 可移植 schema）；B2 domain/repository 待推进 |
 | 3 | M06 多租户 / 网域 | todo | 依赖 M00 数据模型 |
 | 4 | M01 指标采集中心 | todo | 依赖 M07 / M06 |
 | 5 | M09 配置中心 / 下发 | todo | 依赖 M01 / M06 |

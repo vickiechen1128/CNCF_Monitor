@@ -86,14 +86,14 @@ CNCF_Monitor/
 | Gateway | Go + Gin                | 统一入口、鉴权、查询代理、配置管理 API       |
 | 前端      | React 18 + TypeScript   | 门户化配置管理页面                   |
 | UI 组件库  | Ant Design              | 企业级后台组件库                    |
-| 数据库（平台） | SQLite                  | 开发期零运维、单机可运行                |
+| 数据库（平台） | PostgreSQL（v3 生产）/ SQLite（开发/测试） | v3 生产目标 PG；SQLite 仅本地开发与快速测试；旧 v2 继续 SQLite |
 | 部署      | Docker / Docker Compose | 本地开发与测试                     |
 
 ### 2.2 未来演进选型
 
 | 层级    | MVP 选型            | 未来演进                                            | 切换条件           |
 | ----- | ----------------- | ----------------------------------------------- | -------------- |
-| 元数据存储 | SQLite            | PostgreSQL / MySQL                              | 生产部署、多实例、审计需求  |
+| 元数据存储 | SQLite（v2）/ PostgreSQL（v3） | PostgreSQL 为 v3 生产目标；SQLite 仅开发/测试 | v3 起生产使用 PG；多实例 / 审计 / 并发写入 |
 | 缓存    | 无                 | Redis                                           | 会话、配置缓存、采集状态缓存 |
 | 时序存储  | Prometheus TSDB   | VictoriaMetrics / Mimir                         | 长期存储、集群查询      |
 | 采集端   | Prometheus Server | Prometheus Agent Mode / OpenTelemetry Collector | 大规模分布式采集       |
