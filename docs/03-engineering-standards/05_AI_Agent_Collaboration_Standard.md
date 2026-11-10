@@ -3,7 +3,7 @@
 > 文档类型：工程标准  
 > **目标读者**：chenrt（Orchestrator / 产品 Owner）、zhangwq（Vibe Coding 执行者）、评审（guixm / zhaohy）——**人视角**的 Agent 协作流程概览；Agent 行为规则权威在 `.kimi/agents/*.md`  
 > 目标：规范 AI Agent 在 MetricCenter 项目中的协作方式，确保代码质量和文档一致性。  
-> 更新日期：2026-07-22（v1.25 去重）
+> 更新日期：2026-11-10（新增 v2.0 版本重写模式；v1.25 去重）
 
 ---
 
@@ -16,6 +16,18 @@
 - **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，写 PRD、改原型。
 - **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX` 做 Vibe Coding，**默认串行**——一个时间只开一个 feat 分支，任务按 task-sequence 先后顺序执行，保持线性历史，便于功能级回退。
 - **并行是按需手段，不是默认流程**：仅当两个以上零耦合任务确需同时开发时，才额外 `git worktree add` 独立目录，用完即 `git worktree remove`。
+
+### 1.0.1 版本重写模式（`rewrite/vX.Y`，v2.0 起）
+
+当项目进入“全模块下一代版本重写”时，不再使用 `design/` + `feat/` 双空间流程，改用产品级重写分支：
+
+- **分支**：`rewrite/vX.Y`（如 `rewrite/v2.0`）；模块并行用 `rewrite/vX.Y-module-XX`。
+- **定位**：PRD + 代码 + DB schema 同分支演进；旧版本归档、不维护。
+- **PRD**：新 PRD 为 living document，从业务原始需求重写；旧 PRD 仅参考。
+- **API**：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 归档。
+- **计划**：`rewrite/vX.Y/plan.md` + 模块 `task-sequence.yaml`，不跑完整 L2 矩阵。
+- **门禁**：R0–R6（基线 / 需求 / PRD / 计划 / 模块重写 / 集成回归 / handover）。
+- **权威定义**：`.kimi/agents/orchestrator.md`「版本重写」与 `docs/05-execution-records/rewrite/vX.Y/charter.md`。
 
 ```
 Orchestrator 接收需求

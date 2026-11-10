@@ -8,7 +8,7 @@
 
 - **写权限**：`ui-custom/web/`。
 - **禁止修改**：`docs/02-product-requirements/`、`docs/prototypes/`、`upstream/`、`platform/`、`patches/prometheus/`。
-- 当前模块的所有 commit 必须落在对应的功能分支（`feat/module-XX`、`fix/module-XX`；增量/修复阶段 `mode: incremental` 可为 `feature/zwq` 等既有维护分支，按 `cncf-git-workflow` §1.1）。
+- 当前模块的所有 commit 必须落在对应的功能分支（`feat/module-XX`、`fix/module-XX`、`rewrite/vX.Y`；增量/修复阶段 `mode: incremental` 可为 `feature/zwq` 等既有维护分支，按 `cncf-git-workflow` §1.1）。
 - 开发中发现 PRD / 原型矛盾，必须报告 Orchestrator，禁止自行修改 PRD / 原型。
 - 不直接 push / 合并；由 Orchestrator 或 `git-guardian` 统一处理。
 

@@ -3,7 +3,7 @@
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
 > 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-08-28（v1.29 新增：版本基线 tag 规范 §2.5 / 联调出口打 tag §2.6.4 / 基线回退路径 §6.6 / 禁止事项 11；v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
+> 更新日期：2026-11-10（新增 `rewrite/vX.Y` 产品级版本重写分支；v1.29 新增：版本基线 tag 规范 §2.5 / 联调出口打 tag §2.6.4 / 基线回退路径 §6.6 / 禁止事项 11；v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
 
 ---
 
@@ -29,13 +29,15 @@
 | `main` | `main` | 稳定/生产版本 | - | - | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `design/module-mvp-demo` | `design/module-mvp-demo` | MVP 阶段**单一**设计分支：PRD + AI 生成的原型代码（模块归属按 PRD 单文件隔离，见 §2.4） | `develop` | `develop` | chenrt（项目整体负责人 / 产品 Owner） | guixm（业务架构师 / 管理视角）、zhaohy（业务需求提出方 / 一线视角） |
-| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
+| `feat/module-XX` | `feat/module-07` | 标准功能开发（单模块） | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
+| `rewrite/vX.Y` | `rewrite/v2.0` | **产品级版本重写**：PRD + 代码 + schema 同分支 | `develop` | `develop`（发布时） | chenrt（项目整体负责人 / 产品 Owner） | chenrt、zhaohy、guixm |
+| `rewrite/vX.Y-module-XX` | `rewrite/v2.0-module-07` | 重写期模块并行（短期） | `rewrite/vX.Y` | `rewrite/vX.Y` | chenrt / developer | 对应 reviewer |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt | guixm、zhaohy |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `integration/*` | `integration/v0.1` | 版本末跨模块联调 / E2E 验收（按版本短生命周期） | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 
-> **重要**：只有 chenrt 有权将 `design/`、`feat/`、`integration/`、`release/`、`hotfix/` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。
+> **重要**：只有 chenrt 有权将 `design/`、`feat/`、`rewrite/`、`integration/`、`release/`、`hotfix/` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。
 
 ### 2.2 设计分支特殊规则
 
@@ -57,6 +59,20 @@
 - 推送到远程后，GitHub Actions 自动部署预览环境。
 - 合并前必须完成：zhangwq Review + 提交前验证 + 产品经理/业务方预览验收。
 
+### 2.3.1 版本重写分支（`rewrite/vX.Y`）
+
+- **定位**：产品级下一代版本重写，不是单模块重构，也不是产品线分叉。
+- **来源 / 合并**：从 `develop` 切出；发布时 `--no-ff` 合回 `develop`，打 `baseline/vX.Y`。
+- **旧版归档**：旧 `develop` / `design/module-mvp-demo` 打 tag（如 `v1.0.0` / `legacy/v1.0`），只读、不维护。
+- **空间规则**：rewrite 模式下不强制设计/开发空间分离；PRD + 代码 + schema 同分支演进。
+- **PRD 权限**：PRD 由 chenrt 或任务卡授权角色更新；developer 不得自行改 PRD。
+- **PRD 状态**：用 `living` + 里程碑 `baseline`，不要求 `frozen` 才能开发。
+- **API**：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 仅作回归对照。
+- **schema**：允许直接演进；一次变更 = 独立 commit + migration（Up/Down）+ 回滚说明 + 数据对账。
+- **commit**：`docs:` / `refactor:` / `schema:` / `feat:` / `test:` 分开；禁止混提交。
+- **模块并行**：`rewrite/vX.Y-module-XX` 从 `rewrite/vX.Y` 切出，完成后合回并删除。
+- **退出**：R5 回归 + R6 handover 通过后，`--no-ff` 合回 `develop`，打 `baseline/vX.Y`。
+
 ### 2.4 模块分支列表
 
 > **维护提示（v1.27）**：本表为当前已规划模块的快照。MVP 阶段**设计统一走单一 `design/module-mvp-demo` 分支**（不再按模块切分），功能分支逐个模块 `feat/module-XX`。**新增模块时需同步更新本表**；已冻结/已交付模块可保留作历史参考。
@@ -71,6 +87,8 @@
 | Module 05 | `design/module-mvp-demo` | `feat/module-05` | 前端门户集成 |
 
 > MVP 阶段 `feat/module-XX` 可按粒度进一步拆分（例如 `feat/module-07a`），但设计统一在 `design/module-mvp-demo`，模块归属靠 PRD 单文件物理隔离追溯。
+>
+> **rewrite 模式例外**：`rewrite/vX.Y` 为产品级重写分支，不再按模块切 `feat/module-XX`；模块并行用 `rewrite/vX.Y-module-XX`，完成后合回主重写分支。旧 `design/module-mvp-demo` 仅作归档基线。
 
 ### 2.5 版本管理约定
 
@@ -78,7 +96,7 @@
 
 | 层级 | 命名示例 | 用途 | 管理要点 |
 |------|----------|------|----------|
-| 产品版本（路线图） | MVP / v0.2 / v0.3 / v0.4 / v1.0 | 功能落地的产品阶段 | 全局唯一，以 Module_00 集成图为准；各模块的「产品版本覆盖」需与之对齐 |
+| 产品版本（路线图） | MVP / v0.2 / v0.3 / v0.4 / v1.0 / v2.0 | 功能落地的产品阶段 | 全局唯一，以 Module_00 集成图为准；各模块的「产品版本覆盖」需与之对齐 |
 | PRD 修订版本 | v1.0 → v1.1 → … | PRD 文档自身修订 | 每轮需求对齐递增（每轮 +1），与 design 迭代轮次、PR 编号一一对应 |
 | 原型版本 | 与 PRD 修订版本一致 | 原型项目版本 | 必须与 PRD 修订版本保持一致（prototype-designer 强制检查） |
 | 发布 tag | v0.1.0 | 对外发布基线 | 仅第一版发布时在 `main` 打（语义化版本）；开发阶段不启用 |

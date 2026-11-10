@@ -55,6 +55,16 @@
 - 状态为 **draft** 或 **prototyping** 的 PRD，prototype-designer 可以自由修改。
 - **版本对齐（v1.26）**：PRD 版本与原型版本随迭代轮次递增（每轮 +1），与 design PR 编号一一对应；修订表已「冻结」行只增不改，变更一律新增行（见 06 Gitflow §2.5）。
 
+### 版本重写模式（`mode: rewrite`，vX.Y）
+
+- **分支**：`rewrite/vX.Y`（如 `rewrite/v2.0`），不再强制设计空间 `design/module-mvp-demo`。
+- **PRD 定位**：新 PRD 是 living document，可在 rewrite 分支直接写；旧 PRD 仅参考，不作为兼容约束。
+- **状态**：用 `living` + 里程碑 `baseline`；不要求 `frozen` 才能开发。
+- **原型**：可选。若做，按新 PRD 重做，不复用旧原型；旧原型仅作行为对照。
+- **范围**：全模块重写，不是单模块；按 `rewrite/vX.Y/plan.md` 的模块顺序推进。
+- **权限**：PRD 由 chenrt 或任务卡授权角色更新；prototype-designer 不自行改范围 / 业务目标。
+- **版本**：新 PRD 版本从 v3.0 或模块独立版本开始，头部标注 `Legacy baseline: v2.55 @ <tag>`。
+
 ---
 
 ## Track B 轻量规格模式（v2.0 起）

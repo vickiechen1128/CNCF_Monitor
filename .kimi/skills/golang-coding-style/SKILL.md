@@ -61,7 +61,7 @@ func CreateXxx(db *gorm.DB) gin.HandlerFunc { ... }
 
 参考示例：`platform/gateway/auth/`（`repository.go` / `service.go` / `handler.go`）。
 
-存量代码在本次 feature 触碰范围内按 Boy Scout Rule 逐步清理；不得借机大重构。
+存量代码在标准 feature 触碰范围内按 Boy Scout Rule 逐步清理；不得借机大重构。`rewrite/vX.Y` 版本重写分支不受此限，但必须按 rewrite 章程、模块计划和独立 commit 推进。
 
 ### 2.2 目录归属
 
@@ -107,6 +107,17 @@ func CreateXxx(db *gorm.DB) gin.HandlerFunc { ... }
 | 新功能 | **必须遵守**，禁止新增技术债 |
 | Bug 修复 / 增量维护（`mode: incremental`） | 允许在触碰范围内顺手还债，但**必须与功能修复分开提交**并标记 `debt:`；若还债导致 scope 明显扩大，拆分为独立任务 |
 | 还债放行标准 | 不影响现有已实现功能（现有测试 + 服务启动验证通过）即可，不要求用户逐条审批 |
+
+### 3.4 版本重写（`mode: rewrite`）
+
+- R1–R4 仍适用；重写不是豁免架构红线的理由。
+- **schema 允许直接演进**，但必须：
+  - 一次变更 = 一个独立 commit + 一个 migration 文件（Up/Down）；
+  - 附回滚说明与数据对账方案；
+  - schema commit 与代码搬移 / 功能 commit 分开。
+- API 新线统一 `/api/v3/platform/*`；旧 `/api/v2` 仅作回归对照。
+- 数据模型必须文档化：逻辑模型、物理列映射、身份键、唯一索引、关联完整性。
+- 重写模块完成后，按 `dev-delivery` §6.1 补齐 handover 材料。
 
 ---
 

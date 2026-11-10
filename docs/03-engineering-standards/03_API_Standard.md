@@ -3,15 +3,16 @@
 > 文档类型：工程标准
 > **目标读者**：后端开发工程师（API 实现必读）、前端开发工程师（API 对接必读）、技术架构师（路由规划 / 代理设计）
 > 目标：统一 Gateway 对外 API 的风格，保持与 Prometheus 原生 API 的兼容性。
-> 更新日期：2026-08-20
+> 更新日期：2026-11-10（新增 v2.0 重写新线 `/api/v3/platform/*`）
 
 ---
 
 ## 1. 总体原则
 
 1. **兼容 Prometheus API**：查询类接口尽量复用 `/api/v1/*` 路径和返回格式
-2. **新增能力使用 `/api/v2/platform/*`**：平台专属能力与 Prometheus 原生 API 区分
-3. **统一返回格式**：所有接口返回 JSON，包含 `status`、`data`、`error` 字段
+2. **标准新增能力使用 `/api/v2/platform/*`**：平台专属能力与 Prometheus 原生 API 区分
+3. **v2.0 重写新线使用 `/api/v3/platform/*`**：旧 `/api/v2/*` 归档，仅作回归对照；旧新并行期需在 `rewrite/vX.Y/decisions.md` 登记兼容窗口
+4. **统一返回格式**：所有接口返回 JSON，包含 `status`、`data`、`error` 字段
 
 ---
 
@@ -24,12 +25,14 @@
 | `/api/v1/labels` | 获取 label names（代理到 Prometheus） |
 | `/api/v1/label/:name/values` | 获取 label values（代理到 Prometheus） |
 | `/api/v1/series` | 查询 series（代理到 Prometheus） |
-| `/api/v2/platform/targets` | 采集目标管理 |
-| `/api/v2/platform/discovery-sources` | 发现源管理 |
-| `/api/v2/platform/tenants` | 租户管理 |
-| `/api/v2/platform/users` | 用户管理 |
-| `/api/v2/auth/login` | 登录 |
-| `/api/v2/auth/logout` | 登出 |
+| `/api/v2/platform/targets` | 采集目标管理（旧线归档） |
+| `/api/v2/platform/discovery-sources` | 发现源管理（旧线归档） |
+| `/api/v2/platform/tenants` | 租户管理（旧线归档） |
+| `/api/v2/platform/users` | 用户管理（旧线归档） |
+| `/api/v2/auth/login` | 登录（旧线归档） |
+| `/api/v2/auth/logout` | 登出（旧线归档） |
+| `/api/v3/platform/*` | **v2.0 重写新线平台能力** |
+| `/api/v3/auth/*` | **v2.0 重写新线认证** |
 
 ---
 

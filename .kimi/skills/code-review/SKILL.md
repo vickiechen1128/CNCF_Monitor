@@ -25,8 +25,8 @@ Orchestrator 必须提供以下内容；Reviewer 不自行漫游全仓库。
 
 ### 2.1 基础输入
 
-- 当前分支：`feat/module-XX`
-- 轨道标记：Track A / Track B / Track B+
+- 当前分支：`feat/module-XX`（标准）或 `rewrite/vX.Y`（版本重写）
+- 轨道 / 模式标记：Track A / Track B / Track B+ / `mode: rewrite`
 - PRD 路径与**相关章节**（禁止要求 Reviewer 全文读取）
 - L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`
 - 原型路径：`docs/prototypes/module-XX/`（Track A 优先；缺失不阻断）
@@ -92,6 +92,27 @@ Orchestrator 明确列出已由单测 / 全量测试 / 开发验证确认的项�
 
 技术债修复（commit 带 `debt:` 标记）：只验证「不影响现有已实现功能」（测试 + 服务启动通过即放行），不按新功能的完整清单审查。
 
+### 3.2 版本重写阶段审查（`mode: rewrite`）
+
+任务卡标记 `mode: rewrite`（分支 `rewrite/vX.Y`）时，审查基线为：
+
+1. **PRD delta**：新 PRD / 业务需求是否覆盖本模块范围；旧 PRD 仅参考，不作为兼容约束。
+2. **旧 vs 新行为矩阵**：`regression.md` 是否登记保留 / 变更 / 删除项；变更/删除是否有理由。
+3. **API v3 契约**：`/api/v3/platform/*` 字段 / 枚举 / 错误码 / 分页是否与快照一致；旧 `/api/v2` 仅作对照。
+4. **schema / migration**：migration Up/Down、回滚说明、数据对账、空库/基线库验证。
+5. **测试**：旧版回归基线 + 新版验收 + 迁移测试；不能只跑新测试。
+6. **handover**：PRD、数据模型、API、runbook、已知问题是否齐全。
+7. **安全与性能**：同标准审查，不因 rewrite 降低。
+
+**免检项**：旧 PRD 逐字符合度、旧原型符合度（除非任务卡要求保留旧交互）。
+
+**严重级别补充**：
+
+- 无 migration / 无回滚说明的 schema 变更 → **HIGH**；
+- 未登记“删除/变更”的旧行为 → **HIGH**；
+- 只跑新测试、无旧版回归 → **HIGH**；
+- handover 文档缺失 → **MEDIUM**（R6 前必须补齐）。
+
 ---
 
 ## 4. 审查维度
@@ -116,9 +137,10 @@ Orchestrator 明确列出已由单测 / 全量测试 / 开发验证确认的项�
 - [ ] 错误是否正确包装（`%w`），是否吞错
 - [ ] 是否有 goroutine 泄漏 / 数据竞争；并发代码是否提供 `-race` 结果
 - [ ] R1：新增 handler 是否直接依赖 `*gorm.DB`
-- [ ] R2：schema 变更是否有 `platform/db/migrations/` 版本化 migration
+- [ ] R2：schema 变更是否有 `platform/db/migrations/` 版本化 migration；rewrite 模式是否附 Up/Down、回滚说明、数据对账
 - [ ] R3：是否新增 `GetResourceField` / `LegacyFieldMap` 调用
 - [ ] R4：新增模块是否直接改 `main.go` 路由注册 / `AutoMigrate` 列表
+- [ ] rewrite 模式：API 是否按 `/api/v3/platform/*` 设计；旧 `/api/v2` 仅作回归对照
 - [ ] API 路由 / 响应信封 / 字段命名是否与 API 标准一致
 - [ ] URL 解析 / 反向代理是否校验 scheme 与 host（SSRF）
 - [ ] 公共函数是否有测试；测试是否真正调用被测行为

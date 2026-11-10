@@ -64,6 +64,8 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | `dev-ready` | Track B/B+ 轻量规格已获用户书面确认，免原型验证 | planner 可直派 L3；开发验收后回填 as-built 并补登 ready |
 | `ready` | 已通过原型验证，可派生 Plan | plan-maintainer 可从此状态派生 L2 |
 | `frozen` | 已切出 feat 分支进入开发 | 修改必须走变更请求（CR） |
+| `living` | rewrite 模式：PRD 随版本演进 | 可按里程碑更新；写入 `rewrite/vX.Y/decisions.md` |
+| `baseline` | rewrite 模式：里程碑 PRD 已冻结 | 作为该里程碑验收 / 回归基线 |
 
 ---
 
@@ -189,6 +191,20 @@ docs/05-execution-records/module-XX/task-sequence.yaml
 - **有依赖关系**：明确 `depends_on`，Orchestrator 按依赖顺序派发
 
 每个 micro-task 完成后，应调用 `new_context` 或启动新子 Agent，禁止把多个阶段塞进同一个会话。
+
+---
+
+## 版本重写（`rewrite/vX.Y`，v2.0 起）
+
+当项目进入“全模块下一代版本重写”时，使用产品级重写分支，不走 `design/` + `feat/` 双空间流程：
+
+- 分支：`rewrite/vX.Y`（如 `rewrite/v2.0`）；模块并行用 `rewrite/vX.Y-module-XX`。
+- 定位：PRD + 代码 + DB schema 同分支演进；旧版本归档、不维护。
+- PRD：新 PRD 为 living document，从业务原始需求重写；旧 PRD 仅参考。
+- API：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 归档。
+- 计划：`rewrite/vX.Y/plan.md` + 模块 `task-sequence.yaml`，不跑完整 L2 矩阵。
+- 门禁：R0–R6（基线 / 需求 / PRD / 计划 / 模块重写 / 集成回归 / handover）。
+- 权威定义：`.kimi/agents/orchestrator.md`「版本重写」与 `docs/05-execution-records/rewrite/vX.Y/charter.md`。
 
 ---
 

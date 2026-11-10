@@ -42,11 +42,15 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 |----------|------|------|
 | `/api/v1/query`、`/api/v1/query_range` | PromQL 查询 | 代理到 Prometheus，保持原生格式 |
 | `/api/v1/labels`、`/api/v1/label/:name/values`、`/api/v1/series` | 元数据查询 | 代理到 Prometheus |
-| `/api/v2/platform/*` | 平台业务能力 | 采集目标、发现源、租户、用户等 |
-| `/api/v2/auth/*` | 认证 | 登录 / 登出 |
+| `/api/v2/platform/*` | 旧线平台业务能力（归档） | 旧版本使用；新线不要求向后兼容 |
+| `/api/v2/auth/*` | 旧线认证（归档） | 旧版本使用 |
+| `/api/v3/platform/*` | **v2.0 重写新线平台业务能力** | 新 PRD / 新前端 / 新代码统一使用 |
+| `/api/v3/auth/*` | **v2.0 重写新线认证** | 新线认证入口 |
 
 - 平台能力不得塞进 `/api/v1/*`；Prometheus 代理不得改写成平台信封以外的格式。
 - 代理接口必须经过认证与租户隔离，禁止裸透传。
+- **rewrite 模式**：新线一律 `/api/v3/platform/*`；旧 `/api/v2/*` 仅作旧版回归对照，不要求长期兼容。旧新并行期如需双路由，必须在 `rewrite/vX.Y/decisions.md` 登记兼容窗口与下线时间。
+- 新线契约快照必须标注 `api_version: v3`；旧快照保留作回归基线。
 
 ---
 

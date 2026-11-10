@@ -29,6 +29,18 @@ MVP 聚焦：**配置管理 + 手动 CMDB + Prometheus 配置下发**。
 
 ---
 
+## 1.1 工作模式
+
+| 模式 | 分支 | 说明 |
+|------|------|------|
+| 标准功能 | `feat/module-XX` | 单模块功能开发；PRD 冻结后开发 |
+| 增量/修复 | `feat/module-XX` / `fix/module-XX` / 既有维护分支 | `mode: incremental`；PRD 可滞后回填 |
+| **版本重写** | `rewrite/vX.Y`（如 `rewrite/v2.0`） | 产品级下一代版本；PRD + 代码 + schema 同分支演进；新线 API `/api/v3/platform/*` |
+
+版本重写不是“单模块重构”，也不是“产品线分叉”：旧版本归档、不维护；新版本是唯一活跃线。详见 `docs/05-execution-records/rewrite/v2.0/charter.md`。
+
+---
+
 ## 2. 目录结构
 
 ```text

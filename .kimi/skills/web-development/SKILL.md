@@ -88,8 +88,11 @@ ui-custom/web/src/
 |------|-----------|---------|
 | **Track A** | 原型页面 + `frontend-prototype-map.md` | 按 Planner 产出的差异矩阵（S/A/B 分级）逐项核对；S 级未解决必须停止并报告 Orchestrator |
 | **Track B/B+** | `dev-ready` 轻量规格 PRD 章节 + `api-contract-snapshot.md` | 核对字段表 / 接口清单 / 验收清单与当前实现的一致性；无原型不阻断 |
+| **rewrite** | 新 PRD + `/api/v3` 契约快照 + 模块 `assessment.md` | 旧版 UI 仅作行为对照；保留 / 变更 / 删除项必须登记；原型可选 |
 
-发现实现与轨道基线冲突时（Track A：原型已改但前端未同步；Track B：轻量规格 / 契约快照与代码冲突），必须停止并报告 Orchestrator，禁止默认沿用旧实现续作。
+发现实现与轨道基线冲突时（Track A：原型已改但前端未同步；Track B：轻量规格 / 契约快照与代码冲突；rewrite：新 PRD / v3 契约与旧 UI 行为冲突），必须停止并报告 Orchestrator，禁止默认沿用旧实现续作。
+
+> rewrite 模式下，旧版前端只作回归参照；允许重构、替换、删除旧交互，但必须在 `regression.md` 登记“保留 / 变更 / 删除”及理由。
 
 ---
 

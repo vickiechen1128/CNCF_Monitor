@@ -5,10 +5,11 @@
 本项目的核心生产流程是：
 
 ```
-PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
+标准模式：PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
+重写模式：Charter → 业务需求 → 新 PRD → plan.md → 模块 task-sequence → Code
 ```
 
-Orchestrator 必须确保这三层版本对齐，并在每层之间做质量门控。
+Orchestrator 必须确保版本对齐，并在每层之间做质量门控。`rewrite` 模式用轻量计划替代完整 L2，详见「版本重写」章节。
 
 ---
 
@@ -19,6 +20,26 @@ Orchestrator 必须确保这三层版本对齐，并在每层之间做质量门�
 - **必须保持上下文整洁**：每个阶段结束后主动 `new_context`，把当前会话交给子 Agent 处理
 - **禁止 compact**：如果当前会话过长，直接 `new_context` 重新启动，不要依赖摘要压缩
 - **版本对齐守护者**：每次进入下一阶段前，必须确认 PRD / Plan / Code Sequence 版本一致
+
+---
+
+## 工作模式（先判定，再执行）
+
+Orchestrator 启动时必须先判定当前任务属于哪种模式：
+
+| 模式 | 触发条件 | 分支 | 说明 |
+|------|----------|------|------|
+| `standard` | 常规新功能 / 模块开发 | `feat/module-XX` | 沿用 Track A / B/B+ 流程 |
+| `incremental` | 缺陷修复、小优化、PRD 滞后回填 | `feat/module-XX` / `fix/module-XX` / 既有维护分支 | 任务卡标记 `mode: incremental` |
+| `rewrite` | 用户明确“v2 重写 / 全模块 / 下一代版本 / rewrite” | `rewrite/vX.Y`（如 `rewrite/v2.0`） | PRD + 代码 + schema 同分支演进；轻量计划 + 关键门禁 |
+
+判定规则：
+
+1. 当前分支为 `rewrite/vX.Y`，或用户明确要求版本重写 → `rewrite`。
+2. 任务卡标记 `mode: incremental` → `incremental`。
+3. 其余 → `standard`。
+
+> `rewrite` 不是“单模块代码重构”，也不是“产品线分叉”。旧版本归档、不维护；新版本是唯一活跃线。详见 `docs/05-execution-records/rewrite/vX.Y/charter.md`。
 
 ---
 
@@ -33,6 +54,10 @@ Orchestrator 必须确保这三层版本对齐，并在每层之间做质量门�
 | `dev-ready` | Track B/B+ 轻量规格已获用户书面确认（免原型验证，豁免记录已落档 design-decisions.md） | planner 可从此状态直派 L3（Track B 增量）；开发验收后回填 as-built 并补登 ready |
 | `ready` | 已通过原型验证（或 Track B 验收后回填），可派生 Plan | plan-maintainer 可从此状态派生 L2 |
 | `frozen` | 已切出 feat 分支进入开发 | 修改必须走变更请求（CR） |
+| `living` | rewrite 模式：PRD 随版本演进 | 可按里程碑更新；不要求 CR，但必须更新 Change Log / `rewrite/vX.Y/decisions.md` |
+| `baseline` | rewrite 模式：某个里程碑的 PRD 已冻结 | 作为该里程碑的验收 / 回归基线；后续变更新增版本行 |
+
+> `rewrite` 模式下 PRD 不再以 `frozen` 作为开发前置；用 `living` + 里程碑 `baseline` 管理。
 
 ### 状态流转
 
@@ -63,6 +88,8 @@ ready / dev-ready
 frozen —— 切出 feat/module-XX 后
 ```
 
+> `rewrite` 模式不经过 `frozen`：PRD 从 `living` 开始，按里程碑打 `baseline`；旧版本 PRD 通过 tag / 历史 commit 追溯。
+
 ### 状态检查命令
 
 每次协调前，Orchestrator 必须读取 PRD 顶部的状态标识和 Change Log（v1.24 起：PRD 章节级读取，禁止全文读取；Change Log 已精简为最近 3 版一句话摘要）：
@@ -87,17 +114,20 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
    pwd
    git branch --show-current
    ```
-   - 设计工作（PRD / 原型）→ 设计空间 `design/module-mvp-demo`
-   - 开发协调（Vibe Coding）→ 开发空间 `feat/module-XX`
+   - 设计工作（标准模式 PRD / 原型）→ 设计空间 `design/module-mvp-demo`
+   - 标准开发协调（Vibe Coding）→ 开发空间 `feat/module-XX`
+   - **版本重写**→ 开发空间 `rewrite/vX.Y`（PRD + 代码 + schema 同分支）
 3. **明确用户需求**：需求不清晰时使用 `grill-with-docs` 或 `AskUserQuestion` 对齐。
-4. **确认模块编号与分支**：从用户或当前分支提取 `module-XX`。
-5. **检查 PRD 状态**：按「PRD 状态管理」判断下一步动作。
+4. **确认工作模式与分支**：按「工作模式」判定 `standard` / `incremental` / `rewrite`；从用户或当前分支提取 `module-XX`（rewrite 模式可先不限定单模块）。
+5. **检查 PRD 状态**：按「PRD 状态管理」判断下一步动作；rewrite 模式读 `charter.md` / `plan.md` / 模块 `assessment.md`。
 
 ---
 
 ## 需求分轨（Track A / Track B 判定，v2.0 起）
 
 Orchestrator 在需求对齐阶段（启动协议第 3 步）必须**先完成分轨判定**，再决定走哪条流程。原则：**流程重量与需求不确定性成正比**——核心差异化功能走完整验证轨（Track A），通用标准能力走轻量直通轨（Track B）。
+
+> `mode: rewrite` 不做 Track A/B 分轨；按「版本重写」R0–R6 执行。分轨仅适用于 `standard` 模式。
 
 ### 分轨对话决策过程（与用户逐项确认）
 
@@ -186,6 +216,70 @@ constraints_from_prd: "<关联的已提交 PRD 章节，如有>"
 
 ---
 
+## 版本重写（`mode: rewrite`，`rewrite/vX.Y`）
+
+### 触发条件
+
+- 用户明确要求“v2 重写 / 全模块重写 / 下一代版本 / rewrite”。
+- 当前分支为 `rewrite/vX.Y`。
+- `docs/05-execution-records/rewrite/vX.Y/charter.md` 存在且状态为 approved。
+
+### 定位
+
+- **不是**单模块代码重构，**不是**产品线分叉。
+- 旧版本归档、不维护；`rewrite/vX.Y` 是唯一活跃开发线。
+- PRD + 代码 + DB schema 同分支演进；PRD 为 `living`，按里程碑打 `baseline`。
+- 轻量计划 + 关键门禁，不跑完整 L2 矩阵。
+
+### 阶段与门禁
+
+| 阶段 | 内容 | 产物 | 门禁 |
+|---|---|---|---|
+| R0 基线 | 旧版归档、tag、章程 | `charter.md` | 旧基线可回退 |
+| R1 业务需求 | 从原始业务需求重写 | `business-requirements.md` | G1 用户确认 |
+| R2 PRD v2 | 新 PRD、数据模型、API v3 | 模块 PRD、`api-contract-snapshot.md` | G2 PRD/架构评审 |
+| R3 重写计划 | 模块顺序、依赖、里程碑 | `plan.md`、模块 `task-sequence.yaml` | 计划确认 |
+| R4 模块重写 | PRD 增量 → 代码 → 测试 → 审查 | 代码 / 测试 / 执行记录 | G3 模块验收 |
+| R5 集成回归 | 旧 vs 新矩阵、迁移对账、E2E | `regression.md`、`migration.md` | G4 回归通过 |
+| R6 交接发布 | handover、runbook、onboarding | `handover.md` | G5/G6 |
+
+### rewrite 模式规则
+
+1. **分支**：`rewrite/vX.Y`；模块并行用 `rewrite/vX.Y-module-XX`，合回后删除。
+2. **PRD**：chenrt 或任务卡授权角色可更新；developer 不得自行改。旧 PRD 仅参考。
+3. **API**：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 仅作回归对照。
+4. **schema**：允许直接演进；一次变更 = 独立 commit + migration（Up/Down）+ 回滚说明 + 数据对账。
+5. **commit**：`docs:` / `refactor:` / `schema:` / `feat:` / `test:` 分开；禁止混提交。
+6. **计划**：`plan.md` + 模块 `task-sequence.yaml` 替代完整 L2；不强制 04 矩阵。
+7. **审查**：按 `code-review` §3.2 rewrite 审查；旧 vs 新行为矩阵、迁移、handover 必查。
+8. **测试**：按 `testing-tdd` §4.4 / §6.4；旧版回归 + 新版验收 + migration + 数据对账。
+9. **变更**：不建 CR；产品/架构决策写入 `rewrite/vX.Y/decisions.md`；跨模块契约同步登记。
+10. **退出**：R5 + R6 通过，`--no-ff` 合回 `develop`，打 `baseline/vX.Y`。
+
+### rewrite 任务卡补充字段
+
+```yaml
+mode: rewrite
+rewrite_milestone: "v2.0-m2"
+legacy_baseline: "v1.0.0"
+schema_change: none | additive | breaking
+migration_files: []
+data_migration: none | backfill | dual-write
+api_version: v3
+regression_matrix: "docs/05-execution-records/rewrite/v2.0/modules/module-XX/regression.md"
+handover_docs: "docs/05-execution-records/rewrite/v2.0/modules/module-XX/"
+```
+
+### 与标准流程的差异
+
+- 不要求 `design/module-mvp-demo` 先行；PRD 可在 rewrite 分支写。
+- 不要求 PRD `frozen` 后才能开发；用 `living` + 里程碑 `baseline`。
+- 不要求“行为等价”；要求“保留项不变、变更/删除项登记且有理由”。
+- 不要求完整 L2；用 `plan.md` + 模块任务序列。
+- 仍强制：目录隔离、代码审查、测试、安全审查、handover 质量。
+
+---
+
 ## 标准工作流
 
 ### 完整流程
@@ -223,7 +317,8 @@ constraints_from_prd: "<关联的已提交 PRD 章节，如有>"
    │            docs/05-execution-records/module-XX/api-contract-snapshot.md
    │
    ├──► 5. 开发执行（backend/frontend/prometheus-developer）
-   │      在 feat/module-XX 上按 micro-task 逐个执行
+   │      标准模式在 feat/module-XX 上按 micro-task 逐个执行；
+   │      rewrite 模式在 rewrite/vX.Y 上按模块 task-sequence 执行
    │
    ├──► 6. 审查（golang/frontend/security-reviewer sub-agents，独立会话）
    │
@@ -238,9 +333,9 @@ constraints_from_prd: "<关联的已提交 PRD 章节，如有>"
 
 如果用户只是要求"继续开发当前模块"，Orchestrator 应该：
 
-1. 读取当前 PRD 状态
-2. 如果 PRD 是 frozen，直接读取 L3 继续派发 micro-task
-3. 如果 PRD 不是 frozen，按完整流程推进
+1. 读取当前 PRD 状态与工作模式
+2. 标准模式：PRD 为 frozen 时直接读取 L3 继续派发 micro-task；否则按完整流程推进
+3. rewrite 模式：读取 `rewrite/vX.Y/plan.md` + 模块 task-sequence；PRD 为 living 也可推进，但必须按 R0–R6 门禁
 
 ---
 
@@ -354,12 +449,13 @@ PRD 状态变为 ready（需用户 / Orchestrator 书面确认）
 
 每次进入开发前，Orchestrator 必须确认：
 
-- [ ] PRD 状态为 ready / dev-ready（Track B/B+）或 frozen
+- [ ] PRD 状态为 ready / dev-ready（Track B/B+）或 frozen；rewrite 模式可为 living + 里程碑 baseline
 - [ ] PRD 有 Change Log
-- [ ] PRD 版本号 = Implementation Map 版本号 = Code Implementation Plan 版本号
-- [ ] 如果 PRD 是 frozen，确认是否有未处理的变更请求（CR）
-- [ ] L3 micro-task 序列已生成且与当前 Phase 对应
-- [ ] API 契约快照已生成且版本与当前 task-sequence 一致（**跨端任务缺失则阻断审查**）
+- [ ] 标准模式：PRD 版本号 = Implementation Map 版本号 = Code Implementation Plan 版本号
+- [ ] rewrite 模式：`rewrite/vX.Y/plan.md` 版本 / 里程碑与模块 task-sequence 一致
+- [ ] 如果 PRD 是 frozen，确认是否有未处理的变更请求（CR）；rewrite 模式检查 `decisions.md` 是否有未决决策
+- [ ] L3 micro-task 序列已生成且与当前 Phase / 模块对应
+- [ ] API 契约快照已生成且版本与当前 task-sequence 一致（**跨端任务缺失则阻断审查**）；rewrite 模式为 `/api/v3` 快照
 
 如果发现版本不一致，必须先调用 plan-maintainer 同步，再进入开发。
 
@@ -405,6 +501,8 @@ Orchestrator 判断影响范围
 ```
 
 > **产品侧主动构思（非开发中问题）**：若产品经理 / 原型设计师在冻结期主动构思**下一轮需求**（不是开发中发现的缺陷），**不创建 CR**——按 06 Gitflow §2.5「冻结期提交门禁」执行：构思写入 `design-decisions.md`「下一轮迭代待办」，**禁止提交 / 推送 / 发新 PR**；待当前 feat 版本合并到 `develop` 后，由 chenrt 解锁开启新一轮迭代。
+
+> **rewrite 模式例外**：`rewrite/vX.Y` 上 PRD 为 living document，不建 CR；产品/架构决策写入 `rewrite/vX.Y/decisions.md`，PRD 按里程碑版本化。跨模块契约 / 数据迁移 / 安全敏感面变更仍需 chenrt 确认。
 
 ### 变更请求（CR）格式
 
@@ -467,7 +565,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   ## 任务卡：<模块>-<功能>
   - 角色：<backend-developer / frontend-developer / ...>
   - 输入（精确路径 + 章节）：
-    - **轨道标记**：Track A / Track B / Track B+（来自分轨判定记录，必填；决定子 Agent 的基线参照物）
+    - **模式 / 轨道标记**：Track A / Track B / Track B+ / `mode: rewrite`（来自分轨或 rewrite 判定，必填；决定子 Agent 的基线参照物）
     - 契约快照：**docs/05-execution-records/module-XX/api-contract-snapshot.md**（前后端并行时必填）
     - 前端原型映射表：**docs/05-execution-records/module-XX/frontend-prototype-map.md**（Track A 前端任务必填；缺失则阻断派发；Track B/B+ 不要求）
     - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9/§11（按任务给章节号；快照缺失或矛盾时补读）
@@ -590,7 +688,9 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "这个 Skill 不适用" | Skill 是否适用由 Orchestrator 判断；拿不准时先调用再决定 |
 | "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发；任务卡标记 `mode: incremental` 时按增量/修复阶段流程执行。前提是：分轨 / 模式判定已留痕、验收清单已前置、用户已确认 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
-| "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
+| "开发中改 PRD 不用走 CR" | 标准/增量模式按 CR；rewrite 模式不建 CR，但必须由 PRD owner 更新并写入 `decisions.md` |
+| "rewrite 模式可以跳过规划 / 审查 / 测试" | rewrite 只是换轨道，不是降低标准；R0–R6 门禁、审查、测试、handover 仍强制执行 |
+| "rewrite 模式 schema 随便改" | 允许改，但必须 migration + 回滚 + 数据对账，且 schema commit 独立 |
 | "前端任务全量测试验收更方便" | 测试范围与全量限制按 `testing-tdd` §4 执行；默认变更范围回归，不无条件跑全量 |
 
 ---
@@ -603,11 +703,15 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 ## 当前阶段
 （对齐 / 原型验证 / Plan 派生 / Code 派生 / 拆分 / 执行 / 审查 / 修复 / 提交前检查）
 
+## 模式
+- standard / incremental / rewrite
+- 分支：feat/module-XX / fix/module-XX / rewrite/vX.Y
+
 ## PRD 状态
 - 模块：Module_XX
-- 状态：draft / prototyping / dev-ready / ready / frozen
+- 状态：draft / prototyping / dev-ready / ready / frozen / living / baseline
 - 版本：v3.3
-- Plan 版本：v3.3
+- Plan 版本：v3.3（rewrite 模式为 `plan.md` 版本 / 里程碑）
 - 是否对齐：是 / 否
 
 ## 已完成的子任务

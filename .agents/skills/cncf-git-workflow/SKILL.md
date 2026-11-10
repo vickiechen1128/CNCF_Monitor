@@ -19,11 +19,13 @@ description: "MetricCenter Gitflow、双空间隔离、分支命名、目录写�
 | 空间 | 固定分支 | 工作内容 | 主要角色 |
 |------|----------|----------|----------|
 | 设计空间 | `design/module-mvp-demo` | PRD、原型、设计决策 | prototype-designer / chenrt |
-| 开发空间 | `develop` + `feat/module-XX` | 生产代码实现 | backend / frontend / prometheus / build-resolver |
+| 开发空间（标准） | `develop` + `feat/module-XX` | 生产代码实现 | backend / frontend / prometheus / build-resolver |
+| 开发空间（rewrite） | `rewrite/vX.Y` | PRD + 生产代码 + schema | chenrt + developer + reviewer |
 
 - 两个目录是物理隔离的独立 checkout，一个目录的分支操作不会影响另一个。
-- 开发空间默认**串行**推进：一个时间只开一个 `feat/module-XX`。
+- 开发空间默认**串行**推进：标准模式一个时间只开一个 `feat/module-XX`；rewrite 模式一个时间只推进一个模块（除非显式开 `rewrite/vX.Y-module-XX`）。
 - 零耦合任务确需并行时，才在开发空间额外 `git worktree add`，用完即删；命令见 `using-git-worktrees`。
+- **rewrite 模式例外**：不强制设计/开发空间分离；PRD + 代码 + schema 同分支演进，旧 design 分支仅作归档。
 
 ### 1.1 空间检查
 
@@ -33,7 +35,8 @@ git branch --show-current
 ```
 
 - 设计工作：`pwd` 为设计空间，分支为 `design/module-mvp-demo`。
-- 开发工作：`pwd` 为开发空间，分支为 `feat/module-XX`。
+- 标准开发：`pwd` 为开发空间，分支为 `feat/module-XX`。
+- **版本重写（rewrite）**：`pwd` 为开发空间，分支为 `rewrite/vX.Y`；PRD + 代码 + schema 同分支演进，不再强制设计/开发空间分离。
 - 不在正确空间 / 分支时，先按本 Skill 切换；无法判断时报告 Orchestrator。
 - **增量/修复阶段分支识别（放宽）**：`feature/zwq` 等既有维护分支不强制改名为 `feat/module-XX`。增量/修复任务（任务卡 `mode: incremental`）的分支条件是：开发空间中非 `main` / `develop` / `design/*` / `feature/prototype-*` 的分支即可；新模块开发仍建议按标准命名。
 
@@ -46,8 +49,10 @@ git branch --show-current
 | `main` | `main` | 稳定 / 生产版本 | - | - | chenrt |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
 | `design/module-mvp-demo` | `design/module-mvp-demo` | PRD + 原型 | `develop` | `develop` | chenrt |
-| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
+| `feat/module-XX` | `feat/module-07` | 标准功能开发（单模块） | `develop` | `develop` | zhangwq |
 | `fix/module-XX` | `fix/module-07` | 缺陷修复 | `develop` | `develop` | zhangwq |
+| `rewrite/vX.Y` | `rewrite/v2.0` | **产品级版本重写**：PRD + 代码 + schema 同分支 | `develop` | `develop`（发布时） | chenrt |
+| `rewrite/vX.Y-module-XX` | `rewrite/v2.0-module-07` | 重写期模块并行（短期） | `rewrite/vX.Y` | `rewrite/vX.Y` | chenrt / developer |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
@@ -59,10 +64,33 @@ git branch --show-current
 git checkout develop && git pull origin develop
 git checkout -b design/module-mvp-demo
 
-# 功能分支（确认 design/module-mvp-demo 已合并到 develop）
+# 标准功能分支（确认 design/module-mvp-demo 已合并到 develop）
 git checkout develop && git pull origin develop
 git checkout -b feat/module-XX
+
+# 版本重写分支（产品级，长期）
+git checkout develop && git pull origin develop
+git checkout -b rewrite/v2.0
+
+# 重写期模块并行（可选，短期）
+git checkout rewrite/v2.0
+git checkout -b rewrite/v2.0-module-07
 ```
+
+### 2.2 版本重写（rewrite）分支规则
+
+**定位**：产品级下一代版本重写，不是单模块重构，也不是产品线分叉。旧版本归档、不维护。
+
+- **分支命名**：`rewrite/vX.Y`（如 `rewrite/v2.0`）；模块并行用 `rewrite/vX.Y-module-XX`，完成后合回并删除。
+- **来源 / 合并**：从 `develop` 切出；发布时 `--no-ff` 合回 `develop`，打 `baseline/vX.Y`。
+- **旧版归档**：旧 `develop` / `design/module-mvp-demo` 打 tag（如 `v1.0.0` / `legacy/v1.0`），只读、不维护。
+- **空间规则**：rewrite 模式下不强制设计/开发空间分离；PRD + 代码 + schema 同分支演进。
+- **PRD 权限**：PRD 由 chenrt 或任务卡授权的 `prototype-designer` 更新；developer 不得自行改 PRD。
+- **PRD 状态**：不再使用 `frozen` 作为开发前置；使用 `living` + 里程碑基线（`v2.0-m1` 等）。
+- **API 版本**：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 仅作回归对照，不要求长期兼容。
+- **schema**：允许直接演进；一次变更 = 独立 commit + migration（Up/Down）+ 回滚说明 + 数据对账。
+- **commit 类型**：`docs:` / `refactor:` / `schema:` / `feat:` / `test:` 分开；禁止把 PRD、schema、功能混在一个 commit。
+- **退出**：R5 回归 + R6 handover 通过后，`--no-ff` 合回 `develop`，打 `baseline/vX.Y`。
 
 ---
 
@@ -70,8 +98,9 @@ git checkout -b feat/module-XX
 
 | 目录 | 允许写入 | 禁止写入 |
 |------|----------|----------|
-| `docs/02-product-requirements/` | prototype-designer / chenrt | developer、reviewer、build-resolver、prometheus-developer |
+| `docs/02-product-requirements/` | prototype-designer / chenrt；rewrite 模式下任务卡授权的 PRD owner | developer、reviewer、build-resolver、prometheus-developer |
 | `docs/prototypes/` | prototype-designer / chenrt | developer、reviewer、build-resolver、prometheus-developer |
+| `docs/05-execution-records/rewrite/` | chenrt / Orchestrator；各 Agent 写自己的执行记录 | 覆盖他人记录 |
 | `docs/05-execution-records/` | 各 Agent 写自己的执行记录；Orchestrator 协调写入 | 覆盖其他 Agent 的记录 |
 | `platform/` | backend-developer、prometheus-developer | frontend-developer、prototype-designer、reviewer |
 | `patches/prometheus/` | prometheus-developer；backend-developer 仅在任务明确要求时 | frontend-developer、prototype-designer |
@@ -103,6 +132,8 @@ git checkout -b feat/module-XX
 | `design/module-mvp-demo` | `design(module-XX): ...` | `design(module-07): 添加资源管理 PRD 与原型` |
 | `feat/module-XX` | `feat(module-XX): ...` | `feat(module-07): 实现资源管理 CRUD 与 Excel 导入` |
 | `fix/module-XX` | `fix(module-XX): ...` | `fix(module-07): 修复资源列表查询参数校验` |
+| `rewrite/vX.Y` | `docs(module-XX): ...` / `refactor(module-XX): ...` / `schema(module-XX): ...` / `feat(module-XX): ...` | `docs(module-07): v2.0 PRD 重写`；`schema(module-07): 新增资源唯一键` |
+| `rewrite/vX.Y-module-XX` | 同 `rewrite/vX.Y` | `refactor(module-07): 拆分资源列表` |
 | `release/*` | `release: ...` | `release: bump version to v0.1.0` |
 | `hotfix/*` | `hotfix: ...` | `hotfix: 修复生产环境 health 接口异常` |
 
@@ -115,6 +146,9 @@ git checkout -b feat/module-XX
 - 修改 PRD 的提交必须同步更新 PRD 修订表：新增一行、版本 +1、**不改写已冻结行**。
 - 模块 PRD 处于冻结期（修订表最新状态为「已冻结」）时，禁止在 design 分支提交该模块的 PRD / 原型版本变更；构思写入 `design-decisions.md`「下一轮迭代待办」，不 commit / 不 push / 不发新 PR。
 - PRD 版本递增后，必须同步更新 `docs/02-product-requirements/Modules/README.md` 版本对齐表对应行。
+- **rewrite 模式例外**：`rewrite/vX.Y` 上 PRD 为 living document，可按里程碑更新；提交用 `docs(module-XX):`，并更新 PRD 修订表 / Change Log。旧版 PRD 通过 tag / 历史 commit 追溯，不要求保留冻结行。
+- rewrite 模式禁止把 `docs:` / `schema:` / `refactor:` / `feat:` 混在同一 commit；schema 变更必须单独提交并附 migration。
+- rewrite 提交必须在标题或正文带模块 id 与里程碑（如 `module-07 / v2.0-m2`）；`schema:` 提交必须列出 migration 文件路径。
 
 ---
 
@@ -139,6 +173,8 @@ git checkout -b feat/module-XX
 5. 禁止直接修改 `upstream/prometheus/` 源码；必须通过 patch。
 6. 禁止覆盖其他 Agent 的执行记录。
 7. 禁止在冻结期提交已冻结模块的 PRD / 原型版本变更。
+8. 禁止在 `rewrite/vX.Y` 上把 PRD、schema、代码搬移、新功能混成一个 commit。
+9. 禁止在 `rewrite/vX.Y` 上跳过 migration / 回滚说明直接改 schema。
 
 ---
 

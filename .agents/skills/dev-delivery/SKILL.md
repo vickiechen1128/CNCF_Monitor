@@ -19,7 +19,8 @@ description: "MetricCenter 开发交付协议：启动、任务粒度、提交�
    - 缺失 Skill 文件时停止并报告 Orchestrator。
 2. **确认空间与分支**
    - 按 `cncf-git-workflow` 确认设计空间 / 开发空间与当前分支。
-   - 开发任务必须在 `feat/module-XX`；不在正确分支时按 Skill 切换，禁止自行切到 `main` / `develop`。
+   - 标准开发任务必须在 `feat/module-XX`；rewrite 任务必须在 `rewrite/vX.Y` 或 `rewrite/vX.Y-module-XX`。
+   - 不在正确分支时按 Skill 切换，禁止自行切到 `main` / `develop`。
 3. **读取任务卡指定输入**
    - 只读 Orchestrator 任务卡列出的精确路径与章节；不要全文读取 PRD 或协作标准。
    - 典型输入：PRD 指定章节、`task-sequence.yaml`、`api-contract-snapshot.md`、原型页面、相关工程标准。
@@ -37,6 +38,19 @@ description: "MetricCenter 开发交付协议：启动、任务粒度、提交�
 - 实现与已提交 PRD 冲突时，先报告 Orchestrator，不直接覆盖 PRD 意图。
 - 修复过程中发现 scope 扩大（需改模型 / 影响其他模块 / 改核心安全逻辑），停止并请 Orchestrator 确认后继续。
 - 验收方式：用户对接人体验验收；验收通过后由 chenrt 回填 PRD。
+
+### 1.2 版本重写阶段（`mode: rewrite`，vX.Y）
+
+任务卡标记 `mode: rewrite` 时适用本节；分支必须是 `rewrite/vX.Y` 或 `rewrite/vX.Y-module-XX`。
+
+- **首要输入**：`docs/05-execution-records/rewrite/vX.Y/charter.md`、`plan.md`、模块 `assessment.md` / `task-sequence.yaml`。
+- **PRD 定位**：新 PRD 是 living document；旧 PRD 仅参考。开发者不得自行改 PRD；PRD 由 chenrt 或任务卡授权角色更新。
+- **范围**：允许代码重构、功能重开发、API v3 契约、DB schema 演进；不再要求“行为等价”。
+- **提交拆分**：`docs:` / `refactor:` / `schema:` / `feat:` / `test:` 分开提交；禁止把 PRD、schema、代码搬移、新功能混在一个 commit。
+- **schema**：允许直接改；每个变更必须有 migration（Up/Down）、回滚说明、数据对账；schema commit 独立。
+- **验证**：按 `testing-tdd` rewrite 矩阵执行（旧版回归基线 + 新版验收 + migration + 数据对账）。
+- **范围扩大**：跨模块契约 / 数据迁移 / 安全敏感面变更，必须在 `rewrite/vX.Y/decisions.md` 留痕并请 chenrt 确认。
+- **完成定义**：不是“能跑”，而是模块验收 + 代码审查 + handover 所需文档齐全。
 
 ---
 
@@ -72,6 +86,7 @@ description: "MetricCenter 开发交付协议：启动、任务粒度、提交�
 - `feat` / `fix` 提交必须携带 task id（如 `T07-05~07`、`T07-F3~F4`）。
 - commit message 格式、分支类型、关联执行记录见 `cncf-git-workflow`。
 - 不要等所有任务做完再一次性提交；也不要把一个功能块拆成无法独立验证的多个半成品 commit。
+- **rewrite 模式**：PRD / schema / 代码搬移 / 新功能必须分开提交；schema 变更单独 commit，并附 migration + 回滚说明。
 
 ### 3.3 技术债修复提交（增量/修复阶段）
 
@@ -118,15 +133,28 @@ Agent 调用结束后再写总结性收尾：输入文档、遗留风险、下�
 
 ## 6. PRD / 原型反馈义务
 
-开发中发现 PRD / 原型细节问题，PRD / 原型文件与版本号照旧禁止修改。按三类处置：
+开发中发现 PRD / 原型细节问题，按阶段处置：
 
-| 类型 | 处置 |
-|------|------|
-| ① PRD 空白（边界值、校验细节、字段长度等未规定） | 可直接定，但必须写入 `docs/05-execution-records/module-XX/dev-feedback.md` 留痕 |
-| ② PRD 已规定但实现发现矛盾（字段语义、契约冲突） | **实现前**报告 Orchestrator，走 CR / PM 决策；禁止先改实现再补反馈单 |
-| ③ 原型纯技术优化（组件结构、mock 修复、交互细节） | 可直接定，写入反馈单留痕 |
+| 类型 | 标准 / 增量阶段 | rewrite 阶段 |
+|------|----------------|--------------|
+| ① PRD 空白（边界值、校验细节、字段长度等未规定） | 可直接定，写入 `dev-feedback.md` | 可直接定，写入 `rewrite/vX.Y/decisions.md` |
+| ② PRD 已规定但实现发现矛盾（字段语义、契约冲突） | **实现前**报告 Orchestrator，走 CR / PM 决策 | 报告 Orchestrator；由 PRD owner 更新新 PRD，developer 不自行改 |
+| ③ 原型纯技术优化（组件结构、mock 修复、交互细节） | 可直接定，写入反馈单 | 可直接定，写入 `decisions.md` |
 
 反馈单格式：PRD 章节 / 原型文件位置 + 现状 + 建议修正 + 影响模块 + 发现场景。
+
+> rewrite 阶段 PRD 是 living document，但 developer 仍不得自行改 PRD；PRD 变更由 chenrt 或任务卡授权角色执行。
+
+### 6.1 rewrite handover 义务
+
+`mode: rewrite` 的模块完成时，开发者必须补齐 handover 所需材料：
+
+- 模块 PRD / 数据模型 / API 契约快照；
+- migration（Up/Down）与回滚说明；
+- 旧 vs 新行为矩阵（保留 / 变更 / 删除）；
+- 测试命令与结果；
+- runbook / 已知问题；
+- 执行记录与 commit 清单。
 
 ---
 
@@ -167,6 +195,8 @@ Agent 调用结束后再写总结性收尾：输入文档、遗留风险、下�
 | "用户急着要，跳过验证" | 未验证的 commit 不是交付物 |
 | "这个 Skill 的内容我已经知道" | 知道 ≠ 执行；必须读取并按 Skill 执行 |
 | "task-sequence 太细，我按自己理解做" | task-sequence 是任务边界，偏离必须报告 |
-| "PRD 和实现对不上，我顺便改 PRD" | 开发分支禁止修改 PRD；矛盾必须走 CR |
+| "PRD 和实现对不上，我顺便改 PRD" | 标准/增量阶段禁止；rewrite 阶段也必须由 PRD owner 改，developer 只报告 |
+| "rewrite 阶段可以跳过测试/审查" | 重写不等于降低标准；handover 目标要求测试、审查、迁移与文档齐全 |
+| "schema 改一下不用 migration" | rewrite 允许改 schema，但必须 migration + 回滚 + 对账 |
 | "等所有任务做完再一起提交" | 禁止堆积提交；每个功能块闭环即 commit |
 | "先 commit 半成品，后面再补" | 半成品无法 revert / bisect / 联调，必须等功能闭环 |

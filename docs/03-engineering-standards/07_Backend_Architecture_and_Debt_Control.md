@@ -187,6 +187,8 @@ func CreateXxx(svc *XxxService) gin.HandlerFunc { ... }
 
 **存量策略**：已存在的表继续由 `AutoMigrate` 维护，作为基线；新 schema 变更一律走 migration。
 
+**rewrite 模式（v2.0 起）**：`rewrite/vX.Y` 允许直接演进 schema，但仍必须遵守 R2：一次变更 = 独立 commit + migration（Up/Down）+ 回滚说明 + 数据对账。禁止只改模型让 `AutoMigrate` 隐式生效。
+
 ### R3：禁止新增字符串字段映射调用
 
 - `models.GetResourceField` / `models.LegacyFieldMap` 只允许在 `platform/models/resource_fields.go`、Excel 导入导出、模板渲染中使用；

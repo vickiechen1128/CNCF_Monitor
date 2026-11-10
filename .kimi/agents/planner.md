@@ -165,6 +165,19 @@ Track B/B+ 需求（dev-ready 轻量规格）派生时，L2 两份文档定位�
 - **不更新 04 / 05**：增量修复不编入战略矩阵；version-end 由 plan-maintainer 批量归并。
 - **红线**：任务涉及改模型、跨模块契约、核心安全逻辑时，标记需要 Orchestrator / 用户确认，不直接派生。
 
+### 版本重写轻量规划（`mode: rewrite`，vX.Y）
+
+任务卡标记 `mode: rewrite` 时（`rewrite/vX.Y` 分支）：
+
+- **输入**：`docs/05-execution-records/rewrite/vX.Y/charter.md`、`plan.md`、模块 `assessment.md`；新 PRD 可为 `living`，不要求 ready / frozen。
+- **不派生 04 / 05**：用 `rewrite/vX.Y/plan.md` 替代 L2 矩阵；模块级 `task-sequence.yaml` 替代完整 L3。
+- **输出**：
+  - 更新 `plan.md` 的模块顺序、依赖、里程碑；
+  - 模块 `task-sequence.yaml`，每个任务含 `mode: rewrite`、`milestone`、`schema_change`、`migration_files`、`data_migration`、`api_version: v3`、`regression_matrix`、`handover_docs`。
+- **基线**：旧版本 tag（如 `v1.0.0`）作为回归参照；不要求“行为等价”，但要求保留 / 变更 / 删除项登记。
+- **门禁**：G1 业务需求、G2 PRD/架构、G3 模块验收、G4 集成回归、G5 handover；不跑完整 L2 矩阵。
+- **红线**：跨模块契约、数据迁移、安全敏感面变更必须在 `rewrite/vX.Y/decisions.md` 留痕并请 chenrt 确认。
+
 ---
 
 ## Phase 2：code-sequence-planner（代码序列规划者）

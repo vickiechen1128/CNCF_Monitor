@@ -156,6 +156,29 @@ pnpm test
 - 全量 `pnpm test` 仍按 §4.2 三种情形触发；增量阶段默认不需要。
 - 技术债修复（`debt:` 提交）同样只要求最小验证 + 现有测试通过。
 
+### 4.4 版本重写测试范围（`mode: rewrite`）
+
+`mode: rewrite` 不是“行为等价重构”，测试目标从“旧行为不变”改为“保留项不变 + 变更项有验收 + 迁移可验证”。
+
+| 层 | 必做 | 说明 |
+|----|------|------|
+| 旧版回归基线 | 关键 API golden / 关键用户动线 | 先记录旧版行为；保留项必须一致，变更/删除项必须登记 |
+| 新版验收 | 新 PRD 验收标准逐项 | 功能、边界、错误路径、权限 |
+| 契约 | `/api/v3/platform/*` 契约快照 | 字段 / 枚举 / 错误码 / 分页 |
+| schema | migration Up/Down + 空库 / 基线库 | 禁止只测 AutoMigrate |
+| 数据 | 迁移对账（计数、空值、唯一键、孤儿） | 有旧数据迁移时必须做 |
+| 前端 | 目标目录测试 + `typecheck:test` + `lint` + `build` | 关键页面冒烟 |
+| 全量 | 里程碑 / 合并前 | 按 §4.2 执行 |
+
+**旧 vs 新行为矩阵**（每个模块必须维护）：
+
+```text
+docs/05-execution-records/rewrite/vX.Y/modules/module-XX/regression.md
+- 保留：旧行为 → 新行为（应一致）
+- 变更：旧行为 → 新行为（为什么改）
+- 删除：旧行为 → 移除（为什么删）
+```
+
 ---
 
 ## 5. 覆盖率目标
@@ -223,15 +246,40 @@ make build-prometheus
 make test-platform
 ```
 
-### 6.4 文档 / Agent / Skill 变更
+### 6.4 版本重写（`mode: rewrite`）
+
+除 6.1 / 6.2 外，还必须：
+
+```bash
+# 后端
+go test ./platform/...
+go vet ./platform/...
+
+# 前端
+cd ui-custom/web
+pnpm run typecheck:test
+pnpm vitest run <模块目录>
+pnpm lint
+pnpm build
+
+# migration（如涉及 schema）
+# 工具链接入后：make migrate-status
+# 未接入前：在空库 + 旧基线副本上人工执行 migration Up/Down，并记录结果
+```
+
+- 旧版关键 API golden / 用户动线回归。
+- 数据迁移对账（计数、空值、唯一键、孤儿）。
+- 结果写入模块 `regression.md` / 执行记录。
+
+### 6.5 文档 / Agent / Skill 变更
 
 - 至少检查：无密钥、无临时文件、无意外修改生产代码。
 - 如仓库配置 markdown lint，运行对应 lint。
 - Skill 变更后运行 `make sync-skills && make check-skills`。
 
-### 6.5 develop 合并后
+### 6.6 develop 合并后
 
-- feature 分支 `--no-ff` 合并到 `develop` 后，在 `develop` 重复 6.1 / 6.2 验证。
+- feature / rewrite 分支 `--no-ff` 合并到 `develop` 后，在 `develop` 重复 6.1 / 6.2 验证。
 
 ---
 
