@@ -71,7 +71,8 @@ tasks:
 
   - id: T07-B1-2
     title: "v3 schema baseline：resources + 六类扩展表 + 字典 FK + 索引"
-    status: pending
+    status: done
+    evidence: "platform/db/migrations/v3/00002_m07_resources.sql：主表/扩展表/labels/app_platform_rel/audit + 约束与索引"
     depends_on: [T07-B0-1, T07-B1-1]
     schema_change: breaking
     migration_files: ["platform/db/migrations/"]
@@ -87,7 +88,8 @@ tasks:
 
   - id: T07-B1-3
     title: "legacy import（可选）：旧库 -> v3 新库"
-    status: pending
+    status: skipped
+    evidence: "D7：旧数据不迁移；legacy-import 保留为后续可选工具，不在本轮执行"
     depends_on: [T07-B1-2]
     schema_change: none
     data_migration: backfill
@@ -101,8 +103,9 @@ tasks:
     commit_unit: "独立（工具）"
 
   - id: T07-B1-4
-    title: "migration 测试：空库 / 基线库 / Up-Down / 约束"
-    status: pending
+    title: "migration 测试：空库 / Up-Down / 约束"
+    status: done
+    evidence: "TestMigrateV3Lifecycle / ForeignKeysEnabled / ResourceConstraints 通过；旧数据不迁移，基线库场景不适用"
     depends_on: [T07-B1-2]
     schema_change: none
     data_migration: none
