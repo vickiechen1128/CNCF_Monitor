@@ -50,8 +50,8 @@ import (
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/edge"
+	"github.com/metriccenter/metriccenter/platform/foundation/httpx"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
-	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
@@ -71,6 +71,7 @@ var (
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 30*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
 	edgePackageDir          = flag.String("edge-packages.dir", "dist/edge-package", "边缘离线交付包目录（读 release_meta.json 并流式下发 tar.gz）；可用环境变量 EDGE_PACKAGE_DIR 覆盖")
+	databaseMode            = flag.String("database.mode", "", "数据库启动模式：legacy（默认，v2 schema + 增量 v3）或 v3（仅 v3 schema 与 v3 路由）；可用环境变量 METRIC_CENTER_DB_MODE 覆盖")
 )
 
 func main() {
@@ -114,6 +115,18 @@ func main() {
 	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// v2.0 双模式启动：legacy（默认，旧 v2 功能面 + 增量 v3 schema）或 v3
+	// （仅 v3 schema 与 v3 模块，PostgreSQL 生产目标）。v3 模式不启动任何依赖
+	// 旧 AutoMigrate schema 的后台任务。
+	mode, err := resolveDatabaseMode(*databaseMode)
+	if err != nil {
+		log.Fatalf("invalid database mode: %v", err)
+	}
+	if mode == db.StartupModeV3 {
+		runV3(ctx)
+		return
+	}
 
 	promURL, err := parseURL(*prometheusURL)
 	if err != nil {
@@ -217,27 +230,17 @@ func main() {
 		log.Fatalf("failed to setup router: %v", err)
 	}
 
-	srv := &http.Server{Addr: *listenAddr, Handler: r}
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server shutdown error: %v", err)
-		}
-	}()
-
-	log.Printf(">>> metric-center listening on %s", *listenAddr)
 	log.Printf(">>> prometheus proxy target: %s", promURL.String())
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("failed to start metric-center: %v", err)
-	}
+	serveHTTP(ctx, r)
 }
 
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
 // bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（渲染时区）。
 func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error) {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(httpx.RequestID())
+	r.Use(httpx.AccessLog(log.Default()))
 	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
 	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
 	// 仅为兼容开发态跨端口调试（前端 dev :5173 → 后端 :8080 的预检/跨源读），移除或收紧
@@ -275,13 +278,12 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 		return nil, err
 	}
 
-	// v2.0 M07 v3 API: mounted alongside legacy /api/v2 during the transition.
+	// v2.0 v3 API: mounted alongside legacy /api/v2 during the transition.
+	// M07 与 system 通过模块注册表装配，模块边界与 v3-only 启动保持一致。
 	apiV3 := r.Group("/api/v3")
-	m07Module, err := m07.NewModule(db.DB)
-	if err != nil {
-		return nil, fmt.Errorf("register m07 v3 module: %w", err)
+	if err := mountV3Modules(apiV3.Group("/platform")); err != nil {
+		return nil, err
 	}
-	m07Module.RegisterRoutes(apiV3.Group("/platform"))
 
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
 	if staticDir != "" {

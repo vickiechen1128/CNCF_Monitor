@@ -73,9 +73,12 @@ type NetworkDomain struct {
 	CloudCode           string   `gorm:"size:50" json:"cloud_code"`
 	TenantID            string   `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
 	AuthorizedTenantIDs []string `gorm:"serializer:json" json:"authorized_tenant_ids"`
-	IPCIDRs             []string `gorm:"serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
-	CmdbCloudAreaID     string   `gorm:"size:100" json:"cmdb_cloud_area_id"`
-	CmdbCloudAreaPath   string   `gorm:"size:500" json:"cmdb_cloud_area_path"`
+	IPCIDRs             []string `gorm:"column:ip_c_id_rs;serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
+	// 物理列名 ip_c_id_rs 是 GORM 对 IPCIDRs 的历史推导结果（v2 库已存在该列），
+	// 显式标注以免命名策略变化导致新增列；v3 首版 baseline 沿用同一物理名，
+	// 待 v3 自有网域模型落地时再用 migration 改名（D5）。
+	CmdbCloudAreaID   string `gorm:"size:100" json:"cmdb_cloud_area_id"`
+	CmdbCloudAreaPath string `gorm:"size:500" json:"cmdb_cloud_area_path"`
 
 	// Monitoring-management fields (Module_09).
 	Channel         ChannelType `gorm:"size:20;not null" json:"channel"`

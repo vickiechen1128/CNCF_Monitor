@@ -35,6 +35,9 @@ const (
 	// Alertmanager) being unreachable / failing, so the gateway proxy cannot
 	// fulfil the request.
 	ErrorTypeBadGateway = "bad_gateway"
+	// ErrorTypeUnavailable represents a dependency unavailable for the v3
+	// readiness semantics (HTTP 503).
+	ErrorTypeUnavailable = "unavailable"
 	// ErrorTypeJobRefUnresolved represents a request rejected because the rule
 	// carries error-level unresolvable job references without an explicit
 	// acknowledgement (决策 67-2). HTTP 400，errorType 供前端区分「可勾选逃生门
@@ -156,6 +159,15 @@ func BadGateway(c *gin.Context, err error, message string) {
 		message = "上游依赖服务不可达，请稍后重试"
 	}
 	c.JSON(http.StatusBadGateway, Fail(ErrorTypeBadGateway, strError(message)))
+}
+
+// ServiceUnavailable writes a 503 readiness failure. The cause is logged but
+// not echoed; callers receive a stable, retryable message.
+func ServiceUnavailable(c *gin.Context, err error) {
+	if err != nil {
+		log.Printf("service unavailable: %v", err)
+	}
+	c.JSON(http.StatusServiceUnavailable, Fail(ErrorTypeUnavailable, strError("service unavailable")))
 }
 
 // strError converts a plain message string into a non-nil error.

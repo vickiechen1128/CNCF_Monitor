@@ -47,8 +47,12 @@ func NewModule(db *gorm.DB) (*Module, error) {
 	}, nil
 }
 
+// Name returns the stable module name used by the v3 module registry.
+func (m *Module) Name() string { return "m07" }
+
 // RegisterRoutes mounts M07 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
-func (m *Module) RegisterRoutes(platform *gin.RouterGroup) {
+func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
 	handler.RegisterRoutes(platform, m.resources, m.dictionaries, m.labels, m.imports)
+	return nil
 }

@@ -1,6 +1,10 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/metriccenter/metriccenter/platform/foundation/apierror"
+)
 
 // ValidationError describes a field-level validation failure.
 type ValidationError struct {
@@ -15,6 +19,9 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Message)
 }
 
+// ErrorKind implements apierror.Coded.
+func (e *ValidationError) ErrorKind() apierror.Kind { return apierror.BadRequest }
+
 func newValidationError(field, format string, args ...any) *ValidationError {
 	return &ValidationError{Field: field, Message: fmt.Sprintf(format, args...)}
 }
@@ -27,6 +34,9 @@ type NotFoundError struct {
 func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("resource %q not found", e.ResourceID)
 }
+
+// ErrorKind implements apierror.Coded.
+func (e *NotFoundError) ErrorKind() apierror.Kind { return apierror.NotFound }
 
 // ConflictError indicates a duplicate dedup key.
 type ConflictError struct {
@@ -41,6 +51,9 @@ func (e *ConflictError) Error() string {
 	return fmt.Sprintf("resource conflict: dedup_key %q already exists", e.DedupKey)
 }
 
+// ErrorKind implements apierror.Coded.
+func (e *ConflictError) ErrorKind() apierror.Kind { return apierror.Conflict }
+
 // UnsupportedCategoryError indicates a category without a domain implementation.
 type UnsupportedCategoryError struct {
 	Category string
@@ -49,3 +62,6 @@ type UnsupportedCategoryError struct {
 func (e *UnsupportedCategoryError) Error() string {
 	return fmt.Sprintf("unsupported resource_category %q", e.Category)
 }
+
+// ErrorKind implements apierror.Coded.
+func (e *UnsupportedCategoryError) ErrorKind() apierror.Kind { return apierror.BadRequest }

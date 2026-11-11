@@ -40,13 +40,24 @@ func CurrentUsername(c *gin.Context) string {
 	return u.Username
 }
 
+// loginPaths are the anonymous login endpoints (v2 legacy + v3 line).
+var loginPaths = map[string]struct{}{
+	"/api/v2/platform/auth/login": {},
+	"/api/v3/platform/auth/login": {},
+}
+
 // healthPaths are the public health endpoints that must remain anonymous.
 // 契约 §4「横切约定」：除 POST /api/v2/platform/auth/login 与 /api/v1/health*
 // 外，所有 /api/* 请求须携带有效 Bearer token。
+// v3 线（/api/v3/platform/*）的 health / ready / meta 同为探针类端点，保持匿名：
+// 编排系统与负载均衡无法持有平台用户 token。
 var healthPaths = map[string]struct{}{
-	"/api/v1/health":    {},
-	"/api/v1/health/db": {},
-	"/api/v1/status":    {},
+	"/api/v1/health":          {},
+	"/api/v1/health/db":       {},
+	"/api/v1/status":          {},
+	"/api/v3/platform/health": {},
+	"/api/v3/platform/ready":  {},
+	"/api/v3/platform/meta":   {},
 }
 
 // PublicPathPrefixes 是需豁免全局平台用户认证的 /api/* 路径前缀（D1：edge 协议
@@ -81,9 +92,11 @@ func AuthMiddleware(svc *Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if c.Request.Method == http.MethodPost && path == "/api/v2/platform/auth/login" {
-			c.Next()
-			return
+		if c.Request.Method == http.MethodPost {
+			if _, ok := loginPaths[path]; ok {
+				c.Next()
+				return
+			}
 		}
 		if _, ok := healthPaths[path]; ok {
 			c.Next()

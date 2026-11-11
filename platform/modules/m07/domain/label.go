@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/metriccenter/metriccenter/platform/foundation/apierror"
 )
 
 // LabelSource is the label origin.
@@ -91,3 +93,6 @@ type ForbiddenError struct {
 }
 
 func (e *ForbiddenError) Error() string { return fmt.Sprintf("forbidden: %s", e.Message) }
+
+// ErrorKind implements apierror.Coded.
+func (e *ForbiddenError) ErrorKind() apierror.Kind { return apierror.Forbidden }

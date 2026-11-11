@@ -21,6 +21,22 @@ const (
 	defaultDSN    = "metric_center.db"
 )
 
+// Database startup modes.
+const (
+	// StartupModeLegacy keeps the v2 AutoMigrate schema plus the additive v3
+	// migrations. This is the default during the rewrite transition.
+	StartupModeLegacy = "legacy"
+	// StartupModeV3 boots only the v3 line: versioned migrations, v3 seed and
+	// v3 module registry. Reserved for PostgreSQL in production.
+	StartupModeV3 = "v3"
+)
+
+// StartupMode resolves the database startup mode from METRIC_CENTER_DB_MODE.
+// An empty value falls back to legacy; callers validate unknown values.
+func StartupMode() string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("METRIC_CENTER_DB_MODE")))
+}
+
 // DB is the package-level GORM database handle.
 // It is initialized by Init (legacy v2) or InitV3 (v3 line).
 var DB *gorm.DB

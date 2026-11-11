@@ -20,9 +20,14 @@ func (r *GORMRepository) Create(ctx context.Context, resource *domain.Resource) 
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(toResourceRecord(resource)).Error; err != nil {
+		rec := toResourceRecord(resource)
+		if err := tx.Create(rec).Error; err != nil {
 			return mapWriteError(err, resource.DedupKey)
 		}
+		// GORM fills the auto timestamps on the record; copy them back so the
+		// create response carries real values instead of the zero time.
+		resource.CreatedAt = rec.CreatedAt
+		resource.UpdatedAt = rec.UpdatedAt
 		ext, err := toExtensionRecord(resource.Category, resource.ResourceID, resource.Attributes)
 		if err != nil {
 			return err
