@@ -18,6 +18,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/foundation/module"
 	"github.com/metriccenter/metriccenter/platform/foundation/system"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 )
 
@@ -97,6 +98,15 @@ func mountV3Modules(platform *gin.RouterGroup) error {
 		Modules: registry.Names,
 	})
 	if err := registry.Register(systemModule); err != nil {
+		return err
+	}
+	// Order: system → m06 → m07 → auth. M06 owns tenant/network-domain
+	// administration; M07 consumes the domain usability view.
+	m06Module, err := m06.NewModule(db.DB, m06.Options{})
+	if err != nil {
+		return fmt.Errorf("register m06 v3 module: %w", err)
+	}
+	if err := registry.Register(m06Module); err != nil {
 		return err
 	}
 	m07Module, err := m07.NewModule(db.DB)
