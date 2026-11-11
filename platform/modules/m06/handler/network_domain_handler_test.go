@@ -110,7 +110,14 @@ func newNetworkDomainTestRouter(t *testing.T, user *models.User, monitoring refe
 		monitoring,
 	)
 	tenantSvc := service.NewTenantService(repository.NewGORMRepository(gormDB))
-	RegisterRoutes(router.Group("/api/v3/platform"), NewTenantHandler(tenantSvc), NewNetworkDomainHandler(domainSvc))
+	userSvc := service.NewUserService(repository.NewGORMUserRepository(gormDB))
+	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(gormDB))
+	RegisterRoutes(router.Group("/api/v3/platform"), Handlers{
+		Tenants:   NewTenantHandler(tenantSvc),
+		Domains:   NewNetworkDomainHandler(domainSvc),
+		Users:     NewUserHandler(userSvc),
+		LoginLogs: NewLoginLogHandler(loginLogSvc),
+	})
 	return router, gormDB
 }
 

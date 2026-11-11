@@ -22,7 +22,7 @@ func NewRepository(db *gorm.DB) *Repository {
 // FindUserByUsername returns the user with the given username, or ErrNotFound.
 func (r *Repository) FindUserByUsername(username string) (*models.User, error) {
 	var u models.User
-	err := r.db.First(&u, "username = ?", username).Error
+	err := r.db.Where("username = ? AND deleted_at IS NULL", username).First(&u).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -35,7 +35,7 @@ func (r *Repository) FindUserByUsername(username string) (*models.User, error) {
 // FindUserByID returns the user with the given id, or ErrNotFound.
 func (r *Repository) FindUserByID(id string) (*models.User, error) {
 	var u models.User
-	err := r.db.First(&u, "id = ?", id).Error
+	err := r.db.Where("id = ? AND deleted_at IS NULL", id).First(&u).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}

@@ -25,8 +25,7 @@ type Options struct {
 
 // Module wires M06 v3 repositories, services and handlers.
 type Module struct {
-	tenants *handler.TenantHandler
-	domains *handler.NetworkDomainHandler
+	handlers handler.Handlers
 }
 
 // NewModule constructs the M06 v3 module.
@@ -45,10 +44,15 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		// reports monitoring_available=false (D19).
 		references.NoopMonitoring{},
 	)
-	return &Module{
-		tenants: handler.NewTenantHandler(tenantSvc),
-		domains: handler.NewNetworkDomainHandler(domainSvc),
-	}, nil
+	userSvc := service.NewUserService(repository.NewGORMUserRepository(db))
+	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(db))
+
+	return &Module{handlers: handler.Handlers{
+		Tenants:   handler.NewTenantHandler(tenantSvc),
+		Domains:   handler.NewNetworkDomainHandler(domainSvc),
+		Users:     handler.NewUserHandler(userSvc),
+		LoginLogs: handler.NewLoginLogHandler(loginLogSvc),
+	}}, nil
 }
 
 // Name returns the stable module name used by the v3 module registry.
@@ -57,6 +61,6 @@ func (m *Module) Name() string { return "m06" }
 // RegisterRoutes mounts M06 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.tenants, m.domains)
+	handler.RegisterRoutes(platform, m.handlers)
 	return nil
 }
