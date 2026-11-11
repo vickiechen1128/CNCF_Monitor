@@ -25,16 +25,12 @@ func openRepositoryTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
-		`CREATE TABLE tenants (id TEXT PRIMARY KEY)`,
-		`CREATE TABLE network_domains (id TEXT PRIMARY KEY)`,
-		`CREATE TABLE business_domains (code TEXT PRIMARY KEY)`,
-		`CREATE TABLE application_dicts (app_code TEXT PRIMARY KEY)`,
-		`CREATE TABLE platform_dicts (platform_code TEXT PRIMARY KEY)`,
-		`INSERT INTO tenants(id) VALUES ('platform_admin')`,
-		`INSERT INTO network_domains(id) VALUES ('default')`,
-		`INSERT INTO business_domains(code) VALUES ('payment')`,
-		`INSERT INTO application_dicts(app_code) VALUES ('order-service')`,
-		`INSERT INTO platform_dicts(platform_code) VALUES ('ecommerce')`,
+		// 00000 core tables already exist; only seed the rows M07 reads.
+		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('default','中心直连域','management','platform_admin','local','enabled')`,
+		`INSERT INTO business_domains(code,name) VALUES ('payment','支付')`,
+		`INSERT INTO application_dicts(app_code,app_name) VALUES ('order-service','订单服务')`,
+		`INSERT INTO platform_dicts(platform_code,platform_name) VALUES ('ecommerce','电商平台')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -65,6 +61,8 @@ func TestRepositoryCreateGetListUpdateDelete(t *testing.T) {
 
 	host := newHost("res-1", "10.0.0.1", "web-01")
 	require.NoError(t, repo.Create(ctx, host))
+	assert.False(t, host.CreatedAt.IsZero(), "create must populate created_at")
+	assert.False(t, host.UpdatedAt.IsZero(), "create must populate updated_at")
 
 	got, err := repo.Get(ctx, "res-1")
 	require.NoError(t, err)

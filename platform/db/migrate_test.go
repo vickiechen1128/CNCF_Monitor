@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,6 +19,14 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	defer sqlDB.Close()
 
 	requireTableCount(t, sqlDB, "schema_meta", 1)
+	// 00000 baseline: shared reference / identity tables.
+	for _, table := range []string{
+		"tenants", "network_domains", "zone_types", "business_domains",
+		"application_dicts", "platform_dicts", "cloud_dicts",
+		"users", "sessions", "login_logs",
+	} {
+		requireTableCount(t, sqlDB, table, 1)
+	}
 	requireTableCount(t, sqlDB, "resources", 1)
 	requireTableCount(t, sqlDB, "host_resources", 1)
 	requireTableCount(t, sqlDB, "import_records", 1)
@@ -39,6 +48,13 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	// 00001 is now the latest; third Down removes the baseline marker.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback baseline migration")
 	requireTableCount(t, sqlDB, "schema_meta", 0)
+	requireTableCount(t, sqlDB, "tenants", 1)
+
+	// 00000 is now the latest; fourth Down removes the platform core schema.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback platform core migration")
+	requireTableCount(t, sqlDB, "tenants", 0)
+	requireTableCount(t, sqlDB, "network_domains", 0)
+	requireTableCount(t, sqlDB, "users", 0)
 }
 
 func TestMigrateV3ForeignKeysEnabled(t *testing.T) {
@@ -61,18 +77,14 @@ func TestMigrateV3ResourceConstraints(t *testing.T) {
 	require.NoError(t, err)
 	defer sqlDB.Close()
 
-	// Reference tables are owned by M00/M06; create minimal stubs for this test.
+	// Reference tables are owned by M00/M06 and created by 00000; seed the
+	// rows required by the resource foreign keys.
 	for _, stmt := range []string{
-		`CREATE TABLE tenants (id TEXT PRIMARY KEY)`,
-		`CREATE TABLE network_domains (id TEXT PRIMARY KEY)`,
-		`CREATE TABLE business_domains (code TEXT PRIMARY KEY)`,
-		`CREATE TABLE application_dicts (app_code TEXT PRIMARY KEY)`,
-		`CREATE TABLE platform_dicts (platform_code TEXT PRIMARY KEY)`,
-		`INSERT INTO tenants(id) VALUES ('platform_admin')`,
-		`INSERT INTO network_domains(id) VALUES ('default')`,
-		`INSERT INTO business_domains(code) VALUES ('payment')`,
-		`INSERT INTO application_dicts(app_code) VALUES ('order-service')`,
-		`INSERT INTO platform_dicts(platform_code) VALUES ('ecommerce')`,
+		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('default','中心直连域','management','platform_admin','local','enabled')`,
+		`INSERT INTO business_domains(code,name) VALUES ('payment','支付')`,
+		`INSERT INTO application_dicts(app_code,app_name) VALUES ('order-service','订单服务')`,
+		`INSERT INTO platform_dicts(platform_code,platform_name) VALUES ('ecommerce','电商平台')`,
 	} {
 		_, err := sqlDB.Exec(stmt)
 		require.NoError(t, err, stmt)
@@ -127,6 +139,50 @@ func TestMigrateV3ResourceConstraints(t *testing.T) {
 	var hostCount int
 	require.NoError(t, sqlDB.QueryRow(`SELECT count(*) FROM host_resources WHERE resource_id = 'res-1'`).Scan(&hostCount))
 	require.Equal(t, 0, hostCount, "extension row should cascade-delete")
+}
+
+func TestParseMigrationName(t *testing.T) {
+	cases := []struct {
+		filename string
+		driver   string
+		version  int64
+		name     string
+		ok       bool
+		wantErr  bool
+	}{
+		{"00000_m00_platform_core.sqlite.sql", "sqlite", 0, "m00_platform_core", true, false},
+		{"00000_m00_platform_core.postgres.sql", "postgres", 0, "m00_platform_core", true, false},
+		{"00000_m00_platform_core.postgres.sql", "sqlite", 0, "", false, false},
+		{"00001_schema_meta.sql", "postgres", 1, "schema_meta", true, false},
+		{"00002_m07_resources.sql", "sqlite", 2, "m07_resources", true, false},
+		{"schema_meta.sql", "sqlite", 0, "", false, true},
+		{"x_schema.sql", "sqlite", 0, "", false, true},
+		{"-1_bad.sql", "sqlite", 0, "", false, true},
+		{"00003_.sql", "sqlite", 0, "", false, true},
+	}
+	for _, tc := range cases {
+		version, name, ok, err := parseMigrationName(tc.filename, tc.driver)
+		if tc.wantErr {
+			assert.Error(t, err, tc.filename)
+			continue
+		}
+		require.NoError(t, err, tc.filename)
+		assert.Equal(t, tc.ok, ok, tc.filename)
+		if tc.ok {
+			assert.Equal(t, tc.version, version, tc.filename)
+			assert.Equal(t, tc.name, name, tc.filename)
+		}
+	}
+}
+
+func TestSplitGooseSections(t *testing.T) {
+	up, down := splitGooseSections("-- header\n-- +goose Up\nCREATE TABLE a (id INT);\n-- +goose Down\nDROP TABLE a;\n")
+	assert.Equal(t, "CREATE TABLE a (id INT);", up)
+	assert.Equal(t, "DROP TABLE a;", down)
+
+	up, down = splitGooseSections("CREATE TABLE only_up (id INT);")
+	assert.Equal(t, "CREATE TABLE only_up (id INT);", up)
+	assert.Empty(t, down)
 }
 
 func requireTableCount(t *testing.T, sqlDB *sql.DB, table string, want int) {

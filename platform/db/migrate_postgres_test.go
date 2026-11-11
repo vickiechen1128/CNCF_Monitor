@@ -29,6 +29,9 @@ func TestMigrateV3Postgres(t *testing.T) {
 	require.NoError(t, err)
 	defer sqlDB.Close()
 
+	requirePostgresTable(t, sqlDB, "tenants", true)
+	requirePostgresTable(t, sqlDB, "network_domains", true)
+	requirePostgresTable(t, sqlDB, "users", true)
 	requirePostgresTable(t, sqlDB, "resources", true)
 	requirePostgresTable(t, sqlDB, "host_resources", true)
 	requirePostgresTable(t, sqlDB, "import_records", true)
@@ -41,6 +44,12 @@ func TestMigrateV3Postgres(t *testing.T) {
 
 	require.NoError(t, MigrateV3Down("postgres", dsn))
 	requirePostgresTable(t, sqlDB, "schema_meta", false)
+	requirePostgresTable(t, sqlDB, "tenants", true)
+
+	require.NoError(t, MigrateV3Down("postgres", dsn))
+	requirePostgresTable(t, sqlDB, "tenants", false)
+	requirePostgresTable(t, sqlDB, "network_domains", false)
+	requirePostgresTable(t, sqlDB, "users", false)
 }
 
 func requirePostgresTable(t *testing.T, sqlDB *sql.DB, table string, want bool) {

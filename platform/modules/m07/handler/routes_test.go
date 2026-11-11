@@ -34,21 +34,16 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
-		`CREATE TABLE tenants (id TEXT PRIMARY KEY)`,
-		`CREATE TABLE network_domains (id TEXT PRIMARY KEY, deleted_at TIMESTAMP)`,
-		`CREATE TABLE business_domains (code TEXT PRIMARY KEY, name TEXT, enabled INTEGER)`,
-		`CREATE TABLE application_dicts (app_code TEXT PRIMARY KEY, app_name TEXT, status TEXT)`,
-		`CREATE TABLE platform_dicts (platform_code TEXT PRIMARY KEY, platform_name TEXT, enabled INTEGER)`,
-		`CREATE TABLE cloud_dicts (cloud_code TEXT PRIMARY KEY, cloud_name TEXT, enabled INTEGER)`,
-		`CREATE TABLE zone_types (code TEXT PRIMARY KEY, display_name TEXT, enabled INTEGER)`,
-		`CREATE TABLE scrape_jobs (job_name TEXT, network_domain_id TEXT, enabled INTEGER, selected_instance_ids TEXT)`,
-		`INSERT INTO tenants(id) VALUES ('platform_admin')`,
-		`INSERT INTO network_domains(id) VALUES ('default')`,
+		// M01-owned reference table: not part of the v3 M00/M07 migrations.
+		`CREATE TABLE IF NOT EXISTS scrape_jobs (job_name TEXT, network_domain_id TEXT, enabled INTEGER, selected_instance_ids TEXT)`,
+		// 00000 core tables already exist; only seed the rows M07 reads.
+		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('default','中心直连域','management','platform_admin','local','enabled')`,
 		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',1)`,
 		`INSERT INTO application_dicts(app_code,app_name,status) VALUES ('order-service','订单服务','enabled')`,
 		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
 		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',1)`,
-		`INSERT INTO cloud_dicts(cloud_code,cloud_name,enabled) VALUES ('PUB-TX','腾讯云',1)`,
+		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled) VALUES ('PUB-TX','腾讯云','public','telecom',1)`,
 		`INSERT INTO zone_types(code,display_name,enabled) VALUES ('internet','互联网区',1)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
