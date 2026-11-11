@@ -150,3 +150,74 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
+
+func v3LoginToken(t *testing.T, router http.Handler, username, password string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v3/platform/auth/login",
+		strings.NewReader(`{"username":"`+username+`","password":"`+password+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var login struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &login))
+	require.NotEmpty(t, login.Data.Token)
+	return login.Data.Token
+}
+
+func TestV3UserDisableInvalidatesSession(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "v3_user_session.db")
+	require.NoError(t, db.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
+
+	prev := db.DB
+	db.DB = gormDB
+	t.Cleanup(func() { db.DB = prev })
+
+	router, err := setupV3Router("")
+	require.NoError(t, err)
+
+	adminToken := v3LoginToken(t, router, "admin", "admin123")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v3/platform/users",
+		strings.NewReader(`{"username":"ops01","display_name":"运维一号","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NotEmpty(t, created.Data.ID)
+
+	opsToken := v3LoginToken(t, router, "ops01", "secret123")
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/resources?resource_category=host", nil)
+	req.Header.Set("Authorization", "Bearer "+opsToken)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPatch, "/api/v3/platform/users/"+created.Data.ID+"/status",
+		strings.NewReader(`{"status":"disabled"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/resources?resource_category=host", nil)
+	req.Header.Set("Authorization", "Bearer "+opsToken)
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "disabling a user must invalidate existing sessions")
+}
