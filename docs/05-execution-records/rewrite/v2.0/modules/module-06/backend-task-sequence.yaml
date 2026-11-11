@@ -135,7 +135,7 @@ tasks:
   # ---------------------------------------------------------------------------
   - id: T06-B2-1
     title: "m06 模块骨架 + v3 注册 + RequireAdmin 门"
-    status: todo
+    status: done
     depends_on: [T06-B1-4]
     schema_change: none
     data_migration: none
@@ -152,7 +152,7 @@ tasks:
 
   - id: T06-B2-2
     title: "租户 API：列表 / 详情 / 有限编辑"
-    status: todo
+    status: done
     depends_on: [T06-B2-1]
     schema_change: none
     data_migration: none
@@ -169,7 +169,7 @@ tasks:
 
   - id: T06-B2-3
     title: "租户-网域授权读取一致性"
-    status: todo
+    status: done
     depends_on: [T06-B1-2, T06-B2-2]
     schema_change: none
     data_migration: none

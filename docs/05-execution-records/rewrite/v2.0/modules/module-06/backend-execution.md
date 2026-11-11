@@ -105,3 +105,41 @@ PASS
 - **PostgreSQL 未实测**：本机无 PG 实例，`TestMigrateV3Postgres` 继续按 `METRIC_CENTER_TEST_POSTGRES_DSN` skip。
 - **legacy v2 仍引用 default/management**：`platform/admin/*`、`platform/config/*` 冻结在兼容窗口内，不在 B1 修改范围；
   v2 使用独立 SQLite 库，不执行 v3 迁移，因此不受 00004 触发器影响；若在 v3 库上调用 legacy v2 写路径，management 写入会被触发器拒绝（有意行为）。
+
+---
+
+## 6. B2 模块骨架与租户 API
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B2-1 | `platform/modules/m06/{module,domain,dto,repository,service,handler,references,storage}` | M06 v3 组合根；`Options{EnvFile,PromURL}` 允许空值；管理路由统一挂 `auth.RequireAdmin` |
+| B2-1 | `platform/cmd/metric-center/v3.go`、`v3_test.go` | 注册顺序 system → m06 → m07 → auth；meta 断言模块列表；匿名 401 / user 403 冒烟 |
+| B2-2 | `platform/modules/m06/{dto,repository,service,handler}` | GET /tenants（status/keyword + 分页）、GET /tenants/:id、PUT 仅 name/multi_site_enabled |
+| B2-2 | `platform/modules/m06/handler/routes.go` | POST /tenants、PATCH /tenants/:id/status 在 MVP 返回 403 |
+| B2-3 | `platform/modules/m06/handler/tenant_handler_test.go` | 拒绝 `network_domain_ids`/`is_platform_admin`/`status` 等不可变字段；无字段 400 |
+| B2-3 | `platform/db/seed_core_v3_test.go` | 授权移除、重新授权、软删网域三种场景的缓存一致性 |
+
+### 6.1 契约落点
+
+- 分页信封 `{list,total,page,page_size}`，默认 20、上限 100，与 M07 v3 一致。
+- `network_domain_ids` 只读：租户接口不接受写入，权威字段仍是
+  `network_domains.authorized_tenant_ids`（D17）。
+- 严格 JSON：PUT body 使用 `DisallowUnknownFields`，不可变字段与未知字段均返回 400，
+  不静默忽略（D20）。
+- 鉴权：全局 `AuthMiddleware` 负责 401；M06 管理组 `RequireAdmin` 负责 403。
+- 生命周期：MVP 只维护 `platform_admin`，租户创建/状态变更留到 v0.2（SRS FR-01）。
+
+### 6.2 验证
+
+```text
+$ GOPROXY=off .tools/go/bin/go test ./platform/modules/m06/... ./platform/cmd/metric-center/...
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/handler
+ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
+```
+
+`go vet ./platform/modules/m06/... ./platform/cmd/metric-center/...` 无输出。
+
+### 6.3 后续
+
+- B3 开始网域领域模型与登记/编辑/删除；M06 `references` 端口在 B3-4 落地。
+- 用户/登录日志在 B5；存储策略在 B4。
