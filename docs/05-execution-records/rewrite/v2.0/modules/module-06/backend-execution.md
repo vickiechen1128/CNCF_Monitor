@@ -1,8 +1,8 @@
 # Module 06 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD；B4 用户 / 登录日志
-> **状态**：B1–B4 完成，PG 迁移实测待环境
+> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD；B4 用户 / 登录日志；B5 存储与日志
+> **状态**：B1–B5 完成，PG 迁移实测待环境
 
 ---
 
@@ -259,3 +259,51 @@ ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
 - 最后管理员保护使用进程内 mutex；多实例部署时仍需数据库级锁/唯一约束兜底，
   登记为 v2.0 已知债务。
 - 用户软删后用户名仍被唯一索引占用，不支持同名重建；如需复用需单独迁移策略。
+
+---
+
+## 9. B5 存储与日志
+
+### 9.1 变更清单
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B5-1 | `platform/modules/m06/storage/retention.go` | 从 legacy storagelog 迁移保留策略校验、归一化比对、原子写 |
+| B5-1 | `platform/modules/m06/storage/system.go`、`diskusage_*.go` | 日志轮转探测与磁盘占用只读展示 |
+| B5-1 | `platform/modules/m06/storage/service.go` | Overview / UpdateRetention；Prometheus flags 3s 超时；不可用降级 |
+| B5-2 | `platform/modules/m06/handler/storage_handler.go`、`handler/routes.go` | GET `/storage-logs`、PUT `/storage-logs/retention`，挂 RequireAdmin |
+| B5-2 | `platform/cmd/metric-center/{main,v3}.go` | `Options{EnvFile, PromURL}` 注入；legacy 与 v3-only 两种启动模式一致 |
+| B5-2 | `storage/service_test.go`、`handler/storage_handler_test.go`、`cmd/metric-center/v3_test.go` | 校验/比对/原子写/降级/503/鉴权/接线测试 |
+
+### 9.2 契约与降级
+
+- GET `/storage-logs`：`retention{desired,runtime,source,env_file,env_file_exists,
+  runtime_available,pending_restart}` + `disks[]` + `log_rotation`。
+- PUT `/storage-logs/retention`：`time`/`size` 均必填；写入 `prom-retention.env`
+  后返回最新 overview；不重启 Prometheus（D64）。
+- `EnvFile` 为空时：
+  - GET 仍 200，`env_file_exists=false`，按运行时/不可用降级；
+  - PUT 返回 503 `unavailable`，保留可执行提示「保留策略写入未配置…」。
+- Prometheus 不可达：GET 200，`runtime_available=false`，TSDB 磁盘行展示
+  「Prometheus 未运行」，不把依赖故障升级为 500。
+- 校验失败（非法时长/容量、空值、未知字段）→ 400，且不落盘。
+- 归一化比对：`360h` 与 `15d`、`2GB` 与 `2GiB` 视为同值，不误报待重启。
+
+### 9.3 验证
+
+```text
+$ GOPROXY=off .tools/go/bin/go test -count=1 ./platform/modules/m06/... ./platform/cmd/metric-center/...
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/storage
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/handler
+ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
+```
+
+覆盖点：合法/非法时长与容量、原子写与临时文件清理、runtime_default/env_file
+两种来源、单位归一化、Prometheus 降级、LOG_ROOT 磁盘行、空 EnvFile 503、
+admin/user 鉴权、v3 路由 Options 注入后真实落盘。
+
+### 9.4 兼容性
+
+- legacy `/api/v2/platform/storage-logs*` 保持原实现与测试不变；M06 v3 是并行实现，
+  两者共享 `prom-retention.env` 格式与归一化口径。
+- 未提供重启 Prometheus 接口（决策 64）。

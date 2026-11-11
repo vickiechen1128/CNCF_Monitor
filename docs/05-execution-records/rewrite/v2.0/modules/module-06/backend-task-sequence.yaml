@@ -339,7 +339,7 @@ tasks:
   # ---------------------------------------------------------------------------
   - id: T06-B5-1
     title: "m06/storage：保留策略 / 磁盘占用 / 日志轮转"
-    status: todo
+    status: done
     depends_on: [T06-B2-1]
     schema_change: none
     data_migration: none
@@ -355,7 +355,7 @@ tasks:
 
   - id: T06-B5-2
     title: "存储与日志 v3 路由 + Options 注入"
-    status: todo
+    status: done
     depends_on: [T06-B5-1, T06-B2-1]
     schema_change: none
     data_migration: none
