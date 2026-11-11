@@ -47,8 +47,14 @@ func newTenantTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB
 		c.Set(auth.ContextUserKey, user)
 		c.Next()
 	})
-	svc := service.NewTenantService(repository.NewGORMRepository(gormDB))
-	RegisterRoutes(router.Group("/api/v3/platform"), NewTenantHandler(svc))
+	tenantSvc := service.NewTenantService(repository.NewGORMRepository(gormDB))
+	domainSvc := service.NewNetworkDomainService(
+		repository.NewGORMNetworkDomainRepository(gormDB),
+		repository.NewGORMDictionaryRepository(gormDB),
+		nil,
+		nil,
+	)
+	RegisterRoutes(router.Group("/api/v3/platform"), NewTenantHandler(tenantSvc), NewNetworkDomainHandler(domainSvc))
 	return router, gormDB
 }
 

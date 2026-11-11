@@ -102,3 +102,13 @@ func (e *ForbiddenError) Error() string { return e.Message }
 
 // ErrorKind returns the contract kind.
 func (e *ForbiddenError) ErrorKind() apierror.Kind { return apierror.Forbidden }
+
+// ConflictError marks a uniqueness / coexistence violation (HTTP 409).
+type ConflictError struct {
+	Message string
+}
+
+func (e *ConflictError) Error() string { return e.Message }
+
+// ErrorKind returns the contract kind.
+func (e *ConflictError) ErrorKind() apierror.Kind { return apierror.Conflict }
