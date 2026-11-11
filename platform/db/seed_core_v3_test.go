@@ -101,6 +101,20 @@ func TestCoreV3ReconcilesTenantDomainAuthorizations(t *testing.T) {
 	assert.Contains(t, adminTenant.NetworkDomainIDs, "mc-demo",
 		"the registering owner is authorized implicitly")
 
+	// Removing the authorization from the domain clears the tenant cache.
+	domain.AuthorizedTenantIDs = []string{models.PlatformAdminTenantID}
+	require.NoError(t, gormDB.Save(domain).Error)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
+	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenant).Error)
+	assert.Empty(t, tenant.NetworkDomainIDs, "removed authorization must not linger in the tenant cache")
+
+	// Re-grant, then soft-delete: the cache must be cleared again on boot.
+	domain.AuthorizedTenantIDs = []string{models.PlatformAdminTenantID, "tenant-a"}
+	require.NoError(t, gormDB.Save(domain).Error)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
+	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenant).Error)
+	require.Equal(t, []string{"mc-demo"}, tenant.NetworkDomainIDs)
+
 	// Soft-deleted domains must disappear from the tenant cache on the next boot.
 	require.NoError(t, gormDB.Delete(domain).Error)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
