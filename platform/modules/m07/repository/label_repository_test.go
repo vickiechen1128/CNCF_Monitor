@@ -19,7 +19,7 @@ func TestLabelRepositoryCRUD(t *testing.T) {
 		ResourceID:      "app-1",
 		Category:        domain.CategoryApplication,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		BizCode:         "payment",
 		AppCode:         "order-service",
 		PlatformCode:    "ecommerce",

@@ -27,7 +27,7 @@ func openRepositoryTestDB(t *testing.T) *gorm.DB {
 	for _, stmt := range []string{
 		// 00000 core tables already exist; only seed the rows M07 reads.
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('default','中心直连域','management','platform_admin','local','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
 		`INSERT INTO business_domains(code,name) VALUES ('payment','支付')`,
 		`INSERT INTO application_dicts(app_code,app_name) VALUES ('order-service','订单服务')`,
 		`INSERT INTO platform_dicts(platform_code,platform_name) VALUES ('ecommerce','电商平台')`,
@@ -42,7 +42,7 @@ func newHost(id, ip, hostname string) *domain.Resource {
 		ResourceID:      id,
 		Category:        domain.CategoryHost,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		Env:             domain.EnvPRD,
 		Status:          domain.StatusOnline,
 		SourceType:      domain.SourceManual,
@@ -67,7 +67,7 @@ func TestRepositoryCreateGetListUpdateDelete(t *testing.T) {
 	got, err := repo.Get(ctx, "res-1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.CategoryHost, got.Category)
-	assert.Equal(t, "host|default|10.0.0.1", got.DedupKey)
+	assert.Equal(t, "host|mc-demo|10.0.0.1", got.DedupKey)
 	attrs, ok := got.Attributes.(domain.HostAttributes)
 	require.True(t, ok)
 	assert.Equal(t, "web-01", attrs.Hostname)
@@ -100,7 +100,7 @@ func TestRepositoryCreateGetListUpdateDelete(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "web-01-renamed", attrs.Hostname)
 
-	found, ok, err := repo.FindByDedupKey(ctx, domain.CategoryHost, "host|default|10.0.0.1")
+	found, ok, err := repo.FindByDedupKey(ctx, domain.CategoryHost, "host|mc-demo|10.0.0.1")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "res-1", found.ResourceID)
@@ -128,7 +128,7 @@ func TestRepositoryDedupConflict(t *testing.T) {
 	require.Error(t, err)
 	var conflict *domain.ConflictError
 	require.ErrorAs(t, err, &conflict)
-	assert.Equal(t, "host|default|10.0.0.1", conflict.DedupKey)
+	assert.Equal(t, "host|mc-demo|10.0.0.1", conflict.DedupKey)
 }
 
 func TestRepositoryApplicationAttributes(t *testing.T) {
@@ -140,7 +140,7 @@ func TestRepositoryApplicationAttributes(t *testing.T) {
 		ResourceID:      "app-1",
 		Category:        domain.CategoryApplication,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		BizCode:         "payment",
 		AppCode:         "order-service",
 		PlatformCode:    "ecommerce",
@@ -161,7 +161,7 @@ func TestRepositoryApplicationAttributes(t *testing.T) {
 
 	got, err := repo.Get(ctx, "app-1")
 	require.NoError(t, err)
-	assert.Equal(t, "application|default|order-api|https://order.example.com/health", got.DedupKey)
+	assert.Equal(t, "application|mc-demo|order-api|https://order.example.com/health", got.DedupKey)
 	attrs, ok := got.Attributes.(domain.ApplicationAttributes)
 	require.True(t, ok)
 	assert.Equal(t, "order-api", attrs.ServiceName)

@@ -12,7 +12,7 @@ func validResource(category Category, attrs Attributes) *Resource {
 		ResourceID:      "res-1",
 		Category:        category,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		Env:             EnvPRD,
 		Status:          StatusOnline,
 		SourceType:      SourceManual,
@@ -42,42 +42,42 @@ func TestDedupKey(t *testing.T) {
 			r: validResource(CategoryHost, HostAttributes{
 				Hostname: "web-01", InstanceIP: "10.0.0.1", OSType: "linux",
 			}),
-			want: "host|default|10.0.0.1",
+			want: "host|mc-demo|10.0.0.1",
 		},
 		{
 			name: "database",
 			r: validResource(CategoryDatabase, DatabaseAttributes{
 				DatabaseType: "mysql", InstanceIP: "10.0.0.2", Port: 3306,
 			}),
-			want: "database|default|10.0.0.2|3306",
+			want: "database|mc-demo|10.0.0.2|3306",
 		},
 		{
 			name: "middleware",
 			r: validResource(CategoryMiddleware, MiddlewareAttributes{
 				MiddlewareType: "kafka", InstanceIP: "10.0.0.3", Port: 9092,
 			}),
-			want: "middleware|default|10.0.0.3|9092",
+			want: "middleware|mc-demo|10.0.0.3|9092",
 		},
 		{
 			name: "application",
 			r: validResource(CategoryApplication, ApplicationAttributes{
 				ServiceName: "order-api", HealthCheckURL: "https://order.example.com/health",
 			}),
-			want: "application|default|order-api|https://order.example.com/health",
+			want: "application|mc-demo|order-api|https://order.example.com/health",
 		},
 		{
 			name: "generic_target",
 			r: validResource(CategoryGenericTarget, GenericTargetAttributes{
 				TargetName: "switch", InstanceIP: "10.0.0.4", Port: 161,
 			}),
-			want: "generic_target|default|10.0.0.4|161",
+			want: "generic_target|mc-demo|10.0.0.4|161",
 		},
 		{
 			name: "interface_service",
 			r: validResource(CategoryInterfaceService, InterfaceServiceAttributes{
 				APIName: "orders", APIURL: "https://api.example.com/orders",
 			}),
-			want: "interface_service|default|https://api.example.com/orders",
+			want: "interface_service|mc-demo|https://api.example.com/orders",
 		},
 	}
 	for _, tt := range tests {
@@ -96,7 +96,7 @@ func TestResourceValidate(t *testing.T) {
 		})
 		require.NoError(t, r.Validate())
 		require.NoError(t, r.EnsureDedupKey())
-		assert.Equal(t, "host|default|10.0.0.1", r.DedupKey)
+		assert.Equal(t, "host|mc-demo|10.0.0.1", r.DedupKey)
 	})
 
 	t.Run("application requires app and cluster", func(t *testing.T) {

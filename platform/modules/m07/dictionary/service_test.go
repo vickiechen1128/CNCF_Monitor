@@ -28,7 +28,9 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 		&appPlatformRelRecord{},
 	))
 
-	require.NoError(t, db.Create(&networkDomainRecord{ID: "default"}).Error)
+	require.NoError(t, db.Create(&networkDomainRecord{ID: "mc-demo", DomainType: "edge", Status: "enabled"}).Error)
+	require.NoError(t, db.Create(&networkDomainRecord{ID: "mc-disabled", DomainType: "edge", Status: "disabled"}).Error)
+	require.NoError(t, db.Create(&networkDomainRecord{ID: "mc-collection", DomainType: "collection", Status: "enabled"}).Error)
 	require.NoError(t, db.Create(&businessDomainRecord{Code: "payment", Name: "支付", Enabled: true}).Error)
 	require.NoError(t, db.Create(&businessDomainRecord{Code: "legacy", Name: "旧业务", Enabled: false}).Error)
 	require.NoError(t, db.Create(&applicationDictRecord{AppCode: "order-service", AppName: "订单服务", Status: "enabled"}).Error)
@@ -50,7 +52,7 @@ func testResource() *domain.Resource {
 		ResourceID:      "res-1",
 		Category:        domain.CategoryApplication,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		BizCode:         "payment",
 		AppCode:         "order-service",
 		PlatformCode:    "ecommerce",
@@ -74,6 +76,14 @@ func TestServiceValidateResource(t *testing.T) {
 	badDomain := testResource()
 	badDomain.NetworkDomainID = "missing"
 	require.ErrorContains(t, svc.ValidateResource(ctx, badDomain), "network_domain_id")
+
+	disabledDomain := testResource()
+	disabledDomain.NetworkDomainID = "mc-disabled"
+	require.ErrorContains(t, svc.ValidateResource(ctx, disabledDomain), "network_domain_id")
+
+	collectionDomain := testResource()
+	collectionDomain.NetworkDomainID = "mc-collection"
+	require.NoError(t, svc.ValidateResource(ctx, collectionDomain), "collection-node domains stay usable")
 
 	badBiz := testResource()
 	badBiz.BizCode = "legacy"

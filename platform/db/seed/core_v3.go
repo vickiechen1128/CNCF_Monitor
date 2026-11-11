@@ -1,21 +1,25 @@
 package seed
 
 import (
-	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
 
 // CoreV3 seeds the minimal reference data a standalone v3 database needs:
-// the platform_admin tenant, zone/cloud/business dictionaries, the initial
-// admin user and the center-direct management domain.
+// the platform_admin tenant, zone/cloud/business dictionaries and the initial
+// admin user.
 //
 // It is intentionally a subset of Run (which also seeds legacy M01/M08/M09
 // data). Every step is idempotent; existing rows are never overwritten except
 // for the deployment-level zone dictionary, whose enabled flags are aligned on
 // every boot (same behaviour as Run).
+//
+// v3 no longer pre-provisions a center-direct (`default`/management) domain:
+// every network domain must be registered through M06 and onboarded through a
+// collection node (M06 SRS v1.0 / NFR-02).
 func CoreV3(db *gorm.DB, businessDomainsPath string) error {
 	if db == nil {
 		return fmt.Errorf("seed v3 core: nil database connection")
@@ -35,54 +39,80 @@ func CoreV3(db *gorm.DB, businessDomainsPath string) error {
 	if err := runAdminUser(db); err != nil {
 		return fmt.Errorf("seed v3 core admin user: %w", err)
 	}
-	if err := ensureDefaultManagementDomain(db); err != nil {
-		return fmt.Errorf("seed v3 core default domain: %w", err)
+	if err := reconcileTenantDomainAuthorizations(db); err != nil {
+		return fmt.Errorf("seed v3 core tenant authorizations: %w", err)
 	}
 	return nil
 }
 
-// ensureDefaultManagementDomain creates the center-direct domain when the fresh
-// v3 database has no management domain yet. Existing databases are left
-// untouched: M06 owns domain registration once the platform is running.
-func ensureDefaultManagementDomain(db *gorm.DB) error {
-	var count int64
-	if err := db.Model(&models.NetworkDomain{}).
-		Where("domain_type = ? AND deleted_at IS NULL", models.DomainTypeManagement).
-		Count(&count).Error; err != nil {
-		return fmt.Errorf("count management domains: %w", err)
-	}
-	if count > 0 {
-		return nil
+// reconcileTenantDomainAuthorizations rebuilds the denormalized
+// tenants.network_domain_ids cache from the authoritative
+// network_domains.authorized_tenant_ids field (plus the registration owner).
+//
+// The domain record is the single write path for tenant/domain authorization
+// (M06 SRS v1.0 §7.3). The tenant column remains for compatibility and fast
+// reads, but stale entries are removed on boot so a failed write cannot leave
+// a tenant seeing a domain it is no longer authorized to use.
+func reconcileTenantDomainAuthorizations(db *gorm.DB) error {
+	var domains []models.NetworkDomain
+	if err := db.Where("deleted_at IS NULL").Find(&domains).Error; err != nil {
+		return fmt.Errorf("list network domains: %w", err)
 	}
 
-	domain := &models.NetworkDomain{
-		ID:                  models.DefaultDomainID,
-		Name:                "中心直连域",
-		Description:         "v3 core seed：中心同机部署的默认管理域",
-		DomainType:          models.DomainTypeManagement,
-		ZoneType:            string(models.ZoneTypeInternet),
-		CloudCode:           "PUB-TX",
-		TenantID:            models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-		Channel:             models.ChannelTypeLocal,
-		Status:              models.DomainStatusEnabled,
-		IsMonitored:         true,
-		RegistrationStatus:  models.RegistrationStatusMonitored,
-	}
-	if err := db.Create(domain).Error; err != nil {
-		// A concurrent boot may have won the race; treat the unique management
-		// index rejection as success only when a management domain now exists.
-		var after int64
-		if countErr := db.Model(&models.NetworkDomain{}).
-			Where("domain_type = ? AND deleted_at IS NULL", models.DomainTypeManagement).
-			Count(&after).Error; countErr == nil && after > 0 {
-			return nil
+	grants := make(map[string]map[string]struct{})
+	addGrant := func(tenantID, domainID string) {
+		if tenantID == "" || domainID == "" {
+			return
 		}
-		return fmt.Errorf("create default management domain: %w", err)
+		if grants[tenantID] == nil {
+			grants[tenantID] = make(map[string]struct{})
+		}
+		grants[tenantID][domainID] = struct{}{}
+	}
+	for i := range domains {
+		domain := &domains[i]
+		addGrant(domain.TenantID, domain.ID)
+		for _, tenantID := range domain.AuthorizedTenantIDs {
+			addGrant(tenantID, domain.ID)
+		}
+	}
+
+	var tenants []models.Tenant
+	if err := db.Where("deleted_at IS NULL").Find(&tenants).Error; err != nil {
+		return fmt.Errorf("list tenants: %w", err)
+	}
+	for i := range tenants {
+		tenant := &tenants[i]
+		want := make([]string, 0, len(grants[tenant.ID]))
+		for domainID := range grants[tenant.ID] {
+			want = append(want, domainID)
+		}
+		sort.Strings(want)
+		if sameStringSet(tenant.NetworkDomainIDs, want) {
+			continue
+		}
+		tenant.NetworkDomainIDs = want
+		if err := db.Model(tenant).Select("network_domain_ids").Updates(tenant).Error; err != nil {
+			return fmt.Errorf("reconcile tenant %q domain authorizations: %w", tenant.ID, err)
+		}
 	}
 	return nil
 }
 
-// ErrNoManagementDomain is reserved for callers that require a management
-// domain to exist before serving traffic.
-var ErrNoManagementDomain = errors.New("no management domain registered")
+// sameStringSet compares two string slices as sets, ignoring order. Both sides
+// are expected to contain unique values (the reconciliation output is unique).
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]struct{}, len(a))
+	for _, v := range a {
+		set[v] = struct{}{}
+	}
+	for _, v := range b {
+		if _, ok := set[v]; !ok {
+			return false
+		}
+	}
+	return true
+}

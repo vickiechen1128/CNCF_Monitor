@@ -72,7 +72,7 @@ type Repository interface {
 	BusinessDomainEnabled(ctx context.Context, code string) (bool, error)
 	ApplicationEnabled(ctx context.Context, code string) (bool, error)
 	PlatformEnabled(ctx context.Context, code string) (bool, error)
-	NetworkDomainExists(ctx context.Context, id string) (bool, error)
+	NetworkDomainUsable(ctx context.Context, id string) (bool, error)
 	PlatformBelongsToApp(ctx context.Context, appCode, platformCode string) (bool, error)
 	PrimaryPlatformOfApp(ctx context.Context, appCode string) (string, bool, error)
 
@@ -129,10 +129,14 @@ func (r *GORMRepository) PlatformEnabled(ctx context.Context, code string) (bool
 	return count > 0, nil
 }
 
-func (r *GORMRepository) NetworkDomainExists(ctx context.Context, id string) (bool, error) {
+// NetworkDomainUsable reports whether the domain exists, is administratively
+// enabled and is a collection-node domain (edge/collection). The v3.0 model
+// no longer allows resources to be attached to a center-direct domain.
+func (r *GORMRepository) NetworkDomainUsable(ctx context.Context, id string) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&networkDomainRecord{}).
-		Where("id = ?", id).Count(&count).Error
+		Where("id = ? AND status = ? AND domain_type IN ?", id, "enabled", []string{"edge", "collection"}).
+		Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check network domain %q: %w", id, err)
 	}

@@ -19,7 +19,7 @@ func TestGORMReaderListByResource(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&scrapeJobRecord{}))
 
 	require.NoError(t, db.Create(&scrapeJobRecord{
-		JobName: "job-a", NetworkDomainID: "default", Enabled: true,
+		JobName: "job-a", NetworkDomainID: "mc-demo", Enabled: true,
 		SelectedInstanceIDs: []string{"res-1", "res-2"},
 	}).Error)
 	require.NoError(t, db.Create(&scrapeJobRecord{

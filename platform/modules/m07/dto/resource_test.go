@@ -12,7 +12,7 @@ import (
 func TestCreateResourceRequestToDomain(t *testing.T) {
 	raw := `{
 		"resource_category":"host",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"env":"PRD",
 		"status":"online",
 		"attributes":{"hostname":"web-01","instance_ip":"10.0.0.1","os_type":"linux"}
@@ -38,7 +38,7 @@ func TestFromDomainMapsAttributes(t *testing.T) {
 		ResourceID:      "app-1",
 		Category:        domain.CategoryApplication,
 		TenantID:        "platform_admin",
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		AppCode:         "order-service",
 		Env:             domain.EnvPRD,
 		Cluster:         "prod-a",

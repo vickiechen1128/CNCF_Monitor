@@ -47,8 +47,10 @@ type zoneTypeRecord struct {
 func (zoneTypeRecord) TableName() string { return "zone_types" }
 
 type networkDomainRecord struct {
-	ID        string         `gorm:"column:id;primaryKey"`
-	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at"`
+	ID         string         `gorm:"column:id;primaryKey"`
+	DomainType string         `gorm:"column:domain_type"`
+	Status     string         `gorm:"column:status"`
+	DeletedAt  gorm.DeletedAt `gorm:"column:deleted_at"`
 }
 
 func (networkDomainRecord) TableName() string { return "network_domains" }

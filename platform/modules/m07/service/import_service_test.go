@@ -41,7 +41,7 @@ func buildHostXLSX(t *testing.T, ip, status string) []byte {
 	require.NoError(t, f.SetSheetName(f.GetSheetName(0), "Sheet1"))
 	rows := [][]any{
 		{"network_domain", "instance_name", "hostname", "instance_ip", "os_type", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status", "scrape_port", "activated_at"},
-		{"default", "web-01", "web-01", ip, "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", status, 0, ""},
+		{"mc-demo", "web-01", "web-01", ip, "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", status, 0, ""},
 	}
 	for i := range rows {
 		require.NoError(t, f.SetSheetRow("Sheet1", "A"+strconv.Itoa(i+1), &rows[i]))

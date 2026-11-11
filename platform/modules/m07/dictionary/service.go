@@ -29,12 +29,15 @@ func (s *Service) ValidateResource(ctx context.Context, resource *domain.Resourc
 		return &domain.ValidationError{Field: "resource", Message: "is required"}
 	}
 
-	ok, err := s.repo.NetworkDomainExists(ctx, resource.NetworkDomainID)
+	ok, err := s.repo.NetworkDomainUsable(ctx, resource.NetworkDomainID)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return &domain.ValidationError{Field: "network_domain_id", Message: fmt.Sprintf("network domain %q does not exist", resource.NetworkDomainID)}
+		return &domain.ValidationError{
+			Field:   "network_domain_id",
+			Message: fmt.Sprintf("网域 %q 未登记或已禁用，请先在平台管理登记/启用", resource.NetworkDomainID),
+		}
 	}
 
 	if resource.BizCode != "" {

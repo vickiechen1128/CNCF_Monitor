@@ -25,7 +25,7 @@ func TestV3GoldenResource(t *testing.T) {
 	router, _ := newTestRouter(t)
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/resources", `{
 		"resource_category":"host",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"env":"PRD",
 		"attributes":{"hostname":"web-01","instance_ip":"10.0.0.1","os_type":"linux"}
 	}`)
@@ -36,12 +36,12 @@ func TestV3GoldenResource(t *testing.T) {
 		"resource_id":       "<resource_id>",
 		"resource_category": "host",
 		"tenant_id":         "platform_admin",
-		"network_domain_id": "default",
+		"network_domain_id": "mc-demo",
 		"env":               "PRD",
 		"status":            "online",
 		"source_type":       "manual",
 		"scrape_port":       float64(0),
-		"dedup_key":         "host|default|10.0.0.1",
+		"dedup_key":         "host|mc-demo|10.0.0.1",
 		"attributes": map[string]any{
 			"hostname":    "web-01",
 			"instance_ip": "10.0.0.1",

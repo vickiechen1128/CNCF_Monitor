@@ -66,7 +66,7 @@ func TestLabelServicePolicy(t *testing.T) {
 		ResourceID:      "host-1",
 		Category:        domain.CategoryHost,
 		TenantID:        DefaultTenantID,
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		Env:             domain.EnvPRD,
 		Status:          domain.StatusOnline,
 		SourceType:      domain.SourceManual,

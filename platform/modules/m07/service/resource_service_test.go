@@ -87,7 +87,7 @@ func (f *fakeDictionary) PrimaryPlatformOfApp(_ context.Context, _ string) (stri
 func applicationResource() *domain.Resource {
 	return &domain.Resource{
 		Category:        domain.CategoryApplication,
-		NetworkDomainID: "default",
+		NetworkDomainID: "mc-demo",
 		BizCode:         "payment",
 		AppCode:         "order-service",
 		Env:             domain.EnvPRD,
@@ -111,7 +111,7 @@ func TestCreateDefaultsAndPlatformFallback(t *testing.T) {
 	assert.Equal(t, domain.SourceManual, resource.SourceType)
 	assert.Equal(t, domain.StatusOnline, resource.Status)
 	assert.Equal(t, "ecommerce", resource.PlatformCode)
-	assert.Equal(t, "application|default|order-api|https://order.example.com/health", resource.DedupKey)
+	assert.Equal(t, "application|mc-demo|order-api|https://order.example.com/health", resource.DedupKey)
 }
 
 func TestCreateConflict(t *testing.T) {

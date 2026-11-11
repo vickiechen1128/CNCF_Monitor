@@ -38,7 +38,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		`CREATE TABLE IF NOT EXISTS scrape_jobs (job_name TEXT, network_domain_id TEXT, enabled INTEGER, selected_instance_ids TEXT)`,
 		// 00000 core tables already exist; only seed the rows M07 reads.
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('default','中心直连域','management','platform_admin','local','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
 		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',1)`,
 		`INSERT INTO application_dicts(app_code,app_name,status) VALUES ('order-service','订单服务','enabled')`,
 		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
@@ -85,7 +85,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/resources", `{
 		"resource_category":"host",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"env":"PRD",
 		"attributes":{"hostname":"web-01","instance_ip":"10.0.0.1","os_type":"linux"}
 	}`)
@@ -93,7 +93,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 	data := out["data"].(map[string]any)
 	resourceID := data["resource_id"].(string)
 	assert.NotEmpty(t, resourceID)
-	assert.Equal(t, "host|default|10.0.0.1", data["dedup_key"])
+	assert.Equal(t, "host|mc-demo|10.0.0.1", data["dedup_key"])
 
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/resources?resource_category=host", "")
 	require.Equal(t, http.StatusOK, code, out)
@@ -106,7 +106,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/resources/"+resourceID, `{
 		"resource_category":"host",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"env":"PRD",
 		"status":"maintenance",
 		"attributes":{"hostname":"web-01","instance_ip":"10.0.0.1","os_type":"linux"}
@@ -120,7 +120,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/resources", `{
 		"resource_category":"application",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"biz_code":"payment",
 		"app_code":"order-service",
 		"platform_code":"ecommerce",
@@ -141,7 +141,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
 
 	require.NoError(t, gormDB.Exec(
-		`INSERT INTO scrape_jobs(job_name,network_domain_id,enabled,selected_instance_ids) VALUES ('job-a','default',1,?)`,
+		`INSERT INTO scrape_jobs(job_name,network_domain_id,enabled,selected_instance_ids) VALUES ('job-a','mc-demo',1,?)`,
 		`["`+resourceID+`"]`,
 	).Error)
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/resources/"+resourceID+"/referenced-by", "")
@@ -192,7 +192,7 @@ func buildImportXLSX(t *testing.T) []byte {
 	require.NoError(t, f.SetSheetName(f.GetSheetName(0), "Sheet1"))
 	rows := [][]any{
 		{"network_domain", "instance_name", "hostname", "instance_ip", "os_type", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status", "scrape_port", "activated_at"},
-		{"default", "web-01", "web-01", "10.0.0.9", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
+		{"mc-demo", "web-01", "web-01", "10.0.0.9", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
 	}
 	for i := range rows {
 		require.NoError(t, f.SetSheetRow("Sheet1", "A"+strconv.Itoa(i+1), &rows[i]))
@@ -207,7 +207,7 @@ func TestV3ResourceValidation(t *testing.T) {
 
 	code, _ := doJSON(t, router, http.MethodPost, "/api/v3/platform/resources", `{
 		"resource_category":"application",
-		"network_domain_id":"default",
+		"network_domain_id":"mc-demo",
 		"env":"PRD",
 		"attributes":{"service_name":"order-api","health_check_url":"https://order.example.com/health"}
 	}`)

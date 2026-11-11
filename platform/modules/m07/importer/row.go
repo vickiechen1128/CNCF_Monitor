@@ -57,9 +57,6 @@ func (r Row) ToDomain() (*domain.Resource, error) {
 		ScrapePort:      r.ScrapePort,
 		Attributes:      attrs,
 	}
-	if resource.NetworkDomainID == "" {
-		resource.NetworkDomainID = "default"
-	}
 	if err := resource.Validate(); err != nil {
 		return nil, &ImportRowError{RowNumber: r.RowNumber, Field: fieldFromError(err), Value: "", Reason: err.Error()}
 	}

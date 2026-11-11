@@ -33,7 +33,7 @@ func buildXLSX(t *testing.T, sheet string, rows [][]any) []byte {
 func TestParseExcelAndValidateRows(t *testing.T) {
 	rows := [][]any{
 		{"network_domain", "instance_name", "hostname", "instance_ip", "os_type", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status", "scrape_port", "activated_at"},
-		{"default", "web-01", "web-01", "10.0.0.1", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
+		{"mc-demo", "web-01", "web-01", "10.0.0.1", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
 	}
 	data := buildXLSX(t, "Sheet1", rows)
 
@@ -47,7 +47,24 @@ func TestParseExcelAndValidateRows(t *testing.T) {
 	require.Empty(t, errs)
 	require.Len(t, valid, 1)
 	assert.Equal(t, domain.StatusOnline, valid[0].Resource.Status)
-	assert.Equal(t, "host|default|10.0.0.1", valid[0].Resource.DedupKey)
+	assert.Equal(t, "host|mc-demo|10.0.0.1", valid[0].Resource.DedupKey)
+}
+
+// TestValidateRowsRequiresNetworkDomain verifies the v3 rule that imports no
+// longer fall back to the historical `default` domain: an empty network domain
+// is a row-level error.
+func TestValidateRowsRequiresNetworkDomain(t *testing.T) {
+	rows := [][]any{
+		{"network_domain", "instance_name", "hostname", "instance_ip", "os_type", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status", "scrape_port", "activated_at"},
+		{"", "web-01", "web-01", "10.0.0.1", "linux", "payment", "order-service", "ecommerce", "PRD", "prod-a", "ops", "运行中", 0, ""},
+	}
+	parsed, err := ParseExcel(buildXLSX(t, "Sheet1", rows), domain.CategoryHost)
+	require.NoError(t, err)
+
+	valid, errs := ValidateRows(parsed)
+	require.Empty(t, valid)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "network_domain_id", errs[0].Field)
 }
 
 func TestParseDeclareSheets(t *testing.T) {
