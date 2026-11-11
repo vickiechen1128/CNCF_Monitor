@@ -187,7 +187,7 @@ tasks:
   # ---------------------------------------------------------------------------
   - id: T06-B3-1
     title: "网域领域模型 / ID 生成 / 校验规则"
-    status: todo
+    status: done
     depends_on: [T06-B2-1]
     schema_change: none
     data_migration: none
@@ -205,7 +205,7 @@ tasks:
 
   - id: T06-B3-2
     title: "网域登记 / 列表 / 详情"
-    status: todo
+    status: done
     depends_on: [T06-B3-1]
     schema_change: none
     data_migration: none
@@ -222,7 +222,7 @@ tasks:
 
   - id: T06-B3-3
     title: "网域编辑 / 启用禁用"
-    status: todo
+    status: done
     depends_on: [T06-B3-2]
     schema_change: none
     data_migration: none
@@ -239,7 +239,7 @@ tasks:
 
   - id: T06-B3-4
     title: "网域删除 / 影响面 / 跨模块引用端口"
-    status: todo
+    status: done
     depends_on: [T06-B3-3]
     schema_change: none
     data_migration: none
@@ -256,7 +256,7 @@ tasks:
 
   - id: T06-B3-5
     title: "网域 HTTP 契约 / 鉴权 / golden 回归"
-    status: todo
+    status: done
     depends_on: [T06-B3-1, T06-B3-2, T06-B3-3, T06-B3-4]
     schema_change: none
     data_migration: none

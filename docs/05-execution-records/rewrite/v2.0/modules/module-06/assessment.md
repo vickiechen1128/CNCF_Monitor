@@ -32,7 +32,7 @@
 |---|---|---|---|---|
 | 1 | 网域类型 | `management`（中心直连域）/ `edge` | 仅采集节点域（`edge`/`collection`），用户侧只读 | 服务层拒绝 `management`；DB 约束收缩；不做类型选择入口 |
 | 2 | 默认网域 | 预置 `default` 管理域，中心直接采集 | 不预置 `default`；所有网域必须经采集节点接入 | 删除 `seed.CoreV3` 的 default 创建；迁移将历史行转 edge |
-| 3 | 登记流程 | 询问「中心能否直接访问」，选择域名类型 | 不再询问；固定「接入方式：采集节点域」 | 登记请求不接受 `domain_type` 业务选择；缺省写 `edge` |
+| 3 | 登记流程 | 询问「中心能否直接访问」，选择域名类型 | 不再询问；固定「接入方式：采集节点域」 | 登记请求不接受 `domain_type` 业务选择：缺省写 `edge`，显式传非 `edge`（含 `collection`）→ 400 |
 | 4 | 网域禁用 | 管理域不可禁用 | 禁用 = 行政冻结；所有网域一致；存量采集继续 | 取消 management 特判；返回影响范围；M07 拒绝新资源 |
 | 5 | 网域删除 | 管理域不可删除；删除级联清退 M09 | 存在 M07 引用硬拒绝；无引用软删 + 级联清退 M09 | 409 + 引用清单；软删 + `MonitoringRetirer` 端口；租户授权同步清理 |
 | 6 | 网域字段 | 含 `ip_cidrs`/CMDB/纳管字段 | 行政字段：name/description/cloud_code/zone_type/authorized_tenant_ids/status | 只暴露行政字段；`ip_cidrs`/CMDB 物理列保留但 v3 API 不读写 |
@@ -175,7 +175,7 @@ platform/modules/m06/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/network-domains` | `name/description?/cloud_code/zone_type/domain_code?/authorized_tenant_ids?`；`domain_type` 出现且非 `edge`/`collection` → 400；`tenant_id` 出现 → 400 |
+| POST | `/network-domains` | `name/description?/cloud_code/zone_type/domain_code?/authorized_tenant_ids?`；`domain_type` 仅接受 `edge`；`tenant_id` 出现 → 400 |
 | GET | `/network-domains` | 筛选 `status/keyword/cloud_code/zone_type/tenant_id`；分页；`created_at asc` |
 | GET | `/network-domains/:id` | 详情 |
 | PUT | `/network-domains/:id` | 仅 `name/description/zone_type/authorized_tenant_ids`；`cloud_code/tenant_id/domain_type/id/status` 出现 → 400 |

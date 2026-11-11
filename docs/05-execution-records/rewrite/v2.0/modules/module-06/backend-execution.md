@@ -1,8 +1,8 @@
 # Module 06 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：B1 schema / seed / M07 消费解耦（T06-B1-1 ~ T06-B1-4）
-> **状态**：B1 完成，PG 迁移实测待环境
+> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD
+> **状态**：B1–B3 完成，PG 迁移实测待环境
 
 ---
 
@@ -143,3 +143,63 @@ ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
 
 - B3 开始网域领域模型与登记/编辑/删除；M06 `references` 端口在 B3-4 落地。
 - 用户/登录日志在 B5；存储策略在 B4。
+
+---
+
+## 7. B3 网域行政 CRUD
+
+### 7.1 变更清单
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B3-1 | `platform/modules/m06/domain/network_domain.go`、`ids.go` | 网域实体 / 状态 / Impact / 409 错误；ID 生成 `<deploy_code>-<domain_code>`，保留 `default`，缺省随机 8 位 hex |
+| B3-1 | `platform/modules/m06/repository/dictionary_repository.go` | `cloud_code` 必须为启用云字典；`zone_type` 必须存在；授权租户必须 active |
+| B3-2 | `platform/modules/m06/repository/network_domain_repository.go` | 列表/详情/创建；创建事务内同步租户授权缓存；唯一键竞态映射 409 |
+| B3-2 | `platform/modules/m06/dto/network_domain.go`、`handler/network_domain_handler.go` | v3 行政字段视图 + `domain_type_label`；分页信封；严格 JSON |
+| B3-3 | `service/network_domain_service.go` | PUT 仅 `name/description/zone_type/authorized_tenant_ids`；PATCH 状态禁用返回 impact；启用幂等 |
+| B3-4 | `platform/modules/m06/references/m07.go` | M07 引用计数 + 样例（resource_id/category/name） |
+| B3-4 | `platform/modules/m06/references/monitoring.go` | `MonitoringRetirer` 端口；v2.0 默认 no-op + `monitoring_available=false`（D19） |
+| B3-4 | `repository/network_domain_repository.go` | DELETE：软删 + 清运行态 token/agent 字段 + `registration_status=retired` + 清租户缓存 |
+| B3-5 | `handler/network_domain_handler_test.go`、`domain/network_domain_test.go`、`cmd/metric-center/v3_test.go` | 契约 / 鉴权 / golden 回归；匿名 401、user 403、admin 全链路 |
+
+### 7.2 契约落点
+
+- 路由：GET `/network-domains`、`/network-domains/:id`、`/network-domains/:id/impact`
+  仅要求登录；POST/PUT/PATCH/DELETE 挂 `RequireAdmin`。
+- 创建固定 `edge` + `agent_pull`：`domain_type` 缺省写 `edge`，显式传 `collection`
+  或其他值 → 400（D22）。`tenant_id` 由服务端固定 `platform_admin`，请求出现即 400。
+- `domain_code` 规则 `[a-z0-9-]`，不可为 `default`；省略时随机生成，最终 ID 为
+  `<METRIC_CENTER_DEPLOY_CODE 或 mc>-<domain_code>`。
+- 名称大小写不敏感唯一；软删 ID 不可重登记（409）；`cloud_code` 创建后不可变。
+- 响应仅含行政字段，`channel/token/agent_type/remote_write_url/heartbeat` 等纳管字段
+  不出现在 M06 v3 契约中；`domain_type_label` 固定「采集节点域」。
+- 禁用返回 `impact`：`resource_count/sample_resources/managed_edge_agent_count/
+  has_online_agents/monitoring_available`；启用不返回 impact。
+- DELETE 有 M07 引用 → 409 + 引用摘要；无引用 → 软删，响应同时返回 `impact` 与
+  `cascade_impact`（同口径）。删除前先调用 `MonitoringRetirer`，v2.0 为 no-op。
+
+### 7.3 验证
+
+```text
+$ GOPROXY=off .tools/go/bin/go test ./platform/modules/m06/... ./platform/cmd/metric-center/...
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/domain
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/handler
+ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
+```
+
+覆盖点：
+
+- 创建/随机 ID/名称冲突/软删 ID 重登记/字典与租户校验/management 与 collection 拒绝；
+- 列表筛选 + 分页 + 详情 + impact 样例；
+- PUT 不可变字段与未知字段 400；授权变更事务内同步租户缓存；
+- 禁用/重复禁用/启用；禁用 impact 含 M09 端口字段；
+- DELETE 有引用 409、无引用软删 + fake retirer 调用 + token 清空 + 租户授权清理；
+- 读接口 user 200、写接口 user 403、匿名 401。
+
+### 7.4 偏差与后续
+
+- `collection` 在 v3.0 只读兼容、不可创建（D22）；SQLite 原 CHECK 仍只允许
+  `management|edge`，因此开发库实际只写 `edge`。
+- `MonitoringRetirer` 暂为 `context` 级端口（非事务内），v2.0 no-op；M09 v3 落地后
+  再评估是否需要事务/补偿语义。
+- PostgreSQL 仍未实测，沿用 `METRIC_CENTER_TEST_POSTGRES_DSN` skip。
