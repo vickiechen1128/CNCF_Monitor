@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
+	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 )
 
 func TestResolveDatabaseMode(t *testing.T) {
@@ -257,4 +259,119 @@ func TestV3StorageRoutesUseInjectedOptions(t *testing.T) {
 	content, err := os.ReadFile(envFile)
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "PROM_RETENTION_TIME=30d")
+}
+
+type fakeMonitoringRetirer struct {
+	retired []string
+}
+
+func (f *fakeMonitoringRetirer) Available() bool { return true }
+
+func (f *fakeMonitoringRetirer) Impact(context.Context, string) (references.MonitoringImpact, error) {
+	return references.MonitoringImpact{}, nil
+}
+
+func (f *fakeMonitoringRetirer) RetireDomain(_ context.Context, domainID string) error {
+	f.retired = append(f.retired, domainID)
+	return nil
+}
+
+func doV3JSON(t *testing.T, router http.Handler, method, path, token, body string) (int, map[string]any) {
+	t.Helper()
+	var reader *strings.Reader
+	if body == "" {
+		reader = strings.NewReader("")
+	} else {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, reader)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
+	return rec.Code, out
+}
+
+func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "v3_m06_e2e.db")
+	require.NoError(t, db.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
+
+	require.NoError(t, gormDB.Create(&models.Tenant{
+		ID: "tenant-a", Name: "租户 A", Status: models.TenantStatusActive,
+	}).Error)
+
+	retirer := &fakeMonitoringRetirer{}
+	prev := db.DB
+	db.DB = gormDB
+	t.Cleanup(func() { db.DB = prev })
+
+	router, err := setupV3Router("", m06.Options{Monitoring: retirer})
+	require.NoError(t, err)
+	adminToken := v3LoginToken(t, router, "admin", "admin123")
+
+	code, out := doV3JSON(t, router, http.MethodPost, "/api/v3/platform/network-domains", adminToken,
+		`{"name":"端到端采集域","description":"e2e","cloud_code":"PUB-TX","zone_type":"internet","domain_code":"e2e","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
+	require.Equal(t, http.StatusOK, code, out)
+	domainID := out["data"].(map[string]any)["id"].(string)
+	assert.Equal(t, "mc-e2e", domainID)
+
+	var tenantA models.Tenant
+	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenantA).Error)
+	assert.Equal(t, []string{"mc-e2e"}, tenantA.NetworkDomainIDs)
+
+	// Give the domain a runtime token so deletion can be checked for cleanup.
+	require.NoError(t, gormDB.Model(&models.NetworkDomain{}).Where("id = ?", domainID).
+		Update("token", "agent-secret").Error)
+
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/resources", adminToken,
+		`{"resource_category":"host","network_domain_id":"mc-e2e","env":"PRD","attributes":{"hostname":"web-e2e","instance_ip":"10.0.0.10","os_type":"linux"}}`)
+	require.Equal(t, http.StatusOK, code, out)
+	resourceID := out["data"].(map[string]any)["resource_id"].(string)
+
+	code, out = doV3JSON(t, router, http.MethodDelete, "/api/v3/platform/network-domains/"+domainID, adminToken, "")
+	require.Equal(t, http.StatusConflict, code, out)
+	assert.Equal(t, "conflict", out["errorType"])
+
+	code, out = doV3JSON(t, router, http.MethodPatch, "/api/v3/platform/network-domains/"+domainID+"/status", adminToken,
+		`{"status":"disabled"}`)
+	require.Equal(t, http.StatusOK, code, out)
+	impact := out["data"].(map[string]any)["impact"].(map[string]any)
+	assert.EqualValues(t, 1, impact["resource_count"])
+
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/resources", adminToken,
+		`{"resource_category":"host","network_domain_id":"mc-e2e","env":"PRD","attributes":{"hostname":"web-e2e-2","instance_ip":"10.0.0.11","os_type":"linux"}}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	code, out = doV3JSON(t, router, http.MethodDelete, "/api/v3/platform/resources/"+resourceID, adminToken, "")
+	require.Equal(t, http.StatusOK, code, out)
+
+	code, out = doV3JSON(t, router, http.MethodDelete, "/api/v3/platform/network-domains/"+domainID, adminToken, "")
+	require.Equal(t, http.StatusOK, code, out)
+	data := out["data"].(map[string]any)
+	assert.Equal(t, true, data["deleted"])
+	assert.EqualValues(t, 0, data["cascade_impact"].(map[string]any)["resource_count"])
+	assert.Equal(t, []string{domainID}, retirer.retired)
+
+	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenantA).Error)
+	assert.Empty(t, tenantA.NetworkDomainIDs, "domain deletion must clear tenant authorizations")
+
+	var deleted models.NetworkDomain
+	require.NoError(t, gormDB.Unscoped().Where("id = ?", domainID).First(&deleted).Error)
+	assert.True(t, deleted.DeletedAt.Valid)
+	assert.Empty(t, deleted.Token, "deletion must clear the agent token")
+	assert.Equal(t, models.RegistrationStatusRetired, deleted.RegistrationStatus)
+
+	var orphanResources int64
+	require.NoError(t, gormDB.Raw(`SELECT count(*) FROM resources r
+		LEFT JOIN network_domains d ON d.id = r.network_domain_id AND d.deleted_at IS NULL
+		WHERE r.deleted_at IS NULL AND d.id IS NULL`).Scan(&orphanResources).Error)
+	assert.Zero(t, orphanResources)
 }
