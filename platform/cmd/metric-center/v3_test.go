@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
+	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 )
 
 func TestResolveDatabaseMode(t *testing.T) {
@@ -64,7 +66,7 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	db.DB = gormDB
 	t.Cleanup(func() { db.DB = prev })
 
-	router, err := setupV3Router("")
+	router, err := setupV3Router("", m06.Options{})
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -180,7 +182,7 @@ func TestV3UserDisableInvalidatesSession(t *testing.T) {
 	db.DB = gormDB
 	t.Cleanup(func() { db.DB = prev })
 
-	router, err := setupV3Router("")
+	router, err := setupV3Router("", m06.Options{})
 	require.NoError(t, err)
 
 	adminToken := v3LoginToken(t, router, "admin", "admin123")
@@ -220,4 +222,39 @@ func TestV3UserDisableInvalidatesSession(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+opsToken)
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "disabling a user must invalidate existing sessions")
+}
+
+func TestV3StorageRoutesUseInjectedOptions(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "v3_storage.db")
+	require.NoError(t, db.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
+
+	prev := db.DB
+	db.DB = gormDB
+	t.Cleanup(func() { db.DB = prev })
+
+	envFile := filepath.Join(t.TempDir(), "prom-retention.env")
+	router, err := setupV3Router("", m06.Options{EnvFile: envFile})
+	require.NoError(t, err)
+	adminToken := v3LoginToken(t, router, "admin", "admin123")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v3/platform/storage-logs", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v3/platform/storage-logs/retention",
+		strings.NewReader(`{"time":"30d","size":"20GB"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	content, err := os.ReadFile(envFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "PROM_RETENTION_TIME=30d")
 }
