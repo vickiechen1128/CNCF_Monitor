@@ -274,7 +274,7 @@ tasks:
   # ---------------------------------------------------------------------------
   - id: T06-B4-1
     title: "用户 API：增删改查 / 状态 / 重置密码"
-    status: todo
+    status: done
     depends_on: [T06-B2-1]
     schema_change: none
     data_migration: none
@@ -291,7 +291,7 @@ tasks:
 
   - id: T06-B4-2
     title: "会话失效 + 最后管理员保护"
-    status: todo
+    status: done
     depends_on: [T06-B4-1]
     schema_change: none
     data_migration: none
@@ -306,7 +306,7 @@ tasks:
 
   - id: T06-B4-3
     title: "登录日志查询：账号 / 结果 / 时间范围"
-    status: todo
+    status: done
     depends_on: [T06-B2-1]
     schema_change: none
     data_migration: none
@@ -321,7 +321,7 @@ tasks:
 
   - id: T06-B4-4
     title: "用户 / 登录日志鉴权与敏感信息回归"
-    status: todo
+    status: done
     depends_on: [T06-B4-1, T06-B4-2, T06-B4-3]
     schema_change: none
     data_migration: none

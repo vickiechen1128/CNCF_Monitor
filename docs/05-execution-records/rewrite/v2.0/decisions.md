@@ -25,7 +25,7 @@
 | D18 | 2026-11-11 | M07 消费口径 | 网域可用 = 存在 + `status=enabled` + `domain_type IN (edge,collection)`；Excel 导入不再回落 `default`，空网域为行级错误 | M07 / M06 |
 | D19 | 2026-11-11 | M09/M11 边界 | 网域删除级联通过 `MonitoringRetirer` 端口；M09 v3 未落地时 no-op + `monitoring_available=false` | M06 / M09 / M11 |
 | D20 | 2026-11-11 | M06 v3 契约 | 分页 `{list,total,page,page_size}`；不可变字段（`cloud_code`/`tenant_id`/`domain_type`/`id`/`username`）出现变更即 400；删除被引用网域 409 | 前后端 / 契约 |
-| D21 | 2026-11-11 | 管理员安全 | 禁用/删除最后一个 active admin → 409；用户禁用/删除/改密后立即清会话 | 后端 / 安全 |
+| D21 | 2026-11-11 | 管理员安全 | 禁用/删除最后一个 active admin、把最后一个 active admin 降级为 user → 409；admin 删除（非最后）→ 400；用户禁用/删除/改密后事务内清会话 | 后端 / 安全 |
 | D22 | 2026-11-11 | 网域创建类型 | M06 v3 只创建 `edge` + `agent_pull`；`collection` 仅保留读兼容（供未来导入/迁移），创建请求显式传非 `edge` → 400 | M06 / 契约 |
 
 ---

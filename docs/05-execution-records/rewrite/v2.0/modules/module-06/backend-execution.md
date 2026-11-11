@@ -1,8 +1,8 @@
 # Module 06 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD
-> **状态**：B1–B3 完成，PG 迁移实测待环境
+> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD；B4 用户 / 登录日志
+> **状态**：B1–B4 完成，PG 迁移实测待环境
 
 ---
 
@@ -203,3 +203,59 @@ ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
 - `MonitoringRetirer` 暂为 `context` 级端口（非事务内），v2.0 no-op；M09 v3 落地后
   再评估是否需要事务/补偿语义。
 - PostgreSQL 仍未实测，沿用 `METRIC_CENTER_TEST_POSTGRES_DSN` skip。
+
+---
+
+## 8. B4 用户 / 登录日志
+
+### 8.1 变更清单
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B4-1 | `platform/modules/m06/domain/user.go` | 用户实体（不含 password hash）/ 状态 / 角色 / UUID 生成 / 409 错误 |
+| B4-1 | `repository/user_repository.go` | 列表/创建/资料更新/状态/密码/软删；`tenant_id` 固定 `platform_admin` |
+| B4-1 | `service/user_service.go`、`dto/user.go`、`handler/user_handler.go` | 用户 CRUD、bcrypt 8–72 字节、严格 JSON；DTO 不含 `password_hash` |
+| B4-2 | `repository/user_repository.go` | 禁用/重置密码/删除在事务内清 `sessions`；软删显式写 `deleted_at` |
+| B4-2 | `service/user_service.go` | 最后一个 active admin 禁用/删除/降级 → 409；进程内 mutex 串行化保护 |
+| B4-3 | `repository/login_log_repository.go`、`service/login_log_service.go`、`handler/login_log_handler.go` | username/success/start_time/end_time + 分页 + `created_at desc`；RFC3339 校验；不返回 message |
+| B4-4 | `platform/gateway/auth/repository.go` | 登录/会话查询增加 `deleted_at IS NULL`，删除用户后旧 token 即使残留也无法认证 |
+| B4-4 | `handler/user_handler_test.go`、`domain/user_test.go`、`cmd/metric-center/v3_test.go` | 用户契约、会话清理、最后管理员、登录日志筛选、旧 token 401 |
+
+### 8.2 契约与安全落点
+
+- 用户视图：`id/tenant_id/username/display_name/role/status/last_login_at/created_at`；
+  `password_hash` 不进入 DTO、错误信息与日志。
+- 创建：`username/display_name/password/role?`；`tenant_id`、`status` 出现即 400；
+  `role` 缺省 `user`；密码最小 8 字节、最大 72 字节（bcrypt 上限）。
+- 编辑：仅 `display_name/role`；`username`、`tenant_id`、`status`、`id` 出现即 400。
+- 禁用/删除/重置密码均在同一事务内删除该用户全部 `sessions`；删除普通用户为显式
+  `deleted_at` 软删。
+- 最后一个 active admin：
+  - 禁用 → 409；
+  - 删除 → 409（其他 admin 删除仍按 SRS 返回 400「请用禁用替代」）；
+  - 降级为 `user` → 409。
+- 登录日志：`username` 精确匹配、`success` 布尔、`start_time`/`end_time` RFC3339；
+  `start_time > end_time` → 400；响应不含 `message`。
+
+### 8.3 验证
+
+```text
+$ GOPROXY=off .tools/go/bin/go test -count=1 ./platform/modules/m06/... ./platform/cmd/metric-center/...
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/domain
+ok  github.com/metriccenter/metriccenter/platform/modules/m06/handler
+ok  github.com/metriccenter/metriccenter/platform/cmd/metric-center
+```
+
+覆盖点：
+
+- 创建/重复用户名/角色/密码长度/非法字段；列表筛选与分页；
+- 编辑不可变字段 400；最后管理员降级/禁用/删除 409；双 admin 时允许禁用其一；
+- 禁用、重置密码、删除后 `sessions` 归零；普通用户软删；admin 删除 400；
+- 登录日志倒序、username/success/时间窗筛选、非法时间 400、响应无 message；
+- v3 全链路：admin 创建用户 → 用户登录 → 禁用 → 旧 token 访问 M07 资源 401。
+
+### 8.4 债务
+
+- 最后管理员保护使用进程内 mutex；多实例部署时仍需数据库级锁/唯一约束兜底，
+  登记为 v2.0 已知债务。
+- 用户软删后用户名仍被唯一索引占用，不支持同名重建；如需复用需单独迁移策略。
