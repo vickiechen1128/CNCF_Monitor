@@ -23,6 +23,8 @@ type Options struct {
 	EnvFile string
 	// PromURL is the optional Prometheus base URL used by storage probes.
 	PromURL *url.URL
+	// Monitoring is the optional M09/M11 retirement port; nil means no-op.
+	Monitoring references.MonitoringRetirer
 }
 
 // Module wires M06 v3 repositories, services and handlers.
@@ -35,16 +37,15 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	if db == nil {
 		return nil, fmt.Errorf("m06: database is required")
 	}
-	_ = opts
 
 	tenantSvc := service.NewTenantService(repository.NewGORMRepository(db))
 	domainSvc := service.NewNetworkDomainService(
 		repository.NewGORMNetworkDomainRepository(db),
 		repository.NewGORMDictionaryRepository(db),
 		references.NewGORMM07Reader(db),
-		// M09/M11 v3 has not landed: retirement is a no-op and the impact view
-		// reports monitoring_available=false (D19).
-		references.NoopMonitoring{},
+		// M09/M11 v3 has not landed: the default no-op retirer reports
+		// monitoring_available=false (D19). Tests may inject a fake.
+		opts.Monitoring,
 	)
 	userSvc := service.NewUserService(repository.NewGORMUserRepository(db))
 	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(db))
