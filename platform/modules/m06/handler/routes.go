@@ -12,6 +12,7 @@ type Handlers struct {
 	Domains   *NetworkDomainHandler
 	Users     *UserHandler
 	LoginLogs *LoginLogHandler
+	Storage   *StorageHandler
 }
 
 // RegisterRoutes mounts the M06 v3 administrative routes.
@@ -46,4 +47,7 @@ func RegisterRoutes(platform *gin.RouterGroup, h Handlers) {
 	admin.DELETE("/users/:id", h.Users.Delete)
 
 	admin.GET("/login-logs", h.LoginLogs.List)
+
+	admin.GET("/storage-logs", h.Storage.GetOverview)
+	admin.PUT("/storage-logs/retention", h.Storage.UpdateRetention)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,7 +54,14 @@ func runV3(ctx context.Context) {
 		log.Fatalf("failed to seed v3 core data: %v", err)
 	}
 
-	r, err := setupV3Router(*webStaticDir)
+	promURL, err := parseURL(*prometheusURL)
+	if err != nil {
+		log.Fatalf("invalid prometheus.url: %v", err)
+	}
+	r, err := setupV3Router(*webStaticDir, m06.Options{
+		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
+		PromURL: promURL,
+	})
 	if err != nil {
 		log.Fatalf("failed to setup v3 router: %v", err)
 	}
@@ -64,7 +72,7 @@ func runV3(ctx context.Context) {
 
 // setupV3Router assembles the v3-only HTTP surface: shared middleware, the v3
 // module registry (system + business modules) and the optional SPA fallback.
-func setupV3Router(staticDir string) (*gin.Engine, error) {
+func setupV3Router(staticDir string, m06Opts m06.Options) (*gin.Engine, error) {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(httpx.RequestID())
@@ -75,7 +83,7 @@ func setupV3Router(staticDir string) (*gin.Engine, error) {
 	r.Use(auth.AuthMiddleware(auth.NewService(auth.NewRepository(db.DB))))
 
 	apiV3 := r.Group("/api/v3")
-	if err := mountV3Modules(apiV3.Group("/platform")); err != nil {
+	if err := mountV3Modules(apiV3.Group("/platform"), m06Opts); err != nil {
 		return nil, err
 	}
 
@@ -91,7 +99,7 @@ func setupV3Router(staticDir string) (*gin.Engine, error) {
 
 // mountV3Modules builds the v3 module registry and mounts every module under
 // the supplied platform group (expected prefix: /api/v3/platform).
-func mountV3Modules(platform *gin.RouterGroup) error {
+func mountV3Modules(platform *gin.RouterGroup, m06Opts m06.Options) error {
 	registry := module.NewRegistry()
 	systemModule := system.NewModule(db.DB, system.Options{
 		Driver:  db.DBDriver(),
@@ -102,7 +110,7 @@ func mountV3Modules(platform *gin.RouterGroup) error {
 	}
 	// Order: system → m06 → m07 → auth. M06 owns tenant/network-domain
 	// administration; M07 consumes the domain usability view.
-	m06Module, err := m06.NewModule(db.DB, m06.Options{})
+	m06Module, err := m06.NewModule(db.DB, m06Opts)
 	if err != nil {
 		return fmt.Errorf("register m06 v3 module: %w", err)
 	}

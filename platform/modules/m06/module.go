@@ -4,6 +4,7 @@ package m06
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -12,15 +13,16 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/service"
+	"github.com/metriccenter/metriccenter/platform/modules/m06/storage"
 )
 
-// Options carries optional deployment wiring for later M06 sub-modules
-// (storage settings / login-log cleanup). Empty values must degrade safely.
+// Options carries optional deployment wiring for M06 sub-modules. Empty values
+// must degrade safely (storage writes return an actionable 503).
 type Options struct {
-	// EnvFile is the optional .env path used by storage settings.
+	// EnvFile is the prom-retention.env path used by storage settings.
 	EnvFile string
 	// PromURL is the optional Prometheus base URL used by storage probes.
-	PromURL string
+	PromURL *url.URL
 }
 
 // Module wires M06 v3 repositories, services and handlers.
@@ -46,12 +48,14 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	)
 	userSvc := service.NewUserService(repository.NewGORMUserRepository(db))
 	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(db))
+	storageSvc := storage.NewService(storage.Options{EnvFile: opts.EnvFile, PromURL: opts.PromURL})
 
 	return &Module{handlers: handler.Handlers{
 		Tenants:   handler.NewTenantHandler(tenantSvc),
 		Domains:   handler.NewNetworkDomainHandler(domainSvc),
 		Users:     handler.NewUserHandler(userSvc),
 		LoginLogs: handler.NewLoginLogHandler(loginLogSvc),
+		Storage:   handler.NewStorageHandler(storageSvc),
 	}}, nil
 }
 
