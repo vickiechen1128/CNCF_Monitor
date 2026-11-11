@@ -19,6 +19,13 @@
 | D12 | 2026-11-11 | v3 schema 归属 | M00 拥有共享参考 / 身份表 baseline（`00000_m00_platform_core`，版本 0）；业务语义归 M06/M03；迁移文件按 dialect 后缀加载（`.sqlite.sql` / `.postgres.sql`）；不引入 goose 依赖，保留其标记 | 后端 / DB / 迁移 |
 | D13 | 2026-11-11 | 启动模式 | 默认 `legacy`（旧 v2 功能面 + 增量 v3 迁移）；`METRIC_CENTER_DB_MODE=v3` 或 `--database.mode=v3` 启用 v3-only（`InitV3` + `CoreV3` seed + 模块注册表，不挂 `/api/v2`、不启动旧后台任务） | 后端 / 部署 / 运维 |
 | D14 | 2026-11-11 | 过渡期认证 | v3-only 模式复用 legacy auth handler 适配为 `auth` 模块，登录 `POST /api/v3/platform/auth/login`；M03 v3 模块落地后替换，路径不变 | 后端 / 安全 |
+| D15 | 2026-11-11 | M06 模块归属 | 新建 `platform/modules/m06/`（tenant/user/network-domain/storage/log/auth 能力）；legacy `platform/admin/*` 冻结保留，只服务 v2 兼容窗口 | 后端 / 架构 |
+| D16 | 2026-11-11 | 网域 schema 演进 | 新增 `00004`；`management` 由服务层 + SQLite 触发器 / PostgreSQL CHECK 双重拒绝；历史行转 `edge` + `agent_pull` 并保留 ID；不再 seed `default` | DB / M06 / M07 |
+| D17 | 2026-11-11 | 租户-网域授权 | `network_domains.authorized_tenant_ids` 为唯一权威；`tenants.network_domain_ids` 为派生缓存，`seed.CoreV3` 启动对账（含登记 owner） | DB / M06 |
+| D18 | 2026-11-11 | M07 消费口径 | 网域可用 = 存在 + `status=enabled` + `domain_type IN (edge,collection)`；Excel 导入不再回落 `default`，空网域为行级错误 | M07 / M06 |
+| D19 | 2026-11-11 | M09/M11 边界 | 网域删除级联通过 `MonitoringRetirer` 端口；M09 v3 未落地时 no-op + `monitoring_available=false` | M06 / M09 / M11 |
+| D20 | 2026-11-11 | M06 v3 契约 | 分页 `{list,total,page,page_size}`；不可变字段（`cloud_code`/`tenant_id`/`domain_type`/`id`/`username`）出现变更即 400；删除被引用网域 409 | 前后端 / 契约 |
+| D21 | 2026-11-11 | 管理员安全 | 禁用/删除最后一个 active admin → 409；用户禁用/删除/改密后立即清会话 | 后端 / 安全 |
 
 ---
 

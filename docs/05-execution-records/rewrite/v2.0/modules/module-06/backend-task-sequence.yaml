@@ -1,0 +1,432 @@
+# Module 06 系统与平台管理（含多租户）后端 / 数据模型重写任务序列（轻量 L3，mode: rewrite）
+# 来源：docs/05-execution-records/rewrite/v2.0/modules/module-06/assessment.md
+# 上级章程：docs/05-execution-records/rewrite/v2.0/charter.md
+# 分支：rewrite/v2.0
+# 约束：允许 API v3 / DB schema / 数据模型演进；schema 变更必须 migration + 回滚 + 对账
+# 权威需求：docs/02-product-requirements/Modules/Module_06_Multi_Tenant_Requirements.md v1.0
+
+phase: "M06 Rewrite Phase 2（后端 / 数据模型）"
+module: "module-06-platform-administration"
+module_branch: "rewrite/v2.0"
+mode: "rewrite"
+milestone: "v2.0-m2"
+legacy_baseline: "v2.0-m0"
+api_version: "v3"
+owner: "orchestrator → backend-developer"
+
+verification:
+  targeted: "go test ./platform/modules/m06/... ./platform/modules/m07/... ./platform/db/... ./platform/cmd/metric-center/..."
+  phase_gate: "go test ./platform/... && go vet ./platform/..."
+  contract: "v3 golden + 旧 vs 新行为矩阵（assessment.md §2/§7）"
+  migration: "Up/Down 各 2 次 + FK/约束/索引检查 + 对账 SQL"
+  postgres: "METRIC_CENTER_TEST_POSTGRES_DSN 就绪后跑 TestMigrateV3Postgres"
+
+tasks:
+  # ---------------------------------------------------------------------------
+  # B0 评估与契约
+  # ---------------------------------------------------------------------------
+  - id: T06-B0-1
+    title: "现状评估 / 差异矩阵 / 决策提案"
+    status: done
+    depends_on: []
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "盘点 legacy tenant/user/networkdomain/storagelog/auth 的路由、字段、状态机与测试基线"
+      - "对照 M06 SRS v1.0 逐条给出保留/变更/删除"
+      - "提出 D15-D21：模块归属、00004 方案、default 退役、M07 解耦、M09/M11 端口、v3 信封、管理员保护"
+    acceptance: "assessment.md 完成；关键风险与待确认项列明"
+    verify: ["人工评审 assessment.md"]
+    commit_unit: "独立（文档）"
+
+  - id: T06-B0-2
+    title: "API v3 契约快照：租户 / 用户 / 登录日志 / 网域 / 存储"
+    status: todo
+    depends_on: [T06-B0-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "冻结 /api/v3/platform/* 路由、请求/响应 DTO、分页信封 {list,total,page,page_size}"
+      - "冻结不可变字段：cloud_code / tenant_id / domain_type / id / username；出现即 400"
+      - "冻结错误码：400/401/403/404/409/503；删除引用 409；删除 admin 用户 400"
+      - "输出 v2 → v3 字段/行为对照表，标注前端需适配点"
+    acceptance: "api-contract-snapshot-v3.md 评审通过；前端可据此并行"
+    verify: ["人工评审", "contract 字段 grep 核对"]
+    commit_unit: "独立（文档）"
+
+  # ---------------------------------------------------------------------------
+  # B1 schema / seed / M07 消费解耦
+  # ---------------------------------------------------------------------------
+  - id: T06-B1-1
+    title: "新增 00004：network_domains 类型语义收紧 + 数据归一 + 索引"
+    status: done
+    depends_on: [T06-B0-2]
+    schema_change: breaking
+    data_migration: in-place
+    migration_files:
+      - "platform/db/migrations/v3/00004_m06_domain_administration.sqlite.sql"
+      - "platform/db/migrations/v3/00004_m06_domain_administration.postgres.sql"
+    api_version: v3
+    scope:
+      - "management → edge；channel → agent_pull；清空中心直连运行态；default 名称去管理域文案"
+      - "SQLite：不重建表（避免 resources 外键在迁移事务内跟随旧表）；新增 BEFORE INSERT/UPDATE 触发器拒绝 management，保留原表/列/外键；开发库实际只允许 edge（v2.0 不产生 collection）"
+      - "PostgreSQL：DO 块删除 domain_type CHECK，新增命名约束（edge/collection）"
+      - "删除 idx_network_domains_single_management；新增 status / cloud_zone / login_logs 复合索引"
+      - "Down：删除触发器、恢复唯一部分索引；数据保持 edge（不回滚语义）"
+    acceptance: "空库 Up 成功；Down 成功；重复 Up 幂等；management 插入被触发器拒绝；resources FK 与数据完好"
+    verify:
+      - "go test ./platform/db/..."
+      - "migrate up/down/status（SQLite）"
+      - "对账 SQL：无 management、无孤儿资源"
+    commit_unit: "独立（schema）"
+
+  - id: T06-B1-2
+    title: "seed.CoreV3 去除 default 管理域 + 租户授权对账"
+    status: done
+    depends_on: [T06-B1-1]
+    schema_change: none
+    data_migration: reconcile
+    api_version: v3
+    scope:
+      - "删除 ensureDefaultManagementDomain / ErrNoManagementDomain 及 errors 依赖"
+      - "新增幂等 reconcile：以 network_domains.authorized_tenant_ids 为权威，重算 tenants.network_domain_ids"
+      - "platform_admin 作为登记归属始终包含在自身网域授权集合中"
+      - "更新 CoreV3 注释与 seed 测试：fresh v3 库 0 个网域"
+    acceptance: "CoreV3 连续执行 2 次无重复；租户授权缓存与网域权威字段集合一致"
+    verify: ["go test ./platform/db/... ./platform/db/seed/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B1-3
+    title: "M07 消费解耦：网域可用性校验 + 导入不再回落 default"
+    status: done
+    depends_on: [T06-B1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "dictionary.Repository：NetworkDomainExists → NetworkDomainUsable（存在 + enabled + edge/collection）"
+      - "service.ValidateResource 错误文案改为「网域未登记或已禁用，请先在平台管理登记/启用」"
+      - "importer/row.go 删除 network_domain_id=\"default\" 回落；空值返回行级错误"
+      - "M07 v3 测试夹具 management/local → edge/agent_pull；建议 fixture ID 从 default 改为 mc-demo"
+      - "新增测试：禁用网域拒绝新资源；导入空网域报错；存量资源读取不受影响"
+    acceptance: "M07 全部 v3 测试通过；无 default 回落路径"
+    verify: ["go test ./platform/modules/m07/..."]
+    commit_unit: "独立（feat + test）"
+
+  - id: T06-B1-4
+    title: "迁移 / seed / M07 回归与对账证据"
+    status: done
+    depends_on: [T06-B1-1, T06-B1-2, T06-B1-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "补充 00004 Up/Down 重复执行、FK、约束、索引测试"
+      - "更新 platform/db/migrate_test.go 夹具为 edge/agent_pull"
+      - "把对账 SQL 结果记录到 execution-record"
+    acceptance: "db + m07 测试全绿；对账无异常"
+    verify: ["go test ./platform/db/... ./platform/modules/m07/..."]
+    commit_unit: "独立（test）"
+
+  # ---------------------------------------------------------------------------
+  # B2 模块骨架 + 租户
+  # ---------------------------------------------------------------------------
+  - id: T06-B2-1
+    title: "m06 模块骨架 + v3 注册 + RequireAdmin 门"
+    status: todo
+    depends_on: [T06-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "新建 platform/modules/m06/{module,domain,dto,repository,service,handler,references,storage}"
+      - "NewModule(db, Options{EnvFile, PromURL})；Options 允许空值降级"
+      - "v3.go 注册 m06；顺序 system → m06 → m07 → auth"
+      - "管理组挂 auth.RequireAdmin()；错误统一 httpapi.WriteError"
+      - "更新 v3 meta 测试模块列表与路由冒烟"
+    acceptance: "v3-only 启动 meta 含 m06；未登录 401；user 角色访问管理接口 403"
+    verify: ["go test ./platform/cmd/metric-center/...", "v3 路由冒烟"]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B2-2
+    title: "租户 API：列表 / 详情 / 有限编辑"
+    status: todo
+    depends_on: [T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET /tenants（status/keyword + 分页）；GET /tenants/:id"
+      - "PUT /tenants/:id 仅 name/multi_site_enabled；无字段或不可变字段出现 → 400"
+      - "POST /tenants、PATCH /tenants/:id/status → 403（MVP）"
+      - "DTO：id/name/network_domain_ids/multi_site_enabled/is_platform_admin/status/时间戳"
+      - "MVP 不强制 multi_site_enabled 单网域约束（v0.2 租户生命周期时启用）"
+    acceptance: "租户 CRUD 契约测试通过；403/400/404 语义正确"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B2-3
+    title: "租户-网域授权读取一致性"
+    status: todo
+    depends_on: [T06-B1-2, T06-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "租户视图的 network_domain_ids 只读，来源于网域权威字段/对账结果"
+      - "PUT /tenants 拒绝 network_domain_ids/is_platform_admin/status/id 入体"
+      - "测试：既有授权、软删网域、移除授权后的视图"
+    acceptance: "租户侧不成为第二写入口；集合与网域字段一致"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（test）"
+
+  # ---------------------------------------------------------------------------
+  # B3 网域
+  # ---------------------------------------------------------------------------
+  - id: T06-B3-1
+    title: "网域领域模型 / ID 生成 / 校验规则"
+    status: todo
+    depends_on: [T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "domain_type 仅 edge/collection；M06 创建固定 edge；management → 400"
+      - "ID：<deploy_code>-<domain_code>；METRIC_CENTER_DEPLOY_CODE 默认 mc；domain_code 缺省随机"
+      - "domain_code 规则 [a-z0-9-]；保留 default 防止与历史行混淆"
+      - "name trim 非空、≤100、大小写不敏感唯一；description ≤500"
+      - "zone_type 必须存在于 zone_types；cloud_code 必须为启用 cloud_dicts 条目"
+      - "authorized_tenant_ids 校验租户存在且 active；缺省 = [platform_admin]"
+    acceptance: "领域单测覆盖全部校验分支；错误可由 httpapi 映射"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat + test）"
+
+  - id: T06-B3-2
+    title: "网域登记 / 列表 / 详情"
+    status: todo
+    depends_on: [T06-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "POST /network-domains：transaction 写网域 + 同步租户授权"
+      - "GET /network-domains：status/keyword/cloud_code/zone_type/tenant_id + 分页 + created_at asc"
+      - "GET /network-domains/:id：行政字段视图 + domain_type_label"
+      - "响应不包含 channel/token/agent_type/remote_write_url/运行态字段"
+      - "软删 ID 重登记返回 409；名称冲突 409"
+    acceptance: "创建/列表/详情契约测试通过；分页信封与 M07 v3 一致"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B3-3
+    title: "网域编辑 / 启用禁用"
+    status: todo
+    depends_on: [T06-B3-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "PUT 仅 name/description/zone_type/authorized_tenant_ids"
+      - "cloud_code/tenant_id/domain_type/id/status 出现 → 400（不静默忽略）"
+      - "PATCH status：enabled/disabled；禁用返回 impact（resource_count / managed_edge_agent_count / has_online_agents）"
+      - "取消 management 特判；禁用幂等；启用恢复"
+      - "authorized_tenant_ids 变更同步租户缓存（transaction）"
+    acceptance: "不可变字段/禁用影响/授权同步测试通过"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B3-4
+    title: "网域删除 / 影响面 / 跨模块引用端口"
+    status: todo
+    depends_on: [T06-B3-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "references.M07：resources 按 network_domain_id 计数 + 样例（resource_id/category/name）"
+      - "references.MonitoringRetirer：RetireDomain(tx, id)；默认 noop + MonitoringAvailable=false"
+      - "DELETE：M07 引用 >0 → 409 + 引用摘要；无引用 → 软删 + 清 token + 端口调用 + 清租户授权"
+      - "GET /network-domains/:id/impact 供前端二次确认"
+      - "删除响应 cascade_impact 与 impact 口径一致"
+    acceptance: "有引用 409、无引用软删、fake retirer 调用、租户授权清理测试通过"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat + test）"
+
+  - id: T06-B3-5
+    title: "网域 HTTP 契约 / 鉴权 / golden 回归"
+    status: todo
+    depends_on: [T06-B3-1, T06-B3-2, T06-B3-3, T06-B3-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "admin 全链路 + user 403 + 未登录 401"
+      - "字段反馈：无 token/password_hash；domain_type_label 固定「采集节点域」"
+      - "错误文案可执行（登记/禁用/删除/字段不可变）"
+    acceptance: "golden/路由测试全绿"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（test）"
+
+  # ---------------------------------------------------------------------------
+  # B4 用户 / 登录日志
+  # ---------------------------------------------------------------------------
+  - id: T06-B4-1
+    title: "用户 API：增删改查 / 状态 / 重置密码"
+    status: todo
+    depends_on: [T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET /users（keyword/role/status + 分页）；POST /users；PUT /users/:id（display_name/role）"
+      - "PATCH /users/:id/status；PUT /users/:id/password；DELETE /users/:id"
+      - "username 创建后不可变；tenant_id 固定 platform_admin；bcrypt 8–72 字节"
+      - "admin 不可删除（400）；普通用户软删"
+      - "DTO 不含 password_hash；密码/哈希不进日志"
+    acceptance: "用户契约与安全测试通过"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B4-2
+    title: "会话失效 + 最后管理员保护"
+    status: todo
+    depends_on: [T06-B4-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "SessionRepository.DeleteByUserID：禁用/删除/重置密码后清 sessions"
+      - "禁止禁用/删除最后一个 active admin（409）"
+      - "测试：会话计数归零；双 admin 时可禁用其中一个；单 admin 被拒"
+    acceptance: "会话与管理员保护测试通过"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat + test）"
+
+  - id: T06-B4-3
+    title: "登录日志查询：账号 / 结果 / 时间范围"
+    status: todo
+    depends_on: [T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET /login-logs：username、success、start_time、end_time、分页、created_at desc"
+      - "RFC3339 解析失败 → 400；不返回 message"
+      - "索引：idx_login_logs_username_created_at / idx_login_logs_success"
+    acceptance: "筛选/分页/倒序测试通过"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B4-4
+    title: "用户 / 登录日志鉴权与敏感信息回归"
+    status: todo
+    depends_on: [T06-B4-1, T06-B4-2, T06-B4-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "user 角色访问 /users*、/login-logs* → 403"
+      - "序列化 grep：password_hash 不出现"
+      - "删除/禁用后旧 token 立即 401"
+    acceptance: "安全回归测试全绿"
+    verify: ["go test ./platform/modules/m06/..."]
+    commit_unit: "独立（test）"
+
+  # ---------------------------------------------------------------------------
+  # B5 存储与日志
+  # ---------------------------------------------------------------------------
+  - id: T06-B5-1
+    title: "m06/storage：保留策略 / 磁盘占用 / 日志轮转"
+    status: todo
+    depends_on: [T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "从 legacy storagelog 迁移校验/比对/原子写逻辑到 m06/storage"
+      - "期望值 vs 运行时 flags 归一化比对；pending_restart"
+      - "磁盘占用只读；logrotate/journald 探测"
+      - "不提供重启 Prometheus 接口"
+    acceptance: "校验/比对/原子写测试通过；legacy 行为不变"
+    verify: ["go test ./platform/modules/m06/...", "go test ./platform/admin/storagelog/..."]
+    commit_unit: "独立（feat）"
+
+  - id: T06-B5-2
+    title: "存储与日志 v3 路由 + Options 注入"
+    status: todo
+    depends_on: [T06-B5-1, T06-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET /storage-logs；PUT /storage-logs/retention"
+      - "Options{EnvFile, PromURL} 由 v3.go 注入；空 EnvFile → PUT 503 可执行提示"
+      - "Prometheus 不可用降级 runtime_available=false"
+    acceptance: "路由/降级/错误提示测试通过"
+    verify: ["go test ./platform/modules/m06/... ./platform/cmd/metric-center/..."]
+    commit_unit: "独立（feat）"
+
+  # ---------------------------------------------------------------------------
+  # B6 集成 / 验收 / 文档
+  # ---------------------------------------------------------------------------
+  - id: T06-B6-1
+    title: "v3-only 端到端集成：登录 → 登记 → M07 → 禁用 → 删除"
+    status: todo
+    depends_on: [T06-B3-5, T06-B4-4, T06-B5-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "httptest + 真实迁移 + seed.CoreV3 + 完整 v3 路由"
+      - "admin 登录 → 建租户授权网域 → M07 建资源 → 禁用后 M07 拒绝 → 资源存在时删除 409 → 删资源后删除成功"
+      - "断言 tenant.network_domain_ids 清理、fake retirer 调用、token 清空"
+    acceptance: "端到端主链路通过；对账 SQL 无异常"
+    verify: ["go test ./platform/cmd/metric-center/..."]
+    commit_unit: "独立（test）"
+
+  - id: T06-B6-2
+    title: "决策落档 / 验收矩阵 / handover"
+    status: todo
+    depends_on: [T06-B6-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "decisions.md 登记 D15-D21（最终口径）"
+      - "api-contract-snapshot-v3.md 冻结并标注 v2 差异"
+      - "assessment.md 更新验证记录与债务；输出 handover"
+      - "SRS §9 验收逐条映射到测试证据"
+    acceptance: "文档与代码一致；无未登记契约变更"
+    verify: ["人工评审", "grep 契约字段"]
+    commit_unit: "独立（文档）"
+
+  - id: T06-B6-3
+    title: "全量门禁 + PostgreSQL 迁移门禁 + 性能记录"
+    status: todo
+    depends_on: [T06-B6-1, T06-B6-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "make test-platform / go vet ./platform/..."
+      - "SQLite 迁移 Up/Down 各 2 次"
+      - "METRIC_CENTER_TEST_POSTGRES_DSN 就绪时跑 PG 迁移测试；未就绪登记 open"
+      - "NFR-10 手工首屏压测并归档（1 万资源 / 100 网域 / 10 万登录日志）"
+    acceptance: "门禁全绿或明确记录环境阻塞；性能数据归档"
+    verify: ["make test-platform", "go vet ./platform/...", "go test ./platform/db/..."]
+    commit_unit: "独立（docs / test）"
+
+# -----------------------------------------------------------------------------
+# 关键依赖与排序
+# -----------------------------------------------------------------------------
+# B0-1 → B0-2 → B1-1 → B1-2 → B1-3 → B1-4
+#                              └→ B2-1 → B2-2 → B2-3
+#                                        └→ B3-1 → B3-2 → B3-3 → B3-4 → B3-5
+#                                        └→ B4-1 → B4-2 → B4-3 → B4-4
+#                                        └→ B5-1 → B5-2
+# B3-5 + B4-4 + B5-2 → B6-1 → B6-2 → B6-3
+#
+# 可并行：B3 / B4 / B5 在 B2-1 完成后互相独立；M07 解耦（B1-3）可与 B2 并行。
+# 不建议并行：B1-1/B1-2 与 B2 的 schema/seed 依赖；B6-1 必须最后。
