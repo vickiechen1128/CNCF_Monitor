@@ -38,7 +38,7 @@
 
 | 模块 | PRD | 代码 | 测试 | 迁移 | handover | 状态 |
 |---|---|---|---|---|---|---|
-| M00 | todo | todo | todo | todo | todo | todo |
+| M00 | todo | done | done | done | doing | doing |
 | M07 | doing | done | done | none | doing | doing |
 | M06 | todo | todo | todo | todo | todo | todo |
 | M01 | todo | todo | todo | todo | todo | todo |
@@ -72,15 +72,28 @@ platform/modules/m07/
 ### 运行
 
 ```bash
-# SQLite 开发/测试
+# SQLite 开发/测试：默认 legacy 模式（旧 v2 功能面 + 增量 v3 schema）
 METRIC_CENTER_DB_DRIVER=sqlite METRIC_CENTER_DB_DSN=metric_center_v3.db make migrate
 make run-metric-center
 
-# PostgreSQL（需 M00/M06 参考表就绪后）
+# v3-only 模式（SQLite 开发 / PostgreSQL 生产）：只挂载 /api/v3，不启动旧后台任务
+METRIC_CENTER_DB_MODE=v3 \
+METRIC_CENTER_DB_DRIVER=sqlite \
+METRIC_CENTER_DB_DSN=metric_center_v3.db \
+make run-metric-center
+
+# PostgreSQL（00000 baseline 已建共享参考表与认证表）
+METRIC_CENTER_DB_MODE=v3 \
 METRIC_CENTER_DB_DRIVER=postgres \
 METRIC_CENTER_DB_DSN='postgres://...' \
 make migrate
 ```
+
+启动模式也可用 `--database.mode=v3`；flag 优先于环境变量。
+
+v3 系统端点：`/api/v3/platform/health`（存活）、`/api/v3/platform/ready`（DB + migration）、
+`/api/v3/platform/meta`（版本 / driver / 模块列表），均为匿名探针。
+过渡期认证复用 legacy handler：`POST /api/v3/platform/auth/login`。
 
 ### API
 
@@ -101,6 +114,8 @@ make test-postgres   # 需 METRIC_CENTER_TEST_POSTGRES_DSN
 - 多租户查询过滤（S-1）；
 - `connection_secret_ref` 解析 / 加密（S-3）；
 - 审计写链路（S-6）；
-- PG v3-only 启动依赖 M00/M06 参考表与认证表；
+- v3-only 的认证面仍复用 legacy handler（M03 v3 模块落地后替换）；
+- PostgreSQL 迁移集成测试需 `METRIC_CENTER_TEST_POSTGRES_DSN` 环境（当前仅 SQLite 实测）；
+- `network_domains.ip_c_id_rs` 物理列名沿用 v2，v3 网域模型落地时用 migration 改名；
 - v2/v3 并行窗口结束后删除旧 v2 包。
 

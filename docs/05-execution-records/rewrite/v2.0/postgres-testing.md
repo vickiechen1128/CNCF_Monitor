@@ -53,10 +53,30 @@ make migrate-down
 
 ```bash
 METRIC_CENTER_TEST_POSTGRES_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
-  go test ./platform/db -run TestMigrateV3Postgres -v
+  make test-postgres
 ```
 
+测试覆盖：应用全部迁移 → 校验 00000 core 表 + M07 表 → 连续 4 次 Down（00003 → 00002 → 00001 → 00000）。
 未设置 `METRIC_CENTER_TEST_POSTGRES_DSN` 时测试自动 skip，不影响 SQLite 快速测试。
+
+---
+
+## 3.1 v3-only 启动冒烟（PostgreSQL）
+
+```bash
+METRIC_CENTER_DB_MODE=v3 \
+METRIC_CENTER_DB_DRIVER=postgres \
+METRIC_CENTER_DB_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
+METRIC_CENTER_ADMIN_PASSWORD='<strong-password>' \
+make run-metric-center
+```
+
+验收：
+
+- `GET /api/v3/platform/health` → 200
+- `GET /api/v3/platform/ready` → 200，`driver=postgres`，`schema_version=3`
+- `GET /api/v3/platform/meta` → 200，`modules` 含 `system` / `m07` / `auth`
+- `POST /api/v3/platform/auth/login` → 200，返回 token
 
 ---
 

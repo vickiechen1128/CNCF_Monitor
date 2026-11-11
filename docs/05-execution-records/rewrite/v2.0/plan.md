@@ -28,7 +28,7 @@
 
 | 顺序 | 模块 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | M00 基础设施 / 数据模型 | todo | 先定共享模型、迁移工具链（goose 或等价）、API v3 基础 |
+| 1 | M00 基础设施 / 数据模型 | done | 共享错误/迁移 runner/00000 core baseline/seed/模块注册表/system 端点/双模式启动完成；SQLite 全量验证通过，PG 集成测试待环境 |
 | 2 | M07 监控对象管理 | doing | 前端 Phase 1 + 后端 B0–B6 完成；遗留 S-1/S-3/S-6（多租户、secret ref、审计写链路）待后续关闭 |
 | 3 | M06 多租户 / 网域 | todo | 依赖 M00 数据模型 |
 | 4 | M01 指标采集中心 | todo | 依赖 M07 / M06 |
@@ -88,10 +88,13 @@ legacy_baseline: "v1.0.0"
 
 ---
 
-## 6. 当前聚焦：M07
+## 6. 当前聚焦：M00 → M06
 
-- 前端评估：`modules/module-07/assessment.md`
-- 前端任务：`modules/module-07/task-sequence.yaml`
-- 后端评估：`modules/module-07/backend-assessment.md`
-- 后端任务：`modules/module-07/backend-task-sequence.yaml`
+- M00 评估：`modules/module-00/assessment.md`
+- M00 任务：`modules/module-00/backend-task-sequence.yaml`
+- M07 前端评估：`modules/module-07/assessment.md`
+- M07 前端任务：`modules/module-07/task-sequence.yaml`
+- M07 后端评估：`modules/module-07/backend-assessment.md`
+- M07 后端任务：`modules/module-07/backend-task-sequence.yaml`
+- 下一步：M06 在 M00 baseline 上重写租户 / 网域 / 字典语义；M03 替换过渡期 auth 适配器。
 - 注意：原“行为等价 / 不改 schema / 不改 PRD”约束已失效；以本计划与章程为准。

@@ -1,0 +1,88 @@
+mode: rewrite
+module: module-00
+milestone: v2.0-m2
+schema_change: additive
+migration_files:
+  - platform/db/migrations/v3/00000_m00_platform_core.sqlite.sql
+  - platform/db/migrations/v3/00000_m00_platform_core.postgres.sql
+data_migration: none
+api_version: v3
+legacy_baseline: "v1.0.0"
+
+tasks:
+  - id: B0
+    title: 工作流与标准基线
+    status: done
+    artifacts:
+      - docs/05-execution-records/rewrite/v2.0/charter.md
+      - docs/05-execution-records/rewrite/v2.0/decisions.md
+    verify: []
+    notes: 已完成于 M07 启动前。
+
+  - id: B1
+    title: 共享错误分类与 HTTP envelope
+    status: done
+    artifacts:
+      - platform/foundation/apierror/apierror.go
+      - platform/foundation/httpapi/errors.go
+      - platform/api/response/response.go
+    verify:
+      - go test ./platform/foundation/apierror ./platform/foundation/httpapi
+      - go test ./platform/modules/m07/...
+    notes: M07 domain 错误实现 ErrorKind；handler 统一委托 httpapi.WriteError。
+
+  - id: B2
+    title: v3 迁移 runner（checksum / dialect / DownTo）
+    status: done
+    artifacts:
+      - platform/db/migrate.go
+      - platform/cmd/migrate/main.go
+    verify:
+      - go test ./platform/db
+    notes: 兼容 goose 标记，不引入 goose 依赖；版本 0 baseline 可回滚。
+
+  - id: B3
+    title: platform core baseline schema
+    status: done
+    artifacts:
+      - platform/db/migrations/v3/00000_m00_platform_core.sqlite.sql
+      - platform/db/migrations/v3/00000_m00_platform_core.postgres.sql
+    verify:
+      - go test ./platform/db -run TestMigrateV3Lifecycle
+    notes: 10 张共享表；v3 语义归 M06/M03，M00 只保证可移植 baseline。
+
+  - id: B4
+    title: v3 最小 seed
+    status: done
+    artifacts:
+      - platform/db/seed/core_v3.go
+      - platform/db/seed_core_v3_test.go
+    verify:
+      - go test ./platform/db -run TestCoreV3SeedIdempotent
+    notes: 幂等；默认管理域仅在缺失时创建。
+
+  - id: B5
+    title: 模块注册表 / 共享中间件 / system 端点 / v3-only 启动
+    status: done
+    artifacts:
+      - platform/foundation/module/registry.go
+      - platform/foundation/httpx/middleware.go
+      - platform/foundation/system/system.go
+      - platform/cmd/metric-center/v3.go
+      - platform/cmd/metric-center/main.go
+    verify:
+      - go test ./platform/foundation/... ./platform/cmd/metric-center
+      - go vet ./platform/...
+    notes: legacy 与 v3 共用 registry；v3-only 不启动旧后台任务。
+
+  - id: B6
+    title: 测试收口与执行记录
+    status: done
+    artifacts:
+      - docs/05-execution-records/rewrite/v2.0/modules/module-00/assessment.md
+      - docs/05-execution-records/rewrite/v2.0/modules/module-00/backend-task-sequence.yaml
+      - docs/05-execution-records/rewrite/v2.0/plan.md
+      - docs/05-execution-records/rewrite/v2.0/handover.md
+    verify:
+      - make test-platform
+    notes: PostgreSQL 集成测试待环境（见 assessment M00-1）。
