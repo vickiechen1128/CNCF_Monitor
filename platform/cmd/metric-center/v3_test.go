@@ -77,6 +77,7 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		// Business routes stay behind the global auth gate.
 		{"/api/v3/platform/resources", http.StatusUnauthorized},
 		{"/api/v3/platform/tenants", http.StatusUnauthorized},
+		{"/api/v3/platform/network-domains", http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -84,6 +85,11 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		assert.Equal(t, tc.want, rec.Code, tc.path)
 		assert.NotEmpty(t, rec.Header().Get("X-Request-ID"), "request id header on %s", tc.path)
 	}
+
+	anonRec := httptest.NewRecorder()
+	router.ServeHTTP(anonRec, httptest.NewRequest(http.MethodPost, "/api/v3/platform/network-domains",
+		strings.NewReader(`{"name":"x"}`)))
+	assert.Equal(t, http.StatusUnauthorized, anonRec.Code, "mutations are behind the global auth gate")
 
 	metaRec := httptest.NewRecorder()
 	router.ServeHTTP(metaRec, httptest.NewRequest(http.MethodGet, "/api/v3/platform/meta", nil))
@@ -119,6 +125,12 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/tenants", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/network-domains", nil)
 	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
