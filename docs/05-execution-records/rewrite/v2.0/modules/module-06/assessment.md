@@ -319,26 +319,40 @@ FROM network_domains WHERE id = 'default';
 
 ### 7.2 SRS 验收映射
 
-| SRS 条目 | 验证方式 | 任务 |
-|---|---|---|
-| 中心不直接采集；无 management 文案/取值 | 路由/DTO grep + DB 约束测试 + 迁移对账 | B1-1、B3-2、B6-2 |
-| 不再预置 `default` | `TestCoreV3SeedIdempotent` 断言 0 个网域 | B1-2 |
-| 登记不询问中心可达性 | 创建请求不接受 `domain_type` 选择；响应 label 固定 | B3-1/B3-2 |
-| `cloud_code`/`tenant_id` 不可变 | 编辑请求出现即 400 + 测试 | B3-3 |
-| 禁用 = 行政冻结 | 禁用后 M07 创建/导入失败；存量资源可读 | B1-3、B3-3、B6-1 |
-| 删除有引用拒绝、无引用软删 + 级联 | 409 + 引用摘要；fake retirer 断言调用；租户授权清理 | B3-4、B6-1 |
-| 租户 MVP 仅查看/编辑 | POST/PATCH 403；GET/PUT 正常 | B2-2 |
-| 用户 CRUD/admin 不可删/会话失效 | handler 测试 + sessions 计数 | B4-1/B4-2 |
-| 登录日志筛选 | username/success/时间范围测试 | B4-3 |
-| 存储保留策略 | 校验/原子写/待重启状态 | B5-1/B5-2 |
-| 管理接口 RequireAdmin | user 角色访问返回 403 | B2-1、B4-4 |
-| 密码/Token 不泄露 | DTO 无 `password_hash`；网域 DTO 无 `token` | B6-2 |
+| SRS 条目 | 验证方式 | 任务 | 证据 |
+|---|---|---|---|
+| 中心不直接采集；无 management 文案/取值 | 路由/DTO grep + DB 约束测试 + 迁移对账 | B1-1、B3-2、B6-2 | `TestMigrateV3M06DomainAdministration`、`TestNetworkDomainCreateAndList` |
+| 不再预置 `default` | `TestCoreV3SeedIdempotent` 断言 0 个网域 | B1-2 | `platform/db/seed_core_v3_test.go` |
+| 登记不询问中心可达性 | 创建请求仅接受 `edge`；响应 label 固定 | B3-1/B3-2 | `TestNetworkDomainCreateAndList`、`TestGenerateDomainID` |
+| `cloud_code`/`tenant_id` 不可变 | 编辑请求出现即 400 + 测试 | B3-3 | `TestNetworkDomainUpdate` |
+| 禁用 = 行政冻结 | 禁用后 M07 创建/导入失败；存量资源可读 | B1-3、B3-3、B6-1 | `TestNetworkDomainStatus`、`TestV3M06EndToEndDomainLifecycle` |
+| 删除有引用拒绝、无引用软删 + 级联 | 409 + 引用摘要；fake retirer 断言调用；租户授权清理 | B3-4、B6-1 | `TestNetworkDomainDelete`、`TestV3M06EndToEndDomainLifecycle` |
+| 租户 MVP 仅查看/编辑 | POST/PATCH 403；GET/PUT 正常 | B2-2 | `TestTenantLifecycleEndpointsForbidden`、`TestTenantUpdateOnlyMutableFields` |
+| 用户 CRUD/admin 不可删/会话失效 | handler 测试 + sessions 计数 | B4-1/B4-2 | `TestUserCreateListGet`、`TestUserResetPasswordAndDelete` |
+| 最后管理员保护 | 禁用/删除/降级 → 409；双 admin 允许 | B4-2 | `TestUserStatusAndLastAdminGuard`、`TestUserUpdateAndRoleGuards` |
+| 登录日志筛选 | username/success/时间范围测试 | B4-3 | `TestLoginLogsFiltersAndShape` |
+| 存储保留策略 | 校验/原子写/待重启状态 | B5-1/B5-2 | `TestUpdateRetentionWritesAndReportsPending`、`TestStorageOverviewAndRetentionUpdate` |
+| 管理接口 RequireAdmin | user 角色访问返回 403 | B2-1、B4-4 | `TestUserAndLoginLogAdminGate`、`TestNetworkDomainReadsAllowUsersButMutationsRequireAdmin`、`TestStorageRequiresAdmin` |
+| 密码/Token 不泄露 | DTO 无 `password_hash`；网域 DTO 无 `token` | B6-2 | `TestUserCreateListGet`、`TestNetworkDomainCreateAndList` |
 
 ### 7.3 非自动化验收
 
 - NFR-10 列表首屏 ≤1s：在目标数据集（1 万资源/100 网域/10 万登录日志）做一次手工压测并归档。
 - NFR-11 用户语言：前端文案检查；后端 `domain_type_label` 固定业务语言。
 - NFR-12 错误可执行：逐条检查 400/409 文案包含下一步指引。
+
+### 7.4 实施结果（B1–B6）
+
+| 项 | 结果 |
+|---|---|
+| 迁移 / seed | SQLite 00004 Up/Down/重复执行、触发器、FK、索引、授权对账全绿 |
+| M07 解耦 | `NetworkDomainUsable`、导入空网域行级错误、夹具迁移全绿 |
+| 租户 / 网域 / 用户 / 登录日志 / 存储 | m06 单测与 HTTP 契约全绿 |
+| v3 端到端 | 登录 → 建域授权 → M07 建资源 → 禁用拒绝 → 删除 409 → 删资源 → 删域成功 |
+| 鉴权 | 匿名 401、user 403、admin 全链路；禁用/删除用户后旧 token 401 |
+| 契约 | `api-contract-snapshot-v3.md` 冻结 |
+| PostgreSQL | 未实测；`TestMigrateV3Postgres` 按 `METRIC_CENTER_TEST_POSTGRES_DSN` skip（open） |
+| NFR-10 压测 | 未执行（open） |
 
 ---
 
@@ -365,7 +379,8 @@ FROM network_domains WHERE id = 'default';
 | D18 | M07 消费口径 | 网域校验 = 存在 + enabled + edge/collection；导入不再回落 `default` |
 | D19 | M09/M11 边界 | 删除级联通过 `MonitoringRetirer` 端口；M09 v3 未落地时 no-op + `monitoring_available=false` |
 | D20 | v3 契约 | 分页 `{list,total,page,page_size}`；删除被引用网域 409；不可变字段出现即 400 |
-| D21 | 管理员安全 | 禁用/删除最后一个 active admin → 409；用户禁用/删除/改密立即清会话 |
+| D21 | 管理员安全 | 禁用/删除最后一个 active admin、把最后一个 active admin 降级为 user → 409；admin 删除（非最后）→ 400；用户禁用/删除/改密事务内清会话 |
+| D22 | 网域创建类型 | v3.0 只创建 `edge` + `agent_pull`；`collection` 仅读兼容；创建请求显式传非 `edge` → 400 |
 
 ### 已确认（进入 B1 前）
 
@@ -407,3 +422,4 @@ METRIC_CENTER_DB_DSN=/tmp/mc-v3.db \
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v0.1 | 2026-11-11 | 初稿：基于 M06 SRS v1.0 完成现状评估、差异矩阵、schema 方案、跨模块边界与验收矩阵 |
+| v1.0 | 2026-11-11 | B1–B6 实施收口：SQLite 触发器方案、D22、验收证据、API 契约快照冻结、PostgreSQL/NFR-10 open |

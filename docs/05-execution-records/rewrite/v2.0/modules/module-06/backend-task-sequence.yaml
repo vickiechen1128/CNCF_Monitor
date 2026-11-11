@@ -373,7 +373,7 @@ tasks:
   # ---------------------------------------------------------------------------
   - id: T06-B6-1
     title: "v3-only 端到端集成：登录 → 登记 → M07 → 禁用 → 删除"
-    status: todo
+    status: done
     depends_on: [T06-B3-5, T06-B4-4, T06-B5-2]
     schema_change: none
     data_migration: none
@@ -388,7 +388,7 @@ tasks:
 
   - id: T06-B6-2
     title: "决策落档 / 验收矩阵 / handover"
-    status: todo
+    status: done
     depends_on: [T06-B6-1]
     schema_change: none
     data_migration: none
@@ -404,7 +404,7 @@ tasks:
 
   - id: T06-B6-3
     title: "全量门禁 + PostgreSQL 迁移门禁 + 性能记录"
-    status: todo
+    status: done
     depends_on: [T06-B6-1, T06-B6-2]
     schema_change: none
     data_migration: none

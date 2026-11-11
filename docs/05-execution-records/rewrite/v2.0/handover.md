@@ -40,7 +40,7 @@
 |---|---|---|---|---|---|---|
 | M00 | todo | done | done | done | doing | doing |
 | M07 | doing | done | done | none | doing | doing |
-| M06 | todo | todo | todo | todo | todo | todo |
+| M06 | doing | done | done | done | doing | doing |
 | M01 | todo | todo | todo | todo | todo | todo |
 | M09 | todo | todo | todo | todo | todo | todo |
 | M02 | todo | todo | todo | todo | todo | todo |
@@ -119,3 +119,56 @@ make test-postgres   # 需 METRIC_CENTER_TEST_POSTGRES_DSN
 - `network_domains.ip_c_id_rs` 物理列名沿用 v2，v3 网域模型落地时用 migration 改名；
 - v2/v3 并行窗口结束后删除旧 v2 包。
 
+
+---
+
+## 7. M06 v3 交接说明
+
+### 入口
+
+```text
+platform/modules/m06/
+├── module.go          # 装配入口（Options{EnvFile,PromURL,Monitoring}）
+├── domain/            # tenant / network_domain / user / login_log
+├── dto/               # v3 契约视图
+├── repository/        # tenant / network_domain / dictionary / user / login_log
+├── service/           # tenant / network_domain / user / login_log
+├── handler/           # 路由 + HTTP handlers
+├── references/        # M07 引用计数、M09/M11 MonitoringRetirer 端口
+└── storage/           # 保留策略 / 磁盘占用 / 日志轮转
+```
+
+旧 `platform/admin/{tenant,user,networkdomain,storagelog}` 为 v2 legacy，兼容窗口内冻结。
+
+### 运行
+
+- v3-only：`METRIC_CENTER_DB_MODE=v3`（或 `--database.mode=v3`）。
+- 登录：`POST /api/v3/platform/auth/login`（过渡期复用 legacy auth）。
+- 存储保留策略写入 `--config.dir` 下 `prom-retention.env`；Prometheus 重启后生效。
+- 网域删除级联端口默认 no-op，`monitoring_available=false`；M09 v3 落地后注入实现。
+
+### API
+
+- 新线：`/api/v3/platform/*`
+- 契约：`modules/module-06/api-contract-snapshot-v3.md`
+- 旧线：`/api/v2/platform/*`（兼容窗口内保留，行为不变）
+
+### 测试
+
+```bash
+GOPROXY=off .tools/go/bin/go test ./platform/db/...
+GOPROXY=off .tools/go/bin/go test ./platform/modules/m07/...
+GOPROXY=off .tools/go/bin/go test ./platform/modules/m06/...
+GOPROXY=off .tools/go/bin/go test ./platform/cmd/metric-center/...
+GOPROXY=off .tools/go/bin/go vet ./platform/...
+```
+
+### 已知遗留
+
+- PostgreSQL 迁移集成测试需 `METRIC_CENTER_TEST_POSTGRES_DSN`，当前 SQLite 实测、PG 未实测；
+- 最后管理员保护为进程内 mutex，多实例部署需数据库级锁；
+- 用户软删后用户名仍被唯一索引占用，不支持同名重建；
+- M09/M11 v3 未落地，网域删除级联为端口 + no-op；
+- `/zone-types`、`/cloud-dict` 仍由 M07 注册，v3.1 字典模块化时迁移；
+- NFR-10（1 万资源 / 100 网域 / 10 万登录日志首屏）压测未执行；
+- v3 前端尚未改造，需按新契约接入。

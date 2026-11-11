@@ -1,8 +1,8 @@
 # Module 06 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD；B4 用户 / 登录日志；B5 存储与日志
-> **状态**：B1–B5 完成，PG 迁移实测待环境
+> **范围**：B1 schema / seed / M07 消费解耦；B2 模块骨架 + 租户；B3 网域行政 CRUD；B4 用户 / 登录日志；B5 存储与日志；B6 集成 / 验收 / 交接
+> **状态**：B1–B6 完成；PostgreSQL 迁移与 NFR-10 压测 open
 
 ---
 
@@ -307,3 +307,59 @@ admin/user 鉴权、v3 路由 Options 注入后真实落盘。
 - legacy `/api/v2/platform/storage-logs*` 保持原实现与测试不变；M06 v3 是并行实现，
   两者共享 `prom-retention.env` 格式与归一化口径。
 - 未提供重启 Prometheus 接口（决策 64）。
+
+---
+
+## 10. B6 集成 / 验收 / 交接
+
+### 10.1 端到端主链路（B6-1）
+
+`TestV3M06EndToEndDomainLifecycle`（`platform/cmd/metric-center/v3_test.go`）使用
+真实 SQLite 迁移 + `seed.CoreV3` + 完整 v3 路由：
+
+1. admin 登录；
+2. 创建 `mc-e2e` 网域并授权 `platform_admin` / `tenant-a`；
+3. 断言 `tenant-a.network_domain_ids` 已同步；
+4. M07 创建 host 资源；
+5. 删除网域 → 409（引用 1）；
+6. 禁用网域 → 200 + `impact.resource_count=1`；
+7. 禁用后 M07 再建资源 → 400；
+8. 删除资源 → 200；
+9. 删除网域 → 200，fake `MonitoringRetirer` 被调用，`cascade_impact.resource_count=0`；
+10. 断言租户授权缓存清空、token 清空、`registration_status=retired`、无孤儿资源。
+
+### 10.2 契约与交接（B6-2）
+
+- `api-contract-snapshot-v3.md`：冻结 M06 v3 全部端点、字段、错误码与 v2 差异；
+- `assessment.md`：更新 D21/D22、SRS 验收证据、实施结果与 open 项；
+- `handover.md`：新增 M06 入口、运行、API、测试与已知遗留。
+
+### 10.3 门禁（B6-3）
+
+```text
+$ GOPROXY=off .tools/go/bin/go test -count=1 ./platform/...
+所有包 ok（含 legacy admin/* 与 m06/m07）
+
+$ GOPROXY=off .tools/go/bin/go vet ./platform/...
+无输出
+
+$ migrate -driver sqlite -dsn <tmp> up/status/down 各 2 轮
+0..4 全部 applied；重复 Up 幂等；Down 后可再次 Up
+```
+
+| 项 | 结果 |
+|---|---|
+| 全量测试 | 通过 |
+| go vet | 通过 |
+| SQLite 迁移 Up/Down ×2 | 通过 |
+| PostgreSQL 迁移 | 未执行（无 `METRIC_CENTER_TEST_POSTGRES_DSN`，open） |
+| NFR-10 首屏压测 | 未执行（open，需目标数据集与部署环境） |
+
+### 10.4 交接结论
+
+M06 v3 代码、迁移、测试、契约与交接文档已完成；上线前仍需：
+
+1. 在 PostgreSQL 环境跑迁移与 `TestMigrateV3Postgres`；
+2. 按 NFR-10 做一次首屏压测；
+3. M09 v3 落地后注入真实 `MonitoringRetirer`；
+4. 前端按 v3 契约改造后联调。
