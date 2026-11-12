@@ -2,7 +2,7 @@
 
 > **文档类型**：需求规格说明书（SRS）/ 产品需求文档（PRD）
 > **目标读者**：产品经理、运维经理、运维架构师、后端/前端开发工程师、测试工程师
-> **文档版本**：v1.2
+> **文档版本**：v1.4
 > **状态**：初稿（待评审）
 > **编写日期**：2026-11-11
 > **对应模块**：Module 09 — 网域接入与查询中心（由 Module 09、Module 11、Module 02 合并而来）
@@ -83,7 +83,7 @@
 ### 3.4 配置同步服务（简化版）
 
 - 后台监听 M01 / M07 源数据变化，按网域生成配置产物；
-- 产物形态：Prometheus 主配置、targets 文件、规则文件、拨测文件等；
+- 边缘配置包产物形态：Prometheus 主配置（scrape_configs + file_sd 引用）、targets 文件、拨测文件等；**不含规则文件**——告警/记录规则统一在中心 Prometheus 集中求值（D35），由本模块在中心侧生成 rules 产物并 reload；
 - 通过边缘协议供采集节点拉取；
 - 保留当前版本与最近 3~5 份只读历史，不支持人工确认与回滚；
 - 生成失败时不覆盖当前生效版本，避免配置断点。
@@ -218,7 +218,7 @@
 #### FR-10：自动配置生成
 
 - 监听 M01（ScrapeJobs / Rules）与 M07（Resources / LabelTemplates）数据变化；
-- 按网域生成 Prometheus 配置产物（主配置、targets、规则、拨测文件等）；
+- 按网域生成 Prometheus 配置产物（主配置、targets、拨测文件等）；规则不下发到边缘，统一由中心 Prometheus 集中求值（D35）：本模块在中心侧生成 rules 产物，经 promtool 校验后原子写入并触发中心 Prometheus reload（`/-/reload`），失败不覆盖当前生效版本；
 - 生成失败时保留当前生效版本，避免监控断点。
 
 #### FR-11：配置包供采集节点拉取
@@ -241,7 +241,7 @@
 
 #### FR-14：M08 告警配置同步
 
-- M08 可通过调用本模块的配置同步能力，将 `alertmanager.yml` 纳入统一配置包或独立下发通道；
+- M08 通过 `AlertmanagerSnapshotSink` 端口将生效的 `alertmanager.yml` 快照写入本模块，仅用于统一配置视图与版本留痕，**不扇出到任何网域配置包**（D31）；
 - 本模块不为 M08 单独维护变更确认流程。
 
 ### 5.4 目标状态查询
@@ -249,7 +249,7 @@
 #### FR-15：目标状态融合查询
 
 - 提供 `/api/v1/targets` 接口，融合以下数据源：
-  - 中心 Prometheus `/api/v1/targets`（如中心存在本地 scrape）；
+  - 中心 Prometheus `/api/v1/targets`（保留兼容；按 NFR-01 中心不发起 scrape，正常为空）；
   - 边缘采集节点心跳上报的 target 快照。
 - 返回字段包括：job、instance、network_domain、health、lastScrape、lastError、instance_name 等。
 
@@ -266,6 +266,8 @@
 ### 5.5 实时指标查询
 
 #### FR-18：Prometheus 查询代理
+
+> API 版本口径（D38）：下列为 Prometheus 原生语义子路径，实施期统一挂载在 `/api/v3/platform/*` 前缀下，权威路径以 api-contract-snapshot-v3 为准。
 
 - 提供以下接口，代理到中心 Prometheus：
   - `POST /api/v1/query`
@@ -339,7 +341,7 @@
 #### NFR-07：Token 安全
 
 - Token 使用高强度随机字符串；
-- 数据库中可存储哈希或明文仅用于校验，但任何接口/日志不返回明文；
+- 数据库**仅存哈希**（SHA-256），明文仅在纳管成功/重置时完整展示一次，任何接口/日志不返回明文（D39）；
 - Token 重置/废止立即生效。
 
 #### NFR-08：数据隔离
@@ -455,8 +457,8 @@
 - [ ] 保留最近 3~5 份只读配置历史，不支持回滚。
 - [ ] `/api/v1/targets` 融合中心 targets 与边缘 target 快照，按授权网域过滤。
 - [ ] `/api/v1/health/coverage` 返回采集覆盖率三态，供 M07 消费。
-- [ ] `/api/v1/query*` 代理 Prometheus 原生接口，自动注入租户/网域标签，返回统一 envelope。
-- [ ] M08 可通过本模块的配置同步能力下发 `alertmanager.yml`。
+- [ ] `/api/v1/query*` 代理 Prometheus 原生接口，自动注入 `network_domain_id` 网域标签（不注入 `tenant`），返回统一 envelope。
+- [ ] M08 生效的 `alertmanager.yml` 快照同步到本模块留痕，不进入任何网域配置包。
 
 ### 9.2 非功能验收
 
@@ -480,8 +482,8 @@
 | Module 06 | 网域行政数据 | 本模块只消费已登记网域，不创建/编辑行政字段 |
 | Module 01 | 采集策略与规则 | 本模块监听 M01 数据变化生成配置包 |
 | Module 07 | 监控对象与标签模板 | 本模块监听 M07 数据变化生成 targets 与标签 |
-| Module 08 | 告警收敛配置 | M08 调用本模块能力下发 alertmanager.yml |
-| Module 03 | 认证与授权 | 查询与目标状态接口需注入租户/网域上下文 |
+| Module 08 | 告警收敛配置 | M08 通过 `AlertmanagerSnapshotSink` 写入生效配置快照，仅留痕不扇出边缘（D31） |
+| Module 06 | 租户与授权 | 查询与目标状态接口按当前租户解析被授权网域集（D28/D33） |
 
 ### 10.2 风险与应对
 
@@ -489,7 +491,7 @@
 |------|------|----------|
 | 取消配置确认/回滚后，错误配置可能直接上线 | 监控断点或误告警 | 加强生成期校验；失败不覆盖当前版本；保留历史用于快速定位 |
 | 中心节点所在网域也必须部署采集节点 | MVP 最小部署成本增加 | 在中心网域默认安装一个采集节点，可与中心进程同机或同段部署 |
-| M08 alertmanager.yml 同步口径 | 告警通知链路中断 | M08 明确调用本模块配置同步能力，接口契约单独约定 |
+| M08 alertmanager.yml 同步口径 | 告警通知链路中断 | 按 D31：M08 通过 `AlertmanagerSnapshotSink` 端口写入快照留痕，不扇出边缘 |
 | 历史 `default` / `local` 通道数据迁移 | 升级后状态不一致 | 提供迁移脚本：将原 default 域转为采集节点域，或退役后重建 |
 | 边缘 target 快照与中心 targets 口径不一致 | 目标状态显示错误 | 定义融合优先级与去重键；快照缺失时降级展示 |
 
@@ -502,6 +504,8 @@
 | v1.0 | 2026-11-11 | — | 初稿：合并 Module 09/11/02 为「网域接入与查询中心」，取消配置变更确认/回滚，统一为采集节点域，中心网域也需部署采集节点，保留简化版配置同步与目标/指标查询能力 |
 | v1.1 | 2026-11-11 | chenrt（owner 授权） | 修正数据隔离口径（FR-20 / NFR-08 / §8.5 / 验收清单）：查询与目标状态隔离由「`tenant` + `network_domain` 双重标签注入」改为「服务端按当前租户解析被授权网域集 + 注入 `network_domain` 单标签约束，不注入 `tenant`」。原因：写入侧 `external_labels` 仅含 `network_domain_id`，数据面无 `tenant` 标签，注入会导致全量查询匹配空。详见 `docs/05-execution-records/rewrite/v2.0/decisions.md` D28 与审计记录 |
 | v1.2 | 2026-11-12 | chenrt（owner 授权） | 统一注入标签用词：查询/目标隔离注入的标签由 `network_domain` 更正为数据面真实标签 **`network_domain_id`**（写入侧 `external_labels` 实际键名）；API 参数/响应字段名（`network_domain`、`meta.network_domains`）保持不变。详见 D33 与审计记录 |
+| v1.3 | 2026-11-12 | chenrt（owner 授权） | 按 D35 回填：告警/记录规则统一在中心 Prometheus 集中求值，边缘配置包不再含规则文件，本模块在中心侧生成 rules 产物并 reload；按 D31 明确 `alertmanager.yml` 仅快照留痕、不扇出网域配置包；修正 §9.1 验收清单中「注入租户/网域标签」的 v1.1 漏改残留；FR-15 移除「中心本地 scrape」假设 |
+| v1.4 | 2026-11-12 | chenrt（owner 授权） | 按 D39：NFR-07 收紧为「Token 数据库仅存哈希（SHA-256），明文仅在纳管/重置时完整展示一次」；按 D38：FR-18 加注 API 版本口径（语义子路径实施期统一挂 `/api/v3/platform/*` 前缀） |
 
 ---
 
