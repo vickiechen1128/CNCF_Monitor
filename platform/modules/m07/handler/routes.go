@@ -24,8 +24,14 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 	}
 
 	platform.GET("/business-domains", dictionaries.ListBusinessDomains)
+	platform.POST("/business-domains", dictionaries.CreateBusinessDomain)
+	platform.PUT("/business-domains/:code", dictionaries.UpdateBusinessDomain)
 	platform.GET("/application-dict", dictionaries.ListApplications)
+	platform.POST("/application-dict", dictionaries.CreateApplication)
+	platform.PUT("/application-dict/:app_code", dictionaries.UpdateApplication)
 	platform.GET("/platform-dict", dictionaries.ListPlatforms)
+	platform.POST("/platform-dict", dictionaries.CreatePlatform)
+	platform.PUT("/platform-dict/:platform_code", dictionaries.UpdatePlatform)
 	platform.GET("/cloud-dict", dictionaries.ListClouds)
 	platform.GET("/zone-types", dictionaries.ListZoneTypes)
 	platform.GET("/os-options", dictionaries.ListOSOptions)

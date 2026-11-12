@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +31,43 @@ type CoverageCounts struct {
 	Collecting           int64
 	DeployedNotCollected int64
 	NotMonitored         int64
+}
+
+// Coverage states for the per-resource report (contract §7.2).
+const (
+	StateCollecting        = "collecting"
+	StatePartialCollecting = "partial_collecting"
+	StatePendingDown       = "pending_down"
+	StateNotMonitored      = "not_monitored"
+)
+
+// CoverageItem is one resource's collection state.
+type CoverageItem struct {
+	ResourceID       string
+	ResourceCategory string
+	InstanceName     string
+	MonitorState     string
+	Health           *string
+	LastError        string
+}
+
+// CoverageSummary aggregates the per-resource coverage states.
+type CoverageSummary struct {
+	Total             int64
+	Collecting        int64
+	PartialCollecting int64
+	PendingDown       int64
+	NotMonitored      int64
+	CoverageRate      float64
+}
+
+// CoverageReport is the per-resource coverage page (contract §7.2).
+type CoverageReport struct {
+	Items    []CoverageItem
+	Total    int64
+	Page     int
+	PageSize int
+	Summary  CoverageSummary
 }
 
 // UpstreamError marks a Prometheus failure (HTTP 502 at the edge).
@@ -128,6 +167,141 @@ func (s *QueryService) Coverage(ctx context.Context, actor Actor) (CoverageCount
 		DeployedNotCollected: degraded,
 		NotMonitored:         notMonitored,
 	}, nil
+}
+
+// CoverageReport builds the per-resource coverage items and summary for the
+// caller's authorized domains (contract §7.2). The `state` filter is applied
+// before pagination so `total` and `summary` stay consistent with the filter.
+func (s *QueryService) CoverageReport(ctx context.Context, actor Actor, filter repository.CoverageFilter, state string, page, pageSize int) (CoverageReport, error) {
+	allowed, err := s.AllowedDomains(ctx, actor)
+	if err != nil {
+		return CoverageReport{}, err
+	}
+	filter.Allowed = allowed
+	resources, err := s.repo.ListCoverageResources(ctx, filter)
+	if err != nil {
+		return CoverageReport{}, err
+	}
+	targets, err := s.repo.ListCoverageTargets(ctx, filter)
+	if err != nil {
+		return CoverageReport{}, err
+	}
+
+	freshAfter := s.now().Add(-s.freshness)
+	targetsByResource := make(map[string][]repository.CoverageTargetRow, len(targets))
+	for _, target := range targets {
+		targetsByResource[target.ResourceID] = append(targetsByResource[target.ResourceID], target)
+	}
+
+	items := make([]CoverageItem, 0, len(resources))
+	for _, resource := range resources {
+		items = append(items, buildCoverageItem(resource, targetsByResource[resource.ResourceID], freshAfter))
+	}
+	if state != "" {
+		filtered := items[:0]
+		for _, item := range items {
+			if item.MonitorState == state {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ResourceID < items[j].ResourceID })
+
+	total := int64(len(items))
+	summary := summarizeCoverage(items)
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	start := (page - 1) * pageSize
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return CoverageReport{
+		Items:    items[start:end],
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+		Summary:  summary,
+	}, nil
+}
+
+// buildCoverageItem derives the four-state display from the target snapshots
+// attached to one resource.
+func buildCoverageItem(resource repository.CoverageResourceRow, targets []repository.CoverageTargetRow, freshAfter time.Time) CoverageItem {
+	item := CoverageItem{
+		ResourceID:       resource.ResourceID,
+		ResourceCategory: resource.ResourceCategory,
+		InstanceName:     resource.InstanceName,
+		MonitorState:     StateNotMonitored,
+	}
+	if len(targets) == 0 {
+		return item
+	}
+
+	var up, down, unknown int
+	for _, target := range targets {
+		switch {
+		case target.Health == "up" && !target.LastReportAt.Before(freshAfter):
+			up++
+		case target.Health == "down":
+			down++
+		default:
+			unknown++
+		}
+		if item.LastError == "" {
+			item.LastError = target.LastError
+		}
+	}
+
+	switch {
+	case up > 0 && down+unknown == 0:
+		item.MonitorState = StateCollecting
+		item.Health = healthPtr("up")
+	case up > 0:
+		item.MonitorState = StatePartialCollecting
+		item.Health = healthPtr("down")
+	case down > 0:
+		item.MonitorState = StatePendingDown
+		item.Health = healthPtr("down")
+	default:
+		item.MonitorState = StatePendingDown
+		item.Health = healthPtr("unknown")
+	}
+	return item
+}
+
+func healthPtr(value string) *string { return &value }
+
+// summarizeCoverage aggregates the four states; coverage_rate counts resources
+// that have at least one target snapshot, regardless of scrape success.
+func summarizeCoverage(items []CoverageItem) CoverageSummary {
+	summary := CoverageSummary{Total: int64(len(items))}
+	for _, item := range items {
+		switch item.MonitorState {
+		case StateCollecting:
+			summary.Collecting++
+		case StatePartialCollecting:
+			summary.PartialCollecting++
+		case StatePendingDown:
+			summary.PendingDown++
+		default:
+			summary.NotMonitored++
+		}
+	}
+	if summary.Total > 0 {
+		covered := summary.Total - summary.NotMonitored
+		summary.CoverageRate = math.Round(float64(covered)/float64(summary.Total)*100) / 100
+	}
+	return summary
 }
 
 // Proxy forwards a Prometheus-compatible request with the domain matcher

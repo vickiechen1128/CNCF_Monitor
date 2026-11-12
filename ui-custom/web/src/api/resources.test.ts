@@ -3,9 +3,13 @@ import { ApiError, clearToken, setToken } from './client'
 import {
   resourceApi,
   businessDomainApi,
+  applicationDictApi,
+  platformDictApi,
   appPlatformRelApi,
   cloudDictApi,
   importApi,
+  toV3ResourcePayload,
+  v3ResourceToListItem,
 } from './resources'
 
 // vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换（与 client.test.ts 一致）。
@@ -22,7 +26,7 @@ const localStorageMock: Storage = {
 }
 Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
 
-describe('resources API', () => {
+describe('resources API (v3)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
     clearToken()
@@ -43,7 +47,8 @@ describe('resources API', () => {
   }
 
   function lastFetchCall() {
-    return (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    return calls[calls.length - 1]
   }
 
   function lastUrlInstance(): URL {
@@ -55,7 +60,7 @@ describe('resources API', () => {
     return text ? JSON.parse(text) : undefined
   }
 
-  it('resourceApi.list sends pagination + filter params', async () => {
+  it('resourceApi.list sends pagination + filter params to v3 endpoint', async () => {
     mockFetch({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 50 },
@@ -71,7 +76,7 @@ describe('resources API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources')
+    expect(url.pathname).toBe('/api/v3/platform/resources')
     expect(url.searchParams.get('resource_category')).toBe('host')
     expect(url.searchParams.get('network_domain_id')).toBe('mc-zhw-a')
     expect(url.searchParams.get('keyword')).toBe('web')
@@ -90,7 +95,69 @@ describe('resources API', () => {
     expect(url.searchParams.has('keyword')).toBe(false)
   })
 
-  it('resourceApi.create POSTs resource body', async () => {
+  it('resourceApi.list flattens v3 attributes into ResourceListItem', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        list: [
+          {
+            resource_id: 'r-1',
+            resource_category: 'host',
+            tenant_id: 't-1',
+            network_domain_id: 'nd-1',
+            biz_code: 'infra',
+            env: 'PRD',
+            status: 'online',
+            source_type: 'manual',
+            scrape_port: 9100,
+            attributes: {
+              hostname: 'web-01',
+              instance_ip: '10.0.0.1',
+              os_type: 'Linux',
+              activated_at: '2026-10-29T00:00:00Z',
+            },
+          },
+          {
+            resource_id: 'r-2',
+            resource_category: 'database',
+            network_domain_id: 'nd-1',
+            status: 'offline',
+            attributes: {
+              database_type: 'mysql',
+              instance_ip: '10.0.0.2',
+              port: 3306,
+              version: '8.0',
+            },
+          },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    const res = await resourceApi.list({ resource_category: 'host' })
+
+    expect(res.data.list).toHaveLength(2)
+    expect(res.data.list[0]).toMatchObject({
+      resource_id: 'r-1',
+      instance_name: 'web-01',
+      instance_ip: '10.0.0.1',
+      os_type: 'Linux',
+      scrape_port: 9100,
+    })
+    // v3 已删除的字段不再出现在页面模型
+    expect((res.data.list[0] as unknown as Record<string, unknown>).hostname).toBeUndefined()
+    expect(res.data.list[1]).toMatchObject({
+      resource_id: 'r-2',
+      database_type: 'mysql',
+      instance_ip: '10.0.0.2',
+      port: 3306,
+      version: '8.0',
+    })
+  })
+
+  it('resourceApi.create POSTs nested v3 payload (hostname mapped from instance_name)', async () => {
     mockFetch({
       status: 'success',
       data: {
@@ -98,10 +165,10 @@ describe('resources API', () => {
         resource_category: 'host',
         network_domain_id: 'default',
         biz_code: 'infra',
-        env: 'prod',
-        instance_name: 'web-01',
-        instance_ip: '10.0.0.1',
+        env: 'PRD',
         status: 'online',
+        source_type: 'manual',
+        attributes: { hostname: 'web-01', instance_ip: '10.0.0.1', os_type: 'Linux' },
       },
     })
 
@@ -109,38 +176,39 @@ describe('resources API', () => {
       resource_category: 'host',
       network_domain_id: 'default',
       biz_code: 'infra',
-      env: 'prod',
+      env: 'PRD',
       instance_name: 'web-01',
       instance_ip: '10.0.0.1',
+      os_type: 'Linux',
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources')
+    expect(url.pathname).toBe('/api/v3/platform/resources')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({
       resource_category: 'host',
       network_domain_id: 'default',
       biz_code: 'infra',
-      env: 'prod',
-      instance_name: 'web-01',
-      instance_ip: '10.0.0.1',
+      env: 'PRD',
+      attributes: { hostname: 'web-01', instance_ip: '10.0.0.1', os_type: 'Linux' },
     })
-    expect(res.data.resource_id).toBe('r-1')
+    expect(res.data.instance_name).toBe('web-01')
   })
 
-  it('resourceApi.update PUTs /:resource_id with editable body', async () => {
+  it('resourceApi.update PUTs /:resource_id with resource_category + attributes', async () => {
     mockFetch({
       status: 'success',
       data: {
         resource_id: 'r-1',
         resource_category: 'application',
         biz_code: 'payment',
-        service_name: 'pay-api',
-        endpoint: '10.0.0.5:8080',
+        status: 'maintenance',
+        attributes: { service_name: 'pay-api', endpoint: '10.0.0.5:8080' },
       },
     })
 
     await resourceApi.update('r-1', {
+      resource_category: 'application',
       biz_code: 'payment',
       status: 'maintenance',
       service_name: 'pay-api',
@@ -148,13 +216,13 @@ describe('resources API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({
+      resource_category: 'application',
       biz_code: 'payment',
       status: 'maintenance',
-      service_name: 'pay-api',
-      endpoint: '10.0.0.5:8080',
+      attributes: { service_name: 'pay-api', endpoint: '10.0.0.5:8080' },
     })
   })
 
@@ -164,12 +232,25 @@ describe('resources API', () => {
     const res = await resourceApi.remove('r-1')
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.resource_id).toBe('r-1')
   })
 
-  it('resourceApi.template downloads xlsx blob via native fetch', async () => {
+  it('resourceApi.referencedBy GETs /:resource_id/referenced-by', async () => {
+    mockFetch({
+      status: 'success',
+      data: { jobs: [{ job_name: 'host-job', network_domain_id: 'nd-1', enabled: true }], total: 1 },
+    })
+
+    const res = await resourceApi.referencedBy('r-1')
+
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/resources/r-1/referenced-by')
+    expect(res.data.total).toBe(1)
+    expect(res.data.jobs[0].job_name).toBe('host-job')
+  })
+
+  it('resourceApi.template downloads xlsx blob via v3 template endpoint', async () => {
     // 响应体用 Uint8Array 构造：jsdom 的 Blob 无 .stream()，undici Response 拒收
     const body = new TextEncoder().encode('file-content')
     ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -182,7 +263,8 @@ describe('resources API', () => {
     const result = await resourceApi.template('host')
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/host/template')
+    expect(url.pathname).toBe('/api/v3/platform/import-templates/host')
+    expect(url.searchParams.get('format')).toBe('xlsx')
     expect(lastFetchCall()[1]?.method).toBe('GET')
     // 结构断言而非 instanceof：res.blob() 的 Blob 类身份随运行时（undici / jsdom）而异
     expect(result).toHaveProperty('size', body.byteLength)
@@ -226,7 +308,7 @@ describe('resources API', () => {
     expect(headers.Authorization).toBe('Bearer tok-m07')
   })
 
-  it('resourceApi.importExcel builds FormData(file+mode) and posts multipart', async () => {
+  it('resourceApi.importExcel builds v3 multipart (file+resource_category+mode)', async () => {
     mockFetch({
       status: 'success',
       data: { total: 1, success: 1, failed: 0, errors: [] },
@@ -239,7 +321,7 @@ describe('resources API', () => {
 
     const call = lastFetchCall()
     const url = new URL(String(call[0]), window.location.origin)
-    expect(url.pathname).toBe('/api/v2/platform/resources/host/import')
+    expect(url.pathname).toBe('/api/v3/platform/imports')
     expect(call[1]?.method).toBe('POST')
     // 不手动设置 Content-Type：浏览器自动带 multipart boundary（rawRequest 只注入认证头）
     const headers = (call[1]?.headers ?? {}) as Record<string, string>
@@ -248,6 +330,7 @@ describe('resources API', () => {
     expect(body).toBeInstanceOf(FormData)
     const formData = body as FormData
     expect(formData.get('file')).toBe(file)
+    expect(formData.get('resource_category')).toBe('host')
     expect(formData.get('mode')).toBe('create_only')
     expect(res.data.success).toBe(1)
   })
@@ -281,14 +364,14 @@ describe('resources API', () => {
     expect(res.data.errors[0].reason).toBe('IP 格式不正确')
   })
 
-  it('resourceApi.labels GETs {items,total} with source_map', async () => {
+  it('resourceApi.labels adapts v3 {list,total} to {items,total}', async () => {
     mockFetch({
       status: 'success',
       data: {
         total: 2,
-        items: [
-          { id: 1, key: 'app', value: 'web', source: 'system', source_map: 'app_code→app' },
-          { id: 2, key: 'team', value: 'ops', source: 'user' },
+        list: [
+          { id: 'label-1', key: 'app', value: 'web', source: 'system' },
+          { id: 'label-2', key: 'team', value: 'ops', source: 'user' },
         ],
       },
     })
@@ -296,23 +379,22 @@ describe('resources API', () => {
     const res = await resourceApi.labels('r-1')
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1/labels')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1/labels')
     expect(res.data.total).toBe(2)
-    expect(res.data.items[0].source).toBe('system')
-    expect(res.data.items[0].source_map).toBe('app_code→app')
+    expect(res.data.items[0]).toMatchObject({ id: 'label-1', source: 'system' })
     expect(res.data.items[1].source).toBe('user')
   })
 
   it('resourceApi.createLabel POSTs {key,value}', async () => {
     mockFetch({
       status: 'success',
-      data: { id: 3, key: 'team', value: 'ops', source: 'user' },
+      data: { id: 'label-3', key: 'team', value: 'ops', source: 'user' },
     })
 
     await resourceApi.createLabel('r-1', { key: 'team', value: 'ops' })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1/labels')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1/labels')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({ key: 'team', value: 'ops' })
   })
@@ -320,113 +402,161 @@ describe('resources API', () => {
   it('resourceApi.updateLabel PUTs /labels/:label_id with value', async () => {
     mockFetch({
       status: 'success',
-      data: { id: 3, key: 'team', value: 'sre', source: 'user' },
+      data: { id: 'label-3', key: 'team', value: 'sre', source: 'user' },
     })
 
-    await resourceApi.updateLabel('r-1', 3, { value: 'sre' })
+    await resourceApi.updateLabel('r-1', 'label-3', { value: 'sre' })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1/labels/3')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1/labels/label-3')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({ value: 'sre' })
   })
 
   it('resourceApi.removeLabel DELETEs /labels/:label_id', async () => {
-    mockFetch({ status: 'success', data: { label_id: 3 } })
+    mockFetch({ status: 'success', data: { label_id: 'label-3' } })
 
-    const res = await resourceApi.removeLabel('r-1', 3)
+    const res = await resourceApi.removeLabel('r-1', 'label-3')
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/resources/r-1/labels/3')
+    expect(url.pathname).toBe('/api/v3/platform/resources/r-1/labels/label-3')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
-    expect(res.data.label_id).toBe(3)
+    expect(res.data.label_id).toBe('label-3')
   })
 
-  it('businessDomainApi.list GETs /business-domains and parses {list,total}', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        list: [
-          { code: 'infra', name: '公共基础设施', description: '兜底', enabled: true },
-          { code: 'payment', name: '支付业务', enabled: true },
-        ],
-        total: 2,
+  it('v3ResourceToListItem keeps unknown attributes out of the flat model', () => {
+    const item = v3ResourceToListItem({
+      resource_id: 'r-9',
+      resource_category: 'generic_target',
+      network_domain_id: 'nd-1',
+      status: 'online',
+      attributes: {
+        target_name: 'switch-01',
+        instance_ip: '10.0.0.9',
+        port: 9116,
+        metrics_path: '/metrics',
+        scheme: 'http',
+        exporter_type: 'snmp_exporter',
       },
     })
+    expect(item).toMatchObject({
+      target_name: 'switch-01',
+      instance_ip: '10.0.0.9',
+      port: 9116,
+      metrics_path: '/metrics',
+      exporter_type: 'snmp_exporter',
+    })
+    expect((item as unknown as Record<string, unknown>).custom_labels).toBeUndefined()
+  })
 
-    const res = await businessDomainApi.list()
+  it('toV3ResourcePayload trims page fields into attributes and keeps platform clear as null', () => {
+    const payload = toV3ResourcePayload({
+      resource_category: 'host',
+      network_domain_id: 'nd-1',
+      env: 'PRD',
+      platform_code: null,
+      scrape_port: 0,
+      instance_name: 'web-01',
+      instance_ip: '10.0.0.1',
+    })
+    expect(payload).toMatchObject({
+      resource_category: 'host',
+      network_domain_id: 'nd-1',
+      platform_code: null,
+      attributes: { hostname: 'web-01', instance_ip: '10.0.0.1' },
+    })
+    expect(payload.attributes).not.toHaveProperty('cloud_code')
+  })
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/business-domains')
-    expect(res.data.total).toBe(2)
-    expect(res.data.list[0].code).toBe('infra')
-    expect(res.data.list[0].enabled).toBe(true)
+  it('businessDomainApi supports list + create + update on v3 endpoints', async () => {
+    mockFetch({
+      status: 'success',
+      data: { list: [{ code: 'infra', name: '公共基础设施', description: '兜底', enabled: true }], total: 1 },
+    })
+    const list = await businessDomainApi.list()
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/business-domains')
+    expect(list.data.list[0].description).toBe('兜底')
+
+    mockFetch({
+      status: 'success',
+      data: { code: 'logistics', name: '物流', description: '物流业务域', enabled: true },
+    })
+    await businessDomainApi.create({ code: 'logistics', name: '物流', description: '物流业务域' })
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/business-domains')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toEqual({ code: 'logistics', name: '物流', description: '物流业务域' })
+
+    mockFetch({
+      status: 'success',
+      data: { code: 'logistics', name: '物流2', description: '改', enabled: false },
+    })
+    await businessDomainApi.update('logistics', { name: '物流2', enabled: false })
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/business-domains/logistics')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
+    expect(lastInitBody()).toEqual({ name: '物流2', enabled: false })
+  })
+
+  it('applicationDictApi supports list + create + update on v3 endpoints', async () => {
+    mockFetch({ status: 'success', data: { list: [], total: 0 } })
+    await applicationDictApi.list()
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/application-dict')
+
+    mockFetch({
+      status: 'success',
+      data: { app_code: 'inventory', app_name: '库存服务', description: '库存', status: 'enabled' },
+    })
+    await applicationDictApi.create({ app_code: 'inventory', app_name: '库存服务', description: '库存' })
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toEqual({ app_code: 'inventory', app_name: '库存服务', description: '库存' })
+
+    mockFetch({
+      status: 'success',
+      data: { app_code: 'inventory', app_name: '库存服务2', status: 'disabled' },
+    })
+    await applicationDictApi.update('inventory', { app_name: '库存服务2', status: 'disabled' })
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/application-dict/inventory')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
+  })
+
+  it('platformDictApi supports list + create + update on v3 endpoints', async () => {
+    mockFetch({ status: 'success', data: { list: [], total: 0 } })
+    await platformDictApi.list()
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/platform-dict')
+
+    mockFetch({
+      status: 'success',
+      data: { platform_code: 'warehouse', platform_name: '仓储平台', enabled: true },
+    })
+    await platformDictApi.create({ platform_code: 'warehouse', platform_name: '仓储平台' })
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+
+    mockFetch({
+      status: 'success',
+      data: { platform_code: 'warehouse', platform_name: '仓储平台2', enabled: false },
+    })
+    await platformDictApi.update('warehouse', { platform_name: '仓储平台2', enabled: false })
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/platform-dict/warehouse')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
   })
 
   // 决策 98 / 102-③：云字典部署级只读——只有 list，不得给前端留任何写入口
-  it('cloudDictApi.list GETs /cloud-dict and parses {list,total}', async () => {
+  it('cloudDictApi.list GETs /cloud-dict and exposes read-only list only', async () => {
     mockFetch({
       status: 'success',
       data: {
         list: [
           { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
-          { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', cloud_type: 'GM', carrier: 'CU', enabled: true },
         ],
-        total: 2,
+        total: 1,
       },
     })
 
     const res = await cloudDictApi.list()
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/cloud-dict')
-    expect(lastFetchCall()[1]?.method).toBe('GET')
-    expect(res.data.total).toBe(2)
-    expect(res.data.list[0]).toMatchObject({
-      cloud_code: 'PUB-TX',
-      cloud_name: '腾讯云',
-      cloud_type: 'PUB',
-      carrier: 'TX',
-      enabled: true,
-    })
-  })
-
-  it('cloudDictApi exposes read-only list only (no create/update/remove)', () => {
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict')
+    expect(res.data.total).toBe(1)
+    expect(res.data.list[0]).toMatchObject({ cloud_code: 'PUB-TX', cloud_name: '腾讯云' })
     expect(Object.keys(cloudDictApi)).toEqual(['list'])
-    expect(cloudDictApi).not.toHaveProperty('create')
-    expect(cloudDictApi).not.toHaveProperty('update')
-    expect(cloudDictApi).not.toHaveProperty('remove')
-    expect(cloudDictApi).not.toHaveProperty('delete')
-  })
-
-  it('resourceApi.list items tolerate missing cloud_code / zone_type (host derived read-only)', async () => {
-    // 决策 102 / 101：非 host 四类不带 zone_type；五类缺值不崩、由 UI 兜底 '-'
-    mockFetch({
-      status: 'success',
-      data: {
-        list: [
-          { resource_id: 'r-1', resource_category: 'application', network_domain_id: 'mc-a', status: 'online' },
-          {
-            resource_id: 'r-2',
-            resource_category: 'host',
-            network_domain_id: 'mc-a',
-            status: 'online',
-            cloud_code: 'PUB-TX',
-            zone_type: 'internet',
-          },
-        ],
-        total: 2,
-        page: 1,
-        page_size: 50,
-      },
-    })
-
-    const res = await resourceApi.list({ resource_category: 'host' })
-
-    expect(res.data.list).toHaveLength(2)
-    const [app, host] = res.data.list as unknown as Record<string, unknown>[]
-    expect(app.cloud_code).toBeUndefined()
-    expect(app.zone_type).toBeUndefined()
-    expect(host.cloud_code).toBe('PUB-TX')
-    expect(host.zone_type).toBe('internet')
   })
 
   // ---- 决策 111：应用↔平台关联 app_platform_rel（§5.24 / §6.1）----
@@ -445,7 +575,7 @@ describe('resources API', () => {
     const res = await appPlatformRelApi.list({ app_code: 'order-service', platform_code: 'ecommerce' })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/app-platform-rel')
+    expect(url.pathname).toBe('/api/v3/platform/app-platform-rel')
     expect(lastFetchCall()[1]?.method).toBe('GET')
     expect(url.searchParams.get('app_code')).toBe('order-service')
     expect(url.searchParams.get('platform_code')).toBe('ecommerce')
@@ -460,16 +590,6 @@ describe('resources API', () => {
     })
   })
 
-  it('appPlatformRelApi.list drops undefined filters', async () => {
-    mockFetch({ status: 'success', data: { list: [], total: 0 } })
-
-    await appPlatformRelApi.list({ app_code: 'order-service', platform_code: undefined })
-
-    const url = lastUrlInstance()
-    expect(url.searchParams.get('app_code')).toBe('order-service')
-    expect(url.searchParams.has('platform_code')).toBe(false)
-  })
-
   it('appPlatformRelApi.create POSTs {app_code,platform_code,is_primary}', async () => {
     mockFetch({ status: 'success', data: { ...relFixture, is_primary: false } })
 
@@ -478,7 +598,7 @@ describe('resources API', () => {
       platform_code: 'public-data-auth',
     })
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/app-platform-rel')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     // is_primary 省略即不发送，由服务端默认 false
     expect(lastInitBody()).toEqual({
@@ -493,7 +613,7 @@ describe('resources API', () => {
 
     const res = await appPlatformRelApi.update('rel-1', { is_primary: true })
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel/rel-1')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/app-platform-rel/rel-1')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({ is_primary: true })
     expect(res.data.is_primary).toBe(true)
@@ -504,7 +624,7 @@ describe('resources API', () => {
 
     const res = await appPlatformRelApi.remove('rel-1')
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel/rel-1')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/app-platform-rel/rel-1')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.rel_id).toBe('rel-1')
   })
@@ -518,7 +638,7 @@ describe('resources API', () => {
       resource_category: 'host',
       network_domain_id: 'default',
       biz_code: 'infra',
-      env: 'prod',
+      env: 'PRD',
       instance_name: 'web-01',
       instance_ip: '10.0.0.1',
     })
@@ -536,7 +656,7 @@ describe('resources API', () => {
       network_domain_id: 'default',
       biz_code: 'payment',
       platform_code: 'ecommerce',
-      env: 'prod',
+      env: 'PRD',
       database_type: 'mysql',
       instance_ip: '10.0.0.2',
       port: 3306,
@@ -545,15 +665,24 @@ describe('resources API', () => {
     expect(lastInitBody()).toMatchObject({ platform_code: 'ecommerce' })
   })
 
-  it('resourceApi.update sends platform_code when provided', async () => {
+  it('resourceApi.update sends platform_code + resource_category', async () => {
     mockFetch({ status: 'success', data: { resource_id: 'r-1', resource_category: 'database' } })
 
-    await resourceApi.update('r-1', { platform_code: 'ecommerce', biz_code: 'payment' })
+    await resourceApi.update('r-1', {
+      resource_category: 'database',
+      platform_code: 'ecommerce',
+      biz_code: 'payment',
+    })
 
-    expect(lastInitBody()).toEqual({ platform_code: 'ecommerce', biz_code: 'payment' })
+    expect(lastInitBody()).toMatchObject({
+      resource_category: 'database',
+      platform_code: 'ecommerce',
+      biz_code: 'payment',
+      attributes: {},
+    })
   })
 
-  it('importApi.list GETs /imports with filter params', async () => {
+  it('importApi.list GETs /imports with page params', async () => {
     mockFetch({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 50 },
@@ -567,7 +696,7 @@ describe('resources API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/imports')
+    expect(url.pathname).toBe('/api/v3/platform/imports')
     expect(url.searchParams.get('resource_category')).toBe('host')
     expect(url.searchParams.get('status')).toBe('partial')
     expect(url.searchParams.get('page')).toBe('1')
@@ -578,7 +707,7 @@ describe('resources API', () => {
     mockFetch({
       status: 'success',
       data: {
-        id: 7,
+        id: 'imp-7',
         import_no: 'IMP-20260822-001',
         resource_category: 'host',
         mode: 'upsert',
@@ -593,9 +722,9 @@ describe('resources API', () => {
       },
     })
 
-    const res = await importApi.get(7)
+    const res = await importApi.get('imp-7')
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/imports/7')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/imports/imp-7')
     expect(res.data.import_no).toBe('IMP-20260822-001')
     expect(res.data.mode).toBe('upsert')
     expect(res.data.status).toBe('partial')

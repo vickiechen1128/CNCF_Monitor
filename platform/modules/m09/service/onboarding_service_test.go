@@ -51,7 +51,7 @@ func newTestStack(t *testing.T) (*gorm.DB, *service.OnboardingService, *reposito
 func createDomain(t *testing.T, gormDB *gorm.DB, id string, status models.DomainStatus) {
 	t.Helper()
 	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: id, Name: "域 " + id, DomainType: models.DomainTypeEdge,
+		ID: id, Name: "域 " + id, Description: "描述 " + id, DomainType: models.DomainTypeEdge,
 		ZoneType: "beijing", CloudCode: "aliyun",
 		TenantID:            models.PlatformAdminTenantID,
 		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
@@ -179,6 +179,44 @@ func TestListScopesNonAdminAndAggregatesAgents(t *testing.T) {
 
 	_, err = svc.Get(ctx, service.Actor{TenantID: "tenant-a"}, "mc-b")
 	assert.Equal(t, "not_found", string(kindOf(err)), "unauthorized detail is 404")
+}
+
+func TestListAdminViewIncludesDisabledWithAdminFields(t *testing.T) {
+	gormDB, svc, _ := newTestStack(t)
+	ctx := context.Background()
+	require.NoError(t, gormDB.Model(&models.NetworkDomain{}).Where("id = ?", "mc-disabled").
+		Update("description", "停用域的说明").Error)
+
+	items, total, err := svc.List(ctx, admin(), repository.ListFilter{
+		View: service.ViewAdmin, Status: "disabled", Page: 1, PageSize: 50,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	item := items[0]
+	assert.Equal(t, "mc-disabled", item.DomainID)
+	assert.Equal(t, "disabled", item.AdminStatus)
+	assert.Equal(t, "edge", item.AdminDomainType)
+	assert.Equal(t, "停用域的说明", item.Description)
+	assert.Equal(t, models.PlatformAdminTenantID, item.TenantID)
+	assert.Equal(t, []string{models.PlatformAdminTenantID}, item.AuthorizedTenantIDs)
+
+	// The default onboarding view still hides disabled domains.
+	_, total, err = svc.List(ctx, admin(), repository.ListFilter{Page: 1, PageSize: 50})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+
+	// Non-admins cannot request the administrative view.
+	_, _, err = svc.List(ctx, service.Actor{TenantID: "tenant-a"}, repository.ListFilter{
+		View: service.ViewAdmin, Page: 1, PageSize: 50,
+	})
+	assert.Equal(t, "forbidden", string(kindOf(err)))
+
+	// An explicit status also implies the administrative view.
+	_, _, err = svc.List(ctx, service.Actor{TenantID: "tenant-a"}, repository.ListFilter{
+		Status: "disabled", Page: 1, PageSize: 50,
+	})
+	assert.Equal(t, "forbidden", string(kindOf(err)))
 }
 
 func TestMonitoringRetirerCascades(t *testing.T) {

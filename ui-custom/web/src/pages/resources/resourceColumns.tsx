@@ -58,6 +58,8 @@ export interface ResourceColumnContext {
   coverageError: string | null
   /** 网域 ID → 展示名，未匹配兜底展示 ID */
   domainNameOf: (id: string) => string
+  /** 网域 ID → 云编码（决策 103 scheme-B：云归属由所属网域派生） */
+  cloudCodeOf: (domainId: string) => string | undefined
   /** 业务编码 → biz_name，缺条目回退编码 */
   resolveBizName: (code?: string) => string
   /** 业务是否停用 */
@@ -99,6 +101,7 @@ export function buildResourceColumns(
     coverageByResource,
     coverageError,
     domainNameOf,
+    cloudCodeOf,
     resolveBizName,
     isBizDisabled,
     resolveAppName,
@@ -159,6 +162,7 @@ export function buildResourceColumns(
   }
   // 决策 103「云」列：五类共享列，展示云字典 cloud_name（缺条目回退 cloud_code，
   // 停用条目「云名（已停用）」），样式与解析逻辑对齐既有「应用名称」列。
+  // v3 资源不再内联 cloud_code——值由所属网域（network_domain_id）只读派生。
   // 红线④：cloud_type / carrier 仅为云字典描述属性，**禁止**独立成列或筛选维度。
   const cloudColumn: ColumnsType<ResourceListItem>[number] = {
     title: (
@@ -169,18 +173,19 @@ export function buildResourceColumns(
         </Tooltip>
       </span>
     ),
-    dataIndex: 'cloud_code',
     key: 'cloud_code',
     width: 150,
-    render: (value?: string) =>
-      value ? (
+    render: (_: unknown, record: ResourceListItem) => {
+      const value = cloudCodeOf(record.network_domain_id)
+      return value ? (
         <Tag color={isCloudDisabled(value) ? 'default' : 'cyan'}>
           {resolveCloudName(value)}
           {isCloudDisabled(value) ? '（已停用）' : ''}
         </Tag>
       ) : (
         '-'
-      ),
+      )
+    },
   }
   // {v2026-09-28 决策 110}「平台」列：**读资源行 `platform_code` 一等字段**（登记期显式填写、可空），
   // 展示名经 GET /platform-dict 解析 platform_name（缺条目回退 platform_code、停用加「（已停用）」、留空 '-'）。
@@ -508,20 +513,6 @@ export function buildResourceColumns(
         { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         { title: '采集路径', dataIndex: 'metrics_path', key: 'metrics_path', render: (v?: string) => v || '/metrics' },
         { title: '协议', dataIndex: 'scheme', key: 'scheme', render: (v?: string) => v || 'http' },
-        {
-          title: '自定义标签',
-          dataIndex: 'custom_labels',
-          key: 'custom_labels',
-          ellipsis: { showTitle: true },
-          render: (v?: string) =>
-            v ? (
-              <Text code style={{ fontSize: 12 }}>
-                {v}
-              </Text>
-            ) : (
-              '-'
-            ),
-        },
       ]
       return [
         identifier,

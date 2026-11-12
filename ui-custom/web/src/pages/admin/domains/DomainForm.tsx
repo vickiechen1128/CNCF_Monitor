@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Col, Drawer, Form, Input, Row, Select, Space, Typography, message } from 'antd'
+import { InfoCircleFilled } from '@ant-design/icons'
 import {
-  CheckCircleOutlined,
-  DisconnectOutlined,
-  InfoCircleFilled,
-  StopOutlined,
-} from '@ant-design/icons'
-import {
-  fetchManagementDomain,
   networkDomainApi,
   tenantApi,
   zoneTypeApi,
@@ -19,29 +13,6 @@ import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
 import type { CloudDict } from '../../../types/resource'
 import { FormSection } from '../../../components/FormSection'
 import { Callout } from '../../../components/Callout'
-import { useSkin } from '../../../skinContext'
-
-/** 校验单个 IPv4 CIDR：a.b.c.d/mask，四段 0-255，掩码 0-32 */
-function isValidIPv4CIDR(s: string): boolean {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(s.trim())
-  if (!m) return false
-  const [a, b, c, d] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])]
-  const mask = Number(m[5])
-  return mask >= 0 && mask <= 32 && a <= 255 && b <= 255 && c <= 255 && d <= 255
-}
-
-/** 网段 Form 校验器：允许留空；按逗号/换行/中文逗号拆分后逐条校验 CIDR 格式 */
-function validateCidrList(_: unknown, value?: string): Promise<void> {
-  if (!value || !value.trim()) return Promise.resolve()
-  const tokens = value.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean)
-  const bad = tokens.filter((t) => !isValidIPv4CIDR(t))
-  if (bad.length) {
-    return Promise.reject(
-      new Error(`网段格式不合法：${bad.join('、')}。应为 a.b.c.d/掩码，掩码 0-32，如 10.20.0.0/16`)
-    )
-  }
-  return Promise.resolve()
-}
 
 const { Text } = Typography
 
@@ -66,48 +37,33 @@ interface DomainDrawerProps {
 }
 
 /**
- * 网域登记 / 编辑抽屉（Module_06 §11.2，对齐原型 v2.14 Drawer 双层表单）。
- * - 登记态：create（前置自检 center_direct 走 Form 字段驱动，选「能」硬劝阻终点——表单不展开 + 确认按钮禁用；
- *   选「不能」展开四组 FormSection）；编辑态：update（不渲染自检，直接渲染主体）。
+ * 网域登记 / 编辑抽屉（Module_06 §11.2，v3 契约 §3）。
+ * - 登记态：create（v3 仅创建采集节点域 `edge` + `agent_pull`；不再有中心直连域自检）。
  * - 登记归属（tenant_id）固定 platform_admin：登记态只读展示，编辑态不提交（创建后不可变更）。
- * - 接入方式（domain_type）由自检自动得出，只读展示不可选。
- * - ip_cidrs 网段以多行文本输入，提交时转 string[]。
+ * - cloud_code / domain_type 创建后不可变更：编辑态只读展示。
  * - 抽屉必须 forceRender：Form 字段常驻挂载，避免首次打开 setFieldsValue 被吞（#19 通病）。
  */
 export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: DomainDrawerProps) {
-  // 链接色走皮肤 token（单一来源，见 skins.ts 设计约束）
-  const { tokens } = useSkin()
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
-  // 云归属下拉数据源（云字典只读接口 GET /api/v2/platform/cloud-dict，仅启用项，M06 §5.2 / M07 §5.20）
+  // 云归属下拉数据源（云字典只读接口 GET /api/v3/platform/cloud-dict，仅启用项）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
-  // 前置自检（登记态）：中心能否直接访问——能 → 登记中心直连域（全平台唯一）；不能 → 采集节点域
-  const watchedCenterDirect = Form.useWatch('center_direct', form) as 'yes' | 'no' | undefined
-  // 中心直连域（管理域）是否已登记：已存在时不再提供第二个创建路径。
-  const [managementDomain, setManagementDomain] = useState<NetworkDomain | null>(null)
-  const canCreateManagement = watchedCenterDirect === 'yes' && !managementDomain
-  const canSubmit = mode === 'edit' ? true : watchedCenterDirect === 'no' || canCreateManagement
 
   useEffect(() => {
     if (!open) return
     if (mode === 'create') {
       form.resetFields()
       form.setFieldsValue({
-        domain_type: 'edge',
         tenant_id: 'platform_admin',
         authorized_tenant_ids: ['platform_admin'],
       })
     } else if (domain) {
       form.resetFields()
       const { tenant_id: _tenantId, ...editable } = domain
-      // ip_cidrs 以「数组」入库、以「原始字符串（逗号分隔）」在表单内编辑/回显，避免 normalize 吃符号
-      form.setFieldsValue({
-        ...editable,
-        ip_cidrs: (editable.ip_cidrs as string[] | undefined)?.join(', ') ?? '',
-      })
+      form.setFieldsValue(editable)
     }
     Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 }), cloudDictApi.list()])
       .then(([zt, tn, cd]) => {
@@ -117,10 +73,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
-    // 中心直连域可能尚未登记（方案 A）：单独拉取，失败不阻断其它字典加载。
-    void fetchManagementDomain()
-      .then(setManagementDomain)
-      .catch(() => setManagementDomain(null))
   }, [open, mode, domain, form])
 
   const enabledZoneTypes = zoneTypes.filter((z) => z.enabled)
@@ -143,20 +95,13 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
     }
     setSubmitting(true)
     try {
-      const rawCidr = form.getFieldValue('ip_cidrs') as string | undefined
-      const ip_cidrs = rawCidr
-        ? rawCidr.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean)
-        : undefined
       if (mode === 'create') {
         const input: NetworkDomainCreateInput = {
           name: String(values.name),
-          // 中心能直接访问 → 中心直连域（全平台唯一）；否则 → 采集节点域。
-          domain_type: values.center_direct === 'yes' ? 'management' : 'edge',
           cloud_code: String(values.cloud_code),
           zone_type: String(values.zone_type),
           description: values.description ? String(values.description) : undefined,
           authorized_tenant_ids: (values.authorized_tenant_ids as string[]) || undefined,
-          ip_cidrs: ip_cidrs?.length ? ip_cidrs : undefined,
         }
         await networkDomainApi.create(input)
         message.success('网域已登记（行政登记）。请前往「配置中心-网域纳管」完成监控纳管。')
@@ -166,7 +111,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
           description: values.description ? String(values.description) : undefined,
           zone_type: values.zone_type ? String(values.zone_type) : undefined,
           authorized_tenant_ids: (values.authorized_tenant_ids as string[]) || undefined,
-          ip_cidrs: ip_cidrs?.length ? ip_cidrs : undefined,
         }
         await networkDomainApi.update(domain.id, input)
         message.success('网域行政信息已更新')
@@ -201,7 +145,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         <div style={{ textAlign: 'right' }}>
           <Space>
             <Button onClick={submitting ? undefined : onCancel}>取消</Button>
-            <Button type="primary" loading={submitting} disabled={!canSubmit} onClick={handleOk}>
+            <Button type="primary" loading={submitting} onClick={handleOk}>
               {mode === 'create' ? '确认登记' : '保存'}
             </Button>
           </Space>
@@ -210,229 +154,116 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
     >
       {dictError && <Callout tone="warning" icon={<InfoCircleFilled />} title="字典加载失败">{dictError}</Callout>}
       <Form form={form} layout="vertical" name="domain-drawer">
-        {mode === 'create' && (
-          <FormSection title="这个区域的机器，平台中心能直接访问吗？" description="登记前的自检，决定是否需要建网域">
-            <Form.Item
-              name="center_direct"
-              rules={[{ required: true, message: '请先选择一项' }]}
-              style={{ marginBottom: 0 }}
+        <FormSection title="行政信息">
+          <Row gutter={16}>
+            <Col span={10}>
+              <Form.Item label="网域 ID" extra="全局唯一，创建后不可修改">
+                <Input
+                  value={mode === 'create' ? '登记后由系统自动生成' : (domain?.id ?? '')}
+                  disabled
+                  placeholder="mc-<deploy-code>-<domain-code>"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={14}>
+              <Form.Item label="网域名称" name="name" rules={[{ required: true, message: '请输入网域名称' }]}>
+                <Input placeholder="例如：政务网 A 区" maxLength={64} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="登记归属" extra="登记 ≠ 独占，可授权多租户共享">
+                <Input disabled value="platform_admin" style={{ color: '#1D2129' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="接入方式" extra="v3 仅登记采集节点域">
+                <Input disabled value="采集节点域" style={{ color: '#1D2129' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              {mode === 'edit' ? (
+                /* MVP 收口：云归属登记后不可编辑，编辑态只读展示 cloud_name */
+                <Form.Item label="云归属" extra={CLOUD_CODE_READONLY_HINT}>
+                  <Input disabled value={cloudNameOf(domain?.cloud_code)} style={{ color: '#1D2129' }} />
+                </Form.Item>
+              ) : (
+                <Form.Item
+                  label="云归属"
+                  name="cloud_code"
+                  rules={[{ required: true, message: '请选择云归属' }]}
+                  extra={enabledClouds.length ? CLOUD_CODE_FIELD_HINT : CLOUD_DICT_EMPTY_HINT}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="请选择云归属（取自云字典）"
+                    disabled={!enabledClouds.length}
+                  >
+                    {enabledClouds.map((c) => (
+                      <Select.Option key={c.cloud_code} value={c.cloud_code} label={c.cloud_name}>
+                        {c.cloud_name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+            </Col>
+          </Row>
+        </FormSection>
+
+        <FormSection title="网络与分区">
+          <Form.Item
+            label="网络分区"
+            name="zone_type"
+            rules={[{ required: true, message: '请选择网络分区' }]}
+            extra={enabledZoneTypes.length ? ZONE_TYPE_FIELD_HINT : ZONE_TYPE_DICT_EMPTY_HINT}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择网络分区"
+              disabled={!enabledZoneTypes.length}
             >
-              <Space direction="vertical" style={{ width: '100%' }} size={0}>
-                <div role="radiogroup" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                  {[
-                    { v: 'yes', title: '中心能直接访问', desc: '机器由平台中心直接采集，登记为中心直连域（全平台唯一）。', tone: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
-                    { v: 'no', title: '中心访问不到', desc: '中心无法直接连通该网络，需在其中一台常开机器上安装采集节点回传数据。', tone: '#fa8c16', bg: '#fff7e6', icon: <DisconnectOutlined /> },
-                  ].map((o) => (
-                    <div
-                      key={o.v}
-                      role="radio"
-                      aria-checked={watchedCenterDirect === o.v}
-                      tabIndex={0}
-                      onClick={() => form.setFieldValue('center_direct', o.v)}
-                      onKeyDown={(e) => {
-                        if (e.key === ' ' || e.key === 'Enter') {
-                          e.preventDefault()
-                          form.setFieldValue('center_direct', o.v)
-                        }
-                      }}
-                      style={{
-                        cursor: 'pointer',
-                        borderRadius: 6,
-                        padding: '12px 14px',
-                        border: `1px solid ${watchedCenterDirect === o.v ? o.tone : tokens.colorBorder}`,
-                        background: watchedCenterDirect === o.v ? o.bg : '#FFFFFF',
-                        boxShadow: watchedCenterDirect === o.v ? `0 0 0 2px ${o.tone}22` : 'none',
-                        transition: 'all 0.2s',
-                      }}
-                    >
-                      <span style={{ color: watchedCenterDirect === o.v ? o.tone : '#86909C', fontSize: 16, display: 'inline-flex' }}>
-                        {o.icon}
-                      </span>
-                      <Text strong style={{ fontSize: 13, marginLeft: 8 }}>{o.title}</Text>
-                      {watchedCenterDirect === o.v && (
-                        <span style={{ color: o.tone, fontSize: 12, marginLeft: 8 }}>已选择</span>
-                      )}
-                      <div style={{ marginTop: 6, fontSize: 12, color: '#4E5969', lineHeight: 1.7 }}>{o.desc}</div>
-                    </div>
-                  ))}
-                </div>
-              </Space>
-            </Form.Item>
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                判断口径：以「平台中心能否直接连通目标机器」为准，与你本人能否登录运维无关。
-              </Text>
-            </div>
-            {watchedCenterDirect === 'yes' && managementDomain && (
-              /* 中心直连域已登记：全平台唯一，不再提供第二个创建路径 */
-              <div style={{ marginTop: 12 }}>
-                <Callout
-                  tone="warning"
-                  icon={<StopOutlined />}
-                  title="中心直连域已登记，全平台只能有一个"
-                  extra={
-                    <Button type="text" size="small" onClick={onCancel} style={{ color: tokens.colorInfo }}>
-                      关闭
-                    </Button>
-                  }
-                >
-                  当前中心直连域为「{managementDomain.name}」。如需改名称或归属信息，请在列表编辑；
-                  如需重建，请先删除已有中心直连域。
-                </Callout>
-              </div>
-            )}
-            {watchedCenterDirect === 'yes' && !managementDomain && (
-              <div style={{ marginTop: 12 }}>
-                <Callout tone="info" icon={<InfoCircleFilled />} title="将登记中心直连域（全平台唯一）">
-                  中心直连域代表中心 Prometheus 自身的采集范围，全平台只能登记一个。
-                  创建后可在列表中编辑名称、删除后重建。
-                </Callout>
-              </div>
-            )}
-            {watchedCenterDirect === 'no' && (
-              <div style={{ marginTop: 8 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  采集节点域：登记后由该网域内一台常开机器上的采集节点单向回传数据至中心。
-                </Text>
-              </div>
-            )}
-          </FormSection>
-        )}
+              {enabledZoneTypes.map((z) => (
+                <Select.Option key={z.code} value={z.code} label={z.display_name}>
+                  {z.display_name}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </FormSection>
 
-        {(mode === 'edit' || watchedCenterDirect === 'no' || canCreateManagement) && (
-          <>
-            <FormSection title="行政信息">
-              <Row gutter={16}>
-                <Col span={10}>
-                  <Form.Item label="网域 ID" extra="全局唯一，创建后不可修改">
-                    <Input
-                      value={mode === 'create' ? '登记后由系统自动生成' : (domain?.id ?? '')}
-                      disabled
-                      placeholder="mc-<deploy-code>-<domain-code>"
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={14}>
-                  <Form.Item label="网域名称" name="name" rules={[{ required: true, message: '请输入网域名称' }]}>
-                    <Input placeholder="例如：政务网 A 区" maxLength={64} />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item label="登记归属" extra="登记 ≠ 独占，可授权多租户共享">
-                    <Input disabled value="platform_admin" style={{ color: '#1D2129' }} />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="接入方式" extra="由「能否直连」自动得出">
-                    <Input
-                      value={
-                        mode === 'edit'
-                          ? domain?.domain_type === 'management'
-                            ? '中心直连域'
-                            : '采集节点域'
-                          : watchedCenterDirect === 'yes'
-                            ? '中心直连域'
-                            : '采集节点域'
-                      }
-                      disabled
-                      style={{ color: '#1D2129' }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={16}>
-                <Col span={12}>
-                  {mode === 'edit' ? (
-                    /* MVP 收口（PM 决策）：云归属登记后不可编辑，编辑态只读展示 cloud_name */
-                    <Form.Item label="云归属" extra={CLOUD_CODE_READONLY_HINT}>
-                      <Input disabled value={cloudNameOf(domain?.cloud_code)} style={{ color: '#1D2129' }} />
-                    </Form.Item>
-                  ) : (
-                    <Form.Item
-                      label="云归属"
-                      name="cloud_code"
-                      rules={[{ required: true, message: '请选择云归属' }]}
-                      extra={enabledClouds.length ? CLOUD_CODE_FIELD_HINT : CLOUD_DICT_EMPTY_HINT}
-                    >
-                      <Select
-                        showSearch
-                        optionFilterProp="label"
-                        placeholder="请选择云归属（取自云字典）"
-                        disabled={!enabledClouds.length}
-                      >
-                        {enabledClouds.map((c) => (
-                          <Select.Option key={c.cloud_code} value={c.cloud_code} label={c.cloud_name}>
-                            {c.cloud_name}
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Form.Item>
-                  )}
-                </Col>
-              </Row>
-            </FormSection>
+        <FormSection title="授权" description="网域为部署级资源，可授权多个租户共享使用">
+          <Form.Item
+            label="授权租户"
+            name="authorized_tenant_ids"
+            extra="可选，缺省 = 登记归属租户（platform_admin）；授权 ≠ 拥有；被授权租户未开启多网域能力时仅可被授权单个网域"
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择被授权使用该网域的租户"
+            >
+              {activeTenants.map((t) => (
+                <Select.Option key={t.id} value={t.id} label={t.name}>
+                  {t.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </FormSection>
 
-            {/* 分组微调（dev-feedback #18 方案 A）：网络拓扑归「网络与分区」、授权独立成组、
-                描述单独收尾，纵线 行政归属 → 网络拓扑 → 授权 不再被授权字段拆散 */}
-            <FormSection title="网络与分区" description="网段用于资源导入时按 IP 自动推导网域归属，可留空">
-              <Form.Item label="网络分区" name="zone_type"
-                rules={[{ required: true, message: '请选择网络分区' }]}
-                extra={enabledZoneTypes.length ? ZONE_TYPE_FIELD_HINT : ZONE_TYPE_DICT_EMPTY_HINT}
-              >
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="请选择网络分区"
-                  disabled={!enabledZoneTypes.length}
-                >
-                  {enabledZoneTypes.map((z) => (
-                    <Select.Option key={z.code} value={z.code} label={z.display_name}>
-                      {z.display_name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item
-                label="网段（CIDR）"
-                name="ip_cidrs"
-                extra="用 CIDR 格式，掩码必填；多个网段用英文逗号分隔。留空时由平台在资源导入时按 IP 自动推导归属"
-                rules={[{ validator: validateCidrList }]}
-              >
-                <Input.TextArea rows={2} placeholder="逗号分隔，掩码必填，如 10.20.0.0/16, 10.30.1.0/24" />
-              </Form.Item>
-            </FormSection>
-
-            <FormSection title="授权" description="网域为部署级资源，可授权多个租户共享使用">
-              <Form.Item
-                label="授权租户"
-                name="authorized_tenant_ids"
-                extra="可选，缺省 = 登记归属租户（platform_admin）；授权 ≠ 拥有；被授权租户未开启多网域能力时仅可被授权单个网域"
-              >
-                <Select
-                  mode="multiple"
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="请选择被授权使用该网域的租户"
-                >
-                  {activeTenants.map((t) => (
-                    <Select.Option key={t.id} value={t.id} label={t.name}>
-                      {t.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </FormSection>
-
-            <FormSection title="描述">
-              <Form.Item label="描述" name="description">
-                <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征（行政描述，非监控参数）" />
-              </Form.Item>
-            </FormSection>
-          </>
-        )}
+        <FormSection title="描述">
+          <Form.Item label="描述" name="description">
+            <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征（行政描述，非监控参数）" />
+          </Form.Item>
+        </FormSection>
       </Form>
     </Drawer>
   )

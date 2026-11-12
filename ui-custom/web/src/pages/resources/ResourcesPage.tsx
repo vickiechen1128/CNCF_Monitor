@@ -72,6 +72,24 @@ export function ResourcesPage() {
   // 决策 47-3：四态筛选（全部/采集中/已下发未采到/未监控），按 coverage.monitor_state 当页过滤
   const [monitorState, setMonitorState] = useState<CoverageState | undefined>()
 
+  /**
+   * 六份字典的加载与「编码 → 展示名 / 停用标识」解析（网域 / 业务 / 应用 / 云 / 平台 +
+   * 应用↔平台 M:N 关联），口径见 `useResourceDictionaries.ts`。
+   * 「应用」筛选下拉按当前所选平台级联，故传入 `filters.platform_code`。
+   *
+   * v3 资源响应不再内联 `cloud_code` / `zone_type`：二者由所属网域只读派生，
+   * 因此字典 Hook 需先于深链云过滤就绪。
+   */
+  const {
+    networkDomains, businessDomains, applicationDomains, platformDicts, filterAppOptions,
+    domainNameOf, resolveBizName, isBizDisabled, resolveAppName, isAppDisabled,
+    resolveCloudName, isCloudDisabled, resolvePlatformName, isPlatformDisabled,
+  } = useResourceDictionaries(filters.platform_code)
+
+  /** 网域 ID → 云编码（深链云过滤 / 列表云列共用） */
+  const cloudCodeOf = (domainId: string) =>
+    networkDomains.find((d) => d.id === domainId)?.cloud_code || undefined
+
   const coveredList = useMemo(() => {
     if (!monitorState) return data.list
     return data.list.filter(
@@ -83,14 +101,16 @@ export function ResourcesPage() {
   const visibleList = useMemo(() => {
     let list = coveredList
     if (deepLinkAppCode) list = list.filter((r) => r.app_code === deepLinkAppCode)
-    // 云卡下钻（§2.1 第 3 条）：cloud_code 由后端按所属网域派生，缺失按空串参与比对
-    if (deepLinkCloud) list = list.filter((r) => (r.cloud_code ?? '') === deepLinkCloud)
+    // 云卡下钻（§2.1 第 3 条）：v3 资源不内联 cloud_code，按所属网域的 cloud_code 派生比对
+    if (deepLinkCloud) list = list.filter((r) => (cloudCodeOf(r.network_domain_id) ?? '') === deepLinkCloud)
     if (deepLinkSubtype) {
       const field = SUBTYPE_FIELD[category]
       list = list.filter((r) => String(r[field] ?? '') === deepLinkSubtype)
     }
     return list
-  }, [coveredList, deepLinkAppCode, deepLinkCloud, deepLinkSubtype, category])
+    // cloudCodeOf 依赖 networkDomains；显式列出避免闭包冻结旧网域清单
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coveredList, deepLinkAppCode, deepLinkCloud, deepLinkSubtype, category, networkDomains])
 
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -118,18 +138,6 @@ export function ResourcesPage() {
     }
   }
 
-  /**
-   * 六份字典的加载与「编码 → 展示名 / 停用标识」解析（网域 / 业务 / 应用 / 云 / 平台 +
-   * 应用↔平台 M:N 关联），口径见 `useResourceDictionaries.ts`。
-   * 「应用」筛选下拉按当前所选平台级联，故传入 `filters.platform_code`。
-   */
-  const {
-    networkDomains, businessDomains, applicationDomains, platformDicts, filterAppOptions,
-    domainNameOf, resolveBizName, isBizDisabled, resolveAppName, isAppDisabled,
-    resolveCloudName, isCloudDisabled, resolvePlatformName, isPlatformDisabled,
-  } = useResourceDictionaries(filters.platform_code)
-
-  // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
   const openCreateDrawer = () => {
     setDrawerMode('create')
     setEditingRecord(null)
@@ -169,6 +177,7 @@ export function ResourcesPage() {
       coverageByResource,
       coverageError,
       domainNameOf,
+      cloudCodeOf,
       resolveBizName,
       isBizDisabled,
       resolveAppName,

@@ -23,12 +23,13 @@ describe('useDomains', () => {
     const { result } = renderHook(() => useDomains())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(listMock).toHaveBeenCalledWith({
+      view: 'admin',
       page: 1,
       page_size: 20,
       status: undefined,
       zone_type: undefined,
       tenant_id: undefined,
-      name: undefined,
+      keyword: undefined,
     })
     expect(result.current.data.total).toBe(1)
   })

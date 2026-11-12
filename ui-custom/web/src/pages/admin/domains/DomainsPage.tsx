@@ -79,7 +79,7 @@ const PRIMARY_ICON: Record<number, ReactNode> = {
 
 /**
  * 接入进度四态：优先采信后端聚合派生的 access_step，缺省按既有字段回退派生
- * （MVP 后端未派生时：未纳管=1 / 已纳管未上线=2 / 节点上线回落 3，M09 补第 4 态数据源）。
+ * （v3 由 registration_status / online_agent_count 派生：未纳管=1 / 已纳管未上线=2 / 节点上线=3）。
  */
 function accessStepOf(record: NetworkDomain): number {
   if (record.access_step != null && [1, 2, 3, 4].includes(record.access_step)) return record.access_step
@@ -88,25 +88,15 @@ function accessStepOf(record: NetworkDomain): number {
   return 3
 }
 
-/** 中心直连域接入进度：无采集节点环节，简化为两态（已登记 → 已纳管直连采集） */
-const DIRECT_STEP_LABELS: Record<number, string> = {
-  1: '已登记（中心直连）',
-  2: '已纳管·直连采集',
-}
-const DIRECT_STEP_HINT = '中心直连域由平台中心直接采集，无需安装采集节点。'
-
 /** 接入进度列：四态点阵 + 当前态文字，悬浮展开四步明细（对齐原型 v2.14） */
 function AccessProgress({ record }: { record: NetworkDomain }) {
   const { tokens } = useSkin()
   const stepColors = accessStepColors(tokens)
-  // 场景分支（决策确认）：中心直连域不出现「装采集节点」环节，走直连采集简化两态；
-  // 采集节点域（登记新增）保留「登记→纳管→装采集节点→出数据」四态。
-  const isDirect = record.domain_type === 'management'
-  const step = isDirect ? (record.is_monitored ? 2 : 1) : accessStepOf(record)
-  const labels = isDirect ? DIRECT_STEP_LABELS : ACCESS_STEP_LABELS
-  const hint = isDirect ? DIRECT_STEP_HINT : ACCESS_STEP_HINT[step]
-  const color = isDirect ? stepColors[2] : stepColors[step]
-  const stateLabels = isDirect ? [1, 2] : [1, 2, 3, 4]
+  const step = accessStepOf(record)
+  const labels = ACCESS_STEP_LABELS
+  const hint = ACCESS_STEP_HINT[step]
+  const color = stepColors[step]
+  const stateLabels = [1, 2, 3, 4]
   return (
     <Tooltip
       title={
@@ -255,9 +245,9 @@ export function DomainsPage() {
       key: 'domain_type',
       width: 130,
       render: (type: NetworkDomain['domain_type']) =>
-        type === 'management' ? (
-          <Tooltip title="中心自己所在的域（default），机器可被平台中心直接访问、由中心直接采集">
-            <Tag color="blue">中心直连域</Tag>
+        type === 'collection' ? (
+          <Tooltip title="历史采集域（只读兼容）；v3 仅登记采集节点域">
+            <Tag>历史采集域</Tag>
           </Tooltip>
         ) : (
           <Tooltip title="中心无法直连的域：由安装在该网域内的采集节点回传数据">
@@ -337,7 +327,6 @@ export function DomainsPage() {
       fixed: 'right',
       width: 240,
       render: (_: unknown, record: NetworkDomain) => {
-        const isManagement = record.domain_type === 'management'
         const step = accessStepOf(record)
         const runPrimary = () => {
           if (step === 4) navigate(`/scrape-jobs?network_domain=${encodeURIComponent(record.id)}`)
@@ -347,30 +336,25 @@ export function DomainsPage() {
         const moreItems: MenuProps['items'] = [
           { key: 'detail', label: '查看详情', icon: <ProfileOutlined /> },
           { type: 'divider' },
-        ]
-        // 管理域（中心直连域）仍禁止禁用（行政冻结），但允许删除 / 重建。
-        if (!isManagement) {
-          moreItems.push({
+          {
             key: 'toggle',
             label: record.status === 'enabled' ? '禁用网域' : '启用网域',
             icon: record.status === 'enabled' ? <StopOutlined /> : <CheckCircleOutlined />,
             danger: record.status === 'enabled',
-          })
-        }
-        moreItems.push({ key: 'delete', label: '删除网域', icon: <DeleteOutlined />, danger: true })
+          },
+          { key: 'delete', label: '删除网域', icon: <DeleteOutlined />, danger: true },
+        ]
         return (
           <Space size={0}>
-            {!isManagement && (
-              <Button
-                type="link"
-                size="small"
-                icon={PRIMARY_ICON[step]}
-                style={{ paddingLeft: 0, fontWeight: step === 4 ? 400 : 600 }}
-                onClick={runPrimary}
-              >
-                {ACTION_LABEL[step]}
-              </Button>
-            )}
+            <Button
+              type="link"
+              size="small"
+              icon={PRIMARY_ICON[step]}
+              style={{ paddingLeft: 0, fontWeight: step === 4 ? 400 : 600 }}
+              onClick={runPrimary}
+            >
+              {ACTION_LABEL[step]}
+            </Button>
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => showEdit(record)}>
               编辑
             </Button>
@@ -431,28 +415,17 @@ export function DomainsPage() {
               children: (
                 <div style={{ padding: '8px 0' }}>
                   <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-                    登记网域前，先自检一件事：<Text strong>这个区域的机器，平台中心能直接访问吗？</Text>
+                    网域代表一片采集边界：平台中心无法直连其中的机器，需要在该网域内部署采集节点回传数据。
+                    v3 仅登记<Text strong>采集节点域</Text>。
                   </Text>
-                  <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
-                    <div style={{ flex: 1, padding: 12, background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f' }}>
-                      <Text strong style={{ color: '#52c41a' }}>能（网络互通，如 VPC 对等 / CEN 互联）</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 12 }}>归入中心直连域（default），由中心直接采集，无需建新网域</Text>
-                    </div>
-                    <div style={{ flex: 1, padding: 12, background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
-                      <Text strong style={{ color: '#fa8c16' }}>不能（隔离网段 / K8s overlay）</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 12 }}>需登记「采集节点域」，由配置中心-网域纳管下发凭据与节点</Text>
-                    </div>
-                  </div>
                   <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                    接入流程（按能否直连分支）：
+                    接入流程：
                   </Text>
                   <Steps
                     size="small"
                     current={-1}
                     items={[
-                      { title: '登记网域', description: '行政信息登记（名称/类型/授权租户）' },
+                      { title: '登记网域', description: '行政信息登记（名称/云归属/网络分区/授权租户）' },
                       { title: '纳管取凭据', description: '由配置中心-网域纳管下发接入信息' },
                       { title: '安装采集节点', description: '在该网域一台常开机器上安装节点' },
                       { title: '配置采集出数据', description: '为网域下资源配置采集任务' },
@@ -460,7 +433,7 @@ export function DomainsPage() {
                   />
                   <div style={{ marginTop: 12, padding: '8px 12px', background: tokens.colorPrimaryBg, borderRadius: 6, border: `1px solid ${tokens.colorPrimaryBorder}` }}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      中心直连域（default）无需安装采集节点：由平台中心直接采集目标资源，接入上只需登记后即纳入中心直连采集。
+                      行政信息由本模块维护；接入凭据、采集节点与运行状态由「配置中心 - 网域纳管」维护。
                     </Text>
                   </div>
                 </div>
@@ -489,7 +462,7 @@ export function DomainsPage() {
               placeholder="按网域名称搜索"
               allowClear
               style={{ width: 180 }}
-              onSearch={(v) => setFilters({ ...filters, name: v || undefined })}
+              onSearch={(v) => setFilters({ ...filters, keyword: v || undefined })}
             />
           </FilterItem>
           <FilterItem label="网络区域" width={260}>
@@ -592,8 +565,8 @@ export function DomainsPage() {
               <div>
                 <Space size={8}>
                   <span style={{ fontSize: 16, fontWeight: 600 }}>{detailTarget.name}</span>
-                  {detailTarget.domain_type === 'management' ? (
-                    <Tag color="blue">中心直连域</Tag>
+                  {detailTarget.domain_type === 'collection' ? (
+                    <Tag>历史采集域</Tag>
                   ) : (
                     <Tag color="cyan">采集节点域</Tag>
                   )}
@@ -639,7 +612,7 @@ export function DomainsPage() {
                 {
                   key: 'type',
                   label: '接入方式',
-                  children: detailTarget.domain_type === 'management' ? '中心直连域' : '采集节点域',
+                  children: detailTarget.domain_type === 'collection' ? '历史采集域' : '采集节点域',
                 },
                 { key: 'owner', label: '登记归属', children: tenantNameOf(detailTarget.tenant_id) },
                 {
@@ -661,11 +634,6 @@ export function DomainsPage() {
                   children: detailTarget.status === 'enabled' ? '启用' : '禁用（冻结）',
                 },
                 { key: 'progress', label: '接入进度', children: <AccessProgress record={detailTarget} /> },
-                {
-                  key: 'cidr',
-                  label: '网段（CIDR）',
-                  children: (detailTarget.ip_cidrs ?? []).length ? detailTarget.ip_cidrs!.join('、') : '未配置',
-                },
                 { key: 'created', label: '创建时间', children: detailTarget.created_at },
                 { key: 'updated', label: '更新时间', children: detailTarget.updated_at },
                 { key: 'desc', label: '描述', span: 2, children: detailTarget.description || '—' },
@@ -673,9 +641,7 @@ export function DomainsPage() {
             />
             <div style={{ marginTop: 16 }}>
               <Text type="secondary" style={{ fontSize: 12.5 }}>
-                {detailTarget.domain_type === 'management'
-                  ? DIRECT_STEP_HINT
-                  : `${ACCESS_STEP_HINT[accessStepOf(detailTarget)]}；接入凭据与采集节点安装由「配置中心 - 网域纳管」完成。`}
+                {`${ACCESS_STEP_HINT[accessStepOf(detailTarget)]}；接入凭据与采集节点安装由「配置中心 - 网域纳管」完成。`}
               </Text>
             </div>
           </Drawer>

@@ -47,9 +47,6 @@ const IPV4_RE = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\
 /** 主机名 / 域名校验（generic_target 的 instance_ip 支持 IP 或域名，§5.9） */
 const HOSTNAME_RE = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
 
-/** 自定义标签格式 key1=value1;key2=value2（§5.9 / §5.16.1） */
-const CUSTOM_LABELS_RE = /^([^=;]+=[^=;]*)(;[^=;]+=[^=;]*)*$/
-
 /** IPv4 必填校验规则（§5.16.2） */
 const requiredIpRules = [
   { required: true, message: '请输入 IP 地址' },
@@ -321,18 +318,10 @@ export function renderResourceTypeFields(ctx: ResourceFormFieldsContext): ReactN
     case 'host':
       return (
         <>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]}>
-                <Input placeholder="例如：prod-web-01" maxLength={64} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="主机名" name="hostname">
-                <Input placeholder="主机名（可选）" maxLength={128} />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* v3 host 的 attributes.hostname 是唯一主机名来源，页面以「实例名」承载，不再单独渲染主机名 */}
+          <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]}>
+            <Input placeholder="例如：prod-web-01" maxLength={128} />
+          </Form.Item>
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="IP 地址" name="instance_ip" rules={requiredIpRules}>
@@ -600,14 +589,6 @@ export function renderResourceTypeFields(ctx: ResourceFormFieldsContext): ReactN
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item
-            label="自定义标签"
-            name="custom_labels"
-            extra="支持 key1=value1;key2=value2 格式，可选"
-            rules={[{ pattern: CUSTOM_LABELS_RE, message: '格式为 key1=value1;key2=value2' }]}
-          >
-            <Input placeholder="如 device_type=snmp_switch;vendor=h3c" maxLength={512} />
-          </Form.Item>
         </>
       )
     case 'interface_service':

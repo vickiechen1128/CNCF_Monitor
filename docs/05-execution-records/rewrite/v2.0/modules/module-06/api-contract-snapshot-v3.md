@@ -98,10 +98,10 @@ monitored_status/ip_cidrs/cmdb_*`。
 
 ### 3.2 端点
 
+> D32/D34：`GET /network-domains` 与 `GET /network-domains/:id` 已由 M09 承载，返回「行政字段 + 运行态」enriched 视图（见 M09 契约 §2.1）；admin 管理页使用 `view=admin` 查看启用/停用全量列表。M06 仅保留影响面读与行政写。
+
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
-| GET | `/network-domains` | 登录 | `status/keyword/cloud_code/zone_type/tenant_id` + 分页；`created_at asc` |
-| GET | `/network-domains/:id` | 登录 | 详情；不存在 → 404 |
 | GET | `/network-domains/:id/impact` | 登录 | 影响面 |
 | POST | `/network-domains` | admin | 登记；固定 `edge` + `agent_pull` |
 | PUT | `/network-domains/:id` | admin | 仅 `name/description/zone_type/authorized_tenant_ids` |

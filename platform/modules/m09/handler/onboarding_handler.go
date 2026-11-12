@@ -26,13 +26,37 @@ func NewOnboardingHandler(svc *service.OnboardingService) *OnboardingHandler {
 	return &OnboardingHandler{svc: svc}
 }
 
-// List handles GET /network-domains (onboarding view, enabled edge domains).
+// List handles GET /network-domains. Without a view it returns the onboarding
+// scope (enabled edge domains); `view=admin` (or an explicit status) returns
+// the administrative scope for administrators (D34).
 func (h *OnboardingHandler) List(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("registration_status"))
 	if status != "" && !validRegistrationStatus(status) {
 		response.BadRequest(c, fmt.Errorf(
 			"registration_status: invalid value %q: must be created, monitored or retired", status))
 		return
+	}
+	view := strings.TrimSpace(c.Query("view"))
+	switch view {
+	case "":
+	case service.ViewOnboarding, service.ViewAdmin:
+	default:
+		response.BadRequest(c, fmt.Errorf("view: invalid value %q: must be onboarding or admin", view))
+		return
+	}
+	adminStatus := strings.TrimSpace(c.Query("status"))
+	if adminStatus != "" && adminStatus != "enabled" && adminStatus != "disabled" {
+		response.BadRequest(c, fmt.Errorf("status: invalid value %q: must be enabled or disabled", adminStatus))
+		return
+	}
+	if adminStatus != "" {
+		if view == service.ViewOnboarding {
+			response.BadRequest(c, fmt.Errorf("status requires view=admin"))
+			return
+		}
+		if view == "" {
+			view = service.ViewAdmin
+		}
 	}
 	page, pageSize := parsePagination(c)
 	items, total, err := h.svc.List(c.Request.Context(), actorOf(c), repository.ListFilter{
@@ -41,6 +65,8 @@ func (h *OnboardingHandler) List(c *gin.Context) {
 		CloudCode:          strings.TrimSpace(c.Query("cloud_code")),
 		ZoneType:           strings.TrimSpace(c.Query("zone_type")),
 		TenantID:           strings.TrimSpace(c.Query("tenant_id")),
+		View:               view,
+		Status:             adminStatus,
 		Page:               page,
 		PageSize:           pageSize,
 	})

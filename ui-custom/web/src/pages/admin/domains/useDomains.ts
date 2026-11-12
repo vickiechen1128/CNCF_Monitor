@@ -4,8 +4,8 @@ import type { ListParams } from '../../../api/domain'
 import type { Paginated } from '../../../types/api'
 import type { NetworkDomain } from '../../../types/domain'
 
-/** 网域列表筛选参数（Module_06 §6.2 / §11.1） */
-export type DomainFilters = Pick<ListParams, 'status' | 'zone_type' | 'tenant_id' | 'name'>
+/** 网域列表筛选参数（Module_06 §6.2 / §11.1；v3 搜索参数名为 keyword） */
+export type DomainFilters = Pick<ListParams, 'status' | 'zone_type' | 'tenant_id' | 'keyword'>
 
 /** 默认空分页（避免未加载完成时空指针） */
 const EMPTY_PAGE: Paginated<NetworkDomain> = { list: [], total: 0, page: 1, page_size: 20 }
@@ -42,12 +42,13 @@ export function useDomains(): UseDomainsResult {
   const load = useCallback(async () => {
     try {
       const res = await networkDomainApi.list({
+        view: 'admin',
         page,
         page_size: pageSize,
         status: filters.status,
         zone_type: filters.zone_type,
         tenant_id: filters.tenant_id,
-        name: filters.name,
+        keyword: filters.keyword,
       })
       setData(res.data)
     } catch (e) {

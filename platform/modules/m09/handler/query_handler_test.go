@@ -98,6 +98,37 @@ func TestQueryTargetsAndCoverageRoutes(t *testing.T) {
 	assert.EqualValues(t, 1, coverage["collecting"])
 	assert.EqualValues(t, 0, coverage["deployed_not_collected"])
 	assert.EqualValues(t, 0, coverage["not_monitored"])
+	assert.EqualValues(t, 1, coverage["total"])
+	items := coverage["items"].([]any)
+	require.Len(t, items, 1)
+	item := items[0].(map[string]any)
+	assert.Equal(t, "r-1", item["resource_id"])
+	assert.Equal(t, "host", item["resource_category"])
+	assert.Equal(t, "web-01", item["instance_name"])
+	assert.Equal(t, "collecting", item["monitor_state"])
+	assert.Equal(t, "up", item["health"])
+	summary := coverage["summary"].(map[string]any)
+	assert.EqualValues(t, 1, summary["total"])
+	assert.EqualValues(t, 1, summary["collecting"])
+	assert.EqualValues(t, 0, summary["not_monitored"])
+	assert.InDelta(t, 1.0, summary["coverage_rate"], 0.001)
+
+	code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage?state=not_monitored")
+	require.Equal(t, http.StatusOK, code, out)
+	filtered := out["data"].(map[string]any)
+	assert.EqualValues(t, 0, filtered["total"])
+	assert.Empty(t, filtered["items"].([]any))
+	assert.EqualValues(t, 0, filtered["summary"].(map[string]any)["total"])
+
+	code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage?resource_category=database")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.EqualValues(t, 0, out["data"].(map[string]any)["total"])
+
+	for _, query := range []string{"state=bogus", "resource_category=bogus"} {
+		code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage?"+query)
+		assert.Equal(t, http.StatusBadRequest, code, query)
+		assert.Equal(t, "bad_request", out["errorType"], query)
+	}
 }
 
 func TestQueryProxyMetaEnvelopeAndBadGateway(t *testing.T) {

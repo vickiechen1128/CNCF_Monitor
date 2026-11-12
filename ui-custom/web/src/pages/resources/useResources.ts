@@ -3,83 +3,13 @@ import { isApiError } from '../../api/client'
 import { resourceApi } from '../../api/resources'
 import type { ResourceListParams } from '../../api/resources'
 import type { Paginated } from '../../types/api'
-import type { ResourceCategory } from '../../types/resource'
+import type { ResourceCategory, ResourceListItem } from '../../types/resource'
 
 /**
- * 资源列表 item（对齐 T07-05 列表契约 Module_07 §5.2）：共享字段 + 五类差异化字段平铺。
- * 后端 list 接口按 resource_category 分表返回归一化字段；is_monitored 由 M01 维护、
- * M07 只读映射（决策 31-M1），本阶段列表不返回该字段，故不含。
+ * 资源列表 item 采用 `types/resource.ts` 中的 v3 归一化平铺模型。
+ * 此处保留 re-export，兼容既有页面 / 测试从 `./useResources` 导入的路径。
  */
-export interface ResourceListItem {
-  resource_id: string
-  resource_category: ResourceCategory
-  network_domain_id: string
-  biz_code?: string
-  app_code?: string
-  /**
-   * {v2026-09-28 决策 110} 平台归属：**资源行一等业务字段**（非派生），五类均返回。
-   * 后端 `GET /resources` 的 `sharedFields` 已含该字段并透传，空值返回空串。
-   * 列表 / 详情「平台」列以此为**唯一权威来源**，经 `GET /platform-dict` 解析 `platform_name`
-   * （缺条目回退 `platform_code`、停用标识「平台名（已停用）」）。
-   * 资源行留空时，`platform` 标签由所属应用主平台兜底（标签层兜底不回写本字段）。
-   */
-  platform_code?: string
-  env?: string
-  cluster?: string
-  owner?: string
-  status: string
-  source_type: string
-  /**
-   * 云归属（决策 103 scheme-B）：五类 item 均返回，**只读派生**——值 = 所属网域
-   * `cloud_code`，由后端派生下发；资源侧无写入口。空值返回空串。
-   * 列表 / 详情只读消费，「云」列经 GET /cloud-dict 解析为 cloud_name。
-   */
-  cloud_code?: string
-  /**
-   * 网络分区（决策 103 scheme-B）：**五类均返回**（不再仅限 host），值 = 所属网域
-   * `zone_type`，由后端派生下发；资源侧无写入口。网域未设分区或网域缺失时为空串。
-   */
-  zone_type?: string
-  /**
-   * {T01-P5} 实例级采集端口覆盖（五类均返回）：`0` / 缺省视为「未指定」——
-   * 编辑回显归一为空态，由采集端口解析链向下回落（提案 resource-scrape-port-chain §5.1）。
-   */
-  scrape_port?: number
-  // host（T07-03 legacy 映射：instance_ip→private_ip、hostname→instance_name、os_type→image）
-  instance_name?: string
-  hostname?: string
-  instance_ip?: string
-  os_type?: string
-  /** 主机开通时间（可选，2026-10-29 新增） */
-  activated_at?: string
-  // database / middleware
-  database_type?: string
-  middleware_type?: string
-  port?: number
-  version?: string
-  // application
-  owner1?: string
-  owner1_contact?: string
-  owner2?: string
-  owner2_contact?: string
-  /** 运维人员姓名 / 联系方式（可选，2026-10-29 新增） */
-  ops_person?: string
-  ops_person_contact?: string
-  go_live_at?: string
-  service_name?: string
-  health_check_url?: string
-  protocol?: string
-  endpoint?: string
-  // generic_target
-  target_name?: string
-  metrics_path?: string
-  scheme?: string
-  exporter_type?: string
-  custom_labels?: string
-  // interface_service
-  api_name?: string
-  api_url?: string
-}
+export type { ResourceListItem } from '../../types/resource'
 
 /**
  * 资源列表筛选参数。
@@ -193,9 +123,9 @@ export function useResources(initialCategory: ResourceCategory = 'host'): UseRes
         // 未监控筛选：M01 维护、M07 只读透传（决策 31-M1），M01 未实现时后端不生效
         is_monitored: filters.is_monitored,
       }
-      // 后端列表 item 为平铺 map，与 ResourceListItem 结构兼容（见该类型注释）
+      // v3 响应已在 api 适配层展平为 ResourceListItem，无需再做结构转换
       const res = await resourceApi.list(params)
-      setData(res.data as unknown as Paginated<ResourceListItem>)
+      setData(res.data)
     } catch (e) {
       if (isApiError(e) && e.code === 403) {
         setPermissionDenied(true)

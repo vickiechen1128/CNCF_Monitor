@@ -73,8 +73,6 @@ const networkDomains: NetworkDomain[] = [
     zone_type: 'internet',
     tenant_id: 'platform_admin',
     authorized_tenant_ids: ['platform_admin'],
-    cmdb_cloud_area_id: '',
-    cmdb_cloud_area_path: '',
     channel: 'local',
     is_monitored: false,
     status: 'enabled',
@@ -82,6 +80,11 @@ const networkDomains: NetworkDomain[] = [
     updated_at: '2026-08-21T00:00:00Z',
   },
 ]
+
+/** 按需覆盖网域字段（v3 的 cloud_code / zone_type 由所属网域只读派生） */
+function domainsWith(over: Partial<NetworkDomain>): NetworkDomain[] {
+  return [{ ...networkDomains[0], ...over }]
+}
 
 const businessDomains: BusinessDomain[] = [
   { code: 'infra', name: '公共基础设施', description: '', enabled: true },
@@ -150,11 +153,11 @@ function labelsResponse(items: ResourceLabelItem[]) {
 
 /** 标签项构造器（默认 user 来源） */
 function labelItem(partial: Partial<ResourceLabelItem> = {}): ResourceLabelItem {
-  return { id: 1, key: 'team', value: 'sre', source: 'user', ...partial }
+  return { id: 'label-1', key: 'team', value: 'sre', source: 'user', ...partial }
 }
 
 /** 渲染抽屉：MemoryRouter + Routes 供「前往标签模板」跳转断言 */
-function renderDrawer(over: Partial<{ open: boolean; record: ResourceListItem | null }> = {}) {
+function renderDrawer(over: Partial<{ open: boolean; record: ResourceListItem | null; networkDomains: NetworkDomain[] }> = {}) {
   const open = over.open ?? true
   const record = over.record ?? appRecord()
   return render(
@@ -166,7 +169,7 @@ function renderDrawer(over: Partial<{ open: boolean; record: ResourceListItem | 
             <ResourceDetailDrawer
               open={open}
               record={record}
-              networkDomains={networkDomains}
+              networkDomains={over.networkDomains ?? networkDomains}
               businessDomains={businessDomains}
               onCancel={cancelMock}
             />
@@ -311,9 +314,9 @@ describe('ResourceDetailDrawer', () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     labelsMock.mockResolvedValue(
       labelsResponse([
-        labelItem({ id: 1, key: 'app', value: 'order', source: 'system', source_map: 'service_name→app' }),
-        labelItem({ id: 2, key: 'team', value: 'sre', source: 'user' }),
-        labelItem({ id: 3, key: 'biz', value: '公共基础设施', source: 'cmdb' }),
+        labelItem({ id: 'label-1', key: 'app', value: 'order', source: 'system', source_map: 'service_name→app' }),
+        labelItem({ id: 'label-2', key: 'team', value: 'sre', source: 'user' }),
+        labelItem({ id: 'label-3', key: 'biz', value: '公共基础设施', source: 'cmdb' }),
       ]),
     )
     renderDrawer({ record: appRecord() })
@@ -347,16 +350,16 @@ describe('ResourceDetailDrawer', () => {
   })
 
   it('allows editing and deleting user labels for application', async () => {
-    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 2 })]))
+    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2' })]))
     renderDrawer({ record: appRecord() })
     expect(await screen.findByRole('button', { name: /编\s*辑/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /删\s*除/ })).toBeInTheDocument()
     // system / cmdb 标签在 application 下仍只读（带锁标识）
-    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 2, source: 'system', source_map: 'service_name→app' })]))
+    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2', source: 'system', source_map: 'service_name→app' })]))
   })
 
   it('renders user labels read-only for static resource', async () => {
-    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 2 })]))
+    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2' })]))
     renderDrawer({ record: hostRecord() })
     expect(await screen.findByText('team')).toBeInTheDocument()
     expect(screen.getByText('手动添加')).toBeInTheDocument()
@@ -366,7 +369,7 @@ describe('ResourceDetailDrawer', () => {
   })
 
   it('adds user label via createLabel for application', async () => {
-    createLabelMock.mockResolvedValue({ status: 'success', data: labelItem({ id: 9 }) })
+    createLabelMock.mockResolvedValue({ status: 'success', data: labelItem({ id: 'label-9' }) })
     renderDrawer({ record: appRecord() })
     const keyInput = await screen.findByPlaceholderText('标签 Key，如 team')
     fireEvent.change(keyInput, { target: { value: 'team' } })
@@ -405,7 +408,7 @@ describe('ResourceDetailDrawer', () => {
 
   it('proceeds with add when confirming conflict', async () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
-    createLabelMock.mockResolvedValue({ status: 'success', data: labelItem({ id: 10, key: 'app' }) })
+    createLabelMock.mockResolvedValue({ status: 'success', data: labelItem({ id: 'label-10', key: 'app' }) })
     renderDrawer({ record: appRecord() })
     await screen.findByText('应用默认模板（5）')
     const keyInput = await screen.findByPlaceholderText('标签 Key，如 team')
@@ -434,7 +437,7 @@ describe('ResourceDetailDrawer', () => {
 
   it('warns when editing a user label whose key conflicts with template mapping', async () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
-    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 2, key: 'app', value: 'old' })]))
+    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2', key: 'app', value: 'old' })]))
     renderDrawer({ record: appRecord() })
     await screen.findByText('应用默认模板（5）')
     fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
@@ -446,41 +449,37 @@ describe('ResourceDetailDrawer', () => {
   })
 
   it('deletes a user label via removeLabel', async () => {
-    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 2 })]))
-    removeLabelMock.mockResolvedValue({ status: 'success', data: { label_id: 2 } })
+    labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2' })]))
+    removeLabelMock.mockResolvedValue({ status: 'success', data: { label_id: 'label-2' } })
     renderDrawer({ record: appRecord() })
     fireEvent.click(await screen.findByRole('button', { name: /删\s*除/ }))
-    await waitFor(() => expect(removeLabelMock).toHaveBeenCalledWith('mc-app-1', 2))
+    await waitFor(() => expect(removeLabelMock).toHaveBeenCalledWith('mc-app-1', 'label-2'))
     await waitFor(() => expect(screen.queryByText('team')).toBeNull())
   })
 
   // 决策 103：详情「云」展示项——启用 / 停用 / 缺条目三分支 + 空值 '-'
   it('决策 103：详情「云」展示云字典 cloud_name（启用条目）', async () => {
     const rec = hostRecord()
-    rec.cloud_code = 'PUB-TX'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ cloud_code: 'PUB-TX' }) })
     expect(await screen.findByText('腾讯云')).toBeInTheDocument()
     expect(screen.queryByText('PUB-TX')).toBeNull()
   })
 
   it('决策 103：停用云以「云名（已停用）」标识', async () => {
     const rec = hostRecord()
-    rec.cloud_code = 'OLD-TX'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ cloud_code: 'OLD-TX' }) })
     expect(await screen.findByText('已下线云（已停用）')).toBeInTheDocument()
   })
 
   it('决策 103：字典缺条目回退显示 cloud_code', async () => {
     const rec = hostRecord()
-    rec.cloud_code = 'GM-CU'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ cloud_code: 'GM-CU' }) })
     expect(await screen.findByText('GM-CU')).toBeInTheDocument()
   })
 
   it('决策 103：cloud_code 为空时详情「云」渲染 "-"', async () => {
     const rec = hostRecord()
-    rec.cloud_code = undefined
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ cloud_code: undefined }) })
     await screen.findByText('mc-res-1')
     const label = screen.getByText('云').closest('.ant-descriptions-item')
     expect(label).toHaveTextContent('-')
@@ -489,8 +488,7 @@ describe('ResourceDetailDrawer', () => {
   // 决策 101：网络分区只读派生（权威 = 所属网域 zone_type），无编辑入口
   it('决策 101：详情「网络分区」展示 M06 字典展示名并标注继承所属网域', async () => {
     const rec = hostRecord()
-    rec.zone_type = 'extranet'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'extranet' }) })
     expect(await screen.findByText('政务外网区')).toBeInTheDocument()
     expect(screen.getByText('继承所属网域')).toBeInTheDocument()
     // 分区无编辑入口（决策 101）
@@ -500,8 +498,7 @@ describe('ResourceDetailDrawer', () => {
 
   it('决策 101：网域未设分区时网络分区显示 "-"', async () => {
     const rec = hostRecord()
-    rec.zone_type = ''
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: '' }) })
     await screen.findByText('mc-res-1')
     const zoneItem = screen.getByText('网络分区').closest('.ant-descriptions-item') as HTMLElement
     expect(zoneItem).toHaveTextContent('-')
@@ -510,16 +507,14 @@ describe('ResourceDetailDrawer', () => {
 
   it('决策 101：不出现「请与网域保持一致」类一致性引导文案', async () => {
     const rec = hostRecord()
-    rec.zone_type = 'internet'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'internet' }) })
     expect(await screen.findByText('互联网区')).toBeInTheDocument()
     expect(screen.queryByText(/与网域保持一致|^保持一致$|保持一致，/)).toBeNull()
   })
 
   it('决策 103 scheme-B：非 host 资源同样渲染「网络分区」项（五类均由网域派生）', async () => {
     const rec = appRecord()
-    rec.zone_type = 'internet'
-    renderDrawer({ record: rec })
+    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'internet' }) })
     await screen.findByText('mc-app-1')
     expect(screen.getByText('网络分区')).toBeInTheDocument()
     expect(screen.getByText('互联网区')).toBeInTheDocument()
@@ -527,7 +522,7 @@ describe('ResourceDetailDrawer', () => {
 
   it('shows label load error alert and reloads', async () => {
     labelsMock.mockRejectedValueOnce(new Error('network error'))
-    labelsMock.mockResolvedValueOnce(labelsResponse([labelItem({ id: 2 })]))
+    labelsMock.mockResolvedValueOnce(labelsResponse([labelItem({ id: 'label-2' })]))
     renderDrawer({ record: appRecord() })
     expect(await screen.findByText('标签数据加载失败，请稍后重试')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))

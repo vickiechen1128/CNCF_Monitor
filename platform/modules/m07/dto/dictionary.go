@@ -6,22 +6,25 @@ import (
 
 // BusinessDomain is a v3 business dictionary item.
 type BusinessDomain struct {
-	Code    string `json:"code"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // Application is a v3 application dictionary item.
 type Application struct {
-	AppCode string `json:"app_code"`
-	AppName string `json:"app_name"`
-	Status  string `json:"status"`
+	AppCode     string `json:"app_code"`
+	AppName     string `json:"app_name"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
 }
 
 // Platform is a v3 platform dictionary item.
 type Platform struct {
 	PlatformCode string `json:"platform_code"`
 	PlatformName string `json:"platform_name"`
+	Description  string `json:"description,omitempty"`
 	Enabled      bool   `json:"enabled"`
 }
 
@@ -67,27 +70,65 @@ func FromAppPlatformRel(item *dictionary.AppPlatformRel) AppPlatformRel {
 func FromBusinessDomains(items []dictionary.BusinessDomain) []BusinessDomain {
 	out := make([]BusinessDomain, 0, len(items))
 	for _, item := range items {
-		out = append(out, BusinessDomain{Code: item.Code, Name: item.Name, Enabled: item.Enabled})
+		out = append(out, BusinessDomain{
+			Code: item.Code, Name: item.Name, Description: item.Description, Enabled: item.Enabled,
+		})
 	}
 	return out
+}
+
+// FromBusinessDomain maps one dictionary entry to a DTO.
+func FromBusinessDomain(item *dictionary.BusinessDomain) BusinessDomain {
+	if item == nil {
+		return BusinessDomain{}
+	}
+	return BusinessDomain{
+		Code: item.Code, Name: item.Name, Description: item.Description, Enabled: item.Enabled,
+	}
 }
 
 // FromApplications maps dictionary entries to DTOs.
 func FromApplications(items []dictionary.Application) []Application {
 	out := make([]Application, 0, len(items))
 	for _, item := range items {
-		out = append(out, Application{AppCode: item.AppCode, AppName: item.AppName, Status: item.Status})
+		out = append(out, Application{
+			AppCode: item.AppCode, AppName: item.AppName, Description: item.Description, Status: item.Status,
+		})
 	}
 	return out
+}
+
+// FromApplication maps one dictionary entry to a DTO.
+func FromApplication(item *dictionary.Application) Application {
+	if item == nil {
+		return Application{}
+	}
+	return Application{
+		AppCode: item.AppCode, AppName: item.AppName, Description: item.Description, Status: item.Status,
+	}
 }
 
 // FromPlatforms maps dictionary entries to DTOs.
 func FromPlatforms(items []dictionary.Platform) []Platform {
 	out := make([]Platform, 0, len(items))
 	for _, item := range items {
-		out = append(out, Platform{PlatformCode: item.PlatformCode, PlatformName: item.PlatformName, Enabled: item.Enabled})
+		out = append(out, Platform{
+			PlatformCode: item.PlatformCode, PlatformName: item.PlatformName,
+			Description: item.Description, Enabled: item.Enabled,
+		})
 	}
 	return out
+}
+
+// FromPlatform maps one dictionary entry to a DTO.
+func FromPlatform(item *dictionary.Platform) Platform {
+	if item == nil {
+		return Platform{}
+	}
+	return Platform{
+		PlatformCode: item.PlatformCode, PlatformName: item.PlatformName,
+		Description: item.Description, Enabled: item.Enabled,
+	}
 }
 
 // FromClouds maps dictionary entries to DTOs.

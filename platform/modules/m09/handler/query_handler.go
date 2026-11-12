@@ -3,8 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -78,18 +80,74 @@ func (h *QueryHandler) Targets(c *gin.Context) {
 	response.OK(c, dto.ListTargetsResponse{List: list, Total: total, Page: page, PageSize: pageSize})
 }
 
-// Coverage handles GET /api/v1/health/coverage.
+// Coverage handles GET /api/v1/health/coverage. It returns the per-resource
+// items plus the aggregate summary (contract §7.2); the three legacy top-level
+// counters stay for the M07 badge consumer during the compatibility window.
 func (h *QueryHandler) Coverage(c *gin.Context) {
+	state := strings.TrimSpace(c.Query("state"))
+	if state != "" && !validCoverageState(state) {
+		response.BadRequest(c, fmt.Errorf(
+			"state: invalid value %q: must be collecting, partial_collecting, pending_down or not_monitored", state))
+		return
+	}
+	category := strings.TrimSpace(c.Query("resource_category"))
+	if category != "" && !validResourceCategory(category) {
+		response.BadRequest(c, fmt.Errorf(
+			"resource_category: invalid value %q: must be host, database, middleware, application, generic_target or interface_service", category))
+		return
+	}
+	page, pageSize := parseCoveragePagination(c)
+	filter := repository.CoverageFilter{
+		NetworkDomainID:  strings.TrimSpace(c.Query("network_domain")),
+		ResourceCategory: category,
+	}
+	report, err := h.svc.CoverageReport(c.Request.Context(), actorOf(c), filter, state, page, pageSize)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
 	counts, err := h.svc.Coverage(c.Request.Context(), actorOf(c))
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	response.OK(c, dto.CoverageResponse{
-		Collecting:           counts.Collecting,
-		DeployedNotCollected: counts.DeployedNotCollected,
-		NotMonitored:         counts.NotMonitored,
-	})
+	response.OK(c, dto.FromCoverageReport(report, counts))
+}
+
+// parseCoveragePagination parses the coverage page params: page defaults to 1,
+// page_size defaults to 500 and is capped at 1000 (contract §7.2).
+func parseCoveragePagination(c *gin.Context) (int, int) {
+	page, _ := strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	if pageSize < 1 {
+		pageSize = 500
+	}
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
+	return page, pageSize
+}
+
+func validCoverageState(state string) bool {
+	switch state {
+	case service.StateCollecting, service.StatePartialCollecting,
+		service.StatePendingDown, service.StateNotMonitored:
+		return true
+	default:
+		return false
+	}
+}
+
+func validResourceCategory(category string) bool {
+	switch category {
+	case "host", "database", "middleware", "application", "generic_target", "interface_service":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *QueryHandler) proxy(c *gin.Context, path string) {

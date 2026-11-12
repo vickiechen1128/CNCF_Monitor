@@ -10,7 +10,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { App } from 'antd'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { CreateSilenceDrawer } from './CreateSilenceDrawer'
-import type { Resource } from '../../types/resource'
+import type { ResourceListItem } from '../../types/resource'
 
 const getLabelOptionsMock = vi.fn()
 vi.mock('../../api/alertmanager', async (importOriginal) => {
@@ -67,22 +67,18 @@ describe('CreateSilenceDrawer（创建静默抽屉，决策 71）', () => {
         ],
       },
     })
-    const host: Resource = {
-      id: 1,
+    const host: ResourceListItem = {
       resource_id: 'rid-host-1',
-      tenant_id: 't',
-      resource_type: 'host',
       resource_category: 'host',
       network_domain_id: 'default',
       biz_code: 'b',
       env: 'PRD',
       owner: '',
       status: 'online',
-      created_at: '',
-      updated_at: '',
+      source_type: 'manual',
       instance_name: 'web-01',
-      private_ip: '10.0.0.5',
-    } as unknown as Resource
+      instance_ip: '10.0.0.5',
+    }
     // resource_category 必填（M07 §6.1）：按所选类型单类拉取，仅 host 类返回样例
     resourceListMock.mockImplementation((params?: { resource_category?: string }) => {
       const list = params?.resource_category === 'host' ? [host] : []

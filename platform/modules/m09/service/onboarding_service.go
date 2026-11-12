@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/foundation/apierror"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
+)
+
+// Onboarding list views (contract §2.2, D34).
+const (
+	ViewOnboarding = "onboarding"
+	ViewAdmin      = "admin"
 )
 
 // Actor is the authenticated caller's authorization scope. IsPlatformAdmin
@@ -68,8 +75,30 @@ func NewOnboardingService(repo repository.OnboardingRepository, tenants reposito
 }
 
 // List returns the onboarding view restricted to the caller's authorized
-// domains. A non-admin cannot widen the scope through the tenant_id filter.
+// domains. The default view is the monitorable scope (enabled edge domains);
+// administrators may request ViewAdmin to see every edge/collection domain,
+// including disabled ones (D34). A non-admin cannot widen the scope through
+// the tenant_id/status/view filters.
 func (s *OnboardingService) List(ctx context.Context, actor Actor, filter repository.ListFilter) ([]repository.DomainOnboarding, int64, error) {
+	if filter.View == "" {
+		if filter.Status != "" {
+			filter.View = ViewAdmin
+		} else {
+			filter.View = ViewOnboarding
+		}
+	}
+	switch filter.View {
+	case ViewOnboarding:
+		filter.Status = ""
+	case ViewAdmin:
+		if !actor.IsPlatformAdmin {
+			return nil, 0, apierror.New(apierror.Forbidden, "admin network-domain view requires administrator role")
+		}
+		filter.View = repository.ListViewAdmin
+	default:
+		return nil, 0, apierror.Newf(apierror.BadRequest,
+			"view: invalid value %q: must be onboarding or admin", filter.View)
+	}
 	allowed, err := s.resolveAllowed(ctx, actor)
 	if err != nil {
 		return nil, 0, err

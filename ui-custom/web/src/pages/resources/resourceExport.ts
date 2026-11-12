@@ -20,7 +20,7 @@ const SHARED_COLUMNS: ExportColumn[] = [
 
 const CATEGORY_COLUMNS: Record<ResourceCategory, ExportColumn[]> = {
   host: [
-    { key: 'instance_name', label: '实例名' }, { key: 'hostname', label: '主机名' },
+    { key: 'instance_name', label: '实例名' },
     { key: 'instance_ip', label: 'IP 地址' }, { key: 'os_type', label: '操作系统' },
     { key: 'scrape_port', label: '采集端口' }, { key: 'activated_at', label: '开通时间' },
   ],
@@ -44,7 +44,7 @@ const CATEGORY_COLUMNS: Record<ResourceCategory, ExportColumn[]> = {
     { key: 'target_name', label: '目标名称' }, { key: 'instance_ip', label: 'IP 地址' },
     { key: 'port', label: '端口' }, { key: 'metrics_path', label: '采集路径' },
     { key: 'scheme', label: '协议' }, { key: 'exporter_type', label: 'Exporter 类型' },
-    { key: 'custom_labels', label: '自定义标签' }, { key: 'scrape_port', label: '采集端口' },
+    { key: 'scrape_port', label: '采集端口' },
   ],
   interface_service: [
     { key: 'api_name', label: '接口名' }, { key: 'api_url', label: '接口地址' },

@@ -38,12 +38,96 @@ type QueryRepository interface {
 	ListEdgeTargets(ctx context.Context, filter TargetFilter) ([]EdgeTargetRow, int64, error)
 	TargetHealthCounts(ctx context.Context, allowed []string, freshAfter time.Time) (collecting, degraded int64, err error)
 	UnmonitoredResourceCount(ctx context.Context, allowed []string) (int64, error)
+	ListCoverageResources(ctx context.Context, filter CoverageFilter) ([]CoverageResourceRow, error)
+	ListCoverageTargets(ctx context.Context, filter CoverageFilter) ([]CoverageTargetRow, error)
+}
+
+// CoverageFilter scopes the per-resource coverage report.
+type CoverageFilter struct {
+	Allowed          []string
+	NetworkDomainID  string
+	ResourceCategory string
+}
+
+// CoverageResourceRow is one M07 resource in the coverage report.
+type CoverageResourceRow struct {
+	ResourceID       string `gorm:"column:resource_id"`
+	ResourceCategory string `gorm:"column:resource_category"`
+	InstanceName     string `gorm:"column:instance_name"`
+}
+
+// CoverageTargetRow is one edge target snapshot used to derive resource state.
+type CoverageTargetRow struct {
+	ResourceID   string    `gorm:"column:resource_id"`
+	Health       string    `gorm:"column:health"`
+	LastError    string    `gorm:"column:last_error"`
+	LastReportAt time.Time `gorm:"column:last_report_at"`
 }
 
 // effectiveHealthSQL derives the display health: a stale or missing report is
 // downgraded to unknown (contract §7.1). It is only used as a comparison
 // expression (never as a bare WHERE condition).
 const effectiveHealthSQL = `(CASE WHEN last_report_at < ? OR health IS NULL OR health = '' THEN 'unknown' ELSE health END)`
+
+// ListCoverageResources returns the resources in scope with their display
+// instance name, derived from the category extension table.
+func (r *GORMRepository) ListCoverageResources(ctx context.Context, filter CoverageFilter) ([]CoverageResourceRow, error) {
+	q := r.db.WithContext(ctx).Table("resources AS r").
+		Select(`r.resource_id AS resource_id, r.resource_category AS resource_category,
+			CASE r.resource_category
+			  WHEN 'host' THEN COALESCE(h.hostname, '')
+			  WHEN 'database' THEN COALESCE(d.instance_ip, '') || ':' || COALESCE(CAST(d.port AS TEXT), '')
+			  WHEN 'middleware' THEN COALESCE(m.instance_ip, '') || ':' || COALESCE(CAST(m.port AS TEXT), '')
+			  WHEN 'application' THEN COALESCE(a.service_name, '')
+			  WHEN 'generic_target' THEN COALESCE(g.target_name, '')
+			  WHEN 'interface_service' THEN COALESCE(i.api_name, '')
+			  ELSE '' END AS instance_name`).
+		Joins("LEFT JOIN host_resources h ON h.resource_id = r.resource_id").
+		Joins("LEFT JOIN database_resources d ON d.resource_id = r.resource_id").
+		Joins("LEFT JOIN middleware_resources m ON m.resource_id = r.resource_id").
+		Joins("LEFT JOIN application_resources a ON a.resource_id = r.resource_id").
+		Joins("LEFT JOIN generic_target_resources g ON g.resource_id = r.resource_id").
+		Joins("LEFT JOIN interface_service_resources i ON i.resource_id = r.resource_id").
+		Where("r.deleted_at IS NULL")
+	q = applyCoverageDomain(q, filter, "r.network_domain_id")
+	if filter.ResourceCategory != "" {
+		q = q.Where("r.resource_category = ?", filter.ResourceCategory)
+	}
+	var rows []CoverageResourceRow
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list coverage resources: %w", err)
+	}
+	return rows, nil
+}
+
+// ListCoverageTargets returns the edge target snapshots attached to resources.
+// Snapshots without a resource_id cannot be attributed and are ignored.
+func (r *GORMRepository) ListCoverageTargets(ctx context.Context, filter CoverageFilter) ([]CoverageTargetRow, error) {
+	q := r.db.WithContext(ctx).Table("edge_target_snapshots").
+		Select(`resource_id, COALESCE(health, '') AS health,
+			COALESCE(last_error, '') AS last_error, last_report_at`).
+		Where("resource_id IS NOT NULL AND resource_id <> ''")
+	q = applyCoverageDomain(q, filter, "network_domain_id")
+	var rows []CoverageTargetRow
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list coverage targets: %w", err)
+	}
+	return rows, nil
+}
+
+// applyCoverageDomain applies the authorized-domain scope to a coverage query.
+func applyCoverageDomain(q *gorm.DB, filter CoverageFilter, column string) *gorm.DB {
+	if len(filter.Allowed) == 0 && filter.Allowed != nil {
+		return q.Where("1 = 0")
+	}
+	if filter.Allowed != nil {
+		q = q.Where(column+" IN ?", filter.Allowed)
+	}
+	if filter.NetworkDomainID != "" {
+		q = q.Where(column+" = ?", filter.NetworkDomainID)
+	}
+	return q
+}
 
 // ListEdgeTargets returns the paginated edge targets with lifecycle health.
 func (r *GORMRepository) ListEdgeTargets(ctx context.Context, filter TargetFilter) ([]EdgeTargetRow, int64, error) {

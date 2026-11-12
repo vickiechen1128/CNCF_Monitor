@@ -29,8 +29,6 @@ const domainRow = (id: string, name: string, extra: Partial<NetworkDomain> = {})
   zone_type: '',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
-  cmdb_cloud_area_id: '',
-  cmdb_cloud_area_path: '',
   channel: 'local',
   is_monitored: false,
   status: 'enabled',
@@ -111,11 +109,11 @@ describe('DomainsPage', () => {
     expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
-  it('management domain offers delete (not disable)', async () => {
+  it('collection read-compat domain offers disable and delete', async () => {
     useDomainsMock.mockReturnValue(
       result({
         data: {
-          list: [domainRow('mc-admin', '系统管理域', { domain_type: 'management' })],
+          list: [domainRow('mc-legacy', '历史域A', { domain_type: 'collection' })],
           total: 1,
           page: 1,
           page_size: 20,
@@ -123,14 +121,11 @@ describe('DomainsPage', () => {
       }),
     )
     renderPage()
-    expect(await screen.findByText('系统管理域')).toBeInTheDocument()
-    // 方案 A：中心直连域允许删除 / 重建，但仍禁止禁用（行政冻结）。
+    expect(await screen.findByText('历史域A')).toBeInTheDocument()
     fireEvent.mouseEnter(screen.getByRole('button', { name: '更多操作' }))
     expect(await screen.findByText('删除网域')).toBeInTheDocument()
-    expect(screen.queryByText('禁用网域')).toBeNull()
-    // 中心直连域走直连采集简化路径，不出现「安装采集节点」等采集节点流程
-    expect(screen.getByText('已登记（中心直连）')).toBeInTheDocument()
-    expect(screen.queryByText('安装采集节点')).toBeNull()
+    expect(screen.getByText('禁用网域')).toBeInTheDocument()
+    expect(screen.getByText('已登记')).toBeInTheDocument()
   })
 
   it('renders access progress four-state text from access_step/is_monitored', async () => {
@@ -182,32 +177,11 @@ describe('DomainsPage', () => {
     expect(screen.queryByRole('button', { name: /去配置采集/ })).toBeNull()
   })
 
-  // 中心直连域不渲染采集节点域的主操作（无「装采集节点」环节）。
-  it('hides采集节点域 primary action for management domain', async () => {
+  it('opens detail drawer when clicking domain name (sinking ID/desc)', async () => {
     useDomainsMock.mockReturnValue(
       result({
         data: {
-          list: [domainRow('mc-admin', '系统管理域', { domain_type: 'management', is_monitored: true, access_step: 4 })],
-          total: 1,
-          page: 1,
-          page_size: 20,
-        },
-      }),
-    )
-    renderPage()
-    expect(await screen.findByText('系统管理域')).toBeInTheDocument()
-    // 直连域走两态简化进度，且不出现采集节点域的主操作按钮
-    expect(screen.getByText('已纳管·直连采集')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /查看采集任务/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /去配置采集/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /安装采集节点/ })).toBeNull()
-  })
-
-  it('opens detail drawer when clicking domain name (sinking ID/CIDR/desc)', async () => {
-    useDomainsMock.mockReturnValue(
-      result({
-        data: {
-          list: [domainRow('mc-a', '政务网A区', { description: '政务网', ip_cidrs: ['10.20.0.0/16'] })],
+          list: [domainRow('mc-a', '政务网A区', { description: '政务网' })],
           total: 1,
           page: 1,
           page_size: 20,
@@ -216,10 +190,9 @@ describe('DomainsPage', () => {
     )
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /政务网A区/ }))
-    // 详情抽屉下沉展示：网域 ID / 网段 / 描述
+    // 详情抽屉下沉展示：网域 ID / 描述
     expect(await screen.findByText('网域 ID')).toBeInTheDocument()
     expect(screen.getByText('mc-a')).toBeInTheDocument()
-    expect(screen.getByText('10.20.0.0/16')).toBeInTheDocument()
     expect(screen.getByText('政务网')).toBeInTheDocument()
   })
 })

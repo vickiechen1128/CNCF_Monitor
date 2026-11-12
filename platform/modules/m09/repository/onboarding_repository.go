@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,13 +14,23 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m09/domain"
 )
 
+// ListViewAdmin selects the administrative visibility (D34): every edge /
+// collection domain, with an optional status filter.
+const ListViewAdmin = "admin"
+
+// domainTypeCollection is the read-compat domain type kept by D16.
+const domainTypeCollection = "collection"
+
 // onboardingSelect is the joined projection: M06 administrative fields + M09
 // access state + edge-agent aggregates. Edge-agent counts are correlated
 // subqueries so the list stays a single round trip (page size <= 100).
 const onboardingSelect = `nm.id AS domain_id,
 	nm.name AS name,
+	COALESCE(nm.description, '') AS description,
 	COALESCE(nm.cloud_code, '') AS cloud_code,
 	COALESCE(nm.zone_type, '') AS zone_type,
+	nm.tenant_id AS tenant_id,
+	COALESCE(nm.authorized_tenant_ids, '[]') AS authorized_tenant_ids_json,
 	nm.status AS admin_status,
 	nm.domain_type AS admin_domain_type,
 	COALESCE(nda.registration_status, 'created') AS registration_status,
@@ -44,6 +55,12 @@ type ListFilter struct {
 	CloudCode          string
 	ZoneType           string
 	TenantID           string
+	// View selects the administrative visibility: empty/onboarding keeps the
+	// monitorable scope (enabled edge domains); admin exposes every edge/
+	// collection domain and allows the Status filter (D34).
+	View string
+	// Status filters the administrative state in the admin view.
+	Status string
 	// AllowedDomainIDs restricts the result to the caller's authorized domains.
 	// nil means "no restriction" (platform admin); an empty non-nil slice means
 	// "authorized to nothing" (always empty result).
@@ -54,23 +71,26 @@ type ListFilter struct {
 
 // DomainOnboarding is the service-facing onboarding read model.
 type DomainOnboarding struct {
-	DomainID           string
-	Name               string
-	CloudCode          string
-	ZoneType           string
-	AdminStatus        string
-	AdminDomainType    string
-	RegistrationStatus string
-	MonitoredAt        *time.Time
-	TokenMasked        string
-	AgentCount         int64
-	OnlineAgentCount   int64
-	LastHeartbeatAt    *time.Time
-	LastConfigVersion  string
-	CenterEndpoint     string
-	RemoteWriteURL     string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	DomainID            string
+	Name                string
+	Description         string
+	CloudCode           string
+	ZoneType            string
+	TenantID            string
+	AuthorizedTenantIDs []string
+	AdminStatus         string
+	AdminDomainType     string
+	RegistrationStatus  string
+	MonitoredAt         *time.Time
+	TokenMasked         string
+	AgentCount          int64
+	OnlineAgentCount    int64
+	LastHeartbeatAt     *time.Time
+	LastConfigVersion   string
+	CenterEndpoint      string
+	RemoteWriteURL      string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // OnboardingRepository persists M09 onboarding state and reads the joined view.
@@ -99,9 +119,10 @@ func NewGORMRepository(db *gorm.DB) *GORMRepository {
 	return &GORMRepository{db: db}
 }
 
-// List returns onboarding rows; only enabled edge domains are listed (§2).
+// List returns onboarding rows. The default scope is enabled edge domains
+// (§2.2); the admin view widens it to every edge/collection domain (D34).
 func (r *GORMRepository) List(ctx context.Context, filter ListFilter) ([]DomainOnboarding, int64, error) {
-	countQuery := r.applyConditions(r.base(ctx), filter).Where("nm.status = ?", domain.MonitorableStatusEnabled)
+	countQuery := r.applyConditions(r.base(ctx), filter)
 	var total int64
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("count onboarding network domains: %w", err)
@@ -117,7 +138,7 @@ func (r *GORMRepository) List(ctx context.Context, filter ListFilter) ([]DomainO
 	}
 
 	var rows []domainOnboardingRow
-	query := r.applyConditions(r.base(ctx), filter).Where("nm.status = ?", domain.MonitorableStatusEnabled)
+	query := r.applyConditions(r.base(ctx), filter)
 	if err := query.Select(onboardingSelect).
 		Order("nm.created_at ASC, nm.id ASC").
 		Offset((page - 1) * pageSize).Limit(pageSize).
@@ -284,7 +305,16 @@ func (r *GORMRepository) base(ctx context.Context) *gorm.DB {
 }
 
 func (r *GORMRepository) applyConditions(query *gorm.DB, filter ListFilter) *gorm.DB {
-	query = query.Where("nm.deleted_at IS NULL AND nm.domain_type = ?", domain.MonitorableDomainTypeEdge)
+	query = query.Where("nm.deleted_at IS NULL")
+	if filter.View == ListViewAdmin {
+		query = query.Where("nm.domain_type IN ?", []string{domain.MonitorableDomainTypeEdge, domainTypeCollection})
+		if filter.Status != "" {
+			query = query.Where("nm.status = ?", filter.Status)
+		}
+	} else {
+		query = query.Where("nm.domain_type = ? AND nm.status = ?",
+			domain.MonitorableDomainTypeEdge, domain.MonitorableStatusEnabled)
+	}
 	if filter.RegistrationStatus != "" {
 		query = query.Where("COALESCE(nda.registration_status, 'created') = ?", filter.RegistrationStatus)
 	}
@@ -316,24 +346,44 @@ func applyAllowed(query *gorm.DB, allowed []string) *gorm.DB {
 
 func toDomainOnboarding(row *domainOnboardingRow) DomainOnboarding {
 	return DomainOnboarding{
-		DomainID:           row.DomainID,
-		Name:               row.Name,
-		CloudCode:          row.CloudCode,
-		ZoneType:           row.ZoneType,
-		AdminStatus:        row.AdminStatus,
-		AdminDomainType:    row.AdminDomainType,
-		RegistrationStatus: row.RegistrationStatus,
-		MonitoredAt:        row.MonitoredAt,
-		TokenMasked:        row.TokenMasked,
-		AgentCount:         row.AgentCount,
-		OnlineAgentCount:   row.OnlineAgentCount,
-		LastHeartbeatAt:    row.LastHeartbeatAt,
-		LastConfigVersion:  row.LastConfigVersion,
-		CenterEndpoint:     row.CenterEndpoint,
-		RemoteWriteURL:     row.RemoteWriteURL,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
+		DomainID:            row.DomainID,
+		Name:                row.Name,
+		Description:         row.Description,
+		CloudCode:           row.CloudCode,
+		ZoneType:            row.ZoneType,
+		TenantID:            row.TenantID,
+		AuthorizedTenantIDs: parseStringList(row.AuthorizedTenantIDsJSON),
+		AdminStatus:         row.AdminStatus,
+		AdminDomainType:     row.AdminDomainType,
+		RegistrationStatus:  row.RegistrationStatus,
+		MonitoredAt:         row.MonitoredAt,
+		TokenMasked:         row.TokenMasked,
+		AgentCount:          row.AgentCount,
+		OnlineAgentCount:    row.OnlineAgentCount,
+		LastHeartbeatAt:     row.LastHeartbeatAt,
+		LastConfigVersion:   row.LastConfigVersion,
+		CenterEndpoint:      row.CenterEndpoint,
+		RemoteWriteURL:      row.RemoteWriteURL,
+		CreatedAt:           row.CreatedAt,
+		UpdatedAt:           row.UpdatedAt,
 	}
+}
+
+// parseStringList decodes the JSON-encoded authorized_tenant_ids column. A
+// malformed/empty column degrades to an empty list instead of failing the read.
+func parseStringList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return []string{}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func toDomainAccess(row *accessRecord) *domain.Access {

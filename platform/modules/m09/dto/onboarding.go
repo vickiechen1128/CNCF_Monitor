@@ -7,24 +7,33 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"
 )
 
+// domainTypeLabel is the fixed, user-facing label for collection-node domains.
+const domainTypeLabel = "采集节点域"
+
 // OnboardingResponse is the onboarding view (contract §2.1). Runtime fields
 // are masked; the plaintext token never appears here.
 type OnboardingResponse struct {
-	NetworkDomainID    string     `json:"network_domain_id"`
-	Name               string     `json:"name"`
-	CloudCode          string     `json:"cloud_code"`
-	ZoneType           string     `json:"zone_type"`
-	RegistrationStatus string     `json:"registration_status"`
-	MonitoredAt        *time.Time `json:"monitored_at"`
-	TokenMasked        string     `json:"token_masked"`
-	AgentCount         int64      `json:"agent_count"`
-	OnlineAgentCount   int64      `json:"online_agent_count"`
-	LastHeartbeatAt    *time.Time `json:"last_heartbeat_at"`
-	LastConfigVersion  string     `json:"last_config_version"`
-	CenterEndpoint     string     `json:"center_endpoint"`
-	RemoteWriteURL     string     `json:"remote_write_url"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	NetworkDomainID     string     `json:"network_domain_id"`
+	Name                string     `json:"name"`
+	Description         string     `json:"description"`
+	DomainType          string     `json:"domain_type"`
+	DomainTypeLabel     string     `json:"domain_type_label"`
+	TenantID            string     `json:"tenant_id"`
+	AuthorizedTenantIDs []string   `json:"authorized_tenant_ids"`
+	Status              string     `json:"status"`
+	CloudCode           string     `json:"cloud_code"`
+	ZoneType            string     `json:"zone_type"`
+	RegistrationStatus  string     `json:"registration_status"`
+	MonitoredAt         *time.Time `json:"monitored_at"`
+	TokenMasked         string     `json:"token_masked"`
+	AgentCount          int64      `json:"agent_count"`
+	OnlineAgentCount    int64      `json:"online_agent_count"`
+	LastHeartbeatAt     *time.Time `json:"last_heartbeat_at"`
+	LastConfigVersion   string     `json:"last_config_version"`
+	CenterEndpoint      string     `json:"center_endpoint"`
+	RemoteWriteURL      string     `json:"remote_write_url"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // ListOnboardingResponse is the pagination envelope (contract §1.2).
@@ -70,21 +79,27 @@ type UnmonitorResponse struct {
 // FromOnboarding converts a repository read model to the contract response.
 func FromOnboarding(item *repository.DomainOnboarding) OnboardingResponse {
 	return OnboardingResponse{
-		NetworkDomainID:    item.DomainID,
-		Name:               item.Name,
-		CloudCode:          item.CloudCode,
-		ZoneType:           item.ZoneType,
-		RegistrationStatus: item.RegistrationStatus,
-		MonitoredAt:        item.MonitoredAt,
-		TokenMasked:        item.TokenMasked,
-		AgentCount:         item.AgentCount,
-		OnlineAgentCount:   item.OnlineAgentCount,
-		LastHeartbeatAt:    item.LastHeartbeatAt,
-		LastConfigVersion:  item.LastConfigVersion,
-		CenterEndpoint:     item.CenterEndpoint,
-		RemoteWriteURL:     item.RemoteWriteURL,
-		CreatedAt:          item.CreatedAt,
-		UpdatedAt:          item.UpdatedAt,
+		NetworkDomainID:     item.DomainID,
+		Name:                item.Name,
+		Description:         item.Description,
+		DomainType:          item.AdminDomainType,
+		DomainTypeLabel:     domainTypeLabel,
+		TenantID:            item.TenantID,
+		AuthorizedTenantIDs: item.AuthorizedTenantIDs,
+		Status:              item.AdminStatus,
+		CloudCode:           item.CloudCode,
+		ZoneType:            item.ZoneType,
+		RegistrationStatus:  item.RegistrationStatus,
+		MonitoredAt:         item.MonitoredAt,
+		TokenMasked:         item.TokenMasked,
+		AgentCount:          item.AgentCount,
+		OnlineAgentCount:    item.OnlineAgentCount,
+		LastHeartbeatAt:     item.LastHeartbeatAt,
+		LastConfigVersion:   item.LastConfigVersion,
+		CenterEndpoint:      item.CenterEndpoint,
+		RemoteWriteURL:      item.RemoteWriteURL,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
 	}
 }
 

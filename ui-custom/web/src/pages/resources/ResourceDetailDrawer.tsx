@@ -55,6 +55,12 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
 
   /** 网域 ID → 展示名（M06 网域清单），未匹配兜底展示 ID */
   const domainNameOf = (id: string) => networkDomains.find((d) => d.id === id)?.name ?? id
+  /**
+   * v3 资源响应不再内联 `cloud_code` / `zone_type`：二者均由所属网域只读派生。
+   * 详情抽屉从父页面已加载的网域清单按 `network_domain_id` 取值。
+   */
+  const domainCloudCode = record ? networkDomains.find((d) => d.id === record.network_domain_id)?.cloud_code : undefined
+  const domainZoneType = record ? networkDomains.find((d) => d.id === record.network_domain_id)?.zone_type : undefined
   /** 业务编码 → biz_name（§11.2 业务列展示 biz_name） */
   const resolveBizName = (code?: string) => {
     if (!code) return '-'
@@ -140,8 +146,8 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           label: '网络分区',
           children: (
             <span>
-              {record.zone_type ? (
-                <Tag>{resolveZoneTypeName(record.zone_type)}</Tag>
+              {domainZoneType ? (
+                <Tag>{resolveZoneTypeName(domainZoneType)}</Tag>
               ) : (
                 <Text type="secondary">-</Text>
               )}
@@ -201,10 +207,10 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         {
           key: 'cloud_code',
           label: '云',
-          children: record.cloud_code ? (
+          children: domainCloudCode ? (
             <span>
-              {resolveCloudName(record.cloud_code)}
-              {isCloudDisabled(record.cloud_code) ? '（已停用）' : ''}
+              {resolveCloudName(domainCloudCode)}
+              {isCloudDisabled(domainCloudCode) ? '（已停用）' : ''}
             </span>
           ) : (
             '-'
@@ -233,7 +239,6 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           case 'host':
             return [
               { key: 'instance_name', label: '实例名', children: record.instance_name || '-' },
-              { key: 'hostname', label: '主机名', children: record.hostname || '-' },
               { key: 'instance_ip', label: 'IP 地址', children: record.instance_ip || '-' },
               { key: 'os_type', label: '操作系统', children: record.os_type || '-' },
               { key: 'activated_at', label: '开通时间', children: record.activated_at || '-' },
@@ -277,11 +282,6 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
               { key: 'port', label: '端口', children: record.port ?? '-' },
               { key: 'metrics_path', label: '采集路径', children: record.metrics_path || '/metrics' },
               { key: 'scheme', label: '协议', children: record.scheme || 'http' },
-              {
-                key: 'custom_labels',
-                label: '自定义标签',
-                children: record.custom_labels ? <Text code>{record.custom_labels}</Text> : '-',
-              },
             ]
           case 'interface_service':
             return [

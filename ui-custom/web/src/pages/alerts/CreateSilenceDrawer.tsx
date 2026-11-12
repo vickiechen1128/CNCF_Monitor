@@ -39,7 +39,7 @@ import {
 import { PlusOutlined, DeleteOutlined, InfoCircleOutlined, AimOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { CreateSilencePayload } from '../../types/alertmanager'
-import type { Resource, ResourceCategory } from '../../types/resource'
+import type { ResourceCategory, ResourceListItem } from '../../types/resource'
 import { readValidateErrors, alertmanagerSilenceApi } from '../../api/alertmanager'
 import { resourceApi } from '../../api/resources'
 import { useSkin } from '../../skinContext'
@@ -86,11 +86,11 @@ function makeInitialValues(): FormValues {
  * 类别已由「CI 类型」框表达，括号内不再重复类别名；数据库/中间件保留子类型（如 MySQL）；
  * IP 缺失时直接省略括号，不再显示「-」占位符（用户反馈 2026-09-11）。
  */
-function resourceDisplay(r: Resource): string {
+function resourceDisplay(r: ResourceListItem): string {
   const cat = r.resource_category
   if (cat === 'host') {
-    const h = r as { instance_name?: string; private_ip?: string }
-    return h.private_ip ? `${h.instance_name || '-'}（${h.private_ip}）` : h.instance_name || '-'
+    const h = r as { instance_name?: string; instance_ip?: string }
+    return h.instance_ip ? `${h.instance_name || '-'}（${h.instance_ip}）` : h.instance_name || '-'
   }
   if (cat === 'database') {
     const d = r as { instance_ip?: string; port?: number; database_type?: string }
@@ -164,7 +164,7 @@ export function CreateSilenceDrawer({ open, onClose, onSubmit }: CreateSilenceDr
   // 从资源清单选择实例（对标 M07 双框布局）：CI 类型 + 实例名搜索。
   // 数据按所选类型懒加载 + keyword 服务端搜索（解决原五类并发合并时每类 100 条截断）。
   const [ciType, setCiType] = useState<CiType>('host')
-  const [resources, setResources] = useState<Resource[]>([])
+  const [resources, setResources] = useState<ResourceListItem[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(false)
   // 请求序号：类型切换/搜索词变化的乱序响应只采纳最后一次（防止旧结果覆盖新结果）。
   const searchSeqRef = useRef(0)

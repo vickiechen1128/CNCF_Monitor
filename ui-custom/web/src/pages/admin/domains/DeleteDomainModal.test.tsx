@@ -17,8 +17,6 @@ const vacantDomain: NetworkDomain = {
   zone_type: '',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
-  cmdb_cloud_area_id: '',
-  cmdb_cloud_area_path: '',
   channel: 'local',
   is_monitored: false,
   status: 'enabled',
@@ -52,7 +50,7 @@ describe('DeleteDomainModal', () => {
   it('deletes a vacant domain on confirm', async () => {
     removeMock.mockResolvedValue({
       status: 'success',
-      data: { id: 'mc-a', cascade_impact: { edge_agent_count: 0, will_retire_agents: [] } },
+      data: { id: 'mc-a', deleted: true, cascade_impact: { managed_edge_agent_count: 0 } },
     })
     renderModal(vacantDomain)
     expect(screen.getByText(/确定删除网域「政务网A区」/)).toBeInTheDocument()
@@ -63,19 +61,13 @@ describe('DeleteDomainModal', () => {
     expect(cancelMock).toHaveBeenCalled()
   })
 
-  it('requires name input + checkbox for monitored domain, then shows retired agents result', async () => {
+  it('requires name input + checkbox for monitored domain, then shows retired agent count', async () => {
     removeMock.mockResolvedValue({
       status: 'success',
       data: {
         id: 'mc-b',
-        cascade_impact: {
-          edge_agent_count: 3,
-          will_retire_agents: [
-            { id: 'a1', hostname: 'agent-01', status: 'online' },
-            { id: 'a2', hostname: 'agent-02', status: 'offline' },
-            { id: 'a3', hostname: 'agent-03', status: 'unknown' },
-          ],
-        },
+        deleted: true,
+        cascade_impact: { managed_edge_agent_count: 3 },
       },
     })
     renderModal(monitoredDomain)
@@ -99,12 +91,10 @@ describe('DeleteDomainModal', () => {
     fireEvent.click(confirmBtn)
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('mc-b'))
 
-    // 删除结果视图：实列展示已退场采集节点清单（hostname + 状态 tag）
-    // 「网域已删除」在成功 toast 与结果 Alert 中各出现一次，故用 ≥1 容忍断言。
+    // 删除结果视图：「网域已删除」在成功 toast 与结果 Alert 中各出现一次，故用 ≥1 容忍断言。
     expect((await screen.findAllByText('网域已删除')).length).toBeGreaterThan(0)
-    expect(screen.getByText(/agent-01（在线）/)).toBeInTheDocument()
-    expect(screen.getByText(/agent-02（离线）/)).toBeInTheDocument()
-    expect(screen.getByText(/agent-03（未知）/)).toBeInTheDocument()
+    expect(screen.getByText(/已标记退场（retired）采集节点/)).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
     expect(successMock).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /完\s*成/ }))
@@ -112,32 +102,10 @@ describe('DeleteDomainModal', () => {
     expect(cancelMock).toHaveBeenCalled()
   })
 
-  it('omits retired agents list beyond 10 with ellipsis', async () => {
-    const manyAgents = Array.from({ length: 12 }, (_, i) => ({
-      id: `a${i}`,
-      hostname: `agent-${i}`,
-      status: 'online',
-    }))
-    removeMock.mockResolvedValue({
-      status: 'success',
-      data: { id: 'mc-b', cascade_impact: { edge_agent_count: 12, will_retire_agents: manyAgents } },
-    })
-    renderModal(monitoredDomain)
-
-    fireEvent.change(screen.getByPlaceholderText('政务网B区'), { target: { value: '政务网B区' } })
-    fireEvent.click(screen.getByText('我已了解级联清退影响，确认删除'))
-    fireEvent.click(screen.getByRole('button', { name: /确认删除/ }))
-
-    await waitFor(() => expect(removeMock).toHaveBeenCalled())
-    expect(screen.getByText(/agent-9（在线）/)).toBeInTheDocument()
-    expect(screen.getByText(/…等 2 个/)).toBeInTheDocument()
-    expect(screen.queryByText(/agent-10（在线）/)).toBeNull()
-  })
-
   it('uses trimmed name comparison for confirmation', async () => {
     removeMock.mockResolvedValue({
       status: 'success',
-      data: { id: 'mc-b', cascade_impact: { edge_agent_count: 1, will_retire_agents: [{ id: 'a1', hostname: 'agent-01', status: 'online' }] } },
+      data: { id: 'mc-b', deleted: true, cascade_impact: { managed_edge_agent_count: 1 } },
     })
     renderModal(monitoredDomain)
     const confirmBtn = screen.getByRole('button', { name: /确认删除/ })

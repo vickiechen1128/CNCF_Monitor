@@ -56,7 +56,7 @@ describe('resourceColumnPrefs（T01-P5）', () => {
     expect(RESOURCE_COLUMN_META.database).toHaveLength(15)
     expect(RESOURCE_COLUMN_META.middleware).toHaveLength(15)
     expect(RESOURCE_COLUMN_META.application).toHaveLength(15)
-    expect(RESOURCE_COLUMN_META.generic_target).toHaveLength(17)
+    expect(RESOURCE_COLUMN_META.generic_target).toHaveLength(16)
     // 接口服务（第六类）：无 scrape_port / IP / 端口等主机语义列，仅接口名 + 地址 + 共享列
     expect(RESOURCE_COLUMN_META.interface_service).toHaveLength(11)
   })

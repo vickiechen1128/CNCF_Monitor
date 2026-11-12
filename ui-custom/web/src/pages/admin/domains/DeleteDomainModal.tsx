@@ -1,20 +1,9 @@
 import { useState } from 'react'
-import { Alert, Checkbox, Input, Modal, Tag, Typography, message } from 'antd'
+import { Alert, Checkbox, Input, Modal, Typography, message } from 'antd'
 import { networkDomainApi } from '../../../api/domain'
 import type { CascadeImpact, NetworkDomain } from '../../../types/domain'
 
 const { Paragraph } = Typography
-
-/** 采集节点状态中文展示（决策 82：online / unknown / offline / retired） */
-const AGENT_STATUS_LABEL: Record<string, string> = {
-  online: '在线',
-  unknown: '未知',
-  offline: '离线',
-  retired: '已退场',
-}
-
-/** 返回在确认输入上最多展示的采集节点条数 */
-const MAX_AGENTS_SHOWN = 10
 
 interface DeleteDomainModalProps {
   open: boolean
@@ -58,7 +47,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
 
   const handleOk = async () => {
     if (phase === 'result') {
-      const edgeAgentCount = cascadeImpact?.edge_agent_count ?? 0
+      const edgeAgentCount = cascadeImpact?.managed_edge_agent_count ?? 0
       if (edgeAgentCount > 0) {
         message.success(`网域已删除，${edgeAgentCount} 个采集节点已标记退场`)
       } else {
@@ -77,7 +66,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
       const impact = res.data?.cascade_impact
       setConfirming(false)
 
-      if (isMonitored && (impact?.edge_agent_count ?? 0) > 0) {
+      if (isMonitored && (impact?.managed_edge_agent_count ?? 0) > 0) {
         // 已纳管分支（edge_agent_count > 0）：进入结果视图实列展示已退场采集节点清单
         setCascadeImpact(impact ?? null)
         setPhase('result')
@@ -125,10 +114,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
     : true
   const okDisabled = phase === 'result' ? false : !canConfirm && !rejected
 
-  const edgeAgentCount = cascadeImpact?.edge_agent_count ?? 0
-  const willRetireAgents = cascadeImpact?.will_retire_agents ?? []
-  const shownAgents = willRetireAgents.slice(0, MAX_AGENTS_SHOWN)
-  const omittedAgents = willRetireAgents.length - shownAgents.length
+  const edgeAgentCount = cascadeImpact?.managed_edge_agent_count ?? 0
 
   return (
     <Modal
@@ -149,19 +135,9 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
         <>
           <Alert type="success" showIcon message="网域已删除" />
           {edgeAgentCount > 0 && (
-            <>
-              <Paragraph style={{ marginTop: 12 }}>
-                已退场（retired）采集节点 <strong>{edgeAgentCount}</strong> 个：
-              </Paragraph>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 0' }}>
-                {shownAgents.map((a) => (
-                  <Tag key={a.id}>
-                    {a.hostname}（{AGENT_STATUS_LABEL[a.status] ?? a.status}）
-                  </Tag>
-                ))}
-                {omittedAgents > 0 && <Tag>…等 {omittedAgents} 个</Tag>}
-              </div>
-            </>
+            <Paragraph style={{ marginTop: 12 }}>
+              已标记退场（retired）采集节点 <strong>{edgeAgentCount}</strong> 个。
+            </Paragraph>
           )}
         </>
       ) : rejected ? (
@@ -176,11 +152,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
           <Alert
             type="warning"
             showIcon
-            message={
-              domain.domain_type === 'management'
-                ? '该网域为中心直连域，删除后将停止中心直连采集配置的下发；已写盘的 Prometheus / Alertmanager 配置不会自动回滚，重建中心直连域后可继续生成。'
-                : '该网域已纳管，删除后将执行级联清退：① 废止所有 Token；② 停止配置下发；③ 将采集节点标记为「已退场」（retired）。'
-            }
+            message="该网域已纳管，删除后将执行级联清退：① 废止所有 Token；② 停止配置下发；③ 将采集节点标记为「已退场」（retired）。"
           />
           <Paragraph style={{ marginTop: 16 }}>
             请输入网域名称 <strong>{domain.name}</strong> 以确认删除：
@@ -197,7 +169,7 @@ function DeleteDomainModalInner({ open, domain, onCancel, onSuccess }: DeleteDom
             disabled={confirming}
             style={{ marginTop: 12 }}
           >
-            {domain.domain_type === 'management' ? '我已了解删除影响，确认删除' : '我已了解级联清退影响，确认删除'}
+            我已了解级联清退影响，确认删除
           </Checkbox>
         </>
       ) : (

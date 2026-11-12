@@ -711,6 +711,7 @@ describe('ResourcesPage', () => {
       其他监控目标: ['目标名称', '网域', '运行状态', '采集状态', '操作'],
     }
     for (const name of Object.keys(PM_DEFAULTS)) {
+      console.log('STEP default tab', name)
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       // 默认列集**恰好**等于 PM 裁定集合（不多不少），且列序与 buildColumns 的定义序一致
@@ -721,6 +722,7 @@ describe('ResourcesPage', () => {
 
     // 勾选回业务归属列后，组内相对序与「整段位于技术 / 位置列之后」仍成立
     for (const name of Object.keys(PM_DEFAULTS)) {
+      console.log('STEP default tab', name)
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       await showColumnsByLabels('云', '平台', '应用名称', '业务名称')

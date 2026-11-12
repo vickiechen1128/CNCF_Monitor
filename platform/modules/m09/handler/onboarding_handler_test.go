@@ -26,6 +26,12 @@ import (
 
 func newOnboardingRouter(t *testing.T, user *models.User) *gin.Engine {
 	t.Helper()
+	router, _ := newOnboardingRouterWithDB(t, user)
+	return router
+}
+
+func newOnboardingRouterWithDB(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	dsn := filepath.Join(t.TempDir(), "m09_handler.db")
 	require.NoError(t, db.MigrateV3("sqlite", dsn))
@@ -66,7 +72,7 @@ func newOnboardingRouter(t *testing.T, user *models.User) *gin.Engine {
 		Onboarding: NewOnboardingHandler(svc),
 		Snapshots:  NewSnapshotHandler(svc, syncSvc),
 	})
-	return router
+	return router, gormDB
 }
 
 func doJSON(t *testing.T, router *gin.Engine, method, path string) (int, map[string]any) {
@@ -147,6 +153,65 @@ func TestOnboardingListEnvelopeAndValidation(t *testing.T) {
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains/missing")
 	assert.Equal(t, http.StatusNotFound, code)
 	assert.Equal(t, "not_found", out["errorType"])
+}
+
+func TestOnboardingAdminViewExposesAdministrativeFields(t *testing.T) {
+	router, gormDB := newOnboardingRouterWithDB(t, adminUser())
+	require.NoError(t, gormDB.Create(&models.NetworkDomain{
+		ID: "mc-disabled", Name: "停用域", Description: "停用域说明",
+		DomainType: models.DomainTypeEdge, ZoneType: "beijing", CloudCode: "aliyun",
+		TenantID:            models.PlatformAdminTenantID,
+		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID, "tenant-a"},
+		Channel:             models.ChannelTypeAgentPull,
+		Status:              models.DomainStatusDisabled,
+	}).Error)
+
+	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains?view=admin")
+	require.Equal(t, http.StatusOK, code, out)
+	data := out["data"].(map[string]any)
+	assert.EqualValues(t, 3, data["total"])
+	var disabled map[string]any
+	for _, raw := range data["list"].([]any) {
+		item := raw.(map[string]any)
+		if item["network_domain_id"] == "mc-disabled" {
+			disabled = item
+		}
+	}
+	require.NotNil(t, disabled, "admin view includes disabled domains")
+	assert.Equal(t, "disabled", disabled["status"])
+	assert.Equal(t, "edge", disabled["domain_type"])
+	assert.Equal(t, "采集节点域", disabled["domain_type_label"])
+	assert.Equal(t, "停用域说明", disabled["description"])
+	assert.Equal(t, models.PlatformAdminTenantID, disabled["tenant_id"])
+	assert.Equal(t, []any{models.PlatformAdminTenantID, "tenant-a"}, disabled["authorized_tenant_ids"])
+
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains?status=disabled")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
+
+	// The default view stays on the onboarding scope.
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.EqualValues(t, 2, out["data"].(map[string]any)["total"])
+
+	for _, query := range []string{
+		"view=bogus",
+		"view=onboarding&status=disabled",
+		"status=bogus",
+	} {
+		code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains?"+query)
+		assert.Equal(t, http.StatusBadRequest, code, query)
+		assert.Equal(t, "bad_request", out["errorType"], query)
+	}
+}
+
+func TestOnboardingAdminViewRequiresAdmin(t *testing.T) {
+	router := newOnboardingRouter(t, viewerUser())
+	for _, query := range []string{"view=admin", "status=disabled"} {
+		code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains?"+query)
+		assert.Equal(t, http.StatusForbidden, code, query)
+		assert.Equal(t, "forbidden", out["errorType"], query)
+	}
 }
 
 func TestOnboardingNonEdgeScopeAndAdminGate(t *testing.T) {

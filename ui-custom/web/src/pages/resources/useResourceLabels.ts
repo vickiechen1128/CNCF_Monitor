@@ -52,11 +52,11 @@ export interface UseResourceLabelsResult {
   submitting: boolean
   newKey: string
   newValue: string
-  editingId: number | null
+  editingId: string | null
   editValue: string
   setNewKey: (value: string) => void
   setNewValue: (value: string) => void
-  setEditingId: (id: number | null) => void
+  setEditingId: (id: string | null) => void
   setEditValue: (value: string) => void
   /** 标签数据重新加载（接口错误 Alert 的「重新加载」） */
   reloadLabels: () => void
@@ -76,7 +76,7 @@ export function useResourceLabels(open: boolean, record: ResourceListItem | null
   const [submitting, setSubmitting] = useState(false)
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
-  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
 
   /** 打开抽屉时重置状态并抓取标签 + 适用模板（沿用本模块既有 set-state-in-effect 模式） */

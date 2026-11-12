@@ -7,25 +7,28 @@ import (
 )
 
 type businessDomainRecord struct {
-	Code    string `gorm:"column:code;primaryKey"`
-	Name    string `gorm:"column:name"`
-	Enabled bool   `gorm:"column:enabled"`
+	Code        string  `gorm:"column:code;primaryKey"`
+	Name        string  `gorm:"column:name"`
+	Description *string `gorm:"column:description"`
+	Enabled     bool    `gorm:"column:enabled"`
 }
 
 func (businessDomainRecord) TableName() string { return "business_domains" }
 
 type applicationDictRecord struct {
-	AppCode string `gorm:"column:app_code;primaryKey"`
-	AppName string `gorm:"column:app_name"`
-	Status  string `gorm:"column:status"`
+	AppCode     string  `gorm:"column:app_code;primaryKey"`
+	AppName     string  `gorm:"column:app_name"`
+	Description *string `gorm:"column:description"`
+	Status      string  `gorm:"column:status"`
 }
 
 func (applicationDictRecord) TableName() string { return "application_dicts" }
 
 type platformDictRecord struct {
-	PlatformCode string `gorm:"column:platform_code;primaryKey"`
-	PlatformName string `gorm:"column:platform_name"`
-	Enabled      bool   `gorm:"column:enabled"`
+	PlatformCode string  `gorm:"column:platform_code;primaryKey"`
+	PlatformName string  `gorm:"column:platform_name"`
+	Description  *string `gorm:"column:description"`
+	Enabled      bool    `gorm:"column:enabled"`
 }
 
 func (platformDictRecord) TableName() string { return "platform_dicts" }

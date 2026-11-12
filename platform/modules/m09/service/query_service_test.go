@@ -73,6 +73,50 @@ func TestQueryTargetsAndCoverage(t *testing.T) {
 	emptyCoverage, err := svc.Coverage(ctx, service.Actor{TenantID: "tenant-missing"})
 	require.NoError(t, err)
 	assert.Equal(t, service.CoverageCounts{}, emptyCoverage, "no authorization yields zero counts")
+
+	report, err := svc.CoverageReport(ctx, admin, repository.CoverageFilter{}, "", 1, 500)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, report.Total)
+	assert.Len(t, report.Items, 2)
+	stateByResource := map[string]string{}
+	for _, item := range report.Items {
+		stateByResource[item.ResourceID] = item.MonitorState
+	}
+	assert.Equal(t, service.StateCollecting, stateByResource["r-1"], "fresh up snapshot is collecting")
+	assert.Equal(t, service.StateNotMonitored, stateByResource["r-4"], "no snapshot is not monitored")
+	assert.EqualValues(t, 2, report.Summary.Total)
+	assert.EqualValues(t, 1, report.Summary.Collecting)
+	assert.EqualValues(t, 1, report.Summary.NotMonitored)
+	assert.InDelta(t, 0.5, report.Summary.CoverageRate, 0.001)
+
+	collecting, err := svc.CoverageReport(ctx, admin, repository.CoverageFilter{},
+		service.StateCollecting, 1, 500)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, collecting.Total)
+	require.Len(t, collecting.Items, 1)
+	assert.Equal(t, "r-1", collecting.Items[0].ResourceID)
+	assert.EqualValues(t, 0, collecting.Summary.NotMonitored)
+	assert.InDelta(t, 1, collecting.Summary.CoverageRate, 0.001)
+
+	// Summary stays over the filtered total, not the current page.
+	paged, err := svc.CoverageReport(ctx, admin, repository.CoverageFilter{}, "", 2, 1)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, paged.Total)
+	assert.Len(t, paged.Items, 1)
+	assert.EqualValues(t, 2, paged.Summary.Total)
+
+	otherCategory, err := svc.CoverageReport(ctx, admin,
+		repository.CoverageFilter{ResourceCategory: "database"}, "", 1, 500)
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, otherCategory.Total)
+	assert.Empty(t, otherCategory.Items)
+
+	unscoped, err := svc.CoverageReport(ctx, service.Actor{TenantID: "tenant-missing"},
+		repository.CoverageFilter{}, "", 1, 500)
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, unscoped.Total)
+	assert.Empty(t, unscoped.Items)
+	assert.Equal(t, service.CoverageSummary{}, unscoped.Summary, "no authorization yields zero summary")
 }
 
 func TestQueryProxyInjectsDomainMatcher(t *testing.T) {

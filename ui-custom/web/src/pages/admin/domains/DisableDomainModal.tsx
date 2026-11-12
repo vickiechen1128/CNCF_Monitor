@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Modal, Typography, message } from 'antd'
+import { Alert, Modal, Typography } from 'antd'
 import { networkDomainApi, resolveNetworkDomainImpact } from '../../../api/domain'
 import type { NetworkDomain, NetworkDomainImpact } from '../../../types/domain'
 
@@ -14,8 +14,7 @@ interface DisableDomainModalProps {
 
 /**
  * 禁用网域二次确认弹窗（Module_06 §6.2 / §11.2）。
- * 禁用 = 冻结：禁用需二次确认并展示后端返回的影响范围（该网域下资源数 / 已纳管 EdgeAgent 数）；
- * 管理域（default）不可禁用（页面已置灰，此处双重防御）。
+ * 禁用 = 冻结：禁用需二次确认并展示后端返回的影响范围（该网域下资源数 / 已纳管 EdgeAgent 数）。
  */
 export function DisableDomainModal({ open, domain, onCancel, onSuccess }: DisableDomainModalProps) {
   // H2：以 domain.id 作为 key，网域变化 / 关闭重开时整体重建弹窗状态，
@@ -43,10 +42,6 @@ function DisableDomainModalInner({ open, domain, onCancel, onSuccess }: DisableD
     if (phase === 'result') {
       onSuccess()
       onCancel()
-      return
-    }
-    if (domain.domain_type === 'management') {
-      message.error('中心直连域不可禁用')
       return
     }
     setConfirming(true)

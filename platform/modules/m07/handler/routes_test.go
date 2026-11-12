@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/importer"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/service"
@@ -215,4 +217,96 @@ func TestV3ResourceValidation(t *testing.T) {
 
 	code, _ = doJSON(t, router, http.MethodGet, "/api/v3/platform/resources", "")
 	assert.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestV3DictionaryWriteLifecycle(t *testing.T) {
+	router, gormDB := newTestRouter(t)
+
+	// business-domains: create → duplicate conflict → restricted edit → list.
+	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/business-domains", `{
+		"code":"logistics","name":"物流","description":"物流业务域"
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	created := out["data"].(map[string]any)
+	assert.Equal(t, "logistics", created["code"])
+	assert.Equal(t, "物流业务域", created["description"])
+	assert.Equal(t, true, created["enabled"])
+
+	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/business-domains", `{
+		"code":"logistics","name":"重复","description":""
+	}`)
+	assert.Equal(t, http.StatusConflict, code)
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/business-domains/logistics", `{
+		"name":"物流2","description":"改","enabled":false
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	updated := out["data"].(map[string]any)
+	assert.Equal(t, "物流2", updated["name"])
+	assert.Equal(t, "改", updated["description"])
+	assert.Equal(t, false, updated["enabled"])
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/business-domains/infra", `{"enabled":false}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/business-domains/missing", `{"name":"x"}`)
+	assert.Equal(t, http.StatusNotFound, code, out)
+
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/business-domains", "")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.GreaterOrEqual(t, out["data"].(map[string]any)["total"].(float64), float64(2))
+
+	// application-dict: create → status edit.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/application-dict", `{
+		"app_code":"inventory","app_name":"库存服务","description":"库存"
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "enabled", out["data"].(map[string]any)["status"])
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/application-dict/inventory", `{
+		"app_name":"库存服务2","status":"disabled"
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "disabled", out["data"].(map[string]any)["status"])
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/application-dict/inventory", `{"status":"bogus"}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// platform-dict: create → restricted edit.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/platform-dict", `{
+		"platform_code":"warehouse","platform_name":"仓储平台","description":"仓储"
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, true, out["data"].(map[string]any)["enabled"])
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/platform-dict/warehouse", `{
+		"platform_name":"仓储平台2","enabled":false
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, false, out["data"].(map[string]any)["enabled"])
+
+	var count int64
+	require.NoError(t, gormDB.Model(&struct{}{}).Table("business_domains").Where("code = ?", "logistics").Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}
+
+func TestV3ImportTemplateXLSX(t *testing.T) {
+	router, _ := newTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v3/platform/import-templates/host?format=xlsx", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Header().Get("Content-Type"), "spreadsheetml.sheet")
+	assert.Contains(t, rec.Header().Get("Content-Disposition"), "host_template.xlsx")
+
+	f, err := excelize.OpenReader(bytes.NewReader(rec.Body.Bytes()))
+	require.NoError(t, err)
+	defer f.Close()
+	rows, err := f.GetRows(f.GetSheetName(0))
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	columns, ok := importer.ColumnsFor(domain.CategoryHost)
+	require.True(t, ok)
+	assert.Equal(t, columns, rows[0])
 }

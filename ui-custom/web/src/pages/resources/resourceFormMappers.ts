@@ -3,10 +3,10 @@
  *
  * 从 `ResourceFormDrawer.tsx` 抽出的无副作用函数与常量：
  * - 表单值 ↔ 创建 / 编辑请求体（`buildCreateInput` / `buildUpdateInput` / `buildTypeFields`）；
- * - 编辑态行 → 表单初始值（`recordToFormValues`）；
- * - 自定义标签双向转换（`parseCustomLabels` / `customLabelsToFormString`）。
+ * - 编辑态行 → 表单初始值（`recordToFormValues`）。
  *
  * 不依赖 React / antd 组件，便于独立推理与复用；字段渲染见 `resourceFormFields.tsx`。
+ * v3 的 `attributes` 嵌套由 `api/resources.ts` 适配层统一组装，本文件保持页面平铺语义。
  */
 import dayjs from 'dayjs'
 import type {
@@ -15,24 +15,10 @@ import type {
   ResourceStatus,
   ResourceUpdateInput,
 } from '../../types/resource'
-import type { ResourceListItem } from './useResources'
+import type { ResourceListItem } from '../../types/resource'
 
 /** 环境取值（§5.16.1 / ValidEnvs）：2026-10-21 起收敛为 OPS / PRD / UAT */
 export const ENV_VALUES = ['OPS', 'PRD', 'UAT']
-
-/** 解析自定义标签输入「key1=value1;key2=value2」为 map（§5.9 custom_labels 为 map 类型） */
-export function parseCustomLabels(raw?: string): Record<string, string> | undefined {
-  if (!raw || !raw.trim()) return undefined
-  const result: Record<string, string> = {}
-  for (const part of raw.split(';')) {
-    const seg = part.trim()
-    if (!seg) continue
-    const eq = seg.indexOf('=')
-    if (eq <= 0) continue
-    result[seg.slice(0, eq).trim()] = seg.slice(eq + 1).trim()
-  }
-  return result
-}
 
 /** 组装新增请求体：resource_category 创建必传；source_type 由后端置 manual（§5.2/§6.1/T07-06） */
 export function buildCreateInput(
@@ -53,16 +39,19 @@ export function buildCreateInput(
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
     status: values.status as ResourceStatus,
+    // {T01-P5} 采集端口：留空 → 提交 0（= 未指定，与 NULL 等价；编辑清空时以 0 回退解析链）
+    scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
     ...buildTypeFields(category, values),
   } as ResourceCreateInput
 }
 
-/** 组装编辑请求体：resource_id/resource_category/source_type 不可改、不随请求体（§6.1/T07-06） */
+/** 组装编辑请求体：v3 全量更新必带 resource_category；source_type 不可改、不随请求体（§6.1/T07-06） */
 export function buildUpdateInput(
   category: ResourceCategory,
   values: Record<string, unknown>,
 ): ResourceUpdateInput {
   return {
+    resource_category: category,
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
     app_code: values.app_code ? String(values.app_code) : undefined,
@@ -74,11 +63,13 @@ export function buildUpdateInput(
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
     status: values.status as ResourceStatus,
+    // {T01-P5} 采集端口语义同新增：留空/0 = 未指定
+    scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
     ...buildTypeFields(category, values),
   } as ResourceUpdateInput
 }
 
-/** 按资源类别取差异化字段（与 §5.6~§5.9 字段表一致） */
+/** 按资源类别取差异化字段（与 §5.6~§5.9 字段表一致；scrape_port 已上移为公共字段） */
 export function buildTypeFields(
   category: ResourceCategory,
   values: Record<string, unknown>,
@@ -86,12 +77,10 @@ export function buildTypeFields(
   switch (category) {
     case 'host':
       return {
+        // v3 host 的 attributes.hostname 是唯一主机名来源，页面以「实例名」承载
         instance_name: String(values.instance_name),
-        hostname: values.hostname ? String(values.hostname) : undefined,
         instance_ip: String(values.instance_ip),
         os_type: values.os_type ? String(values.os_type) : undefined,
-        // {T01-P5} 采集端口：留空 → 提交 0（= 未指定，与 NULL 等价；编辑清空时以 0 回退解析链，提案 §5.1）
-        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
         activated_at:
           values.activated_at && dayjs.isDayjs(values.activated_at)
             ? values.activated_at.toISOString()
@@ -103,8 +92,6 @@ export function buildTypeFields(
         instance_ip: String(values.instance_ip),
         port: Number(values.port),
         version: values.version ? String(values.version) : undefined,
-        // {T01-P5} 采集端口语义同 host：留空/0 = 未指定
-        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'middleware':
       return {
@@ -112,8 +99,6 @@ export function buildTypeFields(
         instance_ip: String(values.instance_ip),
         port: Number(values.port),
         version: values.version ? String(values.version) : undefined,
-        // {T01-P5} 采集端口语义同 host：留空/0 = 未指定
-        scrape_port: values.scrape_port ? Number(values.scrape_port) : 0,
       }
     case 'application':
       return {
@@ -138,7 +123,6 @@ export function buildTypeFields(
         metrics_path: values.metrics_path ? String(values.metrics_path) : undefined,
         scheme: values.scheme ? String(values.scheme) : undefined,
         exporter_type: values.exporter_type ? String(values.exporter_type) : undefined,
-        custom_labels: parseCustomLabels(values.custom_labels ? String(values.custom_labels) : undefined),
       }
     case 'interface_service':
       // 接口服务差异化字段：接口名（展示名）+ 接口地址（完整 URL，含 ? 查询参数）。
@@ -148,23 +132,6 @@ export function buildTypeFields(
         api_url: String(values.api_url),
       }
   }
-}
-
-/** 后端列表 custom_labels 可能以 JSON 对象字符串返回，统一转换为「k1=v1;k2=v2」表单格式（§5.9） */
-export function customLabelsToFormString(raw?: string): string | undefined {
-  if (!raw) return undefined
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('{')) {
-    try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>
-      return Object.entries(obj)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(';')
-    } catch {
-      // 非 JSON 字符串，按原样回填
-    }
-  }
-  return trimmed
 }
 
 /** 编辑态行（ResourceListItem 平铺字段）→ 表单初始值（Form 字段名） */
@@ -181,7 +148,6 @@ export function recordToFormValues(record: ResourceListItem): Record<string, unk
     owner: record.owner,
     status: record.status,
     instance_name: record.instance_name,
-    hostname: record.hostname,
     instance_ip: record.instance_ip,
     os_type: record.os_type,
     activated_at: record.activated_at ? dayjs(record.activated_at) : undefined,
@@ -206,7 +172,6 @@ export function recordToFormValues(record: ResourceListItem): Record<string, unk
     metrics_path: record.metrics_path,
     scheme: record.scheme,
     exporter_type: record.exporter_type,
-    custom_labels: customLabelsToFormString(record.custom_labels),
     api_name: record.api_name,
     api_url: record.api_url,
   }

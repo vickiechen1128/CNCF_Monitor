@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -16,26 +17,31 @@ var (
 	ErrAppPlatformRelExists   = errors.New("app-platform relation already exists")
 	ErrAppPlatformRelNotFound = errors.New("app-platform relation not found")
 	ErrPrimaryPlatformExists  = errors.New("primary platform already exists")
+	ErrDictionaryNotFound     = errors.New("dictionary entry not found")
+	ErrDictionaryExists       = errors.New("dictionary entry already exists")
 )
 
-// BusinessDomain is a read-only business dictionary entry.
+// BusinessDomain is a business dictionary entry.
 type BusinessDomain struct {
-	Code    string
-	Name    string
-	Enabled bool
+	Code        string
+	Name        string
+	Description string
+	Enabled     bool
 }
 
-// Application is a read-only application dictionary entry.
+// Application is an application dictionary entry.
 type Application struct {
-	AppCode string
-	AppName string
-	Status  string
+	AppCode     string
+	AppName     string
+	Description string
+	Status      string
 }
 
-// Platform is a read-only platform dictionary entry.
+// Platform is a platform dictionary entry.
 type Platform struct {
 	PlatformCode string
 	PlatformName string
+	Description  string
 	Enabled      bool
 }
 
@@ -79,6 +85,12 @@ type Repository interface {
 	ListBusinessDomains(ctx context.Context) ([]BusinessDomain, error)
 	ListApplications(ctx context.Context) ([]Application, error)
 	ListPlatforms(ctx context.Context) ([]Platform, error)
+	CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error)
+	UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*BusinessDomain, error)
+	CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error)
+	UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, error)
+	CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error)
+	UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (*Platform, error)
 	ListClouds(ctx context.Context) ([]Cloud, error)
 	ListZoneTypes(ctx context.Context) ([]ZoneType, error)
 	ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error)
@@ -175,7 +187,9 @@ func (r *GORMRepository) ListBusinessDomains(ctx context.Context) ([]BusinessDom
 	}
 	out := make([]BusinessDomain, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, BusinessDomain{Code: row.Code, Name: row.Name, Enabled: row.Enabled})
+		out = append(out, BusinessDomain{
+			Code: row.Code, Name: row.Name, Description: derefString(row.Description), Enabled: row.Enabled,
+		})
 	}
 	return out, nil
 }
@@ -187,7 +201,9 @@ func (r *GORMRepository) ListApplications(ctx context.Context) ([]Application, e
 	}
 	out := make([]Application, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Application{AppCode: row.AppCode, AppName: row.AppName, Status: row.Status})
+		out = append(out, Application{
+			AppCode: row.AppCode, AppName: row.AppName, Description: derefString(row.Description), Status: row.Status,
+		})
 	}
 	return out, nil
 }
@@ -199,9 +215,169 @@ func (r *GORMRepository) ListPlatforms(ctx context.Context) ([]Platform, error) 
 	}
 	out := make([]Platform, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Platform{PlatformCode: row.PlatformCode, PlatformName: row.PlatformName, Enabled: row.Enabled})
+		out = append(out, Platform{
+			PlatformCode: row.PlatformCode, PlatformName: row.PlatformName,
+			Description: derefString(row.Description), Enabled: row.Enabled,
+		})
 	}
 	return out, nil
+}
+
+func (r *GORMRepository) CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error) {
+	if err := r.ensureAbsent(ctx, &businessDomainRecord{}, "code", code); err != nil {
+		return nil, err
+	}
+	row := &businessDomainRecord{Code: code, Name: name, Description: optionalString(description), Enabled: true}
+	if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
+		return nil, fmt.Errorf("create business domain %q: %w", code, err)
+	}
+	return &BusinessDomain{
+		Code: row.Code, Name: row.Name, Description: derefString(row.Description), Enabled: row.Enabled,
+	}, nil
+}
+
+func (r *GORMRepository) UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*BusinessDomain, error) {
+	var row businessDomainRecord
+	if err := r.db.WithContext(ctx).Where("code = ?", code).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDictionaryNotFound
+		}
+		return nil, fmt.Errorf("load business domain %q: %w", code, err)
+	}
+	updates := map[string]any{}
+	if name != nil {
+		updates["name"] = *name
+	}
+	if description != nil {
+		updates["description"] = optionalString(*description)
+	}
+	if enabled != nil {
+		updates["enabled"] = *enabled
+	}
+	if len(updates) > 0 {
+		if err := r.db.WithContext(ctx).Model(&row).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("update business domain %q: %w", code, err)
+		}
+	}
+	return &BusinessDomain{
+		Code: row.Code, Name: row.Name, Description: derefString(row.Description), Enabled: row.Enabled,
+	}, nil
+}
+
+func (r *GORMRepository) CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error) {
+	if err := r.ensureAbsent(ctx, &applicationDictRecord{}, "app_code", appCode); err != nil {
+		return nil, err
+	}
+	row := &applicationDictRecord{
+		AppCode: appCode, AppName: appName, Description: optionalString(description), Status: "enabled",
+	}
+	if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
+		return nil, fmt.Errorf("create application %q: %w", appCode, err)
+	}
+	return &Application{
+		AppCode: row.AppCode, AppName: row.AppName, Description: derefString(row.Description), Status: row.Status,
+	}, nil
+}
+
+func (r *GORMRepository) UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, error) {
+	var row applicationDictRecord
+	if err := r.db.WithContext(ctx).Where("app_code = ?", appCode).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDictionaryNotFound
+		}
+		return nil, fmt.Errorf("load application %q: %w", appCode, err)
+	}
+	updates := map[string]any{}
+	if appName != nil {
+		updates["app_name"] = *appName
+	}
+	if description != nil {
+		updates["description"] = optionalString(*description)
+	}
+	if status != nil {
+		updates["status"] = *status
+	}
+	if len(updates) > 0 {
+		if err := r.db.WithContext(ctx).Model(&row).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("update application %q: %w", appCode, err)
+		}
+	}
+	return &Application{
+		AppCode: row.AppCode, AppName: row.AppName, Description: derefString(row.Description), Status: row.Status,
+	}, nil
+}
+
+func (r *GORMRepository) CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error) {
+	if err := r.ensureAbsent(ctx, &platformDictRecord{}, "platform_code", platformCode); err != nil {
+		return nil, err
+	}
+	row := &platformDictRecord{
+		PlatformCode: platformCode, PlatformName: platformName,
+		Description: optionalString(description), Enabled: true,
+	}
+	if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
+		return nil, fmt.Errorf("create platform %q: %w", platformCode, err)
+	}
+	return &Platform{
+		PlatformCode: row.PlatformCode, PlatformName: row.PlatformName,
+		Description: derefString(row.Description), Enabled: row.Enabled,
+	}, nil
+}
+
+func (r *GORMRepository) UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (*Platform, error) {
+	var row platformDictRecord
+	if err := r.db.WithContext(ctx).Where("platform_code = ?", platformCode).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDictionaryNotFound
+		}
+		return nil, fmt.Errorf("load platform %q: %w", platformCode, err)
+	}
+	updates := map[string]any{}
+	if platformName != nil {
+		updates["platform_name"] = *platformName
+	}
+	if description != nil {
+		updates["description"] = optionalString(*description)
+	}
+	if enabled != nil {
+		updates["enabled"] = *enabled
+	}
+	if len(updates) > 0 {
+		if err := r.db.WithContext(ctx).Model(&row).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("update platform %q: %w", platformCode, err)
+		}
+	}
+	return &Platform{
+		PlatformCode: row.PlatformCode, PlatformName: row.PlatformName,
+		Description: derefString(row.Description), Enabled: row.Enabled,
+	}, nil
+}
+
+// ensureAbsent returns ErrDictionaryExists when the dictionary key already exists.
+func (r *GORMRepository) ensureAbsent(ctx context.Context, model any, column, value string) error {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(model).Where(column+" = ?", value).Count(&count).Error; err != nil {
+		return fmt.Errorf("check %s %q: %w", column, value, err)
+	}
+	if count > 0 {
+		return ErrDictionaryExists
+	}
+	return nil
+}
+
+func optionalString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (r *GORMRepository) ListClouds(ctx context.Context) ([]Cloud, error) {

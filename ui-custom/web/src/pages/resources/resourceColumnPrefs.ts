@@ -124,7 +124,6 @@ export const RESOURCE_COLUMN_META: Record<ResourceCategory, ResourceColumnMeta[]
     { key: 'scrape_port', label: '采集端口', group: '技术属性 / 位置' },
     { key: 'metrics_path', label: '采集路径', group: '技术属性 / 位置' },
     { key: 'scheme', label: '协议', group: '技术属性 / 位置' },
-    { key: 'custom_labels', label: '自定义标签', group: '技术属性 / 位置' },
     { key: 'network_domain_id', label: '网域', group: '技术属性 / 位置' },
     { key: 'status', label: '运行状态', group: '技术属性 / 位置' },
     { key: 'monitor_state', label: '采集状态', group: '技术属性 / 位置' },
@@ -212,7 +211,6 @@ export const COLUMN_DEFAULT_WIDTHS: Record<string, number> = {
   exporter_type: 140,
   metrics_path: 160,
   scheme: 90,
-  custom_labels: 160,
   api_url: 220,
 }
 

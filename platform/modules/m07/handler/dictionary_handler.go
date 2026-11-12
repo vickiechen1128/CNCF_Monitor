@@ -31,6 +31,51 @@ func (h *DictionaryHandler) ListBusinessDomains(c *gin.Context) {
 	response.OK(c, gin.H{"list": list, "total": len(list)})
 }
 
+type createBusinessDomainRequest struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func (h *DictionaryHandler) CreateBusinessDomain(c *gin.Context) {
+	var req createBusinessDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.CreateBusinessDomain(c.Request.Context(), req.Code, req.Name, req.Description)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromBusinessDomain(item))
+}
+
+type updateBusinessDomainRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	Enabled     *bool   `json:"enabled"`
+}
+
+func (h *DictionaryHandler) UpdateBusinessDomain(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		response.BadRequest(c, fmt.Errorf("code is required"))
+		return
+	}
+	var req updateBusinessDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.UpdateBusinessDomain(c.Request.Context(), code, req.Name, req.Description, req.Enabled)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromBusinessDomain(item))
+}
+
 func (h *DictionaryHandler) ListApplications(c *gin.Context) {
 	items, err := h.svc.ListApplications(c.Request.Context())
 	if err != nil {
@@ -41,6 +86,51 @@ func (h *DictionaryHandler) ListApplications(c *gin.Context) {
 	response.OK(c, gin.H{"list": list, "total": len(list)})
 }
 
+type createApplicationRequest struct {
+	AppCode     string `json:"app_code"`
+	AppName     string `json:"app_name"`
+	Description string `json:"description"`
+}
+
+func (h *DictionaryHandler) CreateApplication(c *gin.Context) {
+	var req createApplicationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.CreateApplication(c.Request.Context(), req.AppCode, req.AppName, req.Description)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromApplication(item))
+}
+
+type updateApplicationRequest struct {
+	AppName     *string `json:"app_name"`
+	Description *string `json:"description"`
+	Status      *string `json:"status"`
+}
+
+func (h *DictionaryHandler) UpdateApplication(c *gin.Context) {
+	appCode := strings.TrimSpace(c.Param("app_code"))
+	if appCode == "" {
+		response.BadRequest(c, fmt.Errorf("app_code is required"))
+		return
+	}
+	var req updateApplicationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.UpdateApplication(c.Request.Context(), appCode, req.AppName, req.Description, req.Status)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromApplication(item))
+}
+
 func (h *DictionaryHandler) ListPlatforms(c *gin.Context) {
 	items, err := h.svc.ListPlatforms(c.Request.Context())
 	if err != nil {
@@ -49,6 +139,51 @@ func (h *DictionaryHandler) ListPlatforms(c *gin.Context) {
 	}
 	list := dto.FromPlatforms(items)
 	response.OK(c, gin.H{"list": list, "total": len(list)})
+}
+
+type createPlatformRequest struct {
+	PlatformCode string `json:"platform_code"`
+	PlatformName string `json:"platform_name"`
+	Description  string `json:"description"`
+}
+
+func (h *DictionaryHandler) CreatePlatform(c *gin.Context) {
+	var req createPlatformRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.CreatePlatform(c.Request.Context(), req.PlatformCode, req.PlatformName, req.Description)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromPlatform(item))
+}
+
+type updatePlatformRequest struct {
+	PlatformName *string `json:"platform_name"`
+	Description  *string `json:"description"`
+	Enabled      *bool   `json:"enabled"`
+}
+
+func (h *DictionaryHandler) UpdatePlatform(c *gin.Context) {
+	platformCode := strings.TrimSpace(c.Param("platform_code"))
+	if platformCode == "" {
+		response.BadRequest(c, fmt.Errorf("platform_code is required"))
+		return
+	}
+	var req updatePlatformRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	item, err := h.svc.UpdatePlatform(c.Request.Context(), platformCode, req.PlatformName, req.Description, req.Enabled)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromPlatform(item))
 }
 
 func (h *DictionaryHandler) ListClouds(c *gin.Context) {
@@ -167,7 +302,11 @@ func respondDictionaryError(c *gin.Context, err error) {
 		response.Conflict(c, err)
 	case errors.Is(err, dictionary.ErrPrimaryPlatformExists):
 		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrDictionaryExists):
+		response.Conflict(c, err)
 	case errors.Is(err, dictionary.ErrAppPlatformRelNotFound):
+		response.NotFound(c, err.Error())
+	case errors.Is(err, dictionary.ErrDictionaryNotFound):
 		response.NotFound(c, err.Error())
 	default:
 		respondError(c, err)

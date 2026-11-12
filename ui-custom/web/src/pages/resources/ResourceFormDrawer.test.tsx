@@ -73,8 +73,6 @@ const networkDomain: NetworkDomain = {
   zone_type: 'internet',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
-  cmdb_cloud_area_id: '',
-  cmdb_cloud_area_path: '',
   channel: 'local',
   is_monitored: false,
   status: 'enabled',
@@ -132,10 +130,8 @@ function hostRecord(): ResourceListItem {
     status: 'online',
     source_type: 'manual',
     instance_name: 'prod-web-01',
-    hostname: 'prod-web-01.volc',
     instance_ip: '10.0.1.11',
     os_type: 'Linux',
-    cloud_code: 'PUB-TX',
   }
 }
 
@@ -506,7 +502,8 @@ describe('ResourceFormDrawer', () => {
     expect(updateMock.mock.calls[0][0]).toBe('mc-res-1')
     const input = updateMock.mock.calls[0][1]
     expect(input).toMatchObject({ instance_ip: '10.0.1.99', network_domain_id: 'mc-a', biz_code: 'infra' })
-    expect(input).not.toHaveProperty('resource_category')
+    // v3 全量更新必传 resource_category（不可改字段，但需随请求体下发）
+    expect(input).toMatchObject({ resource_category: 'host' })
     expect(input).not.toHaveProperty('source_type')
     expect(successMock).toHaveBeenCalled()
     expect(cancelMock).toHaveBeenCalled()
@@ -601,7 +598,6 @@ describe('ResourceFormDrawer', () => {
         resource_category: 'middleware',
         middleware_type: 'nginx',
         instance_name: undefined,
-        hostname: undefined,
         os_type: undefined,
         instance_ip: '172.16.1.2',
         port: 80,
@@ -617,8 +613,8 @@ describe('ResourceFormDrawer', () => {
       instance_ip: '172.16.1.2',
       port: 80,
     })
-    // §6.1：编辑请求体不带 resource_category（不可改字段不随请求体下发）
-    expect(payload.resource_category).toBeUndefined()
+    // §6.1：v3 全量更新必传 resource_category
+    expect(payload.resource_category).toBe('middleware')
   })
 
   it('renders application and generic target differentiated fields', async () => {
@@ -637,11 +633,11 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByPlaceholderText('例如：10.10.1.4')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：8081')).toBeInTheDocument()
 
-    // 重新渲染为 generic_target：目标名称 / 采集路径 / 自定义标签
+    // 重新渲染为 generic_target：目标名称 / 采集路径；v3 已移除「自定义标签」字段
     renderDrawer({ category: 'generic_target' })
     expect(screen.getByText('目标名称')).toBeInTheDocument()
-    expect(screen.getByText('自定义标签')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c')).toBeInTheDocument()
+    expect(screen.getByText('采集路径')).toBeInTheDocument()
+    expect(screen.queryByText('自定义标签')).toBeNull()
   })
 
   it('lays owner and ops name/contact horizontally in the same row', () => {
@@ -730,7 +726,7 @@ describe('ResourceFormDrawer', () => {
     expect(screen.queryByText('停用业务 (legacy)')).toBeNull()
   })
 
-  it('submits generic target with custom_labels parsed into map', async () => {
+  it('submits generic target without v3-removed custom_labels', async () => {
     createMock.mockResolvedValue({ status: 'success', data: {} })
     renderDrawer({ category: 'generic_target' })
     openSelect('请选择网域')
@@ -747,9 +743,6 @@ describe('ResourceFormDrawer', () => {
     fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), {
       target: { value: 'exporter.example.com' },
     })
-    fireEvent.change(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c'), {
-      target: { value: 'region=cn-north;role=db' },
-    })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const input = createMock.mock.calls[0][0]
@@ -758,8 +751,8 @@ describe('ResourceFormDrawer', () => {
       target_name: 'node-exporter-cn-north',
       instance_ip: 'exporter.example.com',
       scheme: 'http',
-      custom_labels: { region: 'cn-north', role: 'db' },
     })
+    expect(input).not.toHaveProperty('custom_labels')
   })
 
   it('prefills 采集路径=/metrics and 协议=http for generic_target create', async () => {
@@ -873,9 +866,8 @@ describe('ResourceFormDrawer', () => {
         onSuccess={successMock}
       />,
     )
-    // 首次打开即回显实例名/主机名/IP，而非空表单
+    // 首次打开即回显实例名/IP，而非空表单（v3 主机名即实例名，无独立字段）
     expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('prod-web-01.volc')).toBeInTheDocument()
     expect(screen.getByDisplayValue('10.0.1.11')).toBeInTheDocument()
   })
 

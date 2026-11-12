@@ -16,10 +16,10 @@ vi.mock('../../api/resources', () => ({
 const downloadMock = vi.fn()
 const uploadMock = vi.fn()
 
-function recordItem(id: number, over: Partial<ImportRecord> = {}): ImportRecord {
+function recordItem(id: string, over: Partial<ImportRecord> = {}): ImportRecord {
   return {
     id,
-    import_no: `IMP2026082100${id}`,
+    import_no: `IMP2026082100${id.split('-').pop()}`,
     resource_category: 'host',
     mode: 'create_only',
     total: 10,
@@ -60,7 +60,7 @@ describe('ImportRecordsPanel', () => {
   })
 
   it('renders record rows with category / mode / stats / status', async () => {
-    listMock.mockResolvedValue(listPage([recordItem(1)]))
+    listMock.mockResolvedValue(listPage([recordItem('imp-1')]))
     renderPanel()
     // 主列表不含导入编号列，以导入时间作为行锚点
     expect(await screen.findByText('2026-08-21T10:00:00Z')).toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('ImportRecordsPanel', () => {
   })
 
   it('paginates to the next page', async () => {
-    listMock.mockResolvedValue(listPage([recordItem(1)], 25))
+    listMock.mockResolvedValue(listPage([recordItem('imp-1')], 25))
     renderPanel()
     await screen.findByText('2026-08-21T10:00:00Z')
     fireEvent.click(document.querySelector('.ant-pagination-item-2') as HTMLElement)
@@ -117,10 +117,10 @@ describe('ImportRecordsPanel', () => {
   })
 
   it('opens detail via importApi.get and renders errors table', async () => {
-    listMock.mockResolvedValue(listPage([recordItem(1)]))
+    listMock.mockResolvedValue(listPage([recordItem('imp-1')]))
     getMock.mockResolvedValue({
       status: 'success',
-      data: recordItem(1, {
+      data: recordItem('imp-1', {
         errors: [
           { row: 3, resource_category: 'host', field: 'instance_ip', value: '999.1.1.1', reason: 'IP 非法' },
           { row: 5, resource_category: 'host', field: 'biz_code', value: 'unk', reason: '未登记业务，请前往维护业务字典' },
@@ -130,7 +130,7 @@ describe('ImportRecordsPanel', () => {
     renderPanel()
     await screen.findByText('2026-08-21T10:00:00Z')
     fireEvent.click(screen.getByRole('button', { name: /查看/ }))
-    await waitFor(() => expect(getMock).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith('imp-1'))
     expect(await screen.findByText('导入详情 - IMP20260821001')).toBeInTheDocument()
     expect(screen.getByText('IP 非法')).toBeInTheDocument()
     expect(screen.getByText('未登记业务，请前往维护业务字典')).toBeInTheDocument()

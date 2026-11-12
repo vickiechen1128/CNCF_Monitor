@@ -157,6 +157,66 @@ export interface InterfaceService extends ResourceBaseShape {
 export type Resource = Host | Database | Middleware | Application | GenericTarget | InterfaceService
 
 /**
+ * v3 列表 / 详情归一化后的平铺资源行（资源页面消费模型）。
+ *
+ * v3 资源响应统一为「公共字段 + `attributes`」，`api/resources.ts` 在适配层
+ * 展平为页面既有的平铺字段，避免页面层大改。`attributes` 中不存在的字段
+ * （如 v3 已移除的 `custom_labels` / `connection_string`）不再出现在本模型。
+ */
+export interface ResourceListItem {
+  resource_id: string
+  resource_category: ResourceCategory
+  tenant_id?: string
+  network_domain_id: string
+  biz_code?: string
+  app_code?: string
+  platform_code?: string
+  env?: string
+  cluster?: string
+  owner?: string
+  status: string
+  source_type: string
+  /**
+   * 实例级采集端口覆盖（五类均返回）：`0` / 缺省视为「未指定」——
+   * 编辑回显归一为空态，由采集端口解析链向下回落。
+   */
+  scrape_port?: number
+  /** host：v3 唯一主机名字段（`attributes.hostname`），页面以「实例名」展示 */
+  instance_name?: string
+  instance_ip?: string
+  os_type?: string
+  os_version?: string
+  activated_at?: string
+  // database / middleware
+  database_type?: string
+  middleware_type?: string
+  port?: number
+  version?: string
+  // application
+  owner1?: string
+  owner1_contact?: string
+  owner2?: string
+  owner2_contact?: string
+  ops_person?: string
+  ops_person_contact?: string
+  go_live_at?: string
+  service_name?: string
+  health_check_url?: string
+  protocol?: string
+  endpoint?: string
+  // generic_target
+  target_name?: string
+  metrics_path?: string
+  scheme?: string
+  exporter_type?: string
+  // interface_service
+  api_name?: string
+  api_url?: string
+  created_at?: string
+  updated_at?: string
+}
+
+/**
  * 资源写请求 / 导入 / 业务字典 / 标签相关类型（T07-F1）
  *
  * 与 Module_07 §5.2/§5.3/§5.16/§6.2/§6.4 对齐。
@@ -193,7 +253,6 @@ export interface ResourceCreateBaseShape {
 /** 主机差异化字段（§5.6） */
 export interface HostResourceFields {
   instance_name: string
-  hostname?: string
   instance_ip: string
   os_type?: string
   /** 主机开通时间（可选，2026-10-29 新增；RFC3339） */
@@ -241,7 +300,6 @@ export interface GenericTargetResourceFields {
   metrics_path?: string
   scheme?: string
   exporter_type?: string
-  custom_labels?: Record<string, string>
 }
 
 /** 接口服务差异化字段（第 6 类）：接口名 + 接口地址（完整 URL 含 `?` 参数） */
@@ -259,8 +317,9 @@ export type ResourceCreateInput =
   | ({ resource_category: 'generic_target' } & ResourceCreateBaseShape & GenericTargetResourceFields)
   | ({ resource_category: 'interface_service' } & ResourceCreateBaseShape & InterfaceServiceResourceFields)
 
-/** 资源更新公共字段（resource_category/source_type 创建后不可改，不随请求体，§6.1/T07-06） */
+/** 资源更新公共字段（resource_category 为 v3 全量更新必传；source_type 创建后不可改，§6.1/T07-06） */
 export interface ResourceUpdateBaseShape {
+  resource_category: ResourceCategory
   network_domain_id?: string
   biz_code?: string
   app_code?: string
@@ -371,13 +430,13 @@ export interface OSOption {
 /** 资源标签来源（§5.3 / §8.2） */
 export type ResourceLabelSource = 'system' | 'user' | 'cmdb'
 
-/** 资源标签项（§5.3 / §6.2，GET /resources/:resource_id/labels 返回 {items,total}） */
+/** 资源标签项（§5.3 / §6.2，GET /resources/:resource_id/labels 返回 {list,total}；v3 id 为 UUID 字符串） */
 export interface ResourceLabelItem {
-  id: number
+  id: string
   key: string
   value: string
   source: ResourceLabelSource
-  /** system 标签来源映射标注，如 "app_code→app"（§5.3 联动呈现） */
+  /** system 标签来源映射标注，如 "app_code→app"（§5.3 联动呈现）；v3 暂不返回 */
   source_map?: string
 }
 
@@ -402,9 +461,9 @@ export interface ImportResult {
 /** 导入模式（§6.1 / T07-10） */
 export type ImportMode = 'create_only' | 'upsert'
 
-/** 导入记录（§6.4 / T07-10，status: success / partial / failed） */
+/** 导入记录（§6.4 / T07-10，status: success / partial / failed；v3 id 为 UUID 字符串） */
 export interface ImportRecord {
-  id: number
+  id: string
   import_no: string
   resource_category: ResourceCategory
   mode: ImportMode

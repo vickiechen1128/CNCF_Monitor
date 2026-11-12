@@ -1,54 +1,93 @@
 /**
- * 域对象平台 API（/api/v2/platform/...）
+ * 域对象平台 API（/api/v3/platform/...）
  *
- * 复用 `apiClient`，按 03_API_Standard 的 `/api/v2/platform/*` 平台能力契约
- * 提供类型化调用，返回 `ApiResponse<T>`。
+ * M06 行政字段由 M06 v3 写接口维护；网域列表/详情由 M09 承载 enriched 行政
+ * + 运行态视图（D32/D34）。`view=admin` 返回启用/停用全量行政视角。
+ * 统一返回 `ApiResponse<T>`；错误类型按契约 errorType 由 `request` 抛出 `ApiError`。
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
 export { isApiError } from './client'
 import type {
   DomainStatus,
-  DomainType,
   NetworkDomain,
   NetworkDomainDeleteResult,
   NetworkDomainImpact,
   NetworkDomainStatusResult,
+  OnboardingNetworkDomain,
   Tenant,
   ZoneType,
 } from '../types/domain'
 
-/** 分页与筛选查询参数（Module_06 §6.2 / §11.1） */
+const DOMAINS_PATH = '/api/v3/platform/network-domains'
+
+/** 分页与筛选查询参数（M09 契约 §2.2 / D34） */
 export interface ListParams extends Record<string, string | number | boolean | undefined> {
   page?: number
   page_size?: number
-  status?: string
+  /** 默认纳管视角（enabled + edge）；admin 返回启用/停用全量 */
+  view?: 'onboarding' | 'admin'
+  status?: DomainStatus
+  registration_status?: string
   zone_type?: string
-  domain_type?: DomainType
   tenant_id?: string
-  name?: string
+  cloud_code?: string
+  /** 网域名称/ID 模糊搜索（v3 参数名为 keyword） */
+  keyword?: string
 }
 
-function list<T>(path: string, params?: ListParams): Promise<ApiResponse<Paginated<T>>> {
-  return apiClient.get<Paginated<T>>(path, { params })
+/** 网域列表 v3 信封（契约 §1.2） */
+interface DomainListResponse {
+  list?: OnboardingNetworkDomain[]
+  total?: number
+  page?: number
+  page_size?: number
+}
+
+/** v3 enriched 网域视图 → 页面既有 NetworkDomain 模型 */
+function toNetworkDomain(item: OnboardingNetworkDomain): NetworkDomain {
+  return {
+    id: item.network_domain_id,
+    name: item.name,
+    description: item.description ?? '',
+    domain_type: item.domain_type,
+    cloud_code: item.cloud_code || undefined,
+    zone_type: item.zone_type ?? '',
+    tenant_id: item.tenant_id ?? '',
+    authorized_tenant_ids: item.authorized_tenant_ids ?? [],
+    channel: 'agent_pull',
+    center_endpoint: item.center_endpoint || undefined,
+    remote_write_url: item.remote_write_url || undefined,
+    token_masked: item.token_masked || undefined,
+    is_monitored: item.registration_status === 'monitored',
+    has_online_agents: (item.online_agent_count ?? 0) > 0,
+    registration_status: item.registration_status,
+    monitored_at: item.monitored_at,
+    agent_count: item.agent_count,
+    online_agent_count: item.online_agent_count,
+    last_config_version: item.last_config_version || undefined,
+    last_heartbeat: item.last_heartbeat_at ?? undefined,
+    status: item.status,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  }
 }
 
 /** 登记网域（行政信息）输入；tenant_id 固定 platform_admin（后端不信任客户端，不传） */
 export interface NetworkDomainCreateInput {
   name: string
-  domain_type: DomainType
   /** 云归属（M06 §5.2，必填）：取自云字典启用条目（M07 §5.20），不开放自由文本 */
   cloud_code: string
   /** 网络分区（M06 §5.2，必填）：取自区域类型字典启用条目，不开放自由文本 */
   zone_type: string
   description?: string
   authorized_tenant_ids?: string[]
-  ip_cidrs?: string[]
+  /** 可选的自定义网域编码；留空由后端生成 */
+  domain_code?: string
 }
 
 /**
- * 编辑网域（行政信息）输入；不含 tenant_id（登记归属创建后不可变更，Module_06 §6.2）。
- * MVP 收口（PM 决策）：`cloud_code` 登记后不可编辑，故编辑入参不承载云归属。
+ * 编辑网域（行政信息）输入；不含 tenant_id / cloud_code / domain_type（创建后不可变更）。
  */
 export interface NetworkDomainUpdateInput {
   name?: string
@@ -56,97 +95,84 @@ export interface NetworkDomainUpdateInput {
   /** 网络分区（必填维护） */
   zone_type?: string
   authorized_tenant_ids?: string[]
-  ip_cidrs?: string[]
 }
 
 /**
  * 区域类型字典（部署级只读，仅消费启用项做下拉）。
- * 契约：`GET /api/v2/platform/zone-types` 返回**原始数组**（非分页信封）
- * `[{code, display_name, description}]`（Module_06 §9.2 / T06-02）。
+ * v3 契约：`GET /api/v3/platform/zone-types` 返回分页信封 `{list,total}`。
  */
 export const zoneTypeApi = {
-  list(): Promise<ApiResponse<ZoneType[]>> {
-    return apiClient.get<ZoneType[]>('/api/v2/platform/zone-types')
-  },
-  get(code: string): Promise<ApiResponse<ZoneType>> {
-    return apiClient.get<ZoneType>(`/api/v2/platform/zone-types/${encodeURIComponent(code)}`)
+  async list(): Promise<ApiResponse<ZoneType[]>> {
+    const res = await apiClient.get<{ list?: ZoneType[]; total?: number }>('/api/v3/platform/zone-types')
+    return { ...res, data: res.data?.list ?? [] }
   },
 }
 
 /** 网域管理（行政字段，MVP 登记能力） */
 export const networkDomainApi = {
-  list(params?: ListParams): Promise<ApiResponse<Paginated<NetworkDomain>>> {
-    return list<NetworkDomain>('/api/v2/platform/network-domains', params)
+  async list(params?: ListParams): Promise<ApiResponse<Paginated<NetworkDomain>>> {
+    const res = await apiClient.get<DomainListResponse>(DOMAINS_PATH, { params })
+    const data = res.data ?? {}
+    return {
+      ...res,
+      data: {
+        list: (data.list ?? []).map(toNetworkDomain),
+        total: data.total ?? 0,
+        page: data.page ?? 1,
+        page_size: data.page_size ?? params?.page_size ?? 20,
+      },
+    }
   },
-  get(id: string): Promise<ApiResponse<NetworkDomain>> {
-    return apiClient.get<NetworkDomain>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`)
+  async get(id: string): Promise<ApiResponse<NetworkDomain>> {
+    const res = await apiClient.get<OnboardingNetworkDomain>(
+      `${DOMAINS_PATH}/${encodeURIComponent(id)}`,
+    )
+    return { ...res, data: toNetworkDomain(res.data) }
   },
   create(input: NetworkDomainCreateInput): Promise<ApiResponse<NetworkDomain>> {
-    return apiClient.post<NetworkDomain>('/api/v2/platform/network-domains', { body: input })
+    return apiClient.post<NetworkDomain>(DOMAINS_PATH, { body: input })
   },
   update(id: string, input: NetworkDomainUpdateInput): Promise<ApiResponse<NetworkDomain>> {
-    return apiClient.put<NetworkDomain>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`, {
+    return apiClient.put<NetworkDomain>(`${DOMAINS_PATH}/${encodeURIComponent(id)}`, {
       body: input,
     })
   },
   updateStatus(id: string, status: DomainStatus): Promise<ApiResponse<NetworkDomainStatusResult>> {
     return apiClient.patch<NetworkDomainStatusResult>(
-      `/api/v2/platform/network-domains/${encodeURIComponent(id)}/status`,
+      `${DOMAINS_PATH}/${encodeURIComponent(id)}/status`,
       { body: { status } },
     )
   },
   remove(id: string): Promise<ApiResponse<NetworkDomainDeleteResult>> {
-    return apiClient.delete<NetworkDomainDeleteResult>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`)
+    return apiClient.delete<NetworkDomainDeleteResult>(
+      `${DOMAINS_PATH}/${encodeURIComponent(id)}`,
+    )
   },
 }
 
 /**
- * 读取中心直连域（管理域单例）。方案 A 下它不再由 seed 预置，可能不存在；
- * 依赖它的页面/动作必须先调用本函数拿到真实 ID，不能硬编码 'default'。
- */
-export async function fetchManagementDomain(): Promise<NetworkDomain | null> {
-  const res = await networkDomainApi.list({ page: 1, page_size: 1, domain_type: 'management' })
-  return res.data?.list?.[0] ?? null
-}
-
-/**
  * 从 PATCH /:id/status 响应中解析影响范围。
- * 契约兼容：影响范围可能嵌套在 `data.impact`，也可能直接平铺在 `data.{resource_count,...}`
- * （review 阶段按后端汇报的响应结构对齐——TaskDesc 用 edge_agent_count，L3/PRD 用 managed_edge_agent_count）。
- * 决策 82-2：同时解析 has_online_agents 字段供前端判断是否展示「行政冻结」补强提示。
+ * v3 契约固定为 `data.impact`（ImpactResponse）。
  */
 export function resolveNetworkDomainImpact(
   result: ApiResponse<NetworkDomainStatusResult | null>,
 ): NetworkDomainImpact | null {
   const data = result.data
-  if (!data) return null
-  if (data.impact) {
-    return {
-      ...data.impact,
-      // 决策 82-2：has_online_agents 的语义为「是否存在 online 状态 Agent」；
-      // 若后端已显式返回该布尔则直接采信，缺省不再用 计数>0 推断（计数>0 ≠ 存在在线 Agent）。
-      has_online_agents: data.impact.has_online_agents ?? false,
-    }
-  }
-  const hasAny =
-    data.resource_count !== undefined ||
-    data.managed_edge_agent_count !== undefined ||
-    data.edge_agent_count !== undefined
-  if (!hasAny) return null
-  const managedEdgeAgentCount = data.managed_edge_agent_count ?? data.edge_agent_count ?? 0
+  if (!data?.impact) return null
   return {
-    resource_count: data.resource_count ?? 0,
-    managed_edge_agent_count: managedEdgeAgentCount,
-    has_online_agents: data.has_online_agents ?? false,
+    ...data.impact,
+    sample_resources: data.impact.sample_resources ?? [],
+    has_online_agents: data.impact.has_online_agents ?? false,
+    monitoring_available: data.impact.monitoring_available ?? false,
   }
 }
 
 /** 租户管理 */
 export const tenantApi = {
   list(params?: ListParams): Promise<ApiResponse<Paginated<Tenant>>> {
-    return list<Tenant>('/api/v2/platform/tenants', params)
+    return apiClient.get<Paginated<Tenant>>('/api/v3/platform/tenants', { params })
   },
   get(id: string): Promise<ApiResponse<Tenant>> {
-    return apiClient.get<Tenant>(`/api/v2/platform/tenants/${encodeURIComponent(id)}`)
+    return apiClient.get<Tenant>(`/api/v3/platform/tenants/${encodeURIComponent(id)}`)
   },
 }

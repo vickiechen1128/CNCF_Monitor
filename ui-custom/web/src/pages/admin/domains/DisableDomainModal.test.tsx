@@ -19,8 +19,6 @@ const edgeDomain = (over: Partial<NetworkDomain> = {}): NetworkDomain => ({
   zone_type: '',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
-  cmdb_cloud_area_id: '',
-  cmdb_cloud_area_path: '',
   channel: 'local',
   is_monitored: false,
   status: 'enabled',
@@ -76,13 +74,6 @@ describe('DisableDomainModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /确认禁用/ }))
     await waitFor(() => expect(screen.getByText('禁用已生效，影响范围如下')).toBeInTheDocument())
     expect(screen.queryByText('【重要】禁用为行政冻结')).toBeNull()
-  })
-
-  it('does not allow disabling a management (default) domain', async () => {
-    renderModal(edgeDomain({ domain_type: 'management' }))
-    fireEvent.click(screen.getByRole('button', { name: /确认禁用/ }))
-    await waitFor(() => expect(updateStatusMock).not.toHaveBeenCalled())
-    expect(screen.queryByText('禁用已生效，影响范围如下')).toBeNull()
   })
 
   it('resets result state when reopened on another domain', async () => {

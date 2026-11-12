@@ -3,7 +3,9 @@ package dictionary
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 )
 
@@ -93,12 +95,124 @@ func (s *Service) ListBusinessDomains(ctx context.Context) ([]BusinessDomain, er
 	return s.repo.ListBusinessDomains(ctx)
 }
 
+// CreateBusinessDomain registers a business dictionary entry (default enabled).
+func (s *Service) CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error) {
+	code = strings.TrimSpace(code)
+	name = strings.TrimSpace(name)
+	if !models.ValidBizCode.MatchString(code) {
+		return nil, &domain.ValidationError{Field: "code", Message: "must match ^[a-z0-9-]{1,64}$"}
+	}
+	if name == "" {
+		return nil, &domain.ValidationError{Field: "name", Message: "is required"}
+	}
+	return s.repo.CreateBusinessDomain(ctx, code, name, strings.TrimSpace(description))
+}
+
+// UpdateBusinessDomain applies a restricted edit (name/description/enabled).
+func (s *Service) UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*BusinessDomain, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, &domain.ValidationError{Field: "code", Message: "is required"}
+	}
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" {
+			return nil, &domain.ValidationError{Field: "name", Message: "must not be empty"}
+		}
+		name = &trimmed
+	}
+	if description != nil {
+		trimmed := strings.TrimSpace(*description)
+		description = &trimmed
+	}
+	if code == models.InfraBizCode && enabled != nil && !*enabled {
+		return nil, &domain.ValidationError{
+			Field:   "enabled",
+			Message: "infra is the fallback business group and cannot be disabled",
+		}
+	}
+	return s.repo.UpdateBusinessDomain(ctx, code, name, description, enabled)
+}
+
 func (s *Service) ListApplications(ctx context.Context) ([]Application, error) {
 	return s.repo.ListApplications(ctx)
 }
 
+// CreateApplication registers an application dictionary entry (default enabled).
+func (s *Service) CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error) {
+	appCode = strings.TrimSpace(appCode)
+	appName = strings.TrimSpace(appName)
+	if !models.ValidAppCode.MatchString(appCode) {
+		return nil, &domain.ValidationError{Field: "app_code", Message: "must match ^[a-z0-9-]{1,64}$"}
+	}
+	if appName == "" {
+		return nil, &domain.ValidationError{Field: "app_name", Message: "is required"}
+	}
+	return s.repo.CreateApplication(ctx, appCode, appName, strings.TrimSpace(description))
+}
+
+// UpdateApplication applies a restricted edit (app_name/description/status).
+func (s *Service) UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, error) {
+	appCode = strings.TrimSpace(appCode)
+	if appCode == "" {
+		return nil, &domain.ValidationError{Field: "app_code", Message: "is required"}
+	}
+	if appName != nil {
+		trimmed := strings.TrimSpace(*appName)
+		if trimmed == "" {
+			return nil, &domain.ValidationError{Field: "app_name", Message: "must not be empty"}
+		}
+		appName = &trimmed
+	}
+	if description != nil {
+		trimmed := strings.TrimSpace(*description)
+		description = &trimmed
+	}
+	if status != nil {
+		trimmed := strings.TrimSpace(*status)
+		if trimmed != models.AppStatusEnabled && trimmed != models.AppStatusDisabled {
+			return nil, &domain.ValidationError{Field: "status", Message: "must be enabled/disabled"}
+		}
+		status = &trimmed
+	}
+	return s.repo.UpdateApplication(ctx, appCode, appName, description, status)
+}
+
 func (s *Service) ListPlatforms(ctx context.Context) ([]Platform, error) {
 	return s.repo.ListPlatforms(ctx)
+}
+
+// CreatePlatform registers a platform dictionary entry (default enabled).
+func (s *Service) CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error) {
+	platformCode = strings.TrimSpace(platformCode)
+	platformName = strings.TrimSpace(platformName)
+	if !models.ValidPlatformCode.MatchString(platformCode) {
+		return nil, &domain.ValidationError{Field: "platform_code", Message: "must match ^[a-z0-9-]{1,64}$"}
+	}
+	if platformName == "" {
+		return nil, &domain.ValidationError{Field: "platform_name", Message: "is required"}
+	}
+	return s.repo.CreatePlatform(ctx, platformCode, platformName, strings.TrimSpace(description))
+}
+
+// UpdatePlatform applies a restricted edit (platform_name/description/enabled).
+func (s *Service) UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (*Platform, error) {
+	platformCode = strings.TrimSpace(platformCode)
+	if platformCode == "" {
+		return nil, &domain.ValidationError{Field: "platform_code", Message: "is required"}
+	}
+	if platformName != nil {
+		trimmed := strings.TrimSpace(*platformName)
+		if trimmed == "" {
+			return nil, &domain.ValidationError{Field: "platform_name", Message: "must not be empty"}
+		}
+		platformName = &trimmed
+	}
+	if description != nil {
+		trimmed := strings.TrimSpace(*description)
+		description = &trimmed
+	}
+	return s.repo.UpdatePlatform(ctx, platformCode, platformName, description, enabled)
 }
 
 func (s *Service) ListClouds(ctx context.Context) ([]Cloud, error) {

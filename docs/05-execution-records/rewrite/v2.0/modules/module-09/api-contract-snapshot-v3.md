@@ -69,7 +69,7 @@
 
 ## 2. 网域纳管（平台管理面）
 
-> 网域行政字段（name/cloud_code/zone_type/...）由 M06 管理；本组只管理纳管与运行态。纳管列表与 M06 已登记域对齐，只展示 M06 `enabled` + `edge` 的网域。
+> 网域行政字段（name/cloud_code/zone_type/...）由 M06 管理；本组只管理纳管与运行态。默认纳管列表与 M06 已登记域对齐，只展示 M06 `enabled` + `edge` 的网域；admin 可通过 `view=admin`（或 `status`）切到行政视角，查看启用/停用全量域（D34）。
 
 ### 2.1 纳管网域视图
 
@@ -77,6 +77,12 @@
 {
   "network_domain_id": "mc-demo",
   "name": "演示采集域",
+  "description": "示例",
+  "domain_type": "edge",
+  "domain_type_label": "采集节点域",
+  "tenant_id": "platform_admin",
+  "authorized_tenant_ids": ["platform_admin"],
+  "status": "enabled",
   "cloud_code": "aliyun",
   "zone_type": "beijing",
   "registration_status": "monitored",
@@ -93,6 +99,7 @@
 }
 ```
 
+- `description` / `domain_type` / `domain_type_label` / `tenant_id` / `authorized_tenant_ids` / `status` 为 M06 行政字段，供 M06 管理页直接消费（D34）。
 - `registration_status`：`created`（未纳管）/ `monitored`（已纳管）/ `retired`（已退纳管，仅审计）。
 - `token_masked`：完全脱敏；**任何列表/详情接口不返回明文**。
 - `last_config_version` 为该域当前生效快照版本。
@@ -101,11 +108,14 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
-| GET | `/network-domains` | 登录 | 纳管视角列表；筛选 `registration_status`/`keyword`/`cloud_code`/`zone_type`/`tenant_id` + 分页；`created_at asc` |
+| GET | `/network-domains` | 登录 | 默认纳管视角列表（`enabled` + `edge`）；筛选 `registration_status`/`keyword`/`cloud_code`/`zone_type`/`tenant_id` + 分页；`created_at asc` |
+| GET | `/network-domains?view=admin` | admin | 行政视角列表：`domain_type IN (edge, collection)`，不默认过滤 `status`；可叠加 `status=enabled|disabled`；非 admin → 403（D34） |
 | GET | `/network-domains/:id` | 登录 | 纳管详情；不存在或未授权 → 404 |
 | POST | `/network-domains/:id/monitor` | admin | 纳管：签发 Token，返回明文一次 + 脱敏 + 安装指引 |
 | POST | `/network-domains/:id/token/reset` | admin | 重置 Token：旧 Token 立即失效，返回新明文一次 |
 | DELETE | `/network-domains/:id/monitor` | admin | 退纳管（MVP）：废止 Token，节点转 `retired`，状态归 `created`；与 M06 级联清退复用同一 service 路径 |
+
+> `view=admin` 仅改变列表的行政可见范围，不改变纳管/退纳管前置条件（仍要求 `enabled` + `edge`，见 §2.3）。
 
 ### 2.3 纳管 POST 响应（明文仅本次返回）
 
@@ -380,20 +390,51 @@ POST /network-domains/:id/token/reset
 
 ### 7.2 `GET /api/v1/health/coverage`
 
-采集覆盖率三态（FR-16），供 M07 资源列表 badge 消费。按授权网域过滤后聚合。
+采集覆盖率四态明细 + 汇总（FR-16），供 M07 资源列表 badge 消费。按授权网域过滤后聚合，按 `resource_id` 关联 `edge_target_snapshots`。
+
+查询参数：
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `network_domain` | 空 | 按网域过滤；服务端仍在授权网域集内二次约束 |
+| `resource_category` | 空 | `host/database/middleware/application/generic_target/interface_service`；非法值 → 400 |
+| `state` | 空 | `collecting/partial_collecting/pending_down/not_monitored`；非法值 → 400 |
+| `page` | 1 | 页码 |
+| `page_size` | 500 | 上限 1000 |
 
 ```json
 {
   "status": "success",
   "data": {
-    "collecting": 120,
-    "deployed_not_collected": 5,
-    "not_monitored": 30
+    "items": [
+      {
+        "resource_id": "r-1",
+        "resource_category": "host",
+        "instance_name": "web-01",
+        "monitor_state": "collecting",
+        "health": "up",
+        "last_error": ""
+      }
+    ],
+    "total": 1,
+    "summary": {
+      "total": 1,
+      "collecting": 1,
+      "partial_collecting": 0,
+      "pending_down": 0,
+      "not_monitored": 0,
+      "coverage_rate": 1
+    },
+    "collecting": 1,
+    "deployed_not_collected": 0,
+    "not_monitored": 0
   }
 }
 ```
 
-- 三态口径：样本新鲜=采集中；有历史样本但过期=已下发未采到（回传延迟）；从无样本=未监控（沿用项目记忆「三态」决策）。
+- 四态口径：存在新鲜 `up` 快照=采集中；多目标混合成功/失败=`partial_collecting`；有快照但无新鲜成功=`pending_down`；无任何快照=`not_monitored`。
+- `summary` 按 `state` 筛选后的全量结果统计（非当前页）；`coverage_rate = (total - not_monitored) / total`，保留两位小数。
+- 顶层 `collecting/deployed_not_collected/not_monitored` 为兼容窗口内保留的旧三态聚合（基于采集健康计数），新消费方使用 `items` + `summary`。
 
 ### 7.3 PromQL 查询代理
 
