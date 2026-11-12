@@ -105,15 +105,34 @@ type BatchGenerateRequest struct {
 	JobIDs []uint `json:"job_ids" binding:"required,min=1"`
 }
 
+// BatchGenerateService 封装「批量重新生成变更单」用例。
+// handler 只依赖该服务，不直接持有 *gorm.DB（架构红线 R1：新增 handler 禁止直接依赖 DB）。
+type BatchGenerateService struct {
+	db *gorm.DB
+}
+
+// NewBatchGenerateService 构造批量生成服务。
+func NewBatchGenerateService(db *gorm.DB) *BatchGenerateService {
+	return &BatchGenerateService{db: db}
+}
+
+// Generate 按所选 Job 所属网域批量生成变更单。
+func (s *BatchGenerateService) Generate(jobIDs []uint) ([]BatchGenerateResult, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("batch generate service not initialized")
+	}
+	return BatchGenerateDrafts(s.db, jobIDs)
+}
+
 // BatchGenerateHandler 处理 POST /api/v2/platform/config/drafts/batch-generate。
-func BatchGenerateHandler(db *gorm.DB) gin.HandlerFunc {
+func BatchGenerateHandler(svc *BatchGenerateService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req BatchGenerateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
 			return
 		}
-		results, err := BatchGenerateDrafts(db, req.JobIDs)
+		results, err := svc.Generate(req.JobIDs)
 		if err != nil {
 			response.BadRequest(c, err)
 			return
