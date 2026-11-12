@@ -187,28 +187,8 @@ func TestNetworkDomainCreateAndList(t *testing.T) {
 		assert.Equal(t, "bad_request", out["errorType"], body)
 	}
 
-	code, out = doRequest(t, router, http.MethodGet,
-		"/api/v3/platform/network-domains?status=enabled&keyword=演示&cloud_code=aliyun&zone_type=beijing&page=1&page_size=1", "")
-	require.Equal(t, http.StatusOK, code, out)
-	listData := out["data"].(map[string]any)
-	assert.EqualValues(t, 1, listData["total"])
-	assert.EqualValues(t, 1, listData["page"])
-	assert.EqualValues(t, 1, listData["page_size"])
-	require.Len(t, listData["list"], 1)
-	assert.Equal(t, "mc-demo", listData["list"].([]any)[0].(map[string]any)["id"])
-
-	code, out = doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains?status=bogus", "")
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "bad_request", out["errorType"])
-
-	code, out = doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains/mc-demo", "")
-	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, "mc-demo", out["data"].(map[string]any)["id"])
-
-	code, out = doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains/missing", "")
-	assert.Equal(t, http.StatusNotFound, code)
-	assert.Equal(t, "not_found", out["errorType"])
-
+	// D32: GET /network-domains and /:id are served by M09's onboarding view,
+	// so M06 no longer asserts them here. The administrative impact read stays.
 	code, out = doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains/mc-existing/impact", "")
 	require.Equal(t, http.StatusOK, code, out)
 	impact := out["data"].(map[string]any)
@@ -358,10 +338,8 @@ func TestNetworkDomainReadsAllowUsersButMutationsRequireAdmin(t *testing.T) {
 	viewer := &models.User{Role: models.UserRoleUser, Status: models.UserStatusActive}
 	router, _ := newNetworkDomainTestRouter(t, viewer, references.NoopMonitoring{})
 
-	code, out := doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains", "")
-	require.Equal(t, http.StatusOK, code, out)
-
-	code, out = doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains/mc-existing/impact", "")
+	// D32: network-domain reads are served by M09; M06 keeps the impact read.
+	code, out := doRequest(t, router, http.MethodGet, "/api/v3/platform/network-domains/mc-existing/impact", "")
 	require.Equal(t, http.StatusOK, code, out)
 
 	mutations := []struct {

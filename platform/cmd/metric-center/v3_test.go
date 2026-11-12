@@ -68,7 +68,7 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	db.DB = gormDB
 	t.Cleanup(func() { db.DB = prev })
 
-	router, err := setupV3Router("", m06.Options{})
+	router, err := setupV3Router(context.Background(), "", m06.Options{})
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -82,6 +82,8 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		{"/api/v3/platform/resources", http.StatusUnauthorized},
 		{"/api/v3/platform/tenants", http.StatusUnauthorized},
 		{"/api/v3/platform/network-domains", http.StatusUnauthorized},
+		// M09 platform routes are behind the same global user-auth gate.
+		{"/api/v3/platform/edge-agents", http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -103,7 +105,13 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
-	assert.Equal(t, []string{"system", "m06", "m07", "auth"}, meta.Data.Modules)
+	assert.Equal(t, []string{"system", "m06", "m07", "m09", "auth"}, meta.Data.Modules)
+
+	// M09 edge protocol is token-only: the global user-auth gate is bypassed
+	// for /api/v3/edge/*, so this 401 comes from EdgeTokenMiddleware.
+	edgeRec := httptest.NewRecorder()
+	router.ServeHTTP(edgeRec, httptest.NewRequest(http.MethodPost, "/api/v3/edge/heartbeat", nil))
+	assert.Equal(t, http.StatusUnauthorized, edgeRec.Code, "edge heartbeat without token must be 401")
 
 	// Login is anonymous on the v3 prefix, and its token unlocks M07 routes.
 	rec := httptest.NewRecorder()
@@ -184,7 +192,7 @@ func TestV3UserDisableInvalidatesSession(t *testing.T) {
 	db.DB = gormDB
 	t.Cleanup(func() { db.DB = prev })
 
-	router, err := setupV3Router("", m06.Options{})
+	router, err := setupV3Router(context.Background(), "", m06.Options{})
 	require.NoError(t, err)
 
 	adminToken := v3LoginToken(t, router, "admin", "admin123")
@@ -238,7 +246,7 @@ func TestV3StorageRoutesUseInjectedOptions(t *testing.T) {
 	t.Cleanup(func() { db.DB = prev })
 
 	envFile := filepath.Join(t.TempDir(), "prom-retention.env")
-	router, err := setupV3Router("", m06.Options{EnvFile: envFile})
+	router, err := setupV3Router(context.Background(), "", m06.Options{EnvFile: envFile})
 	require.NoError(t, err)
 	adminToken := v3LoginToken(t, router, "admin", "admin123")
 
@@ -312,7 +320,7 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 	db.DB = gormDB
 	t.Cleanup(func() { db.DB = prev })
 
-	router, err := setupV3Router("", m06.Options{Monitoring: retirer})
+	router, err := setupV3Router(context.Background(), "", m06.Options{Monitoring: retirer})
 	require.NoError(t, err)
 	adminToken := v3LoginToken(t, router, "admin", "admin123")
 

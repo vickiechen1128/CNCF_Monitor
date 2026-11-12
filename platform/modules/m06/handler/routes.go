@@ -17,13 +17,13 @@ type Handlers struct {
 
 // RegisterRoutes mounts the M06 v3 administrative routes.
 //
-// Network-domain reads are available to any authenticated user; every mutation
-// (plus tenant/user/login-log administration) is behind RequireAdmin. The
-// global AuthMiddleware establishes the user context, so anonymous callers get
-// 401 before this group and non-admin callers get 403 here.
+// Network-domain reads (list/detail) are owned by M09 v3 (D32): it serves the
+// enriched onboarding view on the same paths. M06 keeps the administrative
+// impact read plus every mutation; mutations (and tenant/user/login-log
+// administration) are behind RequireAdmin. The global AuthMiddleware
+// establishes the user context, so anonymous callers get 401 before this group
+// and non-admin callers get 403 here.
 func RegisterRoutes(platform *gin.RouterGroup, h Handlers) {
-	platform.GET("/network-domains", h.Domains.List)
-	platform.GET("/network-domains/:id", h.Domains.Get)
 	platform.GET("/network-domains/:id/impact", h.Domains.Impact)
 
 	admin := platform.Group("")

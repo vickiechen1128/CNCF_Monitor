@@ -21,6 +21,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
+	m09 "github.com/metriccenter/metriccenter/platform/modules/m09"
 )
 
 // resolveDatabaseMode resolves the startup mode. Precedence: --database.mode,
@@ -58,7 +59,7 @@ func runV3(ctx context.Context) {
 	if err != nil {
 		log.Fatalf("invalid prometheus.url: %v", err)
 	}
-	r, err := setupV3Router(*webStaticDir, m06.Options{
+	r, err := setupV3Router(ctx, *webStaticDir, m06.Options{
 		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
 		PromURL: promURL,
 	})
@@ -72,7 +73,7 @@ func runV3(ctx context.Context) {
 
 // setupV3Router assembles the v3-only HTTP surface: shared middleware, the v3
 // module registry (system + business modules) and the optional SPA fallback.
-func setupV3Router(staticDir string, m06Opts m06.Options) (*gin.Engine, error) {
+func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (*gin.Engine, error) {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(httpx.RequestID())
@@ -80,11 +81,25 @@ func setupV3Router(staticDir string, m06Opts m06.Options) (*gin.Engine, error) {
 	// 与 legacy 一致：A2 同源部署下 CORS 不生效，仅服务开发态跨端口联调。
 	// 演进到 nginx 反代（S2）后必须收紧为来源白名单。
 	r.Use(cors.Default())
+	// D27: /api/v3/edge/* is token-only (edge agents are not platform users);
+	// exempt it from the global user-auth gate so EdgeTokenMiddleware owns it.
+	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v3/edge/")
 	r.Use(auth.AuthMiddleware(auth.NewService(auth.NewRepository(db.DB))))
 
 	apiV3 := r.Group("/api/v3")
-	if err := mountV3Modules(apiV3.Group("/platform"), m06Opts); err != nil {
+	m09Module, err := mountV3Modules(apiV3.Group("/platform"), apiV3.Group("/edge"), m06Opts)
+	if err != nil {
 		return nil, err
+	}
+	// D30: the Prometheus-compatible query surface lives under /api/v1 and is
+	// only mounted in v3-only mode (the transition mode keeps the legacy proxy).
+	if err := m09Module.RegisterQueryRoutes(r.Group("/api/v1")); err != nil {
+		return nil, fmt.Errorf("m09: register query routes: %w", err)
+	}
+	// Start M09 background loops only for a cancellable (production) context;
+	// tests pass context.Background() (nil Done) to avoid stray goroutines.
+	if ctx != nil && ctx.Done() != nil {
+		m09Module.StartBackground(ctx)
 	}
 
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
@@ -98,43 +113,66 @@ func setupV3Router(staticDir string, m06Opts m06.Options) (*gin.Engine, error) {
 }
 
 // mountV3Modules builds the v3 module registry and mounts every module under
-// the supplied platform group (expected prefix: /api/v3/platform).
-func mountV3Modules(platform *gin.RouterGroup, m06Opts m06.Options) error {
+// the supplied platform group (expected prefix: /api/v3/platform). The edge
+// group (expected prefix: /api/v3/edge) receives M09's token-only protocol.
+func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.Module, error) {
 	registry := module.NewRegistry()
 	systemModule := system.NewModule(db.DB, system.Options{
 		Driver:  db.DBDriver(),
 		Modules: registry.Names,
 	})
 	if err := registry.Register(systemModule); err != nil {
-		return err
+		return nil, err
 	}
-	// Order: system → m06 → m07 → auth. M06 owns tenant/network-domain
-	// administration; M07 consumes the domain usability view.
+	// M09 owns monitoring retirement (D23). Build it before M06 so its
+	// MonitoringRetirer can be injected into M06; registration order below
+	// keeps the meta list as system → m06 → m07 → m09 → auth.
+	m09Module, err := m09.NewModule(db.DB, m09.Options{
+		PromURL:         m06Opts.PromURL,
+		ConfigOutputDir: *configDir,
+		EdgePackagesDir: *edgePackageDir,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("register m09 v3 module: %w", err)
+	}
+	// Tests may inject a fake retirer; production lets M09 supply the default.
+	if m06Opts.Monitoring == nil {
+		m06Opts.Monitoring = m09Module.MonitoringRetirer()
+	}
+	// Order: system → m06 → m07 → m09 → auth. M06 owns tenant/network-domain
+	// administration; M07 consumes the domain usability view; M09 owns access,
+	// edge agents, config sync and the query surface.
 	m06Module, err := m06.NewModule(db.DB, m06Opts)
 	if err != nil {
-		return fmt.Errorf("register m06 v3 module: %w", err)
+		return nil, fmt.Errorf("register m06 v3 module: %w", err)
 	}
 	if err := registry.Register(m06Module); err != nil {
-		return err
+		return nil, err
 	}
 	m07Module, err := m07.NewModule(db.DB)
 	if err != nil {
-		return fmt.Errorf("register m07 v3 module: %w", err)
+		return nil, fmt.Errorf("register m07 v3 module: %w", err)
 	}
 	if err := registry.Register(m07Module); err != nil {
-		return err
+		return nil, err
+	}
+	if err := registry.Register(m09Module); err != nil {
+		return nil, err
 	}
 	// M03 v3 认证面尚未重写：v3-only 模式临时复用 legacy auth handler。
 	// v3 00000 baseline 已按同构列建 users / sessions / login_logs，切换成本低；
 	// M03 v3 模块落地后替换本适配器（接口路径保持 /api/v3/platform/auth/*）。
 	if err := registry.Register(v3AuthModule{}); err != nil {
-		return err
+		return nil, err
 	}
 	if err := registry.Mount(platform); err != nil {
-		return err
+		return nil, err
+	}
+	if err := m09Module.RegisterEdgeRoutes(edge); err != nil {
+		return nil, fmt.Errorf("m09: register edge routes: %w", err)
 	}
 	log.Printf(">>> v3 modules: %v", registry.Names())
-	return nil
+	return m09Module, nil
 }
 
 // v3AuthModule mounts the legacy auth handlers under the v3 prefix while the

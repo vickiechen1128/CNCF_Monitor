@@ -10,14 +10,6 @@ import (
 // domainTypeLabel is the fixed, user-facing label for collection-node domains.
 const domainTypeLabel = "采集节点域"
 
-// ListNetworkDomainsResponse is the v3 pagination envelope for network domains.
-type ListNetworkDomainsResponse struct {
-	List     []NetworkDomainResponse `json:"list"`
-	Total    int64                   `json:"total"`
-	Page     int                     `json:"page"`
-	PageSize int                     `json:"page_size"`
-}
-
 // NetworkDomainResponse is the administrative network-domain representation.
 // Runtime onboarding fields (channel/token/agent_type/remote_write_url/
 // heartbeat) are intentionally absent from the M06 v3 contract.

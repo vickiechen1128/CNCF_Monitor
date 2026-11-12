@@ -253,6 +253,8 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	// D1：edge 协议 outbound-only（Agent 非平台用户），对全局用户 auth 豁免该前缀，
 	// 改由 edge group 内独立 edge-token 中间件鉴权（见 platform/edge）。
 	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v2/platform/edge/")
+	// D27：v3 edge 协议同样 token-only，豁免全局用户认证，由 m09 EdgeTokenMiddleware 鉴权。
+	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v3/edge/")
 	// M08 PL-3 通知渲染桥（POST /api/v1/webhooks/notify）调用方为中心 Alertmanager，
 	// 非平台用户，故豁免全局用户认证，改由 notify.BridgeHandler 自校验内网调用令牌。
 	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v1/webhooks/")
@@ -282,7 +284,7 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	// v2.0 v3 API: mounted alongside legacy /api/v2 during the transition.
 	// M07 与 system 通过模块注册表装配，模块边界与 v3-only 启动保持一致。
 	apiV3 := r.Group("/api/v3")
-	if err := mountV3Modules(apiV3.Group("/platform"), m06.Options{
+	if _, err := mountV3Modules(apiV3.Group("/platform"), apiV3.Group("/edge"), m06.Options{
 		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
 		PromURL: promURL,
 	}); err != nil {

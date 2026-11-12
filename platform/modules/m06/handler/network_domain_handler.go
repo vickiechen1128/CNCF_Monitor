@@ -9,9 +9,7 @@ import (
 
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/foundation/httpapi"
-	"github.com/metriccenter/metriccenter/platform/modules/m06/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/dto"
-	"github.com/metriccenter/metriccenter/platform/modules/m06/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/service"
 )
 
@@ -23,44 +21,6 @@ type NetworkDomainHandler struct {
 // NewNetworkDomainHandler constructs a network-domain handler.
 func NewNetworkDomainHandler(svc *service.NetworkDomainService) *NetworkDomainHandler {
 	return &NetworkDomainHandler{svc: svc}
-}
-
-// List handles GET /network-domains.
-func (h *NetworkDomainHandler) List(c *gin.Context) {
-	status, err := domain.ParseDomainStatus(c.Query("status"))
-	if err != nil {
-		httpapi.WriteError(c, err)
-		return
-	}
-	page, pageSize := parsePagination(c)
-	items, total, err := h.svc.List(c.Request.Context(), repository.ListNetworkDomainsFilter{
-		Status:    string(status),
-		Keyword:   strings.TrimSpace(c.Query("keyword")),
-		CloudCode: strings.TrimSpace(c.Query("cloud_code")),
-		ZoneType:  strings.TrimSpace(c.Query("zone_type")),
-		TenantID:  strings.TrimSpace(c.Query("tenant_id")),
-		Page:      page,
-		PageSize:  pageSize,
-	})
-	if err != nil {
-		httpapi.WriteError(c, err)
-		return
-	}
-	list := make([]dto.NetworkDomainResponse, 0, len(items))
-	for _, item := range items {
-		list = append(list, dto.FromNetworkDomain(item))
-	}
-	response.OK(c, dto.ListNetworkDomainsResponse{List: list, Total: total, Page: page, PageSize: pageSize})
-}
-
-// Get handles GET /network-domains/:id.
-func (h *NetworkDomainHandler) Get(c *gin.Context) {
-	item, err := h.svc.Get(c.Request.Context(), c.Param("id"))
-	if err != nil {
-		httpapi.WriteError(c, err)
-		return
-	}
-	response.OK(c, dto.FromNetworkDomain(item))
 }
 
 // Impact handles GET /network-domains/:id/impact.
