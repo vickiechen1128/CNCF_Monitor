@@ -55,7 +55,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	admin.POST("/config/drafts", GenerateDraftHandler(db))
 	// 批量重新生成变更单：按所选采集 Job 所属网域逐域强制生成（绕过空跑抑制），
 	// 仅生成待确认草稿，**不确认下发**——下发仍由用户在「配置变更确认」页手动操作。
-	admin.POST("/config/drafts/batch-generate", BatchGenerateHandler(db))
+	admin.POST("/config/drafts/batch-generate", BatchGenerateHandler(NewBatchGenerateService(db)))
 	admin.GET("/config-drafts/:change_no", GetDraftHandler(db))
 	admin.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
 	admin.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))
