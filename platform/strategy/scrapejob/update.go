@@ -36,10 +36,10 @@ type UpdateScrapeJobRequest struct {
 	// ResourceType / TargetField 仅 blackbox 拨测使用（拨测目标资源类别 + 探测地址字段）。
 	// ResourceType 限接口服务 / 应用服务；TargetField 已不由调用方决定（保留以兼容旧客户端，
 	// 落库前会被 validateJobRequest 按 ResourceType 推导覆盖）。
-	ResourceType          *models.ResourceType          `json:"resource_type"`
-	TargetField           *string                       `json:"target_field"`
-	MappingOverrides      []models.MappingOverride      `json:"mapping_overrides"`
-	Enabled               *bool                         `json:"enabled"`
+	ResourceType     *models.ResourceType     `json:"resource_type"`
+	TargetField      *string                  `json:"target_field"`
+	MappingOverrides []models.MappingOverride `json:"mapping_overrides"`
+	Enabled          *bool                    `json:"enabled"`
 }
 
 // UpdateScrapeJob 是 PUT /api/v2/platform/scrape-jobs/:id 的 handler：可改字段，
@@ -73,7 +73,21 @@ func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		originalName := job.JobName
 		applyJobUpdate(&job, req)
+		// 改名时校验唯一性（大小写不敏感，口径同创建）；不改名则跳过，
+		// 避免无谓的重复查询。
+		if job.JobName != originalName {
+			taken, err := resolveJobNameConflict(db, job.JobName, job.ID)
+			if err != nil {
+				response.InternalServerError(c, err)
+				return
+			}
+			if taken {
+				response.Conflict(c, fmt.Errorf("采集 Job %q 已存在", job.JobName))
+				return
+			}
+		}
 		// F-28：更新时同样走层叠默认链——用户清空某参数字段即表示「恢复继承」，
 		// 保存时按映射→模板→全局兜底重新解析为生效快照（对齐 create 行为）。
 		resolveJobScrapeParams(db, &job)

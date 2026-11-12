@@ -125,6 +125,11 @@ func assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	var diagnostics []TargetDiagnostics
 
 	for _, jb := range jobs {
+		// 生成侧二次校验：targets 文件名直接使用 job_name，脏名（含 / \ : 等）
+		// 会破坏落盘路径，必须在生成阶段拦下而不是写到一半失败。
+		if err := models.ValidateJobName(jb.Job.JobName); err != nil {
+			return nil, fmt.Errorf("采集 Job 名称 %q 不合法: %w", jb.Job.JobName, err)
+		}
 		sc, err := jobScrapeConfig(jb.Job)
 		if err != nil {
 			return nil, fmt.Errorf("render scrape config for %s: %w", jb.Job.JobName, err)
@@ -139,6 +144,11 @@ func assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 		content, err := MarshalTargetGroups(jb.Targets)
 		if err != nil {
 			return nil, err
+		}
+		// 防御：文件名与 Job 名一一对应，正常不会命中；若下游数据异常导致重名，
+		// 显式报错而不是让后一个 Job 静默覆盖前一个的 targets。
+		if _, dup := targets[fname]; dup {
+			return nil, fmt.Errorf("采集 Job %q 的 targets 文件名 %q 与其它 Job 冲突", jb.Job.JobName, fname)
 		}
 		targets[fname] = content
 		// 聚合目标解析归因（C-1）：FileName 与落盘 key 同源（normalizeJobFilename），

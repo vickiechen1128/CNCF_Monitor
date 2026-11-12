@@ -34,8 +34,8 @@ const (
 //   - scrape_interval / scrape_timeout 非空时须为带单位的 Prometheus duration
 //     字面量（裸数字如 "180" 会被 promtool check config 拒绝，2026-10-12 诊断）
 func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
-	if strings.TrimSpace(job.JobName) == "" {
-		return fmt.Errorf("job_name 不能为空")
+	if err := models.ValidateJobName(job.JobName); err != nil {
+		return err
 	}
 	if job.NetworkDomainID == "" {
 		return fmt.Errorf("network_domain_id 必填（须为已纳管且非冻结的网域）")

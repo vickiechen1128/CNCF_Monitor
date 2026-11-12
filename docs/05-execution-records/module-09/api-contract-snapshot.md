@@ -83,6 +83,7 @@
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | POST | `/api/v2/platform/config/drafts` | body `{ network_domain_id }`（手动触发生成） | 新/已有 `ConfigDraft` | `bad_request`：未选已纳管网域 / 冻结网域 | §6.5.2 / 决策 30 |
+| POST | `/api/v2/platform/config/drafts/batch-generate` | body `{ job_ids: [uint] }`（按所选 Job 所属网域逐域**强制**重新生成配置变更单；不受决策 44-3 空跑抑制影响，无变更也会生成待确认草稿；**不确认下发**） | `{ results: [{ network_domain_id, status: generated/no_changes/failed, change_no?, validation_status?, validation_message?, message? }] }` | `bad_request`：`job_ids` 为空 / 所选 Job 不存在 | §6.5.2（采集 Job 列表批量操作入口） |
 | GET | `/api/v2/platform/config-drafts` | Query: `network_domain_id`、`status(pending/confirmed/discarded/all 默认 pending)`、`page`、`page_size` | `{ items: [DraftListItem], total }` | `bad_request`：未选已纳管网域 | §6.5.2 |
 | GET | `/api/v2/platform/config-drafts/{change_no}` | — | `ConfigDraftDetail`（含产物） | `not_found` | §6.5.2 |
 | POST | `/api/v2/platform/config-drafts/{change_no}/confirm` | body `{ confirmed_by }`（MVP 预置用户） | 生成的 `ConfigVersion`（含 `id`/`change_no`/产物） | `bad_request`：validation_status=failed / 已非 pending；`not_found` | §6.5.2 |

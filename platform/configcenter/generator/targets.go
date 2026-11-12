@@ -415,8 +415,9 @@ func MarshalTargetGroups(groups []TargetGroup) (string, error) {
 }
 
 // EnsureTargetsFilename 校验 targets 文件名为纯文件名（review-fix F6 防御纵深）。
-// 正常 key 由 normalizeJobFilename 归一为安全名，但写入点复用 map key：若 DB/下游存入
-// 脏 key（含 .. / 路径分隔符）可越界写文件。落盘前在各写入点二次断言兜底。
+// 正常 key 由 job_name 直接派生（保存入口已经 models.ValidateJobName 拦截脏名），
+// 但写入点复用 map key：若 DB/下游存入脏 key（含 .. / 路径分隔符）可越界写文件。
+// 落盘前在各写入点二次断言兜底。
 // 允许 base 名等于自身（无嵌套路径）且不含 '/' 与 '\'；拒绝空 / "." / ".."。
 func EnsureTargetsFilename(name string) error {
 	if name == "" || name == "." || name == ".." {

@@ -3,6 +3,7 @@ import type { Key } from 'react'
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
+  App,
   Badge,
   Button,
   Card,
@@ -18,7 +19,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { InfoCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { FileAddOutlined, InfoCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
 import { networkDomainApi } from '../../api/domain'
 import { useSkin } from '../../skinContext'
@@ -27,6 +28,7 @@ import { exporterTemplateApi } from '../../api/exporterTemplates'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import type { NetworkDomain } from '../../types/domain'
+import type { BatchGenerateResult } from '../../types/config-center'
 import type { CITypeExporterMapping, ExporterTemplate, JobType, MonitorType, ScrapeJob } from '../../types/strategy'
 import type { LabelTemplateListItem } from '../../types/label'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
@@ -40,6 +42,7 @@ import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
 import { aggregateJobStatus } from './jobStatus'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
+import { configDraftApi } from '../../api/configCenter'
 
 const { Text } = Typography
 
@@ -52,6 +55,13 @@ const CHANGE_PROGRESS_MAP: Record<string, string> = {
   pending: '待确认',
   confirmed: '已确认待下发',
   deployed: '已下发',
+}
+
+/** 批量重新生成变更单（按 Job 所属网域）的单域结果文案。 */
+const BATCH_GENERATE_STATUS_LABEL: Record<BatchGenerateResult['status'], string> = {
+  generated: '已生成变更单，待确认下发',
+  no_changes: '无配置变更，未生成变更单',
+  failed: '生成失败',
 }
 
 /**
@@ -68,6 +78,10 @@ const CHANGE_PROGRESS_MAP: Record<string, string> = {
 function JobsTab() {
   // 品牌/语义色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
+  // 弹窗走 antd App 上下文（而非静态 Modal.xxx）：静态方法不消费 ConfigProvider
+  // 主题，弹窗会退回 antd 默认皮肤，与全站皮肤不一致；上下文 modal 随皮肤同步，
+  // 测试中也可被 mockAntdModal 统一接管。
+  const { modal } = App.useApp()
   const navigate = useNavigate()
   /**
    * 深链预筛（2026-10-17 第六轮走查）：首页「监控对象纳管完成率 → 查看采集任务」带
@@ -207,6 +221,116 @@ function JobsTab() {
       message.error(e instanceof Error ? e.message : '批量提交生效失败，请稍后重试')
     }
   }, [selectedRowKeys, data.list, triggerDraft, reload])
+
+  const showBatchGenerateResult = useCallback(
+    (results: BatchGenerateResult[]) => {
+      if (results.length === 0) {
+        message.info('没有可处理的网域')
+        return
+      }
+      const generatedCount = results.filter((r) => r.status === 'generated').length
+      // 与生成前的确认弹窗保持同一套 modal.confirm 样式（默认宽度 / 图标 / 按钮形态）；
+      // 结果只需一个「知道了」，隐藏取消按钮。
+      let dialog: { destroy: () => void } | undefined
+      dialog = modal.confirm({
+        title: `批量重新生成变更单完成（${generatedCount}/${results.length} 个网域已生成）`,
+        content: (
+          <div style={{ maxHeight: 360, overflow: 'auto', marginTop: 8 }}>
+            {results.map((r) => {
+              const name = domainById.get(r.network_domain_id)?.name ?? r.network_domain_id
+              return (
+                <div key={r.network_domain_id} style={{ marginBottom: 10 }}>
+                  <Text strong>{name}</Text>
+                  <Text
+                    type={r.status === 'failed' ? 'danger' : undefined}
+                    style={{ marginLeft: 8 }}
+                  >
+                    {BATCH_GENERATE_STATUS_LABEL[r.status] ?? r.status}
+                  </Text>
+                  {r.change_no ? (
+                    <Text code style={{ marginLeft: 8 }}>
+                      {r.change_no}
+                    </Text>
+                  ) : null}
+                  {r.status === 'generated' && r.validation_status ? (
+                    <Text
+                      type={r.validation_status === 'passed' ? 'success' : 'warning'}
+                      style={{ marginLeft: 8 }}
+                    >
+                      {r.validation_status === 'passed' ? '校验通过' : `校验：${r.validation_status}`}
+                    </Text>
+                  ) : null}
+                  {r.message || r.validation_message ? (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {r.message || r.validation_message}
+                      </Text>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+            {generatedCount > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary">变更单需手动确认后才会下发。</Text>{' '}
+                <Typography.Link
+                  onClick={() => {
+                    // 先关闭结果弹窗再跳转，避免页面切走后弹窗仍悬浮在新页面上。
+                    dialog?.destroy()
+                    navigate('/config-preview')
+                  }}
+                >
+                  前往配置变更确认
+                </Typography.Link>
+              </div>
+            ) : null}
+          </div>
+        ),
+        okText: '知道了',
+        cancelButtonProps: { style: { display: 'none' } },
+      })
+    },
+    [domainById, modal, navigate],
+  )
+
+  // 批量重新生成变更单：按所选 Job 所属网域强制生成待确认草稿（**不自动下发**）。
+  // 后端按 job_id 解析网域，跨页勾选也有效；草稿态/停用 Job 不参与配置生成。
+  const runBatchGenerate = useCallback(async () => {
+    const jobIds = selectedRowKeys.map((k) => Number(k)).filter((n) => Number.isFinite(n))
+    if (jobIds.length === 0) return
+    try {
+      const res = await configDraftApi.batchGenerate(jobIds)
+      showBatchGenerateResult(res.data?.results ?? [])
+      setSelectedRowKeys([])
+      reload()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '批量重新生成变更单失败，请稍后重试')
+    }
+  }, [selectedRowKeys, showBatchGenerateResult, reload])
+
+  const confirmBatchGenerate = useCallback(() => {
+    if (selectedRowKeys.length === 0) return
+    modal.confirm({
+      title: '重新生成所选 Job 所属网域的配置变更单？',
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>
+            将按所选 Job 所属网域<strong>强制</strong>重新生成配置变更单：
+          </p>
+          <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
+            <li>即使配置与当前生效版本无差异，也会生成变更单（不受空跑抑制影响）；</li>
+            <li>
+              <strong>只生成变更单，不会自动下发</strong>；请到「配置变更确认」页核对后手动确认下发；
+            </li>
+            <li>草稿态 / 已停用的 Job 不参与配置生成；校验未通过的变更单不可下发。</li>
+          </ul>
+        </div>
+      ),
+      okText: '生成变更单',
+      cancelText: '取消',
+      onOk: () => runBatchGenerate(),
+    })
+  }, [modal, selectedRowKeys.length, runBatchGenerate])
 
   const rowSelection = useMemo<TableRowSelection<ScrapeJob>>(
     () => ({
@@ -582,6 +706,11 @@ function JobsTab() {
                   onClick={() => void batchSubmitReady()}
                 >
                   批量提交生效
+                </Button>
+              </Tooltip>
+              <Tooltip title="按所选 Job 所属网域强制重新生成配置变更单（即使无变更），生成后需到「配置变更确认」页手动确认下发">
+                <Button icon={<FileAddOutlined />} onClick={confirmBatchGenerate}>
+                  批量重新生成变更单
                 </Button>
               </Tooltip>
             </>

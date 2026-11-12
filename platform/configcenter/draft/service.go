@@ -66,6 +66,20 @@ func lockDomain(domainID string) func() {
 // 产物经 generator 组装后计算联合 checksum 与变更清单，写入 ConfigDraft 并对
 // 中心内容做下发前校验（promtool 不可调用返回 pending，决策 42-2）。
 func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
+	return generateDraft(db, domainID, false)
+}
+
+// GenerateDraftForce 强制生成一条待确认配置草稿：绕过决策 44-3 的「空跑抑制」，
+// 即使当前源数据产物与生效版本无差异（变更项为空）也创建草稿，供「批量重新生成
+// 变更单」使用。**只生成草稿，不确认下发**；校验安全门不变（校验未通过不可下发）。
+//
+// 仅用于用户显式发起的强制生成动作；自动检测 / 保存后触发仍走 GenerateDraft，
+// 保持「无实质变更不产生噪声变更单」的既有口径。
+func GenerateDraftForce(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
+	return generateDraft(db, domainID, true)
+}
+
+func generateDraft(db *gorm.DB, domainID string, force bool) (*models.ConfigDraft, error) {
 	// per-domain 互斥：把「查活 pending → 生成 → 取代」整体串行化，杜绝前端保存
 	// 同步触发与轮询 watcher 撞车产生双 pending（2026-10-12 诊断）。
 	defer lockDomain(domainID)()
@@ -127,13 +141,18 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	// 决策 44-3：抑制「配置无变化」的噪声变更单。
 	// 变更清单按产物 diff 派生，为空即产物与上一生效版本（或空基线）无实质差异
 	// （含「仅改动禁用对象字段」的空跑，PRD §3.3.3），不生成草稿，直接返回 ErrNoChanges。
-	if len(items) == 0 {
+	// force=true 时（用户显式「强制重新生成并下发」）跳过该抑制，仍创建可确认草稿。
+	if len(items) == 0 && !force {
 		return nil, ErrNoChanges
 	}
 
+	triggerSummary := "手动触发生成"
+	if force {
+		triggerSummary = "批量重新生成变更单"
+	}
 	meta := models.ConfigDraftMetadata{
 		SourceDataVersion: sourceVersion,
-		TriggerSummary:    "手动触发生成",
+		TriggerSummary:    triggerSummary,
 		Checksum:          checksum,
 		GeneratorVersion:  generator.GeneratorVersion,
 	}
@@ -164,6 +183,11 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		sourceVersionRef = baseVersion.ChangeNo
 	}
 
+	summary := buildSummary(items)
+	if force && len(items) == 0 {
+		summary = "强制重新生成配置（源数据无实质变更）"
+	}
+
 	draft := &models.ConfigDraft{
 		NetworkDomainID:   domainID,
 		ChangeNo:          changeNo,
@@ -174,7 +198,7 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		AlertmanagerYml:   artifacts.AlertmanagerYML,
 		TargetsFiles:      string(targetsJSON),
 		Metadata:          string(metaJSON),
-		Summary:           buildSummary(items),
+		Summary:           summary,
 		ChangeItems:       string(itemsJSON),
 		Status:            models.DraftStatusPending,
 		ValidationStatus:  string(validation),

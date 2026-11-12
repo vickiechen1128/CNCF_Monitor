@@ -39,6 +39,7 @@ import {
   BLACKBOX_CATEGORIES,
   BLACKBOX_TARGET_FIELD_LABEL,
 } from './strategyConstants'
+import { validateJobName } from './jobNameValidation'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
@@ -544,7 +545,15 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       >
         <Row gutter={16}>
           <Col span={14}>
-            <Form.Item label="Job 名称" name="job_name" rules={[{ required: true, message: '请输入 Job 名称' }]}>
+            <Form.Item
+              label="Job 名称"
+              name="job_name"
+              rules={[
+                { required: true, whitespace: true, message: '请输入 Job 名称' },
+                { validator: validateJobName },
+              ]}
+              extra={'支持中文、字母、数字及 _ - .；不能包含空格、/ \\ : * ? " < > |'}
+            >
               <Input placeholder="例如：prod-mysql-01" maxLength={64} />
             </Form.Item>
           </Col>

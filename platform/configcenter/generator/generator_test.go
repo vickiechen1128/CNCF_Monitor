@@ -212,9 +212,46 @@ func TestAssembleWithModulesMergesAllDefinitions(t *testing.T) {
 }
 
 func TestNormalizeJobFilename(t *testing.T) {
+	// 文件名 = job_name 原样 + .json：中文不再被抹成 default，避免不同 Job 互相覆盖。
 	assert.Equal(t, "node-exporter-prod.json", normalizeJobFilename("node-exporter-prod"))
-	assert.Equal(t, "my-job.json", normalizeJobFilename("My Job"))
-	assert.Equal(t, "default.json", normalizeJobFilename("!!!"))
+	assert.Equal(t, "主机监控.json", normalizeJobFilename("主机监控"))
+	assert.Equal(t, "My.Job_01.json", normalizeJobFilename("My.Job_01"))
+}
+
+// 回归：中文 Job 名必须各自生成独立的 targets 文件，不能像旧归一化那样
+// 同时落到 default.json，导致后创建的 Job 覆盖先创建的目标列表。
+func TestAssembleChineseJobNamesDoNotCollide(t *testing.T) {
+	jobs := []JobBuild{
+		{
+			Job:     models.ScrapeJob{JobName: "主机监控", MetricsPath: "/metrics", Scheme: "http"},
+			Targets: []TargetGroup{{Targets: []string{"10.0.0.1:9100"}}},
+		},
+		{
+			Job:     models.ScrapeJob{JobName: "服务监控", MetricsPath: "/metrics", Scheme: "http"},
+			Targets: []TargetGroup{{Targets: []string{"10.0.0.2:8080"}}},
+		},
+	}
+	ca, err := Assemble("default", "", "", jobs, nil, "", "", true)
+	require.NoError(t, err)
+
+	require.Contains(t, ca.TargetsFiles, "主机监控.json")
+	require.Contains(t, ca.TargetsFiles, "服务监控.json")
+	assert.Contains(t, ca.TargetsFiles["主机监控.json"], "10.0.0.1:9100")
+	assert.NotContains(t, ca.TargetsFiles["主机监控.json"], "10.0.0.2:8080")
+	assert.Contains(t, ca.TargetsFiles["服务监控.json"], "10.0.0.2:8080")
+	assert.NotContains(t, ca.TargetsFiles["服务监控.json"], "10.0.0.1:9100")
+	assert.Contains(t, ca.PrometheusYML, "targets/主机监控.json")
+	assert.Contains(t, ca.PrometheusYML, "targets/服务监控.json")
+}
+
+// 生成侧兜底：存量脏名（含路径分隔符等）不得进入落盘路径，直接报错。
+func TestAssembleRejectsInvalidJobName(t *testing.T) {
+	_, err := Assemble("default", "", "", []JobBuild{{
+		Job:     models.ScrapeJob{JobName: "a/b"},
+		Targets: []TargetGroup{{Targets: []string{"10.0.0.1"}}},
+	}}, nil, "", "", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "不合法")
 }
 
 func TestChecksumConsistency(t *testing.T) {
