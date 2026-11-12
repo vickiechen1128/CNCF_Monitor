@@ -3,7 +3,7 @@
 > 文档类型：产品需求索引
 > **定位**：本文件是各模块 PRD 的**目录 + 版本对齐快照**，回答"每个模块当前到什么版本、原型是否对齐、是否可开发"。它是 prototype-designer 的固定输入（见 `.kimi/agents/prototype-designer.md` Step 3）。
 > **主控关系**：产品版本的定义/规划以 [02_Product_Roadmap.md](../02_Product_Roadmap.md) §1.5 功能-版本矩阵为准；各模块版本声明以其 PRD 头部为准；本表是两者的**跨模块快照**（详见 06 Gitflow §2.5）。
-> 更新日期：2026-10-23（v1.86）
+> 更新日期：2026-11-11（v1.99）
 
 ---
 
@@ -71,6 +71,11 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.99 | 2026-11-11 | 新增 | **新增 Module_01 重新编写需求规格说明书**：创建 `Module_01_Metric_Collection_Center_Requirements.md` v1.0，基于 M09 合并与配置同步简化重新梳理 M01；取消对 M09 人工确认/回滚流程的依赖，改为自动配置同步；所有 ScrapeJob 必须绑定采集节点域，不再存在中心直连域特殊处理；同步状态（已同步/待同步/同步失败/草稿）替代原变更单状态 | Module_01 | MVP 生效 | 使用中 |
+| v1.98 | 2026-11-11 | 新增 | **新增 Module_05 可视化中心需求规格说明书**：创建 `Module_05_Visualization_Center_Requirements.md` v1.0，将 M05 从「自定义前端门户」重新定位为「可视化中心」；保留首页概览、面板挂载、自定义大屏、告警可视化及所有已实现的配套管理界面；明确 M05 为展示层，业务规则由 M01/M02/M06/M07/M08/M09 承载 | Module_05 | MVP 生效 | 使用中 |
+| v1.97 | 2026-11-11 | 新增 | **新增 Module_08 重新编写需求规格说明书**：创建 `Module_08_Alertmanager_Notification_Management_Requirements.md` v1.0，去掉整份 `alertmanager.yml` 挂载/导入/重新挂载等逃生门机制，`route` 段唯一作者为平台；新增内部 Reload 子模块，负责原子写配置、触发 Alertmanager reload、验证结果、失败回退并记录日志；保留路由/抑制/静默/通知渠道/模板/告警事件等核心能力 | Module_08 | MVP 生效 | 使用中 |
+| v1.96 | 2026-11-11 | 新增 | **新增 Module_09 合并后需求规格说明书**：创建 `Module_09_Network_Domain_Access_and_Query_Center_Requirements.md` v1.0，将 Module 09（配置面）、Module 11（接入面）、Module 02（查询面）合并为「网域接入与查询中心」；取消配置变更确认/回滚，改为自动配置同步并保留 3~5 份只读历史；所有网域统一为采集节点域，中心节点所在网域也需部署采集节点，不再预置 `default` 管理域；M08 可调用本模块配置同步能力 | Module_09 / Module_11 / Module_02 | MVP 生效 | 使用中 |
+| v1.95 | 2026-11-11 | 新增 | **新增 Module_06 需求规格说明书**：创建 `Module_06_Multi_Tenant_Requirements.md` v1.0，记录新的中心-采集节点架构（中心节点仅管理+存储、采集节点负责采集/拨测/配置同步），取消中心直连域概念；历史技术 PRD `Module_06_Multi_Tenant.md` v2.19 保留实现细节 | Module_06 | MVP 生效 | 使用中 |
 | v1.94 | 2026-11-05 | 修改 | **feature/zwq 10-24 后 PRD 回填批次 H（M03 账号菜单退出登录，用户指定 12 项中的 14）**：M03 PRD v1.4→v1.5——①§4.1 补「退出登录」动线（右上角账号名下拉菜单 + 尽力而为两段式：先服务端销毁会话、再清本地 Token / 用户缓存，服务端失败不阻断）；②§6 补登出幂等注记（端点既有契约、无新增后端能力）；③§9 补验收；④§11 补账号下拉菜单交互；⑤Change Log 轮转（v1.2 迁 module-03 design-decisions 完整历史） | Module_03 | MVP 生效 | 使用中 |
 | v1.93 | 2026-11-05 | 修改 | **feature/zwq 10-24 后 PRD 回填批次 G（M01 新增 NPU 监控类型，用户指定 12 项中的 9）**：M01 PRD v3.53→v3.54——`monitor_type` 枚举新增 `npu`（主机附加采集能力，候选主机全集、不按 OS / 型号过滤，用户在 Job 表单直接选择、不走 `os_type` 推导）；§5.1.8 类型清单与推导表、§5.4 字段说明、§9 验收、§10 术语同步；不新增采集器登记页；Change Log 轮转（v3.51 迁 module-01 design-decisions 完整历史） | Module_01 | MVP 生效 | 使用中 |
 | v1.92 | 2026-11-05 | 修改 | **feature/zwq 10-24 后 PRD 回填批次 F（M02 + M11 目标状态纳入拨测与心跳保留，用户指定 12 项中的 5）**：①**M02 PRD v1.18→v1.19**——§3.2 移除「`job_type=blackbox` 不入融合」旧口径，standard / blackbox 统一进入 `/api/v1/targets`；补 `health` 语义（采集链路状态 ≠ 拨测业务结果，业务可用性看 `probe_success`）；§5.3 / §6.1 / §9.1 / §9.2 / §10 同步；②**M11 PRD v0.11→v0.12**——§5.3 新增心跳历史保留策略（默认 7 天 / `EDGE_HEARTBEAT_RETENTION_DAYS` / 启动即清 + 每 24h / 每批 1000 / 单网域 10 万上限 / 组合索引，只作用于 `edge_heartbeats`）与快照 `job_type` 不区分口径；§9.2 补两条验收；③两侧 Change Log 轮转（M02 v1.16、M11 v0.9 迁各自 design-decisions 完整历史） | Module_02 / Module_11 | MVP 生效（M11 {v0.2}） | 使用中 |

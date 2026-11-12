@@ -32,7 +32,7 @@
 | 2 | M07 监控对象管理 | doing | 前端 Phase 1 + 后端 B0–B6 完成；遗留 S-1/S-3/S-6（多租户、secret ref、审计写链路）待后续关闭 |
 | 3 | M06 多租户 / 网域 | done | 后端 B0–B6 完成；租户/网域/用户/登录日志/存储 v3；PG 迁移与 NFR-10 压测 open |
 | 4 | M01 指标采集中心 | todo | 依赖 M07 / M06 |
-| 5 | M09 配置中心 / 下发 | todo | 依赖 M01 / M06 |
+| 5 | M09 网域接入与查询中心 | doing（后端 B0–B7 + 后台调度 + A1-1/A1-2 完成；V1 回归待执行） | 合并原 M09/M11/M02；依赖 M01 / M06 / M07 / M08；产物见 `modules/module-09/`；B0 决策 D23–D33 已登记、SRS 升至 v1.2（注入标签统一 network_domain_id）；00005 迁移已落地（SQLite 测试全绿，PG 待 R3）；B2 骨架、B3 纳管/Token、B4 心跳/节点/edge config、B5 configgen+快照同步、B6 targets/coverage/PromQL 代理、B7 离线包已落地；维护循环与配置 watcher 已接入 v3 bootstrap；agent 已适配 v3 协议（zip 配置包 + If-None-Match）且主循环迁入 internal/app；M01 源接入、V1 回归待后续 |
 | 6 | M02 指标查询中心 | todo | 依赖 M00 |
 | 7 | M08 告警 | todo | 依赖 M01 / M09 |
 | 8 | M05 自定义 UI / 看板 | todo | 依赖 M02 / M08 |
