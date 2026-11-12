@@ -92,12 +92,34 @@ func TestPullConfigReturnsBytes(t *testing.T) {
 	defer srv.Close()
 	c := newTestClient(srv.URL, time.Now)
 
-	got, err := c.PullConfig(context.Background(), srv.URL)
+	got, notModified, err := c.PullConfig(context.Background(), srv.URL, "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if notModified {
+		t.Fatal("fresh pull must not be 304")
+	}
 	if string(got) != "zip-bytes" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPullConfigSendsIfNoneMatchAndHandles304(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("If-None-Match"); got != `"abc"` {
+			t.Errorf("If-None-Match = %q", got)
+		}
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv.URL, time.Now)
+
+	got, notModified, err := c.PullConfig(context.Background(), srv.URL, `"abc"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !notModified || got != nil {
+		t.Fatalf("got (%v, %v), want (nil, true)", got, notModified)
 	}
 }
 
@@ -107,7 +129,7 @@ func TestPullConfigAuthOn401(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newTestClient(srv.URL, time.Now)
-	_, err := c.PullConfig(context.Background(), srv.URL)
+	_, _, err := c.PullConfig(context.Background(), srv.URL, "")
 	if !errors.Is(err, Errauth) {
 		t.Fatalf("err = %v want Errauth", err)
 	}

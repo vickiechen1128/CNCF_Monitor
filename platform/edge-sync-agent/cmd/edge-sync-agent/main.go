@@ -33,6 +33,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/metriccenter/platform/edge-sync-agent/internal/app"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/client"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/config"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/contract"
@@ -150,20 +151,25 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 立即执行一轮守护与心跳，避免首个 10s/30s 空窗。
-	sv.StepOnce(ctx)
-	go sv.Run(ctx)
-	go pl.Run(ctx)
+	// 主循环（首轮同步 tick + 守护/拉包 + 优雅停止）由 internal/app 承担，
+	// cmd 仅做装配与信号处理。
+	runner := app.NewRunner(app.Options{
+		StepOnce: sv.StepOnce,
+		Services: []app.Service{sv, pl},
+		Probe:    probe,
+	})
 	logg.Infof("edge-sync-agent started: domain=%s type=%s center=%s config_root=%s version=%s",
 		cfg.NetworkDomainID, cfg.AgentType, cfg.CenterEndpoint, configRoot, version)
 
 	// 优雅退出：收到 SIGINT/SIGTERM → 取消上下文 → 停止采集/拉包与子进程。
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
-	<-sigc
-	logg.Infof("shutdown signal received, stopping children")
-	cancel()
-	probe.StopAll()
+	go func() {
+		<-sigc
+		logg.Infof("shutdown signal received, stopping children")
+		cancel()
+	}()
+	runner.Run(ctx)
 	return nil
 }
 

@@ -96,31 +96,38 @@ func (c *Client) Heartbeat(ctx context.Context, hb contract.HeartbeatRequest) (*
 	return &env.Data, nil
 }
 
-// PullConfig 从 config_download_url 拉取配置 zip 字节。401 时返回 ErrErrauth。
-func (c *Client) PullConfig(ctx context.Context, url string) ([]byte, error) {
+// PullConfig 从 config_download_url 拉取配置 zip 字节。etag 非空时携带
+// If-None-Match；304 返回 (nil, true, nil)。401 时返回 ErrErrauth。
+func (c *Client) PullConfig(ctx context.Context, url, etag string) ([]byte, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("edge: build config req: %w", err)
+		return nil, false, fmt.Errorf("edge: build config req: %w", err)
 	}
 	req.Header.Set("Authorization", c.bearer())
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("edge: config request failed: %w", err)
+		return nil, false, fmt.Errorf("edge: config request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, Errauth
+		return nil, false, Errauth
+	}
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, true, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("edge: config http %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("edge: config http %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("edge: read config: %w", err)
+		return nil, false, fmt.Errorf("edge: read config: %w", err)
 	}
-	return data, nil
+	return data, false, nil
 }
 
 // WaitAuthBackoff 在 401 后调用：进入指数退避等待，并判定是否降频写本地日志。

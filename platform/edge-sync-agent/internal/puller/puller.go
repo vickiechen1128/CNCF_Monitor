@@ -276,6 +276,7 @@ func (p *Puller) loadRestartState() {
 func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 	rs := p.runtime.Snapshot()
 	return contract.HeartbeatRequest{
+		ProtocolVersion:            contract.ProtocolVersionV1,
 		NetworkDomainID:            p.cfg.NetworkDomainID,
 		AgentType:                  p.cfg.AgentType,
 		Version:                    rs.AgentVersion,
@@ -299,7 +300,11 @@ func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 
 // pullAndVerify 拉取配置包并校验 checksum；校验通过才交 deployer / 作为 lastValid。
 func (p *Puller) pullAndVerify(ctx context.Context, url string) error {
-	zipBytes, err := p.client.PullConfig(ctx, url)
+	etag := ""
+	if p.lastValidMetadata != nil {
+		etag = p.lastValidMetadata.Checksum
+	}
+	zipBytes, notModified, err := p.client.PullConfig(ctx, url, etag)
 	if err != nil {
 		if errors.Is(err, client.Errauth) {
 			p.handleAuth(ctx)
@@ -308,6 +313,10 @@ func (p *Puller) pullAndVerify(ctx context.Context, url string) error {
 		// 断网/拉取失败：保留最后有效配置（§6.4 条目 6）。
 		p.warnf("拉取配置失败，保留最后有效配置: %v", err)
 		return err
+	}
+	if notModified {
+		p.infof("配置未变更（304），沿用当前生效配置")
+		return nil
 	}
 
 	meta, err := VerifyChecksum(zipBytes)

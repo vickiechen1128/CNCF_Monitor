@@ -46,9 +46,12 @@ type Component struct {
 	LastError     string `json:"last_error,omitempty"`      // 最近错误摘要
 }
 
-// HeartbeatRequest 是 POST /api/v2/platform/edge/heartbeat 的请求体（PRD §6.2）。
+// HeartbeatRequest 是 POST /api/v3/edge/heartbeat 的请求体（PRD §6.2 / v3 契约 §6.1）。
 type HeartbeatRequest struct {
-	NetworkDomainID      string               `json:"network_domain_id"`
+	// ProtocolVersion 是 edge 协议版本（v3 中心要求 "v1"；空值按 v1 兼容）。
+	ProtocolVersion string `json:"protocol_version,omitempty"`
+	// NetworkDomainID 在 v3 中心由 Token 解析，服务端忽略该字段；保留仅为兼容。
+	NetworkDomainID      string               `json:"network_domain_id,omitempty"`
 	AgentType            string               `json:"agent_type"`                    // 采集器统一为 vmagent（决策 C4）
 	Version              string               `json:"version,omitempty"`             // Agent 版本
 	ConfigVersion        string               `json:"config_version,omitempty"`      // 当前生效配置版本
@@ -153,14 +156,16 @@ const (
 	ZipTargetsDirPrefix = "targets/"
 )
 
-// edge 协议路由（PRD §6.2 / §6.3）——由 Agent 拼接以 center_endpoint 为前缀合成绝对地址。
+// edge 协议路由（v3 契约 §6.1 / §6.2）——由 Agent 拼接以 center_endpoint 为前缀合成绝对地址。
 const (
-	HeartbeatPath = "/api/v2/platform/edge/heartbeat"
+	HeartbeatPath = "/api/v3/edge/heartbeat"
 	// ConfigPath 为固定相对路径；实际请求 URL 由中心在心跳响应中返回绝对 config_download_url。
-	ConfigPath = "/api/v2/platform/edge/config"
+	ConfigPath = "/api/v3/edge/config"
 )
 
 // 心跳上报缺省 Agent 类型（MVP 采集器为 vmagent）。
 const (
 	DefaultAgentType = "vmagent"
+	// ProtocolVersionV1 是中心 edge 协议 v1（D27：旧协议不兼容）。
+	ProtocolVersionV1 = "v1"
 )

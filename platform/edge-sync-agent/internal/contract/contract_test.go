@@ -125,11 +125,14 @@ func TestMetadataJSONAlignsCenter(t *testing.T) {
 }
 
 func TestPathConstants(t *testing.T) {
-	if HeartbeatPath != "/api/v2/platform/edge/heartbeat" {
+	if HeartbeatPath != "/api/v3/edge/heartbeat" {
 		t.Fatalf("heartbeat path drift: %s", HeartbeatPath)
 	}
-	if ConfigPath != "/api/v2/platform/edge/config" {
+	if ConfigPath != "/api/v3/edge/config" {
 		t.Fatalf("config path drift: %s", ConfigPath)
+	}
+	if ProtocolVersionV1 != "v1" {
+		t.Fatalf("protocol version drift: %s", ProtocolVersionV1)
 	}
 }
 
