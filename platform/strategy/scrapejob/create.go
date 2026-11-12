@@ -2,7 +2,6 @@ package scrapejob
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
@@ -12,33 +11,33 @@ import (
 
 // CreateScrapeJobRequest 是创建采集 Job 的请求体（api-contract-snapshot §5）。
 type CreateScrapeJobRequest struct {
-	JobName                string                    `json:"job_name"`
-	JobType                models.JobType            `json:"job_type"`
-	MonitorType            string                    `json:"monitor_type"`
-	ExporterTemplateID     string                    `json:"exporter_template_id"`
-	NetworkDomainID        string                    `json:"network_domain_id"`
-	InstanceSelectionMode  models.InstanceSelectionMode `json:"instance_selection_mode"`
-	SelectedInstanceIDs    []string                  `json:"selected_instance_ids"`
-	ScrapeInterval         string                    `json:"scrape_interval"`
-	ScrapeTimeout          string                    `json:"scrape_timeout"`
-	MetricsPath            string                    `json:"metrics_path"`
-	Scheme                 string                    `json:"scheme"`
-	AuthType               models.AuthType           `json:"auth_type"`
-	Username               string                    `json:"username"`
-	Password               string                    `json:"password"`
-	Token                  string                    `json:"token"`
-	TLSSkipVerify          bool                      `json:"tls_skip_verify"`
-	CAFile                 string                    `json:"ca_file"`
-	LabelTemplateID        string                    `json:"label_template_id"`
-	BlackboxModule         string                    `json:"blackbox_module"`
-	BlackboxTargets        []models.BlackboxTarget   `json:"blackbox_targets"`
+	JobName               string                       `json:"job_name"`
+	JobType               models.JobType               `json:"job_type"`
+	MonitorType           string                       `json:"monitor_type"`
+	ExporterTemplateID    string                       `json:"exporter_template_id"`
+	NetworkDomainID       string                       `json:"network_domain_id"`
+	InstanceSelectionMode models.InstanceSelectionMode `json:"instance_selection_mode"`
+	SelectedInstanceIDs   []string                     `json:"selected_instance_ids"`
+	ScrapeInterval        string                       `json:"scrape_interval"`
+	ScrapeTimeout         string                       `json:"scrape_timeout"`
+	MetricsPath           string                       `json:"metrics_path"`
+	Scheme                string                       `json:"scheme"`
+	AuthType              models.AuthType              `json:"auth_type"`
+	Username              string                       `json:"username"`
+	Password              string                       `json:"password"`
+	Token                 string                       `json:"token"`
+	TLSSkipVerify         bool                         `json:"tls_skip_verify"`
+	CAFile                string                       `json:"ca_file"`
+	LabelTemplateID       string                       `json:"label_template_id"`
+	BlackboxModule        string                       `json:"blackbox_module"`
+	BlackboxTargets       []models.BlackboxTarget      `json:"blackbox_targets"`
 	// ResourceType（拨测目标资源类别）仅 blackbox 使用，且只能是接口服务 / 应用服务；
 	// TargetField（探测地址字段）已不再由调用方决定 —— 保留 JSON 字段以兼容旧客户端，
 	// 但落库前会被 validateJobRequest 按 ResourceType 推导覆盖。
-	ResourceType           models.ResourceType       `json:"resource_type"`
-	TargetField            string                    `json:"target_field"`
-	MappingOverrides       []models.MappingOverride  `json:"mapping_overrides"`
-	Enabled                bool                      `json:"enabled"`
+	ResourceType     models.ResourceType      `json:"resource_type"`
+	TargetField      string                   `json:"target_field"`
+	MappingOverrides []models.MappingOverride `json:"mapping_overrides"`
+	Enabled          bool                     `json:"enabled"`
 	// DraftStatus = "draft" 时仅做基础校验并保存为草稿（MVP 方案 C，决策 D28-2）；
 	// 空或其他值按 "ready" 处理，执行完整校验并进入 M09 变更管线。
 	DraftStatus string `json:"draft_status"`
@@ -53,27 +52,20 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, fmt.Errorf("invalid scrape job payload: %w", err))
 			return
 		}
-		if strings.TrimSpace(req.JobName) == "" {
-			response.BadRequest(c, fmt.Errorf("job_name 不能为空"))
+		// 保存入口统一校验 job_name：targets 文件名直接使用 job_name，
+		// 故只拦截「无法作为文件名」的字符（中文、字母、数字等均允许）。
+		if err := models.ValidateJobName(req.JobName); err != nil {
+			response.BadRequest(c, err)
 			return
 		}
-		// job_name 唯一（模型唯一索引兜底，提前查询给友好错误）。
-		// 软删兼容：delete.go 使用软删，job_name 唯一索引仍被已软删行占用。
-		// 用 Unscoped 连软删行一起查——GORM 默认作用域（deleted_at IS NULL）会
-		// 看不见软删行，导致同名重建时 INSERT 命中 DB 唯一约束而抛 internal error。
-		// 仅软删残留时先物理清理旧行释放索引，再允许用户重建同名 Job。
-		var existing models.ScrapeJob
-		if err := db.Unscoped().Where("job_name = ?", req.JobName).First(&existing).Error; err != nil {
-			if err != gorm.ErrRecordNotFound {
-				response.InternalServerError(c, fmt.Errorf("check duplicate scrape job: %w", err))
-				return
-			}
-		} else if existing.DeletedAt.Valid {
-			if err := db.Unscoped().Delete(&existing).Error; err != nil {
-				response.InternalServerError(c, fmt.Errorf("purge soft-deleted scrape job %q: %w", req.JobName, err))
-				return
-			}
-		} else {
+		// job_name 唯一（大小写不敏感：Windows 文件系统下 Host/host 会落到同一个
+		// targets 文件）。同名软删残留由 resolveJobNameConflict 物理清理后释放唯一索引。
+		taken, err := resolveJobNameConflict(db, req.JobName, 0)
+		if err != nil {
+			response.InternalServerError(c, err)
+			return
+		}
+		if taken {
 			response.Conflict(c, fmt.Errorf("采集 Job %q 已存在", req.JobName))
 			return
 		}
@@ -152,8 +144,8 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 
 // validateBasicJobRequest 对草稿态 ScrapeJob 做最小校验：job_name 与 job_type 合法、名称唯一。
 func validateBasicJobRequest(job *models.ScrapeJob) error {
-	if strings.TrimSpace(job.JobName) == "" {
-		return fmt.Errorf("job_name 不能为空")
+	if err := models.ValidateJobName(job.JobName); err != nil {
+		return err
 	}
 	if job.JobType != models.JobTypeStandard && job.JobType != models.JobTypeBlackbox {
 		return fmt.Errorf("job_type 非法，可选 standard/blackbox")

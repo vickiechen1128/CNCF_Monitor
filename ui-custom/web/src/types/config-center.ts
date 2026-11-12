@@ -178,6 +178,22 @@ export interface ConfigDraft {
   change_items?: ConfigChangeItem[]
 }
 
+/**
+ * 批量「重新生成变更单」的单网域结果（POST /config/drafts/batch-generate）。
+ * 注意：只生成待确认变更单，**不会自动下发**。
+ * - generated：已生成（或复用）一张待确认变更单，需到「配置变更确认」页手动确认；
+ * - no_changes：与当前生效版本无差异且未生成变更单（强制模式下理论上不出现，仅兜底）；
+ * - failed：生成失败（网域未纳管/冻结、产物组装异常等）。
+ */
+export interface BatchGenerateResult {
+  network_domain_id: string
+  status: 'generated' | 'no_changes' | 'failed'
+  change_no?: string
+  validation_status?: string
+  validation_message?: string
+  message?: string
+}
+
 /** 配置版本（确认后生成，含产物供 diff） */
 export interface ConfigVersion {
   id: string

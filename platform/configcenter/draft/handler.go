@@ -35,6 +35,7 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 
 // RegisterRoutes 将 Module_09 配置草稿端点挂到 /api/v2/platform 子组：
 //   - POST       /config/drafts                      手动触发生成
+//   - POST       /config/drafts/batch-generate        按所选 Job 所属网域批量强制生成变更单（不确认下发）
 //   - GET        /config-drafts                     列表（网域 + 状态筛选 + 分页）
 //   - GET        /config-drafts/{change_no}         详情
 //   - POST       /config-drafts/{change_no}/confirm     确认（生成 ConfigVersion）
@@ -52,6 +53,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	admin := platform.Group("")
 	admin.Use(auth.RequireAdmin())
 	admin.POST("/config/drafts", GenerateDraftHandler(db))
+	// 批量重新生成变更单：按所选采集 Job 所属网域逐域强制生成（绕过空跑抑制），
+	// 仅生成待确认草稿，**不确认下发**——下发仍由用户在「配置变更确认」页手动操作。
+	admin.POST("/config/drafts/batch-generate", BatchGenerateHandler(db))
 	admin.GET("/config-drafts/:change_no", GetDraftHandler(db))
 	admin.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
 	admin.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))

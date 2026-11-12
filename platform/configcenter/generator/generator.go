@@ -9,7 +9,6 @@ package generator
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -123,22 +122,12 @@ func NormalizeJobFilename(jobName string) string {
 	return normalizeJobFilename(jobName)
 }
 
-// normalizeJobFilename 将 job 名规范化为平台内部 targets 文件名（小写、非字母数字转 -）。
+// normalizeJobFilename 将 job 名映射为 targets 文件名：直接 <job_name>.json。
+//
+// job_name 在保存入口已由 models.ValidateJobName 限制为文件名安全字符，
+// Assemble 生成前还会再校验一次；因此这里不再做任何清洗/哈希兜底。
+// 文件名与 Job 名严格一一对应（中文 Job 名即「主机监控.json」），
+// 从根源上消除归一化撞名导致的 targets 互相覆盖。
 func normalizeJobFilename(jobName string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(jobName) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			if b.Len() == 0 || b.String()[b.Len()-1] != '-' {
-				b.WriteRune('-')
-			}
-		}
-	}
-	name := strings.Trim(b.String(), "-")
-	if name == "" {
-		name = "default"
-	}
-	return fmt.Sprintf("%s.json", name)
+	return jobName + ".json"
 }

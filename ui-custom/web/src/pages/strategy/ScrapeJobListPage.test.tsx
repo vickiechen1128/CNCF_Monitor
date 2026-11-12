@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { setupAntdTest } from '../../test/antdTestUtils'
+import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
+import { configDraftApi } from '../../api/configCenter'
 import type { PromVectorItem } from '../../types/query'
 
 const listMock = vi.fn()
@@ -155,6 +156,40 @@ describe('ScrapeJobListPage', () => {
   // useJobScrapeStatus 挂载后启动 20s 自动刷新 interval：确保每个用例树卸载释放定时器
   afterEach(() => {
     cleanup()
+  })
+
+  it('批量重新生成变更单：按所选 Job 调用批量接口并展示分域结果', async () => {
+    const modal = mockAntdModal()
+    const batchSpy = vi.spyOn(configDraftApi, 'batchGenerate').mockResolvedValue({
+      status: 'success',
+      data: {
+        results: [
+          { network_domain_id: 'mc-a', status: 'generated', change_no: 'CHG-1', validation_status: 'passed' },
+        ],
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [job(1)], total: 1, page: 1, page_size: 20 },
+    })
+
+    renderPage()
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+
+    // checkbox[0] 是表头全选，checkbox[1] 才是首行
+    fireEvent.click(screen.getAllByRole('checkbox')[1])
+    fireEvent.click(await screen.findByRole('button', { name: /批量重新生成变更单/ }))
+
+    expect(modal.confirm).toHaveBeenCalledTimes(1)
+    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
+    await onOk()
+
+    expect(batchSpy).toHaveBeenCalledWith([1])
+    // 第一次 confirm 是生成前确认，第二次是结果弹窗（与确认弹窗同一套样式）。
+    expect(modal.confirm).toHaveBeenCalledTimes(2)
+    expect(modal.confirm.mock.calls[1][0].title).toContain('1/1')
+    expect(modal.info).not.toHaveBeenCalled()
+    batchSpy.mockRestore()
   })
 
   it('renders jobs with aggregate status and override tag', async () => {

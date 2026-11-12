@@ -6,6 +6,7 @@
 import { apiClient } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
+  BatchGenerateResult,
   ConfigDeployment,
   ConfigDraft,
   ConfigVersion,
@@ -51,6 +52,17 @@ export const networkDomainMonitorApi = {
 export const configDraftApi = {
   create(network_domain_id: string): Promise<ApiResponse<ConfigDraft>> {
     return apiClient.post<ConfigDraft>('/api/v2/platform/config/drafts', { body: { network_domain_id } })
+  },
+  /**
+   * 按所选采集 Job 所属网域批量强制重新生成配置变更单（绕过空跑抑制）。
+   * **只生成待确认草稿，不确认下发**；确认动作由用户在「配置变更确认」页手动完成。
+   * 每域独立返回结果（generated/no_changes/failed），单域失败不阻断其它网域。
+   */
+  batchGenerate(job_ids: number[]): Promise<ApiResponse<{ results: BatchGenerateResult[] }>> {
+    return apiClient.post<{ results: BatchGenerateResult[] }>(
+      '/api/v2/platform/config/drafts/batch-generate',
+      { body: { job_ids } },
+    )
   },
   list(params?: ConfigListParams): Promise<ApiResponse<PaginatedItems<ConfigDraft>>> {
     return apiClient.get<PaginatedItems<ConfigDraft>>('/api/v2/platform/config-drafts', { params })

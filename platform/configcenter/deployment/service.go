@@ -3,7 +3,8 @@
 // ScrapeJob / MonitoringRule.change_status 的回写（决策 31-M2；#18 补规则）。
 // agent_pull 通道 MVP 仅登记占位。
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
-//   §3.5 配置下发与历史 / §5.6 ConfigDeployment / §6.6.3 / 决策 42-3、决策 31-M2。
+//
+//	§3.5 配置下发与历史 / §5.6 ConfigDeployment / §6.6.3 / 决策 42-3、决策 31-M2。
 package deployment
 
 import (
@@ -133,16 +134,16 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 	}
 	now := time.Now()
 	dep := &models.ConfigDeployment{
-		DeploymentID:      deploymentID,
-		NetworkDomainID:   version.NetworkDomainID,
-		ConfigVersionID:   fmt.Sprint(version.ID),
-		SourceChangeNo:    version.ChangeNo,
-		Channel:           dom.Channel,
-		Status:            models.DeploymentStatusPending,
-		ValidationStatus:  string(models.ValidationStatusPassed),
-		IncludesBlackbox:  version.BlackboxYml != "",
-		TriggeredBy:       triggeredBy,
-		TriggeredAt:       &now,
+		DeploymentID:     deploymentID,
+		NetworkDomainID:  version.NetworkDomainID,
+		ConfigVersionID:  fmt.Sprint(version.ID),
+		SourceChangeNo:   version.ChangeNo,
+		Channel:          dom.Channel,
+		Status:           models.DeploymentStatusPending,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		IncludesBlackbox: version.BlackboxYml != "",
+		TriggeredBy:      triggeredBy,
+		TriggeredAt:      &now,
 	}
 
 	// agent_pull：占位登记（不写盘），由 Edge Sync Agent 后续拉包生效。
@@ -305,9 +306,9 @@ func artifactsFromVersion(v *models.ConfigVersion) (*generator.ConfigArtifacts, 
 //     目录分离）并触发独立 AM reload（AMReload）：仅含 AM 产物的变更单不影响
 //     Prometheus 配置目录与 reload。
 type DiskApplier struct {
-	Dir    string       // 中心 Prometheus 配置目录
-	AMDir  string       // 中心 Alertmanager 配置目录（决策 60，可等于 Dir）
-	Reload func() error // 可选：Prometheus 结构变更后触发 reload（SIGHUP 或 POST /-/reload）
+	Dir      string       // 中心 Prometheus 配置目录
+	AMDir    string       // 中心 Alertmanager 配置目录（决策 60，可等于 Dir）
+	Reload   func() error // 可选：Prometheus 结构变更后触发 reload（SIGHUP 或 POST /-/reload）
 	AMReload func() error // 可选：alertmanager.yml 变更后触发 Alertmanager reload
 }
 
@@ -415,7 +416,7 @@ func (d *DiskApplier) writeTargets(files map[string]string) error {
 			os.Remove(tmpPath)
 			return err
 		}
-		if err := os.Rename(tmpPath, filepath.Join(targetsDir, name)); err != nil {
+		if err := replaceFile(tmpPath, filepath.Join(targetsDir, name)); err != nil {
 			os.Remove(tmpPath)
 			return err
 		}
@@ -491,9 +492,28 @@ func writeFileAtomic(path, content string) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("close temp for %s: %w", path, err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := replaceFile(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rename temp to %s: %w", path, err)
 	}
 	return nil
+}
+
+// replaceFile 用临时文件原子替换目标文件，失败时短暂重试。
+//
+// Windows 下 os.Rename 覆盖「正被其它进程打开」的目标文件会返回 Access is denied
+// （Go 的 os.Open 未声明 FILE_SHARE_DELETE；Prometheus file_sd / fsnotify 读取窗口
+// 内 rename 会撞车）。生产 Linux 无此问题，但本地 Windows 调试时连续重新下发会稳定
+// 命中，故用短重试避开读取窗口，而不是把瞬时占用误报成下发失败。
+func replaceFile(tmpPath, target string) error {
+	const attempts = 10
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.Rename(tmpPath, target); err == nil {
+			return nil
+		}
+		// 20ms、40ms … 200ms 递增退避，总等待上限约 1.1s。
+		time.Sleep(time.Duration(20*(i+1)) * time.Millisecond)
+	}
+	return err
 }
