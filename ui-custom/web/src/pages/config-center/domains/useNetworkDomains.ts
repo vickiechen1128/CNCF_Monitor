@@ -42,13 +42,10 @@ export function useNetworkDomains(): UseNetworkDomainsResult {
         page_size: pageSize,
         keyword: filters.keyword || undefined,
       })
-      // GET /network-domains 由 M06 实现，返回 `{list,total}`（非 M09 的 `{items,total}`）；
-      // 归一化为 PaginatedItems 信封，避免 data.items 为 undefined 导致渲染崩溃。
-      const body = res.data as unknown as {
-        list: NetworkDomain[]
-        total: number
-      }
-      setData({ items: body.list ?? [], total: body.total ?? 0 })
+      // v3 返回纳管 enriched 视图 `{list,total}`；归一化为页面模型 + PaginatedItems 信封，
+      // 避免 data.items 为 undefined 导致渲染崩溃。
+      const items = (res.data.list ?? []).map(networkDomainMonitorApi.toNetworkDomain)
+      setData({ items, total: res.data.total ?? 0 })
     } catch (e) {
       if (isApiError(e) && e.code === 403) {
         setPermissionDenied(true)

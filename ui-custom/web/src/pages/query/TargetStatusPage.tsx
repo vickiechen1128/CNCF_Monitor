@@ -8,7 +8,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { targetsApi } from '../../api/targets'
-import { networkDomainApi } from '../../api/domain'
+import { networkDomainMonitorApi } from '../../api/configCenter'
 import type { TargetHealth, TargetItem } from '../../types/query'
 
 const { Text } = Typography
@@ -55,9 +55,16 @@ export function TargetStatusPage() {
   const [search, setSearch] = useState<string | undefined>()
 
   useEffect(() => {
-    networkDomainApi
+    networkDomainMonitorApi
       .list({ page: 1, page_size: 100 })
-      .then((res) => setDomains((res.data?.list ?? []).map((d) => ({ id: d.id, name: d.name }))))
+      .then((res) =>
+        setDomains(
+          (res.data.list ?? []).map((d) => ({
+            id: d.network_domain_id,
+            name: d.name,
+          })),
+        ),
+      )
       .catch(() => setDomains([]))
   }, [])
 

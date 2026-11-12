@@ -39,6 +39,8 @@ export interface TargetItem {
    * 此资源时为空串。search 同时匹配本字段与 instance。
    */
   instance_name?: string
+  /** 数据来源（v3 契约 §7.1：edge=边缘采集节点上报快照） */
+  source?: string
 }
 
 /** GET /api/v1/targets 外层 data（对齐 Prometheus targets 响应，§2.1.2） */

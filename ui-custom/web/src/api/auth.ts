@@ -1,7 +1,7 @@
 import { apiClient, clearToken } from './client'
 
-/** 登出接口（module-06 认证契约 §1：POST /auth/logout，幂等） */
-export const LOGOUT_ENDPOINT = '/api/v2/platform/auth/logout'
+/** 登出接口（v3 认证契约：POST /api/v3/platform/auth/logout，幂等） */
+export const LOGOUT_ENDPOINT = '/api/v3/platform/auth/logout'
 
 /**
  * 登出：先尽力通知服务端销毁会话，再清除本地 Token / 用户缓存。

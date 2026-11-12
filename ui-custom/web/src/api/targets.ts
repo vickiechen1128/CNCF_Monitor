@@ -1,35 +1,73 @@
 /**
- * 采集目标状态 API（Module_02 决策 47，/api/v1，api-contract-snapshot.md §2.1）
+ * 采集目标状态 API（/api/v1/targets，M09 v3 契约 §7.1）
  *
- * targetsApi.list：代理中心 Prometheus /api/v1/targets，M02 后端本地按
- * job / network_domain / health / search 过滤并补全 network_domain / instance_name
- * （前端不重复过滤，§1.3/§2.1 透传语义）。被 module-01（Job 实例采集状态回显，
- * 决策 47-2）与 module-02 独立目标状态页（P1，决策 47-4）只读消费。
+ * v3 响应为分页信封 `{list,total,page,page_size}`，字段 job/instance/network_domain/
+ * instance_name/health/last_scrape/last_error/source；本适配层把单条映射回页面既有的
+ * TargetItem（activeTargets 形态），避免 M01/M02 页面因契约换代而重写。
  */
 import { apiClient } from './client'
 import type { ApiResponse } from '../types/api'
-import type { TargetHealth, TargetsResponse } from '../types/query'
+import type { TargetHealth, TargetItem, TargetsResponse } from '../types/query'
 
-/** GET /api/v1/targets 筛选参数（§2.1，全部可选；health 非法值由 M02 返回 bad_request） */
+/** GET /api/v1/targets 筛选参数（v3：network_domain / job / health / keyword + 分页） */
 export interface TargetsListParams extends Record<string, string | number | boolean | undefined> {
   /** 按 Job 过滤（M01 回显用） */
   job?: string
-  /** 按注入标签过滤 */
+  /** 按注入标签过滤（v3 参数名仍为 network_domain） */
   network_domain?: string
   /** up / down / unknown */
   health?: TargetHealth
-  /**
-   * 模糊搜索：同时匹配「M07 台账可读实例名」与「实例地址(host:port，IP 即其 host 部分）」，
-   * 大小写不敏感 contains（后端执行，前端不重复过滤）。
-   */
+  /** 模糊搜索（前端沿用 search，适配层转换为 v3 的 keyword） */
   search?: string
-  /** 透传上游，MVP 恒 active，可不传 */
-  state?: string
+  page?: number
+  page_size?: number
+}
+
+/** v3 单条目标视图（契约 §7.1） */
+interface TargetResponse {
+  job: string
+  instance: string
+  network_domain: string
+  instance_name: string
+  health: string
+  last_scrape?: string | null
+  last_error?: string
+  source?: string
+}
+
+interface TargetListResponse {
+  list?: TargetResponse[]
+  total?: number
+  page?: number
+  page_size?: number
+}
+
+/** v3 目标 → 页面 TargetItem（保留旧字段名，新增 source 便于排障） */
+function toTargetItem(item: TargetResponse): TargetItem {
+  return {
+    scrapePool: item.job,
+    job: item.job,
+    instance: item.instance,
+    network_domain: item.network_domain,
+    health: (item.health as TargetHealth) || 'unknown',
+    lastScrape: item.last_scrape ?? undefined,
+    lastError: item.last_error || undefined,
+    instance_name: item.instance_name || undefined,
+    source: item.source,
+  }
 }
 
 /** 采集目标状态（M01 回显 / 目标状态页共用数据源，§2.1） */
 export const targetsApi = {
-  list(params?: TargetsListParams): Promise<ApiResponse<TargetsResponse>> {
-    return apiClient.get<TargetsResponse>('/api/v1/targets', { params })
+  async list(params: TargetsListParams = {}): Promise<ApiResponse<TargetsResponse>> {
+    const { search, page, page_size, ...rest } = params
+    const res = await apiClient.get<TargetListResponse>('/api/v1/targets', {
+      params: { page: page ?? 1, page_size: page_size ?? 100, ...rest, keyword: search },
+    })
+    const activeTargets = (res.data?.list ?? []).map(toTargetItem)
+    return {
+      ...res,
+      data: { activeTargets, droppedTargets: [], targetsByJob: {} },
+    }
   },
 }

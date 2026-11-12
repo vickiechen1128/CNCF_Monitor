@@ -172,7 +172,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
-  it('纳管状态切换操作：已纳管显「编辑」，未纳管显「纳管」', async () => {
+  it('纳管状态切换操作：已纳管显「退纳管」，未纳管显「纳管」', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
         data: {
@@ -186,9 +186,9 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     )
     renderPage()
     expect(await screen.findByText('医院专网')).toBeInTheDocument()
-    // default(local, 未纳管) → 纳管；mc-b(已纳管) → 编辑
+    // default(local, 未纳管) → 纳管；mc-b(已纳管) → 退纳管（v3 不再提供监控参数编辑）
     expect(screen.getAllByRole('button', { name: /纳管/ }).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByRole('button', { name: /编辑/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /退纳管/ })).toBeInTheDocument()
   })
 
   it('仅 agent_pull 已纳管行展示「更多/重置 Token」', async () => {
@@ -216,7 +216,8 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     fireEvent.click(onboardBtn)
     const confirmBtn = await screen.findByRole('button', { name: /mock-confirm-onboard/ })
     fireEvent.click(confirmBtn)
-    expect(monitorApiMock).toHaveBeenCalledWith('mc-d', expect.objectContaining({ agent_type: 'vmagent' }))
+    // v3 纳管接口不接收请求体
+    expect(monitorApiMock).toHaveBeenCalledWith('mc-d')
   })
 
   it('HIGH-1 凭据列仅展示脱敏串，不提供「复制明文」按钮（list 不返回明文 token）', async () => {

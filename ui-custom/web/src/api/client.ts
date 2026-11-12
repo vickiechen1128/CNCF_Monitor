@@ -10,7 +10,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const TOKEN_STORAGE_KEY = 'metriccenter:auth:token'
 const USER_STORAGE_KEY = 'metriccenter:auth:user'
 // 登录接口本身返回 401 表示「用户名或密码错误」，由登录页处理，不触发全局跳转，避免无限循环。
-const LOGIN_ENDPOINT = '/api/v2/platform/auth/login'
+const LOGIN_ENDPOINT = '/api/v3/platform/auth/login'
 
 /** 读取当前会话 Token；localStorage 不可用（隐私模式 / 存储满）时返回 null，不影响渲染 */
 export function getToken(): string | null {

@@ -140,7 +140,8 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     renderPanel()
 
     fireEvent.click(await screen.findByRole('button', { name: /下载安装包/ }))
-    await waitFor(() => expect(downloadMock).toHaveBeenCalledWith('v1.2.0'))
+    // v3 下载路径以产物文件名（file）为键
+    await waitFor(() => expect(downloadMock).toHaveBeenCalledWith(file))
     expect(vi.mocked(triggerBlobDownload)).toHaveBeenCalledWith(expect.any(Blob), file)
   })
 

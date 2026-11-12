@@ -79,7 +79,8 @@ export function EdgePackageDownloadPanel({ active = true }: { active?: boolean }
   const handleDownload = async (pkg: EdgePackage) => {
     setDownloadingVersion(pkg.version)
     try {
-      const blob = await edgePackageApi.download(pkg.version)
+      // v3 下载路径以产物文件名（file）为键；缺失时回落版本号（构建产物命名约定）
+      const blob = await edgePackageApi.download(pkg.file ?? pkg.version)
       triggerBlobDownload(blob, offlineFilename(pkg))
       message.success(`安装包 ${pkg.version} 下载已开始`)
     } catch (err) {

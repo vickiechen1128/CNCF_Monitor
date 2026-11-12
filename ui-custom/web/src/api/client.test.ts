@@ -156,7 +156,7 @@ describe('apiClient', () => {
     setUnauthorizedNavigate(navigate)
     mockFetch(createJsonResponse({ status: 'error', error: 'bad credentials', errorType: 'unauthorized' }, { status: 401 }))
 
-    await expect(apiClient.post('/api/v2/platform/auth/login', { body: { username: 'a', password: 'b' } })).rejects.toThrow()
+    await expect(apiClient.post('/api/v3/platform/auth/login', { body: { username: 'a', password: 'b' } })).rejects.toThrow()
 
     expect(navigate).not.toHaveBeenCalled()
   })

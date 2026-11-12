@@ -131,8 +131,7 @@ export function useConfigDrafts(): UseConfigDraftsResult {
 /** 已纳管网域（可生成变更单的候选网域，作为变更页网域切换器选项） */
 export async function fetchMonitoredDomains(): Promise<NetworkDomain[]> {
   const res = await networkDomainMonitorApi.list({ page: 1, page_size: 100 })
-  // networkDomainMonitorApi.list 实际走 M06 `/api/v2/platform/network-domains`，信封为 { list, total }
-  // （非 M09 的 { items, total }）。此处显式读取 list 信封再过滤已纳管网域。
-  const list = (res.data as unknown as { list: NetworkDomain[] }).list
+  // v3 纳管列表返回 enriched 视图 { list, total }；归一为页面模型后再过滤已纳管网域。
+  const list = (res.data.list ?? []).map(networkDomainMonitorApi.toNetworkDomain)
   return list.filter((d) => d.is_monitored)
 }

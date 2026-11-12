@@ -20,9 +20,14 @@ vi.mock('./EdgeAgentDrawer', () => ({
 
 // F-42：getStoredUser 控制重启入口可见性（admin-only）；edgeAgentsApi.restart 控制下发断言
 const getStoredUserMock = vi.fn()
-vi.mock('../../../api/client', () => ({
-  getStoredUser: (...a: unknown[]) => getStoredUserMock(...a),
-}))
+// 部分 mock：MainLayout 仍需要真实 apiClient（大屏列表请求），只替换 getStoredUser 控制 admin 入口
+vi.mock('../../../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/client')>()
+  return {
+    ...actual,
+    getStoredUser: (...a: unknown[]) => getStoredUserMock(...a),
+  }
+})
 const restartMock = vi.fn()
 const flushBacklogMock = vi.fn()
 vi.mock('../../../api/edgeAgents', () => ({

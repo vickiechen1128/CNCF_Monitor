@@ -10,8 +10,8 @@ vi.mock('../../api/targets', () => ({
   targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
 }))
 
-vi.mock('../../api/domain', () => ({
-  networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
+vi.mock('../../api/configCenter', () => ({
+  networkDomainMonitorApi: { list: (...args: unknown[]) => domainListMock(...args) },
 }))
 
 // MainLayout 依赖路由上下文（useNavigate 等），用 MemoryRouter 包裹。
@@ -46,7 +46,7 @@ describe('TargetStatusPage', () => {
   beforeEach(() => {
     targetsListMock.mockReset()
     domainListMock.mockReset()
-    domainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
+    domainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })
 
   it('loads targets and renders rows with health badges', async () => {
@@ -70,7 +70,18 @@ describe('TargetStatusPage', () => {
   it('网域列展示 M06 中文名称而非网域 ID', async () => {
     domainListMock.mockResolvedValue({
       status: 'success',
-      data: { list: [{ id: 'default', name: '默认域' }], total: 1, page: 1, page_size: 100 },
+      data: {
+        list: [
+          {
+            network_domain_id: 'default',
+            name: '默认域',
+            cloud_code: 'aliyun',
+            zone_type: 'internet',
+            registration_status: 'monitored',
+          },
+        ],
+        total: 1,
+      },
     })
     targetsListMock.mockResolvedValue({
       status: 'success',

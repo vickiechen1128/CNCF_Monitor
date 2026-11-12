@@ -109,11 +109,13 @@ export function deriveRegistrationStatus(domain: Pick<NetworkDomain, 'is_monitor
 export const registrationStatusLabel: Record<RegistrationStatus, string> = {
   created: '已创建未纳管',
   monitored: '已纳管',
+  retired: '已退纳管',
 }
 
 export const registrationStatusColor: Record<RegistrationStatus, string> = {
   created: 'default',
   monitored: 'processing',
+  retired: 'default',
 }
 
 /** 区域类型 Tag 颜色（M06 字典 code 维度，兜底 default） */

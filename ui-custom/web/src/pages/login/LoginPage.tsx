@@ -42,7 +42,7 @@ export function LoginPage() {
   const onFinish = async (values: LoginFormValues) => {
     setLoading(true)
     try {
-      const res = await apiClient.post<LoginResult>('/api/v2/platform/auth/login', {
+      const res = await apiClient.post<LoginResult>('/api/v3/platform/auth/login', {
         body: { username: values.username, password: values.password },
       })
       if (res.data?.token) {

@@ -58,10 +58,67 @@ export interface NetworkDomain {
   status?: DomainEnabledStatus
   created_at?: string
   updated_at?: string
+  // v3 enriched 视图（GET /api/v3/platform/network-domains）透出字段
+  /** v3 注册态（created/monitored/retired）；is_monitored 由其派生以兼容既有组件 */
+  registration_status?: RegistrationStatus
+  /** 云归属（M06 行政字段） */
+  cloud_code?: string
+  /** 纳管时间（未纳管为 null） */
+  monitored_at?: string | null
+  /** 网域内采集节点总数 / 在线数（v3 聚合字段） */
+  agent_count?: number
+  online_agent_count?: number
+  /** 当前生效配置快照版本 */
+  last_config_version?: string
 }
 
-/** 网域注册态（前端由 is_monitored 派生，非接口枚举） */
-export type RegistrationStatus = 'monitored' | 'created'
+/** 网域注册态（v3 契约 §2.1 枚举；前端展示统一走该枚举） */
+export type RegistrationStatus = 'monitored' | 'created' | 'retired'
+
+/**
+ * v3 纳管网域视图（GET /api/v3/platform/network-domains）。
+ * 由 M09 提供 enriched 视图：行政字段 + 纳管运行态；不含明文 Token。
+ */
+export interface OnboardingDomain {
+  network_domain_id: string
+  name: string
+  cloud_code: string
+  zone_type: string
+  registration_status: RegistrationStatus
+  monitored_at: string | null
+  token_masked: string
+  agent_count: number
+  online_agent_count: number
+  last_heartbeat_at: string | null
+  last_config_version: string
+  center_endpoint: string
+  remote_write_url: string
+  created_at: string
+  updated_at: string
+}
+
+/** 纳管响应中的标准安装指引（v3 契约 §2.3） */
+export interface InstallGuide {
+  steps: string[]
+  package_download_url: string
+}
+
+/** 纳管成功响应（v3 契约 §2.3；token 明文仅本次返回） */
+export interface MonitorDomainResult {
+  network_domain_id: string
+  registration_status: RegistrationStatus
+  token: string
+  token_masked: string
+  center_endpoint: string
+  remote_write_url: string
+  install_guide: InstallGuide
+}
+
+/** 退纳管响应（v3 契约 §2.2） */
+export interface UnmonitorDomainResult {
+  network_domain_id: string
+  registration_status: RegistrationStatus
+}
 
 /** 纳管请求体（POST/PUT /monitor） */
 export interface MonitorDomainInput {
@@ -73,10 +130,11 @@ export interface MonitorDomainInput {
   is_monitored?: boolean
 }
 
-/** 重置 Token 响应：一次性明文 + 完全脱敏 */
+/** 重置 Token 响应：一次性明文 + 完全脱敏（v3 契约 §2.4） */
 export interface ResetTokenResult {
   token: string
   token_masked: string
+  reset_at?: string
 }
 
 /** 草稿状态 */

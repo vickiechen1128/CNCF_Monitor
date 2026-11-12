@@ -68,7 +68,7 @@ export function useEdgeAgents(deepLinkDomain?: string): UseEdgeAgentsResult {
         edgeAgentsApi.list(),
         networkDomainMonitorApi.list({ page: 1, page_size: 100 }),
       ])
-      const loadedDomains = (domainsRes.data as unknown as { list?: NetworkDomain[] }).list ?? []
+      const loadedDomains = (domainsRes.data.list ?? []).map(networkDomainMonitorApi.toNetworkDomain)
       setRawAgents(agentsRes.data?.agents ?? [])
       setSummary(agentsRes.data?.summary ?? null)
       setDomains(loadedDomains)

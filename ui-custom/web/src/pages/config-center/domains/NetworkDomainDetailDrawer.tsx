@@ -50,7 +50,10 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           <Descriptions.Item label="域类型">
             <Tag color={domainTypeColor[domain.domain_type]}>{domainTypeLabel[domain.domain_type]}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="归属租户">{domain.tenant_id}</Descriptions.Item>
+          <Descriptions.Item label="归属租户">{domain.tenant_id || <Text type="secondary">-</Text>}</Descriptions.Item>
+          <Descriptions.Item label="云归属">
+            {domain.cloud_code ? <Tag>{domain.cloud_code}</Tag> : <Text type="secondary">-</Text>}
+          </Descriptions.Item>
           <Descriptions.Item label="网络区域类型">
             {domain.zone_type ? <Tag>{domain.zone_type}</Tag> : <Text type="secondary">-</Text>}
           </Descriptions.Item>
@@ -82,6 +85,9 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
             ) : (
               <Text type="secondary">-</Text>
             )}
+          </Descriptions.Item>
+          <Descriptions.Item label="当前配置版本">
+            {domain.last_config_version ? <Text code style={{ fontSize: 12 }}>{domain.last_config_version}</Text> : <Text type="secondary">-</Text>}
           </Descriptions.Item>
           <Descriptions.Item label="描述">
             {domain.description || <Text type="secondary">-</Text>}
@@ -127,7 +133,11 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           </Descriptions.Item>
           <Descriptions.Item label="采集节点数量">
             <Space size={4}>
-              <Text type="secondary">-</Text>
+              {typeof domain.agent_count === 'number' ? (
+                <Text>{domain.online_agent_count ?? 0} 在线 / {domain.agent_count} 总数</Text>
+              ) : (
+                <Text type="secondary">-</Text>
+              )}
               <Text type="secondary" style={{ fontSize: 12 }}>节点列表与计数为 v0.2 采集节点状态页范围</Text>
             </Space>
           </Descriptions.Item>

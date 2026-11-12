@@ -6,14 +6,10 @@ import {
   Card,
   Collapse,
   ConfigProvider,
-  Descriptions,
-  Drawer,
   Dropdown,
   Empty,
-  Form,
   Input,
   Modal,
-  Select,
   Space,
   Steps,
   Table,
@@ -27,11 +23,11 @@ import {
   CloudUploadOutlined,
   DownOutlined,
   DownloadOutlined,
-  EditOutlined,
   EyeOutlined,
   InfoCircleOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -41,9 +37,8 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePrese
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useSkin } from '../../../skinContext'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
-import { FieldLabel } from '../../../components/FieldLabel'
 import { useNetworkDomains } from './useNetworkDomains'
-import { OnboardDomainDrawer, type OnboardInput } from './OnboardDomainDrawer'
+import { OnboardDomainDrawer } from './OnboardDomainDrawer'
 import { EdgePackageDownloadPanel } from './EdgePackageDownloadPanel'
 import { NetworkDomainDetailDrawer } from './NetworkDomainDetailDrawer'
 import { PlainTokenModal } from './PlainTokenModal'
@@ -51,11 +46,7 @@ import {
   TOKEN_CREDENTIAL_TIP,
   TOKEN_MASK,
   TOKEN_USER_GUIDE,
-  agentTypeLabel,
   deriveRegistrationStatus,
-  DOMAIN_FIELD_TIP,
-  domainTypeColor,
-  domainTypeLabel,
   formatRelativeTime,
   monitoredStatusColor,
   monitoredStatusLabel,
@@ -91,10 +82,8 @@ export function NetworkDomainsPage() {
   const [onboardOpen, setOnboardOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
   const [detailDomain, setDetailDomain] = useState<NetworkDomain | null>(null)
   const [onboardDomain, setOnboardDomain] = useState<NetworkDomain | null>(null)
-  const [editingDomain, setEditingDomain] = useState<NetworkDomain | null>(null)
   const [plainToken, setPlainToken] = useState<{ title: string; token: string; tokenMasked?: string; domainName?: string } | null>(null)
   const guideRef = useRef<HTMLDivElement>(null)
   const [guideHighlight, setGuideHighlight] = useState(false)
@@ -131,15 +120,16 @@ export function NetworkDomainsPage() {
     setOnboardOpen(true)
   }
 
-  const handleMonitorSubmit = async (input: OnboardInput) => {
+  /** 纳管（v3）：无请求体；响应一次性返回明文 Token + 安装指引 */
+  const handleMonitorSubmit = async () => {
     if (!onboardDomain) return
     setSubmitting(true)
     try {
-      const res = await networkDomainMonitorApi.monitor(onboardDomain.id, input)
+      const res = await networkDomainMonitorApi.monitor(onboardDomain.id)
       message.success(`网域 "${onboardDomain.name}" 已纳管`)
       setOnboardOpen(false)
-      // MEDIUM-1：纳管 agent_pull 域成功 → /monitor 单次返回明文 token，用一次性 Modal 展示引导保存
-      if (onboardDomain.channel === 'agent_pull' && res.data?.token) {
+      // 明文 Token 仅本响应返回一次，用一次性 Modal 展示引导保存
+      if (res.data?.token) {
         setPlainToken({
           title: `网域「${onboardDomain.name}」接入 Token（仅本次可见）`,
           token: res.data.token,
@@ -148,44 +138,42 @@ export function NetworkDomainsPage() {
         })
       }
       reload()
-      // 决策 17：纳管成功滚动并高亮顶部安装指引区（agent_pull），并展开指引
-      if (onboardDomain.channel === 'agent_pull') {
-        setGuideOpen(true)
-        window.setTimeout(() => {
-          setGuideHighlight(true)
-          if (typeof guideRef.current?.scrollIntoView === 'function') {
-            guideRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }, 200)
-        window.setTimeout(() => setGuideHighlight(false), 4000)
-      }
+      // 纳管成功滚动并高亮顶部安装指引区，并展开指引
+      setGuideOpen(true)
+      window.setTimeout(() => {
+        setGuideHighlight(true)
+        if (typeof guideRef.current?.scrollIntoView === 'function') {
+          guideRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 200)
+      window.setTimeout(() => setGuideHighlight(false), 4000)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleEditSubmit = async (values: {
-    description?: string
-    agent_type?: string
-    remote_write_url?: string
-    max_disk_usage_per_url?: string
-  }) => {
-    if (!editingDomain) return
-    setSubmitting(true)
-    try {
-      await networkDomainMonitorApi.update(editingDomain.id, {
-        agent_type: editingDomain.channel === 'local' ? undefined : (values.agent_type as NetworkDomain['agent_type']),
-        remote_write_url: editingDomain.channel === 'local' ? undefined : values.remote_write_url,
-        max_disk_usage_per_url:
-          editingDomain.channel === 'local' ? undefined : (values.max_disk_usage_per_url?.trim() || undefined),
-        description: values.description,
-      })
-      message.success('网域监控参数已更新')
-      setEditOpen(false)
-      reload()
-    } finally {
-      setSubmitting(false)
-    }
+  /** 退纳管（v3）：废止 Token、节点转 retired、状态归 created */
+  const handleUnmonitor = (record: NetworkDomain) => {
+    Modal.confirm({
+      title: '退纳管',
+      content: `确定要退纳管网域「${record.name}」吗？该网域接入 Token 将立即废止，采集节点转为已退役，纳管状态回到「已创建未纳管」。`,
+      okText: '确认退纳管',
+      okType: 'danger',
+      cancelText: '取消',
+      okButtonProps: { danger: true, loading: submitting },
+      onOk: async () => {
+        setSubmitting(true)
+        try {
+          await networkDomainMonitorApi.unmonitor(record.id)
+          message.success(`网域「${record.name}」已退纳管`)
+          reload()
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '退纳管失败，请稍后重试')
+        } finally {
+          setSubmitting(false)
+        }
+      },
+    })
   }
 
   // HIGH-1：list 接口不返回明文 token（仅 token_masked 脱敏串），列表行不再提供「复制明文」；
@@ -297,6 +285,7 @@ export function NetworkDomainsPage() {
         // F-33：下载入口从页面级主按钮改为**行内按需**——仅采集节点域（agent_pull）行提供「更多」下拉；
         // 中心直连域（local）无需部署采集节点，整行不出现下载入口。
         // 「重置 Token」仅已纳管采集节点域才有意义，故按 isMonitored 动态拼接菜单项。
+        // 退纳管作为行内主操作（已纳管时展示），不再重复放入下拉。
         const moreItems: MenuProps['items'] =
           record.channel === 'agent_pull'
             ? [
@@ -325,8 +314,8 @@ export function NetworkDomainsPage() {
                 纳管
               </Button>
             ) : (
-              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditingDomain(record); setEditOpen(true) }}>
-                编辑
+              <Button type="link" size="small" danger icon={<StopOutlined />} onClick={() => handleUnmonitor(record)}>
+                退纳管
               </Button>
             )}
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)}>
@@ -365,7 +354,7 @@ export function NetworkDomainsPage() {
           type="success"
           showIcon
           style={{ marginBottom: 12 }}
-          message="中心直连域（如 default）：平台与采集在同侧，无需部署采集节点；仅新登记的采集节点域需要安装采集节点。"
+          message="中心直连域（如 default）：平台与采集在同侧，无需部署采集节点。本页只展示 M06 已登记且启用的采集节点域，纳管后需在网域内部署采集节点。"
         />
         {/* PRD §1109：安装指引为页面顶部常驻提示区（不随是否有 agent_pull 网域而隐藏） */}
         <div
@@ -556,116 +545,8 @@ sudo systemctl enable --now edge-sync-agent`}</pre>
         <EdgePackageDownloadPanel active={downloadOpen} />
       </Modal>
 
-      <Drawer
-        title="编辑网域（监控参数）"
-        placement="right"
-        width={520}
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        // forceRender（替代 destroyOnHidden）：Drawer 首次打开时内容惰性挂载，导致
-        // EditDomainForm 的 useEffect(domain) setFieldsValue 在字段注册前执行被吞、
-        // 编辑回显首次为空；forceRender 保证内容常驻挂载、打开即正确回显（#19 通病，网域编辑抽屉）。
-        forceRender
-      >
-        {editingDomain && (
-          <EditDomainForm
-            domain={editingDomain}
-            submitting={submitting}
-            onSubmit={handleEditSubmit}
-          />
-        )}
-      </Drawer>
       </ConfigProvider>
     </MainLayout>
-  )
-}
-
-function EditDomainForm({
-  domain,
-  submitting,
-  onSubmit,
-}: {
-  domain: NetworkDomain
-  submitting: boolean
-  onSubmit: (values: {
-    description?: string
-    agent_type?: string
-    remote_write_url?: string
-    max_disk_usage_per_url?: string
-  }) => Promise<void>
-}) {
-  const [form] = Form.useForm<{
-    description?: string
-    agent_type?: string
-    remote_write_url?: string
-    max_disk_usage_per_url?: string
-  }>()
-  useEffect(() => {
-    form.setFieldsValue({
-      description: domain.description,
-      agent_type: domain.agent_type ?? 'vmagent',
-      remote_write_url: domain.remote_write_url,
-      max_disk_usage_per_url: domain.max_disk_usage_per_url,
-    })
-  }, [domain, form])
-
-  const isLocal = domain.channel === 'local'
-
-  return (
-    <Form form={form} layout="vertical" onFinish={onSubmit}>
-      <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
-        <Descriptions.Item label="网域名称">{domain.name}</Descriptions.Item>
-        <Descriptions.Item label="归属租户">{domain.tenant_id}</Descriptions.Item>
-      </Descriptions>
-      <Form.Item
-        label={
-          <FieldLabel
-            label="接入方式"
-            tip={isLocal ? DOMAIN_FIELD_TIP.channelLocal : DOMAIN_FIELD_TIP.channelAgentPull}
-          />
-        }
-      >
-        <Tag color={domainTypeColor[domain.domain_type]}>{domainTypeLabel[domain.domain_type]}</Tag>
-      </Form.Item>
-      {!isLocal && (
-        <Form.Item
-          name="agent_type"
-          label={<FieldLabel label="指标采集器类型" tip={DOMAIN_FIELD_TIP.agentType} />}
-        >
-          <Select options={[{ value: 'vmagent', label: agentTypeLabel.vmagent }]} disabled />
-        </Form.Item>
-      )}
-      {!isLocal && (
-        <Form.Item
-          name="remote_write_url"
-          label={<FieldLabel label="指标回传地址" tip={DOMAIN_FIELD_TIP.remoteWriteUrl} />}
-        >
-          <Input placeholder="留空则自动推导；经网闸 / 代理转发时填采集节点侧实际可达的地址" />
-        </Form.Item>
-      )}
-      {!isLocal && (
-        <Form.Item
-          name="max_disk_usage_per_url"
-          label={<FieldLabel label="回传积压磁盘上限" tip={DOMAIN_FIELD_TIP.maxDiskUsagePerUrl} />}
-        >
-          <Input placeholder="留空按采集节点默认兜底（2GB）；生产环境建议 50GB" />
-        </Form.Item>
-      )}
-      <Form.Item name="description" label={<FieldLabel label="描述" tip={DOMAIN_FIELD_TIP.description} />}>
-        <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征" />
-      </Form.Item>
-      {isLocal && (
-        <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-          中心直连域由平台直接采集，不生成 Token / 指标回传地址等接入配置，也无采集节点心跳。
-        </Text>
-      )}
-      <div style={{ textAlign: 'right', marginTop: 8 }}>
-        <Space>
-          <Button onClick={() => form.resetFields()}>恢复</Button>
-          <Button type="primary" loading={submitting} onClick={() => form.submit()}>保存</Button>
-        </Space>
-      </div>
-    </Form>
   )
 }
 
