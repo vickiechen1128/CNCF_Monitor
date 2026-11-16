@@ -1,12 +1,12 @@
 /**
- * 采集 Job（ScrapeJob）平台 API（/api/v2/platform/...）
+ * 采集 Job（ScrapeJob）前端 API —— v3 兼容层。
  *
- * Module_01 §6.2.2/§6.2.5 / api-contract-snapshot §5/§6：
- * CRUD + 实例候选 + Exporter 安装确认 + preview-targets。
- * 统一信封 `apiClient`；主资源列表分页信封 `list` 键；
- * 子资源 `instances` 分页信封 `items` 键（§1.3 关键差异）。
+ * 页面仍使用 legacy `ScrapeJob` 视图类型；本层调用 `/api/v3/platform/scrape-jobs`
+ * 并在边界做字段映射（`sync` / `resource_category` / `list` 信封），使 F2 页面
+ * 可以在不改动大体量组件的前提下运行在 v3 后端。
  */
 import { apiClient } from './client'
+import { scrapeJobApiV3 } from './strategyV3'
 import type { ApiResponse, Paginated } from '../types/api'
 import type { ResourceCategory, ResourceType } from '../types/resource'
 import type {
@@ -18,8 +18,9 @@ import type {
   ScrapeJob,
   ScrapeJobInstanceItem,
 } from '../types/strategy'
+import type { ScrapeJobV3 } from '../types/strategyV3'
+import type { JobInputV3 } from './strategyV3'
 
-/** 采集 Job 列表分页与筛选参数（§5，默认 page_size=20 上限 100） */
 export interface ScrapeJobListParams extends Record<string, string | number | boolean | undefined> {
   network_domain_id?: string
   monitor_type?: MonitorType
@@ -28,17 +29,14 @@ export interface ScrapeJobListParams extends Record<string, string | number | bo
   keyword?: string
   page?: number
   page_size?: number
-  /** 引用该标签模板的 Job 反查（模板引用，§2/§5） */
   label_template_id?: number
 }
 
-/** 采集 Job 参数覆盖项（继承映射快照可覆盖，§5.4） */
 export interface ScrapeJobMappingOverrideInput {
   field: string
   value: string
 }
 
-/** 采集 Job 创建/编辑输入（§5.4 全字段 + 认证TLS + blackbox，§10 必填口径） */
 export interface ScrapeJobInput {
   job_name: string
   monitor_type?: MonitorType
@@ -60,43 +58,19 @@ export interface ScrapeJobInput {
   mapping_overrides?: ScrapeJobMappingOverrideInput[]
   job_type?: JobType
   blackbox_module?: string
-  /**
-   * ⚠️ 已废弃（阶段5）：拨测目标改走「从接口服务资源选择」，手填入口彻底禁用，
-   * 后端亦拒绝写入本字段。仅 `ScrapeJob`（记录类型）保留它做历史数据读取。
-   */
+  /** v2 遗留字段：v3 拒绝，本层丢弃。 */
   blackbox_targets?: BlackboxTarget[]
-  /**
-   * 拨测 Job 的目标资源类别：由用户在表单选择，**只有两类**
-   * （interface_service / application，见 `blackboxProbeCategories` 与后端
-   * `models.BlackboxProbeCategories()`）。
-   */
   resource_type?: ResourceType
-  /**
-   * ⚠️ 已不再由前端提交：探测地址字段由 `resource_type` 写死推导
-   * （接口服务→api_url、应用服务→health_check_url），保存时后端按同一映射覆盖写入。
-   * 字段仅作兼容保留，传了也不生效（后端不再校验其合法性）。
-   */
   target_field?: string
   enabled?: boolean
-  /**
-   * 创建时直接指定为草稿或提交生效（方案 C，决策 D28-2）。
-   * - "draft"：仅基础校验（job_name / job_type / 唯一性）并保存为草稿；
-   * - "ready"（默认）：完整校验并进入 M09 变更管线。
-   */
   draft_status?: 'draft' | 'ready'
+  /** v3 action flag（仅更新时使用）。 */
+  sync_mapping_defaults?: boolean
 }
 
-/** 实例候选列表分页与筛选参数（§6，GET /scrape-jobs/instance-candidates） */
 export interface InstanceCandidateListParams extends Record<string, string | number | boolean | undefined> {
-  /** 二选一（与 resource_category）：按 monitor_type 推导资源类别（standard 采集 Job） */
   monitor_type?: MonitorType
-  /** 二选一（与 monitor_type）：直接按资源类别收敛候选（拨测 Job = 用户在表单选定的类别，现为接口服务/应用服务两类） */
   resource_category?: ResourceCategory
-  /**
-   * 可选：候选第二列改渲染该字段的值。**拨测入口不必传** —— 后端按 `resource_category`
-   * 推导出该类别写死的探测地址字段（接口服务→api_url、应用服务→health_check_url），
-   * 使列表所见 = 实际探测地址。
-   */
   target_field?: string
   network_domain_id: string
   keyword?: string
@@ -104,84 +78,234 @@ export interface InstanceCandidateListParams extends Record<string, string | num
   page_size?: number
 }
 
-/** 已选实例 + 安装状态列表响应（GET /scrape-jobs/:id/instances，子资源 `items` 信封，§6.2.5）
- * `total` = 有效实例数（`items.length`，不含已软删/失效引用）；
- * `missing_count` = 选中集引用、但资源已被软删/不存在的失效引用数（F-38/F-39 暴露口径）。 */
 export interface ScrapeJobInstancesResponse {
   items: ScrapeJobInstanceItem[]
   total: number
   missing_count?: number
 }
 
-/** Exporter 安装确认输入（§6.2.5 / §8④：confirmed_by 固定 platform_admin） */
 export interface ConfirmInstanceInput {
   confirmed_by: string
   actual_port?: number
   notes?: string
 }
 
-/** preview-targets 目标清单（standard→实例地址；blackbox→所选实例在 target_field 上的值，§6） */
 export interface PreviewTargetsResult {
   targets: {
-    /** 所选资源 id（拨测 Job 据此回连 probe_success 的 resource_id 标签） */
     resource_id?: string
     address: string
-    /** 目标地址的 scheme（仅 URL 类字段有值，如 http/https） */
     protocol?: string
-    /** {T01-P6} standard 目标生效端口（blackbox 恒 0，不进端口解析链，D3 矩阵） */
     port?: number
-    /**
-     * {T01-P6} 生效端口来源（与 GET /instances items 同源，api-contract-snapshot §6）：
-     * instance / mapping / template / business / unresolved；blackbox 为空串。
-     */
     port_source?: string
   }[]
 }
 
-/** 采集 Job 管理（CRUD + 实例候选 + 安装确认 + preview，§5/§6） */
+function toLegacyJob(job: ScrapeJobV3): ScrapeJob {
+  return {
+    id: job.id,
+    job_name: job.job_name,
+    job_type: job.job_type,
+    resource_type: job.resource_category,
+    resource_category: job.resource_category,
+    monitor_type: job.monitor_type,
+    exporter_template_id: job.exporter_template_id,
+    exporter_template_name: job.exporter_template_name,
+    network_domain_id: job.network_domain_id,
+    network_domain_name: job.network_domain_name,
+    instance_selection_mode: 'manual',
+    selected_instance_ids: job.selected_instance_ids ?? [],
+    scrape_interval: job.scrape_interval,
+    scrape_timeout: job.scrape_timeout,
+    metrics_path: job.metrics_path,
+    scheme: job.scheme,
+    auth_type: job.auth_type,
+    username: job.username,
+    tls_skip_verify: job.tls_skip_verify,
+    ca_file: job.ca_file,
+    label_template_id: job.label_template_id,
+    label_template_name: job.label_template_name,
+    filter_rules: '',
+    blackbox_module: job.blackbox_module,
+    target_field: job.target_field,
+    mapping_overrides: job.mapping_overrides ?? [],
+    draft_status: job.draft_status,
+    // v3 没有变更单；映射为 none，避免页面 pending 锁把 Job 锁死。
+    change_status: 'none',
+    sync: job.sync,
+    credential_configured: job.credential_configured,
+    enabled: job.enabled,
+    created_at: job.created_at,
+    updated_at: job.updated_at,
+  }
+}
+
+function toV3Input(input: ScrapeJobInput): JobInputV3 {
+  return {
+    job_name: input.job_name,
+    job_type: input.job_type,
+    resource_category: (input.resource_type ?? input.monitor_type) as ResourceCategory,
+    monitor_type: input.monitor_type,
+    exporter_template_id: input.exporter_template_id,
+    network_domain_id: input.network_domain_id,
+    instance_selection_mode: 'manual',
+    selected_instance_ids: input.selected_instance_ids,
+    scrape_interval: input.scrape_interval,
+    scrape_timeout: input.scrape_timeout,
+    metrics_path: input.metrics_path,
+    scheme: input.scheme,
+    auth_type: input.auth_type,
+    username: input.username,
+    password: input.password,
+    token: input.token,
+    tls_skip_verify: input.tls_skip_verify,
+    ca_file: input.ca_file,
+    label_template_id: input.label_template_id,
+    blackbox_module: input.blackbox_module,
+    draft_status: input.draft_status,
+    enabled: input.enabled,
+    sync_mapping_defaults: input.sync_mapping_defaults,
+  }
+}
+
+function fromV3Job(job: ScrapeJobV3, draftStatus: 'draft' | 'ready'): JobInputV3 {
+  return {
+    job_name: job.job_name,
+    job_type: job.job_type,
+    resource_category: job.resource_category,
+    monitor_type: job.monitor_type || undefined,
+    exporter_template_id: job.exporter_template_id || undefined,
+    network_domain_id: job.network_domain_id,
+    selected_instance_ids: job.selected_instance_ids,
+    scrape_interval: job.scrape_interval,
+    scrape_timeout: job.scrape_timeout,
+    metrics_path: job.metrics_path,
+    scheme: job.scheme,
+    auth_type: job.auth_type,
+    username: job.username,
+    tls_skip_verify: job.tls_skip_verify,
+    ca_file: job.ca_file,
+    label_template_id: job.label_template_id,
+    blackbox_module: job.blackbox_module,
+    draft_status: draftStatus,
+    enabled: job.enabled,
+  }
+}
+
 export const scrapeJobApi = {
-  list(params?: ScrapeJobListParams): Promise<ApiResponse<Paginated<ScrapeJob>>> {
-    return apiClient.get<Paginated<ScrapeJob>>('/api/v2/platform/scrape-jobs', { params })
+  async list(params?: ScrapeJobListParams): Promise<ApiResponse<Paginated<ScrapeJob>>> {
+    const res = await scrapeJobApiV3.list({
+      ...params,
+      label_template_id: params?.label_template_id !== undefined ? String(params.label_template_id) : undefined,
+    })
+    const data = res.data
+    return {
+      ...res,
+      data: {
+        list: (data?.list ?? []).map(toLegacyJob),
+        total: data?.total ?? 0,
+        page: data?.page ?? 1,
+        page_size: data?.page_size ?? 20,
+      },
+    }
   },
-  create(input: ScrapeJobInput): Promise<ApiResponse<ScrapeJob>> {
-    return apiClient.post<ScrapeJob>('/api/v2/platform/scrape-jobs', { body: input })
+  async create(input: ScrapeJobInput): Promise<ApiResponse<ScrapeJob>> {
+    const res = await scrapeJobApiV3.create(toV3Input(input))
+    return { ...res, data: toLegacyJob(res.data) }
   },
-  update(id: number, input: ScrapeJobInput): Promise<ApiResponse<ScrapeJob>> {
-    return apiClient.put<ScrapeJob>(`/api/v2/platform/scrape-jobs/${id}`, { body: input })
+  async update(id: string | number, input: ScrapeJobInput): Promise<ApiResponse<ScrapeJob>> {
+    const res = await scrapeJobApiV3.update(String(id), toV3Input(input))
+    return { ...res, data: toLegacyJob(res.data) }
   },
-  remove(id: number): Promise<ApiResponse<{ id: number }>> {
-    return apiClient.delete<{ id: number }>(`/api/v2/platform/scrape-jobs/${id}`)
+  remove(id: string | number): Promise<ApiResponse<{ id: number }>> {
+    return apiClient.delete<{ id: number }>(`/api/v3/platform/scrape-jobs/${id}`)
   },
-  /** 实例候选（同 monitor_type 推导资源类别 + 同网域收敛；offline 置灰，§6.2.5/决策29） */
-  instanceCandidates(params: InstanceCandidateListParams): Promise<ApiResponse<Paginated<InstanceCandidate>>> {
-    return apiClient.get<Paginated<InstanceCandidate>>('/api/v2/platform/scrape-jobs/instance-candidates', { params })
+  async instanceCandidates(params: InstanceCandidateListParams): Promise<ApiResponse<Paginated<InstanceCandidate>>> {
+    const res = await scrapeJobApiV3.candidates(params)
+    const data = res.data
+    return {
+      ...res,
+      data: {
+        list: (data?.list ?? []).map((item) => ({
+          resource_id: item.resource_id,
+          instance_name: item.display_name,
+          instance_ip: item.instance_ip,
+          status: item.status,
+          disabled: !item.selectable,
+        })),
+        total: data?.total ?? 0,
+        page: data?.page ?? 1,
+        page_size: data?.page_size ?? 20,
+      },
+    }
   },
-  /** 已选实例 + 安装状态（子资源 `items` 信封，§1.3） */
-  instances(jobId: number): Promise<ApiResponse<ScrapeJobInstancesResponse>> {
-    return apiClient.get<ScrapeJobInstancesResponse>(`/api/v2/platform/scrape-jobs/${jobId}/instances`)
+  async instances(jobId: string | number): Promise<ApiResponse<ScrapeJobInstancesResponse>> {
+    const res = await scrapeJobApiV3.instances(String(jobId))
+    const list = res.data?.list ?? []
+    return {
+      ...res,
+      data: {
+        items: list.map((item) => ({
+          resource_id: item.resource_id,
+          instance_name: item.display_name,
+          instance_ip: item.instance_ip,
+          status: item.installation?.status === 'confirmed' ? 'confirmed' : 'unconfirmed',
+          port: item.port,
+          port_source: '',
+        })),
+        total: res.data?.total ?? list.length,
+      },
+    }
   },
-  /** 确认安装（POST，§6.2.5） */
-  confirmInstance(jobId: number, resourceId: string, input: ConfirmInstanceInput): Promise<ApiResponse<ExporterInstallationRecord>> {
-    return apiClient.post<ExporterInstallationRecord>(
-      `/api/v2/platform/scrape-jobs/${jobId}/instances/${encodeURIComponent(resourceId)}/confirm`,
-      { body: input },
-    )
+  async confirmInstance(
+    jobId: string | number,
+    resourceId: string,
+    input: ConfirmInstanceInput,
+  ): Promise<ApiResponse<ExporterInstallationRecord>> {
+    const res = await scrapeJobApiV3.confirmInstance(String(jobId), resourceId, input)
+    const data = res.data as {
+      installation?: { status: string; actual_port: number; confirmed_by: string; notes: string; confirmed_at: string | null }
+    }
+    return {
+      ...res,
+      data: {
+        resource_id: resourceId,
+        scrape_job_id: String(jobId),
+        status: (data?.installation?.status as ExporterInstallationRecord['status']) ?? 'confirmed',
+        actual_port: data?.installation?.actual_port,
+        confirmed_by: data?.installation?.confirmed_by,
+        confirmed_at: data?.installation?.confirmed_at ?? undefined,
+        notes: data?.installation?.notes,
+      },
+    }
   },
-  /** 取消确认（DELETE，§6.2.5） */
-  unconfirmInstance(jobId: number, resourceId: string): Promise<ApiResponse<{ resource_id: string; job_id: number }>> {
+  unconfirmInstance(
+    jobId: string | number,
+    resourceId: string,
+  ): Promise<ApiResponse<{ resource_id: string; job_id: number }>> {
     return apiClient.delete<{ resource_id: string; job_id: number }>(
-      `/api/v2/platform/scrape-jobs/${jobId}/instances/${encodeURIComponent(resourceId)}/confirm`,
+      `/api/v3/platform/scrape-jobs/${jobId}/instances/${encodeURIComponent(resourceId)}/confirm`,
     )
   },
-  /** preview-targets（L2 接口预览，§6） */
-  previewTargets(jobId: number): Promise<ApiResponse<PreviewTargetsResult>> {
-    return apiClient.post<PreviewTargetsResult>(`/api/v2/platform/scrape-jobs/${jobId}/preview-targets`)
+  async previewTargets(jobId: string | number): Promise<ApiResponse<PreviewTargetsResult>> {
+    const res = await scrapeJobApiV3.previewTargets(String(jobId))
+    const groups = (res.data?.targets ?? []) as { targets?: string[]; labels?: Record<string, string> }[]
+    const targets = groups.flatMap((group) =>
+      (group.targets ?? []).map((address) => ({
+        resource_id: group.labels?.resource_id,
+        address,
+        port_source: '',
+      })),
+    )
+    return { ...res, data: { targets } }
   },
-  /**
-   * 批量将 draft 态采集 Job 提交为 ready（draft→ready 单向，决策 D28-3）。
-   * 目标 Job 必须当前为 draft_status=draft，后端逐条做完整校验（all-or-nothing）。
-   */
-  batchSubmitReady(input: { ids: number[] }): Promise<ApiResponse<{ jobs: ScrapeJob[] }>> {
-    return apiClient.post<{ jobs: ScrapeJob[] }>('/api/v2/platform/scrape-jobs/batch-draft-status', { body: input })
+  /** v3 无批量草稿端点：逐条读取后提交 ready，保持页面动作可用。 */
+  async batchSubmitReady(input: { ids: number[] }): Promise<ApiResponse<{ jobs: ScrapeJob[] }>> {
+    const jobs: ScrapeJob[] = []
+    for (const id of input.ids) {
+      const current = await scrapeJobApiV3.get(String(id))
+      const updated = await scrapeJobApiV3.update(String(id), fromV3Job(current.data, 'ready'))
+      jobs.push(toLegacyJob(updated.data))
+    }
+    return { status: 'success', data: { jobs } }
   },
 }

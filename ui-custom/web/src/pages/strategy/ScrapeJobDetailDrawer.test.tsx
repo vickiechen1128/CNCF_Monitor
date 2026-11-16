@@ -42,7 +42,7 @@ function renderDrawer(element: React.ReactNode) {
 
 const job = (over: Partial<ScrapeJob> = {}): ScrapeJob =>
   ({
-    id: 1,
+    id: '1',
     job_name: 'job-x',
     job_type: 'standard',
     resource_type: 'host',
@@ -152,7 +152,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [target('a', 'up')], droppedTargets: [], targetsByJob: {} } })
 
     renderDrawer(
-      <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: 1 })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
+      <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: '1' })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
     )
 
     expect(await screen.findByText('已选实例（1）')).toBeInTheDocument()
@@ -251,7 +251,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     targetsListMock.mockRejectedValue(new Error('internal error'))
 
     renderDrawer(
-      <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: 1 })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
+      <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: '1' })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
     )
 
     // 实例信息（名称/IP，原型对齐字段）不因数据面故障而丢失

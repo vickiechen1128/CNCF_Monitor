@@ -21,7 +21,7 @@ vi.mock('../../api/query', () => ({
 
 const job = (over: Partial<ScrapeJob> = {}): ScrapeJob =>
   ({
-    id: 1,
+    id: '1',
     job_name: 'job-x',
     job_type: 'node_exporter',
     resource_type: 'host',
@@ -90,7 +90,7 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
   it('已下发：online>0 聚合为采集中，并带上在线/总数计数', async () => {
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1'), instance('srv-2')], total: 2 } })
     queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-2' })]))
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(queryMock).toHaveBeenCalledWith({ query: 'up{job="job-x"}' })
     expect(result.current[1]).toMatchObject({ state: 'collecting', online: 2, down: 0, pending: 0, total: 2 })
@@ -102,7 +102,7 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
       data: { items: [instance('srv-1'), instance('srv-2')], total: 2, missing_count: 3 },
     })
     queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-2' })]))
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     // total=2 仅含有效实例（分母同源）；missingCount=3 为已软删/失效引用，供 Tooltip 提示
     expect(result.current[1]).toMatchObject({ state: 'collecting', online: 2, total: 2, missingCount: 3 })
@@ -111,7 +111,7 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
   it('已下发：无 online 但有 down 聚合为已下发未采到', async () => {
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1'), instance('srv-2')], total: 2 } })
     queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' }, '0'), up({ resource_id: 'srv-2' }, '0')]))
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(result.current[1]).toMatchObject({ state: 'down', online: 0, down: 2, pending: 0 })
   })
@@ -125,14 +125,14 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
       }
       return Promise.resolve(vector([]))
     })
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(result.current[1]).toMatchObject({ state: 'stale', online: 0, down: 0, stale: 1, pending: 1, total: 2 })
   })
 
   it('实例拉取失败时降级为无已选实例（待采集，total=0）', async () => {
     instancesMock.mockRejectedValue(new Error('boom'))
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(result.current[1]).toMatchObject({ state: 'pending', online: 0, total: 0 })
   })
@@ -140,7 +140,7 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
   it('query（up 指标）拉取失败时降级为全部待采集', async () => {
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1')], total: 1 } })
     queryMock.mockRejectedValue(new Error('boom'))
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(result.current[1]).toMatchObject({ state: 'pending', online: 0, pending: 1, total: 1 })
   })
@@ -168,17 +168,17 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
       ]),
     )
     const bb = job({
-      id: 9,
+      id: '9',
       job_name: 'bb',
       job_type: 'blackbox',
       selected_instance_ids: ['res-1', 'res-2'],
     })
     const { result } = renderHook(() => useJobScrapeStatus([bb]))
-    await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
-    expect(previewTargetsMock).toHaveBeenCalledWith(9)
+    await waitFor(() => expect(result.current['9']?.loaded).toBe(true))
+    expect(previewTargetsMock).toHaveBeenCalledWith("9")
     expect(queryMock).toHaveBeenCalledWith({ query: 'probe_success{job="bb"}' })
     expect(instancesMock).not.toHaveBeenCalled()
-    expect(result.current[9]).toMatchObject({ state: 'collecting', online: 1, down: 1, pending: 0, total: 2 })
+    expect(result.current['9']).toMatchObject({ state: 'collecting', online: 1, down: 1, pending: 0, total: 2 })
   })
 
   it('拨测 Job 未下发时不查 probe_success，目标统一「待拨测」（F-12）', async () => {
@@ -187,24 +187,24 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
       data: { targets: [{ resource_id: 'res-1', address: 'http://1.1.1.1:3000/login', protocol: 'http' }] },
     })
     const bb = job({
-      id: 9,
+      id: '9',
       job_name: 'bb',
       job_type: 'blackbox',
       change_status: 'confirmed',
       selected_instance_ids: ['res-1'],
     })
     const { result } = renderHook(() => useJobScrapeStatus([bb]))
-    await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
-    expect(result.current[9]).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 1, total: 1 })
+    await waitFor(() => expect(result.current['9']?.loaded).toBe(true))
+    expect(result.current['9']).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 1, total: 1 })
     expect(queryMock).not.toHaveBeenCalled()
   })
 
   it('拨测 Job preview-targets 解析失败时降级为无目标（total=0）', async () => {
     previewTargetsMock.mockRejectedValue(new Error('boom'))
-    const bb = job({ id: 9, job_name: 'bb', job_type: 'blackbox', selected_instance_ids: ['res-1'] })
+    const bb = job({ id: '9', job_name: 'bb', job_type: 'blackbox', selected_instance_ids: ['res-1'] })
     const { result } = renderHook(() => useJobScrapeStatus([bb]))
-    await waitFor(() => expect(result.current[9]?.loaded).toBe(true))
-    expect(result.current[9]).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 0, total: 0 })
+    await waitFor(() => expect(result.current['9']?.loaded).toBe(true))
+    expect(result.current['9']).toMatchObject({ state: 'pending', online: 0, down: 0, pending: 0, total: 0 })
     expect(queryMock).not.toHaveBeenCalled()
   })
 
@@ -212,7 +212,7 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1')], total: 1 } })
     queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' })]))
     // 用短周期 refreshMs 快速触发 tick 递增以验证自动刷新；业务默认 20000ms
-    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })], 30))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: '1' })], 30))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     // 自动刷新（短周期 30ms）会持续重新聚合：等待出现至少第二次调用即可证明 tick 驱动刷新
     await waitFor(() => expect(instancesMock.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2000 })

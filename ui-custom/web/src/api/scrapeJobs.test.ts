@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { scrapeJobApi } from './scrapeJobs'
 
-describe('scrapeJobs API', () => {
+describe('scrapeJobs v3 adapter', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -10,245 +10,157 @@ describe('scrapeJobs API', () => {
     vi.unstubAllGlobals()
   })
 
-  function mockFetch(body: unknown, init: ResponseInit = {}) {
+  function mockFetch(body: unknown) {
     ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
-        ...init,
       }),
     )
   }
 
-  function lastFetchCall() {
+  function lastCall() {
     return (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
   }
 
-  function lastUrlInstance(): URL {
-    return new URL(String(lastFetchCall()[0]), window.location.origin)
+  function lastUrl(): URL {
+    return new URL(String(lastCall()[0]), window.location.origin)
   }
 
-  function lastInitBody(): unknown {
-    const text = String(lastFetchCall()[1]?.body ?? '')
+  function lastBody(): unknown {
+    const text = String(lastCall()[1]?.body ?? '')
     return text ? JSON.parse(text) : undefined
   }
 
-  it('list sends network_domain_id/monitor_type/job_type/enabled/keyword params', async () => {
-    mockFetch({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+  const v3Job = {
+    id: 'job-1',
+    job_name: 'host-prod',
+    job_type: 'standard',
+    resource_category: 'host',
+    monitor_type: 'host_linux',
+    exporter_template_id: 'exp-1',
+    exporter_template_name: 'node-exporter',
+    network_domain_id: 'mc-demo',
+    network_domain_name: '演示采集域',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-1'],
+    selected_instance_count: 1,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    auth_type: 'none',
+    username: '',
+    credential_configured: false,
+    tls_skip_verify: false,
+    ca_file: '',
+    label_template_id: '',
+    label_template_name: '',
+    blackbox_module: '',
+    target_field: '',
+    mapping_overrides: [],
+    draft_status: 'ready',
+    enabled: true,
+    sync: { status: 'synced', version: 'v1', error: '', synced_at: null },
+    created_at: '2026-11-16T10:00:00Z',
+    updated_at: '2026-11-16T10:00:00Z',
+  }
 
-    await scrapeJobApi.list({
-      network_domain_id: 'mc-a',
-      monitor_type: 'mysql',
-      job_type: 'standard',
-      enabled: false,
-      keyword: 'prod',
-      page: 1,
-      page_size: 20,
+  it('lists from /api/v3 and maps sync/resource_category', async () => {
+    mockFetch({ status: 'success', data: { list: [v3Job], total: 1, page: 1, page_size: 20 } })
+    const res = await scrapeJobApi.list({ network_domain_id: 'mc-demo', page: 1, page_size: 20 })
+
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs')
+    expect(res.data.list[0]).toMatchObject({
+      id: 'job-1',
+      resource_type: 'host',
+      sync: { status: 'synced', version: 'v1' },
+      change_status: 'none',
     })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs')
-    expect(url.searchParams.get('network_domain_id')).toBe('mc-a')
-    expect(url.searchParams.get('monitor_type')).toBe('mysql')
-    expect(url.searchParams.get('job_type')).toBe('standard')
-    expect(url.searchParams.get('enabled')).toBe('false')
-    expect(url.searchParams.get('keyword')).toBe('prod')
   })
 
-  it('list supports label_template_id reverse lookup', async () => {
-    mockFetch({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
-
-    await scrapeJobApi.list({ label_template_id: 3 })
-
-    expect(lastUrlInstance().searchParams.get('label_template_id')).toBe('3')
-  })
-
-  it('create POSTs a full standard job input', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        id: 1,
-        job_name: 'prod-mysql-01',
-        job_type: 'standard',
-        monitor_type: 'mysql',
-        scrap_interval: '15s',
-        change_status: 'pending',
-      },
-    })
-
-    const res = await scrapeJobApi.create({
-      job_name: 'prod-mysql-01',
-      monitor_type: 'mysql',
-      exporter_template_id: 'mysqld-exporter',
-      network_domain_id: 'mc-a',
-      instance_selection_mode: 'manual',
-      selected_instance_ids: ['r-1'],
-      scrape_interval: '15s',
-      metrics_path: '/metrics',
-      scheme: 'http',
-    })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({
-      job_name: 'prod-mysql-01',
-      monitor_type: 'mysql',
-      exporter_template_id: 'mysqld-exporter',
-      network_domain_id: 'mc-a',
-      instance_selection_mode: 'manual',
-      selected_instance_ids: ['r-1'],
-      scrape_interval: '15s',
-      metrics_path: '/metrics',
-      scheme: 'http',
-    })
-    expect(res.data.job_name).toBe('prod-mysql-01')
-  })
-
-  it('create POSTs blackbox input with blackbox_targets', async () => {
-    mockFetch({
-      status: 'success',
-      data: { id: 2, job_name: 'probe-web', job_type: 'blackbox', blackbox_module: 'http_2xx' },
-    })
-
+  it('creates with v3 payload and drops legacy-only fields', async () => {
+    mockFetch({ status: 'success', data: v3Job })
     await scrapeJobApi.create({
-      job_name: 'probe-web',
-      job_type: 'blackbox',
-      network_domain_id: 'mc-a',
-      blackbox_module: 'http_2xx',
-      blackbox_targets: [{ target: 'https://example.com', protocol: 'https', url: '/health' }],
-      scrape_interval: '30s',
+      job_name: 'host-prod',
+      resource_type: 'host',
+      monitor_type: 'host_linux',
+      network_domain_id: 'mc-demo',
+      selected_instance_ids: ['res-1'],
+      mapping_overrides: [{ field: 'scrape_interval', value: '30s' }],
+      blackbox_targets: [],
     })
 
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({
-      job_name: 'probe-web',
-      job_type: 'blackbox',
-      network_domain_id: 'mc-a',
-      blackbox_module: 'http_2xx',
-      blackbox_targets: [{ target: 'https://example.com', protocol: 'https', url: '/health' }],
-      scrape_interval: '30s',
-    })
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs')
+    const body = lastBody() as Record<string, unknown>
+    expect(body.resource_category).toBe('host')
+    expect(body).not.toHaveProperty('mapping_overrides')
+    expect(body).not.toHaveProperty('blackbox_targets')
   })
 
-  it('update PUTs /:id', async () => {
-    mockFetch({ status: 'success', data: { id: 1, job_name: 'prod-mysql-01' } })
-
-    // update 与 create 共用 ScrapeJobInput：network_domain_id / job_type 为必填，
-    // 两个生产调用点（ScrapeJobListPage 启停、FormDrawer 编辑）均回传，故此处一并带上。
-    await scrapeJobApi.update(1, {
-      job_name: 'prod-mysql-01',
-      job_type: 'standard',
-      network_domain_id: 'mc-a',
-      scrape_interval: '30s',
-    })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/1')
-    expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toEqual({
-      job_name: 'prod-mysql-01',
-      job_type: 'standard',
-      network_domain_id: 'mc-a',
-      scrape_interval: '30s',
-    })
-  })
-
-  it('remove DELETEs /:id', async () => {
-    mockFetch({ status: 'success', data: { id: 1 } })
-
-    const res = await scrapeJobApi.remove(1)
-
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/scrape-jobs/1')
-    expect(lastFetchCall()[1]?.method).toBe('DELETE')
-    expect(res.data.id).toBe(1)
-  })
-
-  it('instanceCandidates sends monitor_type+network_domain_id+keyword params', async () => {
+  it('maps candidates to the legacy view', async () => {
     mockFetch({
       status: 'success',
       data: {
-        list: [
-          { resource_id: 'r-1', instance_name: 'web-01', instance_ip: '10.0.0.1', status: 'online', disabled: false },
-          { resource_id: 'r-2', instance_name: 'web-02', instance_ip: '10.0.0.2', status: 'offline', disabled: true },
-        ],
-        total: 2,
-        page: 1,
-        page_size: 20,
+        list: [{
+          resource_id: 'res-1', resource_category: 'host', monitor_type: 'host_linux',
+          display_name: 'web-01', instance_ip: '10.0.0.1', port: 0,
+          target_address: '10.0.0.1:9100', network_domain_id: 'mc-demo',
+          status: 'online', selectable: true, disabled_reason: '',
+        }],
+        total: 1, page: 1, page_size: 20,
       },
     })
-
-    const res = await scrapeJobApi.instanceCandidates({
-      monitor_type: 'mysql',
-      network_domain_id: 'mc-a',
-      keyword: 'web',
-      page: 1,
-      page_size: 20,
-    })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/instance-candidates')
-    expect(url.searchParams.get('monitor_type')).toBe('mysql')
-    expect(url.searchParams.get('network_domain_id')).toBe('mc-a')
-    expect(url.searchParams.get('keyword')).toBe('web')
-    expect(res.data.list[1].disabled).toBe(true)
+    const res = await scrapeJobApi.instanceCandidates({ monitor_type: 'host_linux', network_domain_id: 'mc-demo' })
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/instance-candidates')
+    expect(res.data.list[0]).toMatchObject({ resource_id: 'res-1', instance_name: 'web-01', disabled: false })
   })
 
-  it('instances GETs {items,total} envelope for sub-resource', async () => {
+  it('maps instances list envelope to items', async () => {
     mockFetch({
       status: 'success',
       data: {
-        items: [{ resource_id: 'r-1', instance_name: 'web-01', instance_ip: '10.0.0.1', status: 'confirmed' }],
+        list: [{
+          resource_id: 'res-1', display_name: 'web-01', instance_ip: '10.0.0.1', port: 9100,
+          status: 'online', target_address: '10.0.0.1:9100',
+          installation: { status: 'confirmed', actual_port: 9100, confirmed_by: 'ops', notes: '', confirmed_at: null },
+        }],
         total: 1,
       },
     })
-
-    const res = await scrapeJobApi.instances(3)
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/3/instances')
-    expect(lastFetchCall()[1]?.method).toBe('GET')
-    // 子资源信封为 items（§1.3），而非主资源 list
-    expect(res.data.total).toBe(1)
-    expect(res.data.items[0].status).toBe('confirmed')
+    const res = await scrapeJobApi.instances('job-1')
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/job-1/instances')
+    expect(res.data.items[0]).toMatchObject({ resource_id: 'res-1', instance_name: 'web-01', status: 'confirmed' })
   })
 
-  it('confirmInstance POSTs {confirmed_by,...} to /confirm', async () => {
+  it('flattens preview target groups', async () => {
     mockFetch({
       status: 'success',
-      data: { resource_id: 'r-1', scrape_job_id: 3, status: 'confirmed', confirmed_by: 'platform_admin' },
+      data: {
+        job_name: 'host-prod',
+        targets: [{ targets: ['10.0.0.1:9100'], labels: { resource_id: 'res-1' } }],
+        skipped: [],
+      },
     })
-
-    await scrapeJobApi.confirmInstance(3, 'r-1', { confirmed_by: 'platform_admin', actual_port: 9104 })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/3/instances/r-1/confirm')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({ confirmed_by: 'platform_admin', actual_port: 9104 })
+    const res = await scrapeJobApi.previewTargets('job-1')
+    expect(res.data.targets).toEqual([{ resource_id: 'res-1', address: '10.0.0.1:9100', port_source: '' }])
   })
 
-  it('unconfirmInstance DELETEs /confirm and returns {resource_id, job_id}', async () => {
-    mockFetch({ status: 'success', data: { resource_id: 'r-1', job_id: 3 } })
+  it('uses v3 delete and confirm paths', async () => {
+    mockFetch({ status: 'success', data: { job_id: 'job-1' } })
+    await scrapeJobApi.remove('job-1')
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/job-1')
 
-    const res = await scrapeJobApi.unconfirmInstance(3, 'r-1')
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/3/instances/r-1/confirm')
-    expect(lastFetchCall()[1]?.method).toBe('DELETE')
-    expect(res.data.job_id).toBe(3)
-  })
-
-  it('previewTargets POSTs /preview-targets', async () => {
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockClear()
     mockFetch({
       status: 'success',
-      data: { targets: [{ address: '10.0.0.1:9104' }, { address: '10.0.0.2:9104' }] },
+      data: {
+        resource_id: 'res-1', job_id: 'job-1',
+        installation: { status: 'confirmed', actual_port: 9100, confirmed_by: 'ops', notes: '', confirmed_at: null },
+      },
     })
-
-    const res = await scrapeJobApi.previewTargets(3)
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/3/preview-targets')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(res.data.targets.length).toBe(2)
+    const res = await scrapeJobApi.confirmInstance('job-1', 'res-1', { confirmed_by: 'ops', actual_port: 9100 })
+    expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/job-1/instances/res-1/confirm')
+    expect(res.data).toMatchObject({ resource_id: 'res-1', scrape_job_id: 'job-1', status: 'confirmed' })
   })
 })

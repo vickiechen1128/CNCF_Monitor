@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen, fireEvent } from '@testing-library/react'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { InstanceSelector } from './InstanceSelector'
 import type { InstanceCandidate } from '../../types/strategy'
@@ -18,6 +18,10 @@ function cand(resource_id: string, status: string, disabled = false): InstanceCa
 
 beforeEach(() => {
   candidatesMock.mockReset()
+})
+
+afterEach(() => {
+  cleanup()
 })
 
 describe('InstanceSelector', () => {
@@ -111,7 +115,7 @@ describe('InstanceSelector', () => {
 
     const { unmount } = render(<InstanceSelector monitorType="mysql" networkDomainId="mc-a" selectedIds={[]} onChange={() => {}} />)
     await screen.findByText('inst-a')
-    expect(screen.getByText('IP')).toBeInTheDocument()
+    expect(screen.getAllByText('IP').length).toBeGreaterThan(0)
     unmount()
 
     candidatesMock.mockResolvedValue({
@@ -128,6 +132,6 @@ describe('InstanceSelector', () => {
       />,
     )
     await screen.findByText('inst-api-1')
-    expect(screen.getByText('探测地址')).toBeInTheDocument()
+    expect(screen.getAllByText('探测地址').length).toBeGreaterThan(0)
   })
 })

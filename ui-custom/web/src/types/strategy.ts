@@ -18,10 +18,11 @@ export type InstanceSelectionMode = 'manual' | 'filter'
 
 /** 采集任务 */
 export interface ScrapeJob {
-  id: number
+  id: string
   job_name: string
   job_type: JobType
   resource_type: string
+  resource_category?: string
   monitor_type: string
   exporter_template_id?: string
   network_domain_id: string
@@ -52,7 +53,13 @@ export interface ScrapeJob {
   /** 参数继承映射快照可覆盖项（§5.4，UI「参数同步」列概览） */
   mapping_overrides?: ScrapeJobMappingOverride[]
   draft_status: string
-  change_status: ChangeStatus
+  change_status?: ChangeStatus
+  /** v3 同步状态（/api/v3；页面以 aggregateJobStatus 优先消费）。 */
+  sync?: { status: 'draft' | 'pending' | 'syncing' | 'synced' | 'failed'; version: string; error: string; synced_at: string | null }
+  exporter_template_name?: string
+  network_domain_name?: string
+  label_template_name?: string
+  credential_configured?: boolean
   enabled: boolean
   created_at: string
   updated_at: string
@@ -207,7 +214,7 @@ export type InstallationStatus = 'unconfirmed' | 'confirmed' | 'not_applicable'
 /** Exporter 安装确认记录（PK=(resource_id, scrape_job_id)，§6.2.5 / §8 ④） */
 export interface ExporterInstallationRecord {
   resource_id: string
-  scrape_job_id: number
+  scrape_job_id: string
   exporter_template_id?: string
   status: InstallationStatus
   confirmed_by?: string

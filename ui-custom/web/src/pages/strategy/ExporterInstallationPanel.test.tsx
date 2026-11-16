@@ -38,7 +38,7 @@ describe('ExporterInstallationPanel', () => {
   setupAntdTest()
 
   it('shows guidance alert when no jobId', () => {
-    render(<ExporterInstallationPanel jobId={0} />)
+    render(<ExporterInstallationPanel jobId="" />)
     expect(screen.getByText('保存采集任务后可进行 Exporter 安装确认')).toBeInTheDocument()
   })
 
@@ -54,7 +54,7 @@ describe('ExporterInstallationPanel', () => {
       },
     })
 
-    render(<ExporterInstallationPanel jobId={1} />)
+    render(<ExporterInstallationPanel jobId="1" />)
 
     expect(await screen.findByText('inst-a')).toBeInTheDocument()
     expect(screen.getByText('待确认')).toBeInTheDocument()
@@ -80,12 +80,12 @@ describe('ExporterInstallationPanel', () => {
       })
     confirmMock.mockResolvedValue({ status: 'success', data: { resource_id: 'a', scrape_job_id: 1, status: 'confirmed' } })
 
-    render(<ExporterInstallationPanel jobId={1} />)
+    render(<ExporterInstallationPanel jobId="1" />)
 
     const btn = await screen.findByRole('button', { name: /确认安装/ })
     btn.click()
 
-    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(1, 'a', { confirmed_by: 'platform_admin' }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith('1', 'a', { confirmed_by: 'platform_admin' }))
   })
 
   it('已确认下发时回显实例采集状态汇总（在线/待采集）+ down 行提示文案', async () => {
@@ -106,7 +106,7 @@ describe('ExporterInstallationPanel', () => {
       ]),
     )
 
-    render(<ExporterInstallationPanel jobId={1} jobName="j" deployed />)
+    render(<ExporterInstallationPanel jobId="1" jobName="j" deployed />)
 
     expect(await screen.findByText('在线 1')).toBeInTheDocument()
     expect(screen.getByText(/实例总数 2/)).toBeInTheDocument()
@@ -127,7 +127,7 @@ describe('ExporterInstallationPanel', () => {
         total: 1,
       },
     })
-    render(<ExporterInstallationPanel jobId={1} jobName="j" deployed={false} />)
+    render(<ExporterInstallationPanel jobId="1" jobName="j" deployed={false} />)
     expect(await screen.findByText('待采集')).toBeInTheDocument()
     expect(queryMock).not.toHaveBeenCalled()
   })

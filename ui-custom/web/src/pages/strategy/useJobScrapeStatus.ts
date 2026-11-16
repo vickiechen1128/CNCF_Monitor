@@ -103,8 +103,8 @@ function aggregateProbeView(
  * 决策 47-2 + F-10：只读消费 M02 /api/v1/query（up 指标）；约 20s 自动刷新
  * （原型「在线 x / 总数 y」列的刷新节奏）。
  */
-export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record<number, JobScrapeStatusView> {
-  const [map, setMap] = useState<Record<number, JobScrapeStatusView>>({})
+export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record<string, JobScrapeStatusView> {
+  const [map, setMap] = useState<Record<string, JobScrapeStatusView>>({})
   const [tick, setTick] = useState(0)
 
   const jobsKey = jobs.map((j) => `${j.id}:${j.job_name}:${j.change_status}:${j.enabled}`).join('|')
@@ -118,7 +118,7 @@ export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record
   useEffect(() => {
     if (jobs.length === 0) return
     let active = true
-    const entries = jobs.map(async (job): Promise<[number, JobScrapeStatusView]> => {
+    const entries = jobs.map(async (job): Promise<[string, JobScrapeStatusView]> => {
       const deployed = job.change_status === 'deployed' && job.enabled !== false
       // 拨测 Job（F-12）：无实例维度，按 preview-targets 解析出的拨测目标 + 中心 probe_success
       // 聚合探测结果。preview-targets 与生成侧同源（同一 selected_instance_ids + target_field
@@ -162,7 +162,7 @@ export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record
     // 全部 Job 聚合完成后一次性回写，避免逐条 setState 抖动
     void Promise.all(entries).then((results) => {
       if (!active) return
-      const next: Record<number, JobScrapeStatusView> = {}
+      const next: Record<string, JobScrapeStatusView> = {}
       results.forEach(([id, view]) => {
         next[id] = view
       })

@@ -16,7 +16,7 @@ const INSTALL_STATUS_MAP: Record<InstallationStatus, { label: string; status: 's
 
 interface ExporterInstallationPanelProps {
   /** 采集 Job id（已保存后展示安装确认；新建未保存时为 0/空） */
-  jobId: number
+  jobId: string
   /** Job 名（决策 47-2：状态回显经 targetsApi.list({job}) 拉取；未传则不回显采集状态） */
   jobName?: string
   /** 变更是否已确认下发（change_status==deployed）；未下发时全部实例显「待采集」 */
