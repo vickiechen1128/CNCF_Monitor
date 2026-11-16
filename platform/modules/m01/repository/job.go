@@ -33,6 +33,7 @@ type JobRepository interface {
 	CountByNetworkDomain(ctx context.Context, domainID string) (int64, error)
 	CountByProbeModule(ctx context.Context, name string) (int64, error)
 	CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error)
+	ListActiveNames(ctx context.Context) ([]string, error)
 }
 
 // GORMJobRepository is the GORM-backed implementation.
@@ -174,6 +175,15 @@ func (r *GORMJobRepository) CountByMapping(ctx context.Context, monitorType, exp
 		Where("monitor_type = ? AND exporter_template_id = ?", monitorType, exporterTemplateID).
 		Count(&count).Error
 	return count, err
+}
+
+// ListActiveNames returns ready+enabled job names (the rule job-reference set).
+func (r *GORMJobRepository) ListActiveNames(ctx context.Context) ([]string, error) {
+	var names []string
+	err := r.db.WithContext(ctx).Model(&jobRecord{}).
+		Where("draft_status = ? AND enabled = ?", string(domain.DraftStatusReady), true).
+		Order("job_name ASC").Pluck("job_name", &names).Error
+	return names, err
 }
 
 // CountByProbeModule counts jobs that reference a blackbox module by name.

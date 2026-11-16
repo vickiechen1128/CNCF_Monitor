@@ -12,7 +12,7 @@ import "github.com/gin-gonic/gin"
 //
 // Pending: /monitoring-rules (B5), /metric-library, /business-metrics and
 // /blackbox-modules (B6).
-func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler) {
 	exporterGroup := platform.Group("/exporter-templates")
 	{
 		exporterGroup.GET("", exporters.List)
@@ -44,5 +44,16 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroup.POST("/:id/instances/:resource_id/confirm", jobs.ConfirmInstallation)
 		jobGroup.DELETE("/:id/instances/:resource_id/confirm", jobs.DeleteInstallation)
 		jobGroup.POST("/:id/preview-targets", jobs.Preview)
+	}
+
+	ruleGroup := platform.Group("/monitoring-rules")
+	{
+		ruleGroup.GET("", rules.List)
+		ruleGroup.POST("", rules.Create)
+		// Static route before :id.
+		ruleGroup.POST("/validate", rules.Validate)
+		ruleGroup.GET("/:id", rules.Get)
+		ruleGroup.PUT("/:id", rules.Update)
+		ruleGroup.DELETE("/:id", rules.Delete)
 	}
 }

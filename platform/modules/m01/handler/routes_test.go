@@ -44,6 +44,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	exporters := repository.NewExporterTemplateRepository(gormDB)
 	mappings := repository.NewMappingRepository(gormDB)
 	jobs := repository.NewJobRepository(gormDB)
+	rules := repository.NewRuleRepository(gormDB)
 	probes := repository.NewProbeModuleRepository(gormDB)
 	installations := repository.NewInstallationRepository(gormDB)
 	labelReader := references.NewLabelTemplateReader(gormDB)
@@ -53,6 +54,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		jobs, exporters, mappings, probes, installations,
 		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB), labelReader,
 	)
+	ruleSvc := service.NewRuleService(rules, jobs, exporters, nil)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -60,6 +62,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewExporterTemplateHandler(exporterSvc),
 		NewMappingHandler(mappingSvc),
 		NewJobHandler(jobSvc),
+		NewRuleHandler(ruleSvc),
 	)
 	return router, gormDB
 }
