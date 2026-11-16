@@ -10,12 +10,12 @@ import (
 )
 
 func TestNewModuleRequiresDatabase(t *testing.T) {
-	_, err := NewModule(nil)
+	_, err := NewModule(nil, Options{})
 	require.Error(t, err)
 }
 
 func TestModuleWiring(t *testing.T) {
-	module, err := NewModule(new(gorm.DB))
+	module, err := NewModule(new(gorm.DB), Options{})
 	require.NoError(t, err)
 	assert.Equal(t, "m01", module.Name())
 

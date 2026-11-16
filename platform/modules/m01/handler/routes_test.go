@@ -55,6 +55,9 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB), labelReader,
 	)
 	ruleSvc := service.NewRuleService(rules, jobs, exporters, nil)
+	metricSvc := service.NewMetricService(repository.NewMetricRepository(gormDB))
+	businessSvc := service.NewBusinessMetricService(repository.NewBusinessMetricRepository(gormDB))
+	probeSvc := service.NewProbeModuleService(probes, jobs)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -63,6 +66,9 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewMappingHandler(mappingSvc),
 		NewJobHandler(jobSvc),
 		NewRuleHandler(ruleSvc),
+		NewMetricHandler(metricSvc),
+		NewBusinessMetricHandler(businessSvc),
+		NewProbeModuleHandler(probeSvc),
 	)
 	return router, gormDB
 }

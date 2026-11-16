@@ -12,7 +12,7 @@ import "github.com/gin-gonic/gin"
 //
 // Pending: /monitoring-rules (B5), /metric-library, /business-metrics and
 // /blackbox-modules (B6).
-func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler) {
 	exporterGroup := platform.Group("/exporter-templates")
 	{
 		exporterGroup.GET("", exporters.List)
@@ -44,6 +44,33 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroup.POST("/:id/instances/:resource_id/confirm", jobs.ConfirmInstallation)
 		jobGroup.DELETE("/:id/instances/:resource_id/confirm", jobs.DeleteInstallation)
 		jobGroup.POST("/:id/preview-targets", jobs.Preview)
+	}
+
+	metricGroup := platform.Group("/metric-library")
+	{
+		metricGroup.GET("", metrics.List)
+		metricGroup.POST("", metrics.Create)
+		metricGroup.GET("/:id", metrics.Get)
+		metricGroup.PUT("/:id", metrics.Update)
+		metricGroup.DELETE("/:id", metrics.Delete)
+	}
+
+	businessGroup := platform.Group("/business-metrics")
+	{
+		businessGroup.GET("", business.List)
+		businessGroup.POST("", business.Create)
+		businessGroup.GET("/:id", business.Get)
+		businessGroup.PUT("/:id", business.Update)
+		businessGroup.DELETE("/:id", business.Delete)
+	}
+
+	probeGroup := platform.Group("/blackbox-modules")
+	{
+		probeGroup.GET("", probes.List)
+		probeGroup.POST("", probes.Create)
+		probeGroup.GET("/:id", probes.Get)
+		probeGroup.PUT("/:id", probes.Update)
+		probeGroup.DELETE("/:id", probes.Delete)
 	}
 
 	ruleGroup := platform.Group("/monitoring-rules")

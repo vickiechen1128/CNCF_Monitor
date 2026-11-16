@@ -92,7 +92,7 @@ func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (
 	r.Use(auth.AuthMiddleware(auth.NewService(auth.NewRepository(db.DB))))
 
 	apiV3 := r.Group("/api/v3")
-	m09Module, err := mountV3Modules(apiV3.Group("/platform"), apiV3.Group("/edge"), m06Opts)
+	m09Module, err := mountV3Modules(ctx, apiV3.Group("/platform"), apiV3.Group("/edge"), m06Opts)
 	if err != nil {
 		return nil, err
 	}
@@ -101,12 +101,6 @@ func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (
 	if err := m09Module.RegisterQueryRoutes(r.Group("/api/v1")); err != nil {
 		return nil, fmt.Errorf("m09: register query routes: %w", err)
 	}
-	// Start M09 background loops only for a cancellable (production) context;
-	// tests pass context.Background() (nil Done) to avoid stray goroutines.
-	if ctx != nil && ctx.Done() != nil {
-		m09Module.StartBackground(ctx)
-	}
-
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
 	if staticDir != "" {
 		if err := registerSPA(r, staticDir); err != nil {
@@ -120,7 +114,7 @@ func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (
 // mountV3Modules builds the v3 module registry and mounts every module under
 // the supplied platform group (expected prefix: /api/v3/platform). The edge
 // group (expected prefix: /api/v3/edge) receives M09's token-only protocol.
-func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.Module, error) {
+func mountV3Modules(ctx context.Context, platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.Module, error) {
 	registry := module.NewRegistry()
 	systemModule := system.NewModule(db.DB, system.Options{
 		Driver:  db.DBDriver(),
@@ -131,7 +125,7 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	}
 	// M01 is built first so M07 (label-template usage) and M09 (sync result
 	// sink) can receive its ports without importing M01.
-	m01Module, err := m01.NewModule(db.DB)
+	m01Module, err := m01.NewModule(db.DB, m01.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("register m01 v3 module: %w", err)
 	}
@@ -187,6 +181,12 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	}
 	if err := m09Module.RegisterEdgeRoutes(edge); err != nil {
 		return nil, fmt.Errorf("m09: register edge routes: %w", err)
+	}
+	// Start background loops only for a cancellable (production) context;
+	// tests pass context.Background() (nil Done) to avoid stray goroutines.
+	if ctx != nil && ctx.Done() != nil {
+		m09Module.StartBackground(ctx)
+		m01Module.StartBackground(ctx)
 	}
 	log.Printf(">>> v3 modules: %v", registry.Names())
 	return m09Module, nil

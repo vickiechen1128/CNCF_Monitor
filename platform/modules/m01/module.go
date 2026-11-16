@@ -7,7 +7,9 @@
 package m01
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -31,6 +33,12 @@ type Repositories struct {
 	ProbeModules    repository.ProbeModuleRepository
 }
 
+// Options carries M01 background-loop tuning.
+type Options struct {
+	// ReconcileInterval is the D40 pull interval (default 60s).
+	ReconcileInterval time.Duration
+}
+
 // Module wires M01 v3 repositories, services and handlers.
 type Module struct {
 	repos          Repositories
@@ -38,13 +46,17 @@ type Module struct {
 	mappings       *handler.MappingHandler
 	jobs           *handler.JobHandler
 	rules          *handler.RuleHandler
+	metrics        *handler.MetricHandler
+	business       *handler.BusinessMetricHandler
+	probes         *handler.ProbeModuleHandler
 	labelTemplates service.LabelTemplateResolver
 	labelUsage     *references.LabelTemplateUsageChecker
 	syncSink       *references.SyncSink
+	reconcile      *service.ReconcileService
 }
 
 // NewModule constructs the M01 v3 module.
-func NewModule(db *gorm.DB) (*Module, error) {
+func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	if db == nil {
 		return nil, fmt.Errorf("m01: database is required")
 	}
@@ -69,6 +81,10 @@ func NewModule(db *gorm.DB) (*Module, error) {
 		references.NewResourceReader(db), references.NewDomainReader(db), labelReader,
 	)
 	ruleSvc := service.NewRuleService(repos.Rules, repos.Jobs, repos.Exporters, service.NewPromtoolChecker())
+	metricSvc := service.NewMetricService(repos.Metrics)
+	businessSvc := service.NewBusinessMetricService(repos.BusinessMetrics)
+	probeSvc := service.NewProbeModuleService(repos.ProbeModules, repos.Jobs)
+	reconcileSvc := service.NewReconcileService(repos.Jobs, references.NewResourceReader(db), opts.ReconcileInterval)
 
 	return &Module{
 		repos:          repos,
@@ -76,9 +92,13 @@ func NewModule(db *gorm.DB) (*Module, error) {
 		mappings:       handler.NewMappingHandler(mappingSvc),
 		jobs:           handler.NewJobHandler(jobSvc),
 		rules:          handler.NewRuleHandler(ruleSvc),
+		metrics:        handler.NewMetricHandler(metricSvc),
+		business:       handler.NewBusinessMetricHandler(businessSvc),
+		probes:         handler.NewProbeModuleHandler(probeSvc),
 		labelTemplates: labelReader,
 		labelUsage:     labelUsage,
 		syncSink:       syncSink,
+		reconcile:      reconcileSvc,
 	}, nil
 }
 
@@ -88,7 +108,7 @@ func (m *Module) Name() string { return "m01" }
 // RegisterRoutes mounts M01 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules)
+	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules, m.metrics, m.business, m.probes)
 	return nil
 }
 
@@ -108,3 +128,11 @@ func (m *Module) LabelTemplateUsageChecker() *references.LabelTemplateUsageCheck
 // SyncResultSink exposes the M09 writeback port. M09 calls it after generating
 // a domain snapshot so jobs can move from pending to synced/failed.
 func (m *Module) SyncResultSink() *references.SyncSink { return m.syncSink }
+
+// StartBackground launches M01 maintenance loops (D40 reconciliation). It is
+// called only for a cancellable production context.
+func (m *Module) StartBackground(ctx context.Context) {
+	if m.reconcile != nil {
+		go m.reconcile.Run(ctx)
+	}
+}

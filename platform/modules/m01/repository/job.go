@@ -34,6 +34,7 @@ type JobRepository interface {
 	CountByProbeModule(ctx context.Context, name string) (int64, error)
 	CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error)
 	ListActiveNames(ctx context.Context) ([]string, error)
+	ListAll(ctx context.Context) ([]*domain.Job, error)
 }
 
 // GORMJobRepository is the GORM-backed implementation.
@@ -165,6 +166,19 @@ func (r *GORMJobRepository) CountByNetworkDomain(ctx context.Context, domainID s
 	err := r.db.WithContext(ctx).Model(&jobRecord{}).
 		Where("network_domain_id = ?", domainID).Count(&count).Error
 	return count, err
+}
+
+// ListAll returns every live job (used by the D40 reconciliation loop).
+func (r *GORMJobRepository) ListAll(ctx context.Context) ([]*domain.Job, error) {
+	var recs []jobRecord
+	if err := r.db.WithContext(ctx).Order("job_name ASC").Find(&recs).Error; err != nil {
+		return nil, err
+	}
+	out := make([]*domain.Job, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, rec.toDomain())
+	}
+	return out, nil
 }
 
 // CountByMapping counts jobs that inherited a mapping (same monitor type and

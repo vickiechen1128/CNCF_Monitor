@@ -290,7 +290,7 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	// v2.0 v3 API: mounted alongside legacy /api/v2 during the transition.
 	// M07 与 system 通过模块注册表装配，模块边界与 v3-only 启动保持一致。
 	apiV3 := r.Group("/api/v3")
-	if _, err := mountV3Modules(apiV3.Group("/platform"), apiV3.Group("/edge"), m06.Options{
+	if _, err := mountV3Modules(context.Background(), apiV3.Group("/platform"), apiV3.Group("/edge"), m06.Options{
 		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
 		PromURL: promURL,
 	}); err != nil {
