@@ -19,8 +19,9 @@ const (
 	CloudCarrierMobile  CloudCarrier = "CM"
 )
 
-// CloudDict 是部署级只读云字典。CloudCode 是不可变的复合编码，资源与 cloud
-// label 仅引用该编码；CloudType 和 Carrier 只用于描述条目。
+// CloudDict 是部署级云字典条目。CloudCode 是不可变的复合编码，资源与 cloud
+// label 仅引用该编码；CloudType 和 Carrier 只用于描述条目。v2 为只读预置；
+// v3 由 M06 提供 admin 只增维护（新增 / 停用，D37）。
 type CloudDict struct {
 	BaseModel
 	CloudCode   string       `gorm:"size:50;not null;uniqueIndex:idx_cloud_dict_code" json:"cloud_code"`
