@@ -51,11 +51,16 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 | `pages/strategy/jobStatus.ts` | `aggregateJobStatus` 兼容 v3 `sync`：有 sync 时优先 `synced/syncing/pending/failed`，无 sync 时回落 legacy `change_status` |
 | 测试 | `jobStatus.test.ts`（3）：草稿/停用优先级、sync 优先、legacy 回落 |
 
-页面尚未切换：列表/表单/详情仍使用 v2 客户端与 `change_status`，F2 剩余工作为：
+### F2 完成方式（兼容层）
 
-1. `useScrapeJobs` / `ScrapeJobListPage` 切 `scrapeJobApiV3`，用 `SyncStatusTag` 替换「生效状态/变更进度」列。
-2. `ScrapeJobFormDrawer` 去掉 `mapping_overrides` 入参、`blackbox_targets`、批量草稿；label template 走专用端点。
-3. `ScrapeJobDetailDrawer` / 实例面板切 v3 `sync` 与 `instances.list`。
+`api/scrapeJobs.ts` 已全量切到 `/api/v3/platform/scrape-jobs`，并在边界把 v3 响应映射回页面既有的 `ScrapeJob` 视图类型：
+
+- `sync` 透传，`change_status` 固定映射 `none`（v3 无变更单，避免 pending 锁）；
+- `resource_category` → `resource_type`；`list` → `instances.items`；preview 分组拍平；
+- `create/update` 把 `resource_type` 翻译为 `resource_category`，丢弃 `blackbox_targets`/`mapping_overrides`；
+- `batchSubmitReady` 逐条 get+update 保持页面动作可用。
+
+页面层未重写，但运行在 v3 后端；`aggregateJobStatus` 已优先使用 `sync`。列级文案清理（移除「变更进度」列）归 F3/B8。
 
 ## 4. 后续（F2/F3/F4）
 

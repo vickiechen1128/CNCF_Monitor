@@ -454,7 +454,8 @@ tasks:
 
   - id: T01-F2
     title: "采集 Job 页面：列表/表单/详情 + 同步状态"
-    status: todo
+    status: done
+    evidence: "scrapeJobs API 全量切 v3（list/create/update/remove/candidates/instances/confirm/preview/batch），页面经兼容层使用 v3；sync 状态接入 jobStatus；strategy 目录 169 tests 通过"
     depends_on: [T01-F1, T01-B3-3]
     cross_module: [web]
     schema_change: none
