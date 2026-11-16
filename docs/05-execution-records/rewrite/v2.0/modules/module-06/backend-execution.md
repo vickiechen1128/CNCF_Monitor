@@ -363,3 +363,51 @@ M06 v3 代码、迁移、测试、契约与交接文档已完成；上线前仍�
 2. 按 NFR-10 做一次首屏压测；
 3. M09 v3 落地后注入真实 `MonitoringRetirer`；
 4. 前端按 v3 契约改造后联调。
+
+---
+
+## 11. D37 云字典只增维护
+
+### 11.1 变更清单
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B7-1 | `platform/modules/m06/domain/cloud_dict.go` | 云字典领域模型；复合码 `{类型}-{载体}` 正则与类型/载体一致性校验 |
+| B7-2 | `platform/modules/m06/repository/cloud_dict_repository.go` | 读表、引用计数、创建；唯一键竞态映射 409 |
+| B7-3 | `platform/modules/m06/service/cloud_dict_service.go` | 新增 / 停用规则：重复 409、引用中停用 409、停用幂等 |
+| B7-4 | `platform/modules/m06/dto/cloud_dict.go`、`platform/modules/m06/handler/cloud_dict_handler.go` | 严格解码请求；`POST` / `PUT` 响应复用 M07 读视图字段 |
+| B7-5 | `platform/modules/m06/handler/routes.go`、`platform/modules/m06/module.go` | 写路由挂 `RequireAdmin`；装配 service/handler；不重复注册 `GET` |
+| B7-6 | `platform/db/seed/cloud_dict.go` | seed 只对齐名称/类型/载体/描述，不覆盖已有条目的 `enabled` |
+
+### 11.2 契约口径
+
+- `POST /api/v3/platform/cloud-dict`：`cloud_code` 必须是 `{cloud_type}-{carrier}` 且二者一致；`cloud_name` 必填；新条目 `enabled=true`；重复 409。
+- `PUT /api/v3/platform/cloud-dict/:cloud_code`：仅接受 `{"enabled": false}`；`enabled=true` 或缺省 → 400；停用幂等；被未删除网域引用 → 409。
+- 读视图 `GET /api/v3/platform/cloud-dict` 仍由 M07 注册，M06 不重复挂载以免 Gin 重复路由 panic。
+- 普通用户只读；写操作由 `RequireAdmin` 兜底，user → 403。
+
+### 11.3 验证
+
+```text
+$ go test ./platform/modules/m06/... ./platform/modules/m07/... ./platform/db/seed/...
+ok
+
+$ go test ./platform/...
+ok
+
+$ go vet ./platform/...
+无输出
+```
+
+前端目标测试：`pnpm vitest run src/pages/admin/clouddict/CloudDictPage.test.tsx src/api/resources.test.ts`（43 passed）。
+
+v3 冒烟（`METRIC_CENTER_DB_MODE=v3` + 临时 SQLite）：admin 登录成功 → `GET /cloud-dict` 返回 `GM-CU/PUB-TX` → `POST IND-CM` 200 且默认启用 → `PUT enabled=false` 200 → `PUT enabled=true` 400 → 重复 `POST` 409。
+
+### 11.4 提交
+
+| commit | 内容 |
+|---|---|
+| `2309185` | `feat(module-06): 云字典 admin 只增维护（T06-B7）` |
+| `2176025` | `feat(module-07): 云字典读视图补充描述属性（T07-B3-3 / D37）` |
+| `04f8bbf` | `feat(module-06): 云字典 admin 维护页与 M09 采集状态注释对齐（T06-B7）` |
+| `c76458a` | `refactor(module-07): 移除 InstanceSelector 冗余依赖（lint）` |

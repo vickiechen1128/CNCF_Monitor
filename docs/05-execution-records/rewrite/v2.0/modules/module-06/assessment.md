@@ -195,8 +195,8 @@ platform/modules/m06/
 
 #### 字典端点
 
-- `/zone-types`、`/cloud-dict` 当前由 M07 v3 注册（只读）。M06 校验直接读表，**不重复注册**，避免 Gin duplicate route panic。
-- `zone-types` / `cloud-dict` 的模块归属在 v3.1 字典模块化时统一；本模块只依赖其数据。
+- `GET /zone-types`、`GET /cloud-dict` 由 M07 v3 注册（只读）；M06 校验直接读表，**不重复注册**，避免 Gin duplicate route panic。
+- D37 起云字典升级为 admin 只增维护：M06 注册 `POST /cloud-dict` 与 `PUT /cloud-dict/:cloud_code`（仅停用），读视图仍由 M07 提供；`zone-types` 的模块归属在 v3.1 字典模块化时统一。
 
 ### 4.3 鉴权与过渡期
 
@@ -351,6 +351,7 @@ FROM network_domains WHERE id = 'default';
 | v3 端到端 | 登录 → 建域授权 → M07 建资源 → 禁用拒绝 → 删除 409 → 删资源 → 删域成功 |
 | 鉴权 | 匿名 401、user 403、admin 全链路；禁用/删除用户后旧 token 401 |
 | 契约 | `api-contract-snapshot-v3.md` 冻结 |
+| 云字典（D37） | admin `POST` 新增 / `PUT` 停用、user 403、复合码校验、重复 409、引用中停用 409；seed 保留管理员停用状态 |
 | PostgreSQL | 未实测；`TestMigrateV3Postgres` 按 `METRIC_CENTER_TEST_POSTGRES_DSN` skip（open） |
 | NFR-10 压测 | 未执行（open） |
 
@@ -363,7 +364,7 @@ FROM network_domains WHERE id = 'default';
 | R1 | 00004 SQLite 约束收紧 | 迁移失败或资源外键悬空 | SQLite 采用触发器而非表重建（FK 安全）；B1-1 增加 Up/Down/重复/FK/触发器测试；PG 环境就绪后跑同构测试 |
 | R2 | PG 约束名依赖自动命名 | 迁移在 PG 失败 | 用 `DO` 块按 `pg_constraint` 查找并删除，不硬编码自动名 |
 | R3 | M09/M11 v3 未落地 | 删除级联清退无法端到端验收 | `MonitoringRetirer` 端口 + `monitoring_available=false`；M09 v3 接入后补集成测试 |
-| R4 | `/zone-types`、`/cloud-dict` 路由暂由 M07 注册 | 模块归属不清晰 | 本模块不重复注册；v3.1 字典模块化时迁移 |
+| R4 | `/zone-types` 读路由仍由 M07 注册；云字典 GET 由 M07、写接口在 M06（D37） | 模块归属不清晰 | M06 不重复注册读路由；云字典写接口已按 D37 落地；`zone-types` 在 v3.1 字典模块化时迁移 |
 | R5 | v3 前端尚未改造 | 契约变更无法前端联调 | B0-2 先冻结契约；前端按 `/api/v3` 新信封适配 |
 | R6 | 无 PostgreSQL 实例 | PG 迁移未实测 | 沿用 `METRIC_CENTER_TEST_POSTGRES_DSN` 门禁；未就绪时在评估中标记 open |
 | R7 | 租户授权双写 | 数据不一致 | `authorized_tenant_ids` 权威；租户侧仅派生；CoreV3 启动对账 + 测试 |

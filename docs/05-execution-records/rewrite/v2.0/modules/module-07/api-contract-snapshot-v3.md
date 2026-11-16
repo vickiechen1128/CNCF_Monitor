@@ -102,6 +102,8 @@
 | DELETE | `/api/v3/platform/resources/{resource_id}` | 软删 |
 | GET | `/api/v3/platform/resources/{resource_id}/referenced-by` | 引用 Job 反查 |
 
+> D40：资源删除仅软删台账；M01 内置周期对账（pull，默认 60s 可配置）发现实例失效后，从各 Job `selected_instance_ids` 回收。M07 **不反向依赖 M01**（无同步调用、无外键/触发器）；M01 v3 尚未落地，对账循环待实现。
+
 ### 3.1 列表 Query
 
 `resource_category`（必填）、`network_domain_id`、`biz_code`、`status`、`platform_code`、`app_code`、`keyword`、`page`、`page_size`。
@@ -174,11 +176,12 @@
 | GET | `/api/v3/platform/platform-dict` | 平台字典 |
 | POST | `/api/v3/platform/platform-dict` | 登记 |
 | PUT | `/api/v3/platform/platform-dict/{platform_code}` | 受限编辑 |
-| GET | `/api/v3/platform/cloud-dict` | 云字典（只读） |
+| GET | `/api/v3/platform/cloud-dict` | 云字典（只读；写接口在 M06，D37） |
 | GET | `/api/v3/platform/os-options` | OS 字典（只读） |
 | GET/POST/PUT/DELETE | `/api/v3/platform/app-platform-rel` | 应用↔平台关系 |
 
 - 字典编码不可变；停用不删除；写接口需鉴权。
+- 云字典读视图返回 `cloud_code / cloud_name / cloud_type / carrier / description / enabled`（`description` 为空时省略）；`cloud_type` / `carrier` 仅为描述属性，不独立成筛选维度 / label。D37 起新增与停用由 M06 提供（`POST` / `PUT`，admin），M07 不重复注册写路由。
 - `app-platform-rel` 同一 `app_code` 至多一个 `is_primary=true`。
 
 ---

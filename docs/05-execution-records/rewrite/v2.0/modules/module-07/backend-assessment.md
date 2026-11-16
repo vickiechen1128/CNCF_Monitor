@@ -165,8 +165,9 @@ platform/modules/m07/
   - `DELETE /resources/{resource_id}`
   - `GET /resources/{resource_id}/referenced-by`
 - 标签：`/resources/{resource_id}/labels`
-- 字典：`/business-domains`、`/application-dict`、`/platform-dict`、`/cloud-dict`、`/os-options`
+- 字典：`/business-domains`、`/application-dict`、`/platform-dict`、`/cloud-dict`（只读，写接口在 M06，D37）、`/os-options`
 - 导入：`/resources/import`、`/imports`、`/imports/{id}`
+- 删除回收（D40）：M07 只软删资源；M01 周期对账（pull，默认 60s）从 Job `selected_instance_ids` 回收失效实例。M07 不反向依赖 M01；M01 v3 未落地前，对账循环待实现。
 - 分页：默认 20、上限 100（对齐 `03_API_Standard`）。
 - 响应：统一 `{status,data,errorType,error}`；错误码 `bad_request` / `not_found` / `conflict`（判重）/ `forbidden` / `internal`。
 - 资源响应建议：公共字段 + `attributes` typed object（按 category），避免六套完全不同的顶层字段；最终以 B0-2 契约为准。

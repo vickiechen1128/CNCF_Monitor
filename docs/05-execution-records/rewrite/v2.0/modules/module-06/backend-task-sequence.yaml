@@ -418,6 +418,23 @@ tasks:
     verify: ["make test-platform", "go vet ./platform/...", "go test ./platform/db/..."]
     commit_unit: "独立（docs / test）"
 
+  # B7 D37 云字典 admin 只增维护
+  - id: T06-B7
+    title: "云字典 admin 只增维护（D37）"
+    status: done
+    depends_on: [T06-B6-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "POST /cloud-dict：复合码 {类型}-{载体} 校验 + 全局唯一 + 默认启用"
+      - "PUT /cloud-dict/:cloud_code：仅接受 enabled=false；引用中停用 409；停用幂等"
+      - "读视图仍由 M07 GET /cloud-dict 承载，M06 不重复注册"
+      - "写路由挂 RequireAdmin；seed 不覆盖已有条目的 enabled"
+    acceptance: "admin 新增/停用闭环；user 403；复合码/重复/引用冲突错误码符合契约"
+    verify: ["go test ./platform/modules/m06/... ./platform/modules/m07/... ./platform/db/seed/...", "go test ./platform/...", "go vet ./platform/..."]
+    commit_unit: "独立（feat + test）"
+
 # -----------------------------------------------------------------------------
 # 关键依赖与排序
 # -----------------------------------------------------------------------------
@@ -427,6 +444,7 @@ tasks:
 #                                        └→ B4-1 → B4-2 → B4-3 → B4-4
 #                                        └→ B5-1 → B5-2
 # B3-5 + B4-4 + B5-2 → B6-1 → B6-2 → B6-3
+# B6-3 → B7（D37 云字典只增维护）
 #
 # 可并行：B3 / B4 / B5 在 B2-1 完成后互相独立；M07 解耦（B1-3）可与 B2 并行。
 # 不建议并行：B1-1/B1-2 与 B2 的 schema/seed 依赖；B6-1 必须最后。

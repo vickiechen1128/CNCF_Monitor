@@ -294,6 +294,7 @@ m09 同时挂载两个路由组：`platform`（用户鉴权）与 `edge`（Token
 | D27 | 边缘协议 | 前缀 `/api/v3/edge/*`；仅 Token 鉴权，不挂用户 AuthMiddleware；协议版本 v1，与 agent `internal/contract` 共享 DTO |
 | D28 | 查询隔离（单维度） | `/api/v1/*` 代理与 targets/coverage 服务端按租户解析授权网域集（D17），只注入 `network_domain` 一个标签匹配器；不注入 `tenant`（数据面无此标签）；无 bypass；越权/未打标数据返回空。与 SRS NFR-08「双重」措辞冲突，以此为准，PRD 由 owner 回填 |
 | D29 | Token 存储 | 只存 `sha256(token)` + 脱敏值；明文仅在签发/重置响应返回一次；重置/废止立即生效 |
+| D39 | Token 仅存哈希（收紧 NFR-07） | 数据库只存 `sha256(token)` 哈希；明文仅在纳管成功 / 重置响应完整展示一次；任何接口与日志不返回明文；校验按哈希比对。现有实现（`domain.GenerateToken/HashToken/TokenMatches`、`network_domain_access.token_hash/token_masked`）已符合，无需代码改动 |
 | D30 | 清理策略 | 心跳历史保留 7 天（可配）自动清理；target 快照在资源删除/Job 清空/退纳管/域删除时同步清理 |
 | D31 | M08 边界 | `alertmanager.yml` 由 M08 生成，M09 仅快照留存与（中心域）分发，不扇出边缘 |
 

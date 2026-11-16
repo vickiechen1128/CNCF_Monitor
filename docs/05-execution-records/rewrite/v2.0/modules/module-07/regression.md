@@ -62,3 +62,12 @@
 - 审计日志表 `resource_audit_logs` 已建，但写链路尚未接入（B6-3 记录为遗留）。
 - v3 资源导入的声明 sheet 已支持落库；跨模块字典写入仍复用 M00/M06 表。
 - 旧 v2 与 v3 并行窗口：v2.0 发布后保留一个版本，再删除旧包。
+
+---
+
+## 5. D37 / D40 增量（2026-11-16）
+
+| 项 | 处置 | 覆盖 |
+|---|---|---|
+| 云字典读视图 | `GET /api/v3/platform/cloud-dict` 补 `cloud_type` / `carrier` / `description`；新增/停用由 M06 承载（D37） | `dictionary/service_test.go`、`handler/routes_test.go` |
+| 资源删除回收 | M07 仅软删资源；M01 周期对账（pull，默认 60s）从 Job `selected_instance_ids` 回收失效实例，M07 不反向依赖 M01（D40）；M01 v3 对账循环待实现 | 契约快照 §3 |

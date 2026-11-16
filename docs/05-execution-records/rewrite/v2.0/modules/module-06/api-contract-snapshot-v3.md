@@ -32,7 +32,7 @@
 
 - 全局 `AuthMiddleware` 覆盖 `/api/v3/*`，匿名 → 401 `unauthorized`。
 - 网域 GET（列表/详情/影响面）仅要求登录。
-- 租户、用户、登录日志、网域写操作、存储日志全部挂 `RequireAdmin`，`user` 角色 → 403 `forbidden`。
+- 租户、用户、登录日志、网域写操作、云字典写操作、存储日志全部挂 `RequireAdmin`，`user` 角色 → 403 `forbidden`。
 - 过渡期登录：`POST /api/v3/platform/auth/login`（匿名）。
 
 ---
@@ -289,7 +289,66 @@ PATCH body：`{"status":"enabled"}` 或 `{"status":"disabled"}`。
 
 ---
 
-## 7. 旧 v2 → 新 v3 差异
+## 7. 云字典（D37）
+
+> 读视图由 M07 承载：`GET /api/v3/platform/cloud-dict`（见 M07 契约 §5）。M06 只注册写接口，避免同一 Gin group 重复注册 `GET`。
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | `/cloud-dict` | admin | 新增云字典条目 |
+| PUT | `/cloud-dict/:cloud_code` | admin | 仅停用（`enabled=false`） |
+
+### 7.1 视图
+
+```json
+{
+  "cloud_code": "IND-CM",
+  "cloud_name": "行业云（移动）",
+  "cloud_type": "IND",
+  "carrier": "CM",
+  "description": "可选",
+  "enabled": true
+}
+```
+
+- `cloud_code` 是 `{cloud_type}-{carrier}` 复合码，也是 `cloud` label 的唯一取值来源；
+- `cloud_type` / `carrier` 仅为描述属性，不独立成筛选维度 / label。
+
+### 7.2 新增
+
+```json
+{
+  "cloud_code": "IND-CM",
+  "cloud_name": "行业云（移动）",
+  "cloud_type": "IND",
+  "carrier": "CM",
+  "description": "新增云"
+}
+```
+
+- `cloud_code` 必填，格式 `^(PUB|GM|IND|PRI)-(TX|CU|CM)$`；前缀/后缀必须与 `cloud_type` / `carrier` 一致，否则 400；
+- `cloud_name` 必填、trim 后非空、≤100；`description` ≤500；
+- `cloud_code` 全局唯一；重复创建 → 409 `conflict`（并发唯一键竞态同样映射 409）；
+- 新条目固定 `enabled=true`；严格解码拒绝 `enabled` / 其他未知字段 → 400。
+
+### 7.3 停用
+
+请求体仅接受 `{"enabled": false}`：
+
+- `enabled=true` 或缺省 → 400；不提供改名 / 改类型 / 改载体 / 删除接口；
+- 重复停用幂等 → 200；
+- 被未删除网域引用 → 409 `conflict`，错误文案包含引用数量；
+- 未知编码 → 404 `not_found`。
+
+### 7.4 不变量
+
+- `cloud_code`、`cloud_type`、`carrier` 创建后不可变；停用不删除历史条目；
+- 普通用户只读；写接口由 `RequireAdmin` 兜底；
+- seed 不覆盖已有条目的 `enabled`，避免服务重启把管理员停用的条目重新启用。
+
+---
+
+## 8. 旧 v2 → 新 v3 差异
 
 | 能力 | v2 | v3 |
 |---|---|---|
@@ -303,10 +362,11 @@ PATCH body：`{"status":"enabled"}` 或 `{"status":"disabled"}`。
 | 登录日志 | username/success | + `start_time`/`end_time`，不返回 message |
 | 存储日志 | `/api/v2/platform/storage-logs*` | 同语义迁入 m06/storage，Options 注入 |
 | 鉴权 | 全局 AuthMiddleware + RequireAdmin | 同左；网域 GET 登录即可，写操作 admin |
+| 云字典 | v2 无维护入口（随部署预置、只读） | admin 只增维护：`POST` 新增、`PUT` 停用；读视图仍由 M07 提供（D37） |
 
 ---
 
-## 8. 冻结字段与不变量
+## 9. 冻结字段与不变量
 
 - 网域：`id`、`tenant_id`、`cloud_code`、`domain_type` 创建后不可变；
 - 用户：`id`、`tenant_id`、`username` 创建后不可变；

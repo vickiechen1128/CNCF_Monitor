@@ -46,7 +46,7 @@
 | NFR-04 | 配置生成/校验/切换原子幂等；失败不覆盖 | T09-B5-2 | 单测：并发 per-domain 锁；失败保留 current | per-domain 互斥锁；校验通过才在事务内切换 is_current（先降旧再升新）；失败仅写 failed 快照；checksum 未变跳过 | partial |
 | NFR-05 | 历史只读，禁止接口恢复 | T09-B5-3 | grep：无 rollback/restore 端点 | 路由扫描单测断言无 confirm/rollback/restore/revalidate/discard/deployments；仅提供 GET 只读端点 | done |
 | NFR-06 | 心跳 7 天保留清理；快照随删除/退纳管/域删同步清理 | T09-B4-2 | 单测：清理 worker；级联清理 | CleanupHeartbeats(7d) 与退纳管级联清 target/config 快照单测通过；bootstrap 维护循环已接线（1 分钟） | done |
-| NFR-07 | Token 高强度随机；存哈希或明文仅校验；接口/日志不返回明文；重置废止立即生效 | T09-B3-2 / V1-2 | 单测 + grep 日志：sha256 存储；明文仅一次 | crypto/rand 32B hex（256 bit）+ sha256 存储；明文仅签发/重置响应；列表/详情无 token 字段；重置覆盖 hash（旧 Token 立即失效）；日志全量复审待 V1-2 | partial |
+| NFR-07 | Token 高强度随机；仅存 SHA-256 哈希；接口/日志不返回明文；重置废止立即生效 | T09-B3-2 / V1-2 | 单测 + grep 日志：仅哈希存储；明文仅一次 | crypto/rand 32B hex（256 bit）+ sha256 存储（D39）；明文仅签发/重置响应；列表/详情无 token 字段；重置覆盖 hash（旧 Token 立即失效）；代码审计确认日志无明文，V1-2 日志全量复测待执行 | partial |
 | NFR-08 | 查询与目标按网域隔离：服务端按当前租户解析授权网域集，注入 `network_domain` 标签约束；不注入 `tenant`；越权不可见 | T09-B6-1 / B6-2 / V1-1 | e2e：跨域数据不可见；断言未注入 tenant 匹配器 | targets/coverage/PromQL 全部按租户授权域过滤；注入 `network_domain_id`（D33）；tenant-a 越权域不可见；单测覆盖。跨域 e2e 待 V1-1 | partial |
 | NFR-09 | query 代理 P95 附加开销 ≤50ms；targets 禁止逐行查时序 | T09-B6-2 / V1-3 | 手工压测归档（未达标 open）；代码审查无逐行查询 | 代码审查：代理为单次转发 + 常量级字符串注入；targets/coverage 为集合 SQL，无逐行时序查询。P95 压测待 V1-3 | partial |
 | NFR-10 | UI 统一业务语言；技术术语仅折叠/注释/文档 | V1-2 | 契约快照文案 + 前端（本次不实施，登记 open） | | todo |
