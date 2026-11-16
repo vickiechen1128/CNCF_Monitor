@@ -50,12 +50,18 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	}
 
 	requireTableCount(t, sqlDB, "m07_label_templates", 1)
+	requireTableCount(t, sqlDB, "center_config_snapshots", 1)
 
 	// Up is idempotent: a second run must not fail or duplicate rows.
 	require.NoError(t, MigrateV3("sqlite", dsn), "second apply should be a no-op")
 	require.NoError(t, MigrateV3Status("sqlite", dsn), "status should be readable")
 
-	// 00007 is the latest; one Down drops the M07 label template table but
+	// 00008 is the latest; one Down drops the center rules snapshot table.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
+	requireTableCount(t, sqlDB, "center_config_snapshots", 0)
+	requireTableCount(t, sqlDB, "m07_label_templates", 1)
+
+	// 00007 is now the latest; one Down drops the M07 label template table but
 	// keeps every M00/M06/M07/M09/M01 table.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	requireTableCount(t, sqlDB, "m07_label_templates", 0)
@@ -293,11 +299,12 @@ func TestMigrateV3M06DomainAdministration(t *testing.T) {
 	}
 
 	// Down restores the historical constraint so legacy rows can be written
-	// again during a rollback window. 00007 is the latest migration, so the
-	// first Down drops the M07 label template table, the second drops the M01
-	// strategy tables, the third drops the M09 edge-platform tables, and the
-	// fourth rolls back 00004 and restores the old network_domains CHECK.
+	// again during a rollback window. 00008 is the latest migration, so the
+	// first Down drops the center rules snapshots, the second the M07 label
+	// template table, the third the M01 strategy tables, the fourth the M09
+	// edge-platform tables, and the fifth rolls back 00004.
 	require.NoError(t, sqlDB.Close())
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 edge platform migration")
@@ -438,8 +445,9 @@ func TestMigrateV3M09EdgePlatform(t *testing.T) {
 	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 
-	// --- Down: roll back 00007 (M07 label templates), 00006 (M01) and 00005
-	// only; M06 administrative data stays ---
+	// --- Down: roll back 00008 (center rules), 00007 (M07 label templates),
+	// 00006 (M01) and 00005 only; M06 administrative data stays ---
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 edge platform migration")
