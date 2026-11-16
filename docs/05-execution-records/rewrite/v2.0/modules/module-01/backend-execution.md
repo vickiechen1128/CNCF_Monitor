@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4a（M09 源接入与同步写回）
-> **状态**：B1 / B2 / B3 / B4a 完成（凭证加密、M09 中心规则、前端状态聚合待后续）
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4a（M09 源接入与同步写回）、B5a（监控规则 CRUD/校验）
+> **状态**：B1 / B2 / B3 / B4a / B5a 完成（凭证加密、M09 中心规则、前端状态聚合待后续）
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -253,11 +253,49 @@ targets/host-prod.json        -> 10.0.0.1:9100
 3. **Fingerprint 含全局拨测模块**：任一模版变更会触发所有域重算（checksum 不变时 M09 直接返回当前快照，不产生新版本）。
 4. **写回失败只记日志**：快照已发布，M01 状态可能短暂陈旧，下一次源变更会重试。
 
+
 ---
 
-## 8. 下一步
+## 8. B5a 变更与验证（监控规则 CRUD/校验）
 
-- **B5**：监控规则 CRUD/校验 + M09 中心规则产物与 reload（T01-B4-2 与 B5 合并）。
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B5-1 | `domain/rule.go` | YAML/groups 结构校验、组内唯一、组名列表、job 引用分级（`up` 存活类 error，其余 warning） |
+| B5-1 | `service/rule.go`、`service/promtool.go` | CRUD + validate；组名跨规则唯一（enabled+ready）；promtool 失败阻断、不可用降级 |
+| B5-1 | `dto/rule.go`、`handler/rule.go` | `/monitoring-rules` CRUD + `POST /validate`；response 含 group_count/rule_count/sync |
+| B5-1 | `repository/job.go` | `ListActiveNames`：全平台 ready+enabled Job 并集 |
+| B5 | `handler/rule_test.go` | CRUD、validate、组名冲突、逃生门、非法内容、strict JSON |
+
+### 8.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/modules/m01/...
+ok  .../m01
+ok  .../m01/domain
+ok  .../m01/handler
+ok  .../m01/references
+ok  .../m01/repository
+ok  .../m01/seed
+ok  .../m01/service
+
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+### 8.2 偏差与遗留
+
+1. **中心规则同步未做**（T01-B5-2 / T01-B4-2）：规则保存后 `sync.status=pending`，尚未生成中心 `rules.yml` 与 reload；`RecordRuleSync` 已就绪，等 M09 中心规则服务接入。
+2. **promtool 不可用降级**：`status=unavailable` 只提示不阻断；`failed` 阻断保存。测试环境通常为 unavailable。
+3. **字段化编辑未做**：`content_mode=structured` 返回 400（v0.3+）。
+4. **name 默认值**：为空时取首个 group 名，与旧实现一致。
+
+---
+
+## 9. 下一步
+
+- **B5-2 / B4-2**：M09 中心规则产物（`rules.yml`）+ reload + `RecordRuleSync` 回写；需新增中心规则快照表（migration）。
 - **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
 - **B4-4**：前端实例级采集状态聚合（M09 targets + 选中实例）。
-- schema 自 B2 起不变；后续如需中心规则快照表再增加 migration。
+- B6：指标库、业务指标、拨测模块、D40 对账循环。

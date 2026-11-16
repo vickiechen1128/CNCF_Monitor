@@ -312,7 +312,8 @@ tasks:
   # ---------------- B5 监控规则 + 中心规则同步 ----------------
   - id: T01-B5-1
     title: "规则 CRUD + 校验管线（FR-14/15，D36）"
-    status: todo
+    status: done
+    evidence: "规则 CRUD/validate + YAML/groups/组名全局唯一/jobref 分级/逃生门/promtool 状态已落地；handler 测试覆盖 CRUD、冲突、逃生门与非法内容"
     depends_on: [T01-B1-4]
     schema_change: none
     data_migration: none
