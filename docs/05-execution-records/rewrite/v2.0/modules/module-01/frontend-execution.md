@@ -48,6 +48,8 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 | `pages/strategy/syncStatus.ts` | v3 `sync.status` → 文案/颜色/说明；`aggregateJobSyncStatus` 处理草稿/停用/同步态 |
 | `pages/strategy/SyncStatusTag.tsx` | 同步状态 Tag；失败时 Tooltip 展示 M09 `sync.error` |
 | 测试 | `syncStatus.test.ts`（5）+ `SyncStatusTag.test.tsx`（3） |
+| `pages/strategy/jobStatus.ts` | `aggregateJobStatus` 兼容 v3 `sync`：有 sync 时优先 `synced/syncing/pending/failed`，无 sync 时回落 legacy `change_status` |
+| 测试 | `jobStatus.test.ts`（3）：草稿/停用优先级、sync 优先、legacy 回落 |
 
 页面尚未切换：列表/表单/详情仍使用 v2 客户端与 `change_status`，F2 剩余工作为：
 
