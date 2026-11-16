@@ -26,6 +26,7 @@ type MappingRepository interface {
 	Update(ctx context.Context, mapping *domain.Mapping) error
 	SoftDelete(ctx context.Context, id string) error
 	FindByMonitorTypeAndExporter(ctx context.Context, monitorType, exporterID string) (*domain.Mapping, bool, error)
+	DefaultByMonitorType(ctx context.Context, monitorType string) (*domain.Mapping, bool, error)
 	HasDefault(ctx context.Context, monitorType, excludeID string) (bool, error)
 	CountByExporterTemplate(ctx context.Context, exporterID string) (int64, error)
 	CountByLabelTemplate(ctx context.Context, labelTemplateID string) (int64, error)
@@ -138,6 +139,21 @@ func (r *GORMMappingRepository) FindByMonitorTypeAndExporter(ctx context.Context
 	var rec mappingRecord
 	err := r.db.WithContext(ctx).
 		Where("monitor_type = ? AND exporter_template_id = ?", monitorType, exporterID).
+		First(&rec).Error
+	if isNotFound(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return rec.toDomain(), true, nil
+}
+
+// DefaultByMonitorType returns the default mapping for a monitor type.
+func (r *GORMMappingRepository) DefaultByMonitorType(ctx context.Context, monitorType string) (*domain.Mapping, bool, error) {
+	var rec mappingRecord
+	err := r.db.WithContext(ctx).
+		Where("monitor_type = ? AND is_default = ?", monitorType, true).
 		First(&rec).Error
 	if isNotFound(err) {
 		return nil, false, nil

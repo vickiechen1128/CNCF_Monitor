@@ -35,6 +35,8 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
 		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status)
 			VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domain_access(domain_id,token_hash,registration_status)
+			VALUES ('mc-demo','hash','monitored')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -42,14 +44,22 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	exporters := repository.NewExporterTemplateRepository(gormDB)
 	mappings := repository.NewMappingRepository(gormDB)
 	jobs := repository.NewJobRepository(gormDB)
+	probes := repository.NewProbeModuleRepository(gormDB)
+	installations := repository.NewInstallationRepository(gormDB)
+	labelReader := references.NewLabelTemplateReader(gormDB)
 	exporterSvc := service.NewExporterTemplateService(exporters, mappings)
-	mappingSvc := service.NewMappingService(mappings, exporters, jobs, references.NewLabelTemplateReader(gormDB))
+	mappingSvc := service.NewMappingService(mappings, exporters, jobs, labelReader)
+	jobSvc := service.NewJobService(
+		jobs, exporters, mappings, probes, installations,
+		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB), labelReader,
+	)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
 	RegisterRoutes(group,
 		NewExporterTemplateHandler(exporterSvc),
 		NewMappingHandler(mappingSvc),
+		NewJobHandler(jobSvc),
 	)
 	return router, gormDB
 }

@@ -36,6 +36,7 @@ type Module struct {
 	repos          Repositories
 	exporters      *handler.ExporterTemplateHandler
 	mappings       *handler.MappingHandler
+	jobs           *handler.JobHandler
 	labelTemplates service.LabelTemplateResolver
 	labelUsage     *references.LabelTemplateUsageChecker
 }
@@ -60,11 +61,16 @@ func NewModule(db *gorm.DB) (*Module, error) {
 	labelUsage := references.NewLabelTemplateUsageChecker(db)
 	exporterSvc := service.NewExporterTemplateService(repos.Exporters, repos.Mappings)
 	mappingSvc := service.NewMappingService(repos.Mappings, repos.Exporters, repos.Jobs, labelReader)
+	jobSvc := service.NewJobService(
+		repos.Jobs, repos.Exporters, repos.Mappings, repos.ProbeModules, repos.Installations,
+		references.NewResourceReader(db), references.NewDomainReader(db), labelReader,
+	)
 
 	return &Module{
 		repos:          repos,
 		exporters:      handler.NewExporterTemplateHandler(exporterSvc),
 		mappings:       handler.NewMappingHandler(mappingSvc),
+		jobs:           handler.NewJobHandler(jobSvc),
 		labelTemplates: labelReader,
 		labelUsage:     labelUsage,
 	}, nil
@@ -76,7 +82,7 @@ func (m *Module) Name() string { return "m01" }
 // RegisterRoutes mounts M01 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.exporters, m.mappings)
+	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs)
 	return nil
 }
 
