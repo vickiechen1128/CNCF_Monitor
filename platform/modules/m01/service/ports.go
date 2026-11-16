@@ -1,20 +1,22 @@
 package service
 
-import "context"
+import (
+	"context"
 
-// LabelTemplateResolver resolves a label template id into its display name and
-// existence. M01 only reads templates owned by M07 (D-3); until that API lands
-// the default implementation accepts ids without verification.
+	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
+)
+
+// LabelTemplateResolver resolves a label template id into its read-only
+// projection. M01 only reads templates owned by M07 (D-3).
 type LabelTemplateResolver interface {
-	Resolve(ctx context.Context, id string) (name string, found bool, err error)
+	Resolve(ctx context.Context, id string) (domain.LabelTemplateRef, bool, error)
 }
 
 // NoopLabelTemplateResolver accepts any non-empty template id and returns an
-// empty name. It is the D-3 placeholder: FR-03 name/preview degrades until M07
-// exposes label templates in v3.
+// empty projection. It is the fallback when no M07 reader is wired.
 type NoopLabelTemplateResolver struct{}
 
 // Resolve implements LabelTemplateResolver.
-func (NoopLabelTemplateResolver) Resolve(context.Context, string) (string, bool, error) {
-	return "", true, nil
+func (NoopLabelTemplateResolver) Resolve(_ context.Context, id string) (domain.LabelTemplateRef, bool, error) {
+	return domain.LabelTemplateRef{ID: id}, true, nil
 }

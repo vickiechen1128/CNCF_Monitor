@@ -57,8 +57,9 @@ func TestValidateExporter(t *testing.T) {
 }
 
 func TestNoopLabelTemplateResolver(t *testing.T) {
-	name, found, err := NoopLabelTemplateResolver{}.Resolve(nil, "lt-1")
+	ref, found, err := NoopLabelTemplateResolver{}.Resolve(nil, "lt-1")
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Empty(t, name)
+	assert.Equal(t, "lt-1", ref.ID)
+	assert.Empty(t, ref.Name)
 }

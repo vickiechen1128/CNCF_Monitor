@@ -154,16 +154,20 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	if err := registry.Register(m06Module); err != nil {
 		return nil, err
 	}
-	m07Module, err := m07.NewModule(db.DB)
+	// M01 is built before M07 so its label-template usage checker can guard
+	// template deletion (M07 must not import M01).
+	m01Module, err := m01.NewModule(db.DB)
+	if err != nil {
+		return nil, fmt.Errorf("register m01 v3 module: %w", err)
+	}
+	m07Module, err := m07.NewModule(db.DB, m07.Options{
+		LabelTemplateUsage: m01Module.LabelTemplateUsageChecker(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("register m07 v3 module: %w", err)
 	}
 	if err := registry.Register(m07Module); err != nil {
 		return nil, err
-	}
-	m01Module, err := m01.NewModule(db.DB)
-	if err != nil {
-		return nil, fmt.Errorf("register m01 v3 module: %w", err)
 	}
 	if err := registry.Register(m01Module); err != nil {
 		return nil, err

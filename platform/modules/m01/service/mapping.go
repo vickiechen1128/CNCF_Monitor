@@ -173,14 +173,20 @@ func (s *MappingService) SetLabelTemplate(ctx context.Context, id, labelTemplate
 	labelTemplateID = strings.TrimSpace(labelTemplateID)
 	labelName := ""
 	if labelTemplateID != "" {
-		name, found, err := s.labels.Resolve(ctx, labelTemplateID)
+		ref, found, err := s.labels.Resolve(ctx, labelTemplateID)
 		if err != nil {
 			return nil, fmt.Errorf("resolve label template %q: %w", labelTemplateID, err)
 		}
 		if !found {
 			return nil, domain.NewValidationErrorf("label_template_id", "label template %q not found", labelTemplateID)
 		}
-		labelName = name
+		if expected, ok := domain.CategoryForMonitorType(existing.MonitorType); ok &&
+			ref.Category != "" && ref.Category != string(expected) {
+			return nil, domain.NewValidationErrorf("label_template_id",
+				"label template category %q does not match monitor type %q (%s)",
+				ref.Category, existing.MonitorType, expected)
+		}
+		labelName = ref.Name
 	}
 	existing.LabelTemplateID = labelTemplateID
 	if err := s.repo.Update(ctx, existing); err != nil {
@@ -260,9 +266,9 @@ func (s *MappingService) labelName(ctx context.Context, id string) (string, erro
 	if id == "" {
 		return "", nil
 	}
-	name, _, err := s.labels.Resolve(ctx, id)
+	ref, _, err := s.labels.Resolve(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("resolve label template %q: %w", id, err)
 	}
-	return name, nil
+	return ref.Name, nil
 }

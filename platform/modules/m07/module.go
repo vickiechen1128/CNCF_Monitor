@@ -13,16 +13,24 @@ import (
 	"gorm.io/gorm"
 )
 
+// Options carries optional cross-module ports for M07.
+type Options struct {
+	// LabelTemplateUsage guards label template deletion against M01 references.
+	// A nil checker means "not referenced" (tests / standalone wiring).
+	LabelTemplateUsage references.LabelTemplateUsageChecker
+}
+
 // Module wires M07 v3 repositories, services and handlers.
 type Module struct {
-	resources    *handler.ResourceHandler
-	dictionaries *handler.DictionaryHandler
-	labels       *handler.LabelHandler
-	imports      *handler.ImportHandler
+	resources      *handler.ResourceHandler
+	dictionaries   *handler.DictionaryHandler
+	labels         *handler.LabelHandler
+	imports        *handler.ImportHandler
+	labelTemplates *handler.LabelTemplateHandler
 }
 
 // NewModule constructs the M07 v3 module.
-func NewModule(db *gorm.DB) (*Module, error) {
+func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	if db == nil {
 		return nil, fmt.Errorf("m07: database is required")
 	}
@@ -38,12 +46,17 @@ func NewModule(db *gorm.DB) (*Module, error) {
 		dictionarySvc,
 	)
 	refs := references.NewGORMReader(db)
+	labelTemplateSvc := service.NewLabelTemplateService(
+		repository.NewLabelTemplateRepository(db),
+		opts.LabelTemplateUsage,
+	)
 
 	return &Module{
-		resources:    handler.NewResourceHandler(resourceSvc, refs),
-		dictionaries: handler.NewDictionaryHandler(dictionarySvc),
-		labels:       handler.NewLabelHandler(labelSvc),
-		imports:      handler.NewImportHandler(importSvc),
+		resources:      handler.NewResourceHandler(resourceSvc, refs),
+		dictionaries:   handler.NewDictionaryHandler(dictionarySvc),
+		labels:         handler.NewLabelHandler(labelSvc),
+		imports:        handler.NewImportHandler(importSvc),
+		labelTemplates: handler.NewLabelTemplateHandler(labelTemplateSvc),
 	}, nil
 }
 
@@ -53,6 +66,6 @@ func (m *Module) Name() string { return "m07" }
 // RegisterRoutes mounts M07 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.resources, m.dictionaries, m.labels, m.imports)
+	handler.RegisterRoutes(platform, m.resources, m.dictionaries, m.labels, m.imports, m.labelTemplates)
 	return nil
 }

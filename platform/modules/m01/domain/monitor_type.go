@@ -57,3 +57,23 @@ func ExporterSupportsMonitorType(monitorType string, supported []string) bool {
 	}
 	return false
 }
+
+// CategoryForMonitorType maps a fine-grained monitor type back to its coarse
+// M07 resource category. It lets M01 validate that a label template belongs to
+// the same category as the job/mapping.
+func CategoryForMonitorType(monitorType string) (ResourceCategory, bool) {
+	switch strings.TrimSpace(monitorType) {
+	case MonitorTypeHostLinux, MonitorTypeHostWindows, MonitorTypeNPU:
+		return CategoryHost, true
+	case MonitorTypeMySQL, MonitorTypeRedis:
+		return CategoryDatabase, true
+	case MonitorTypeKafka, MonitorTypeElasticsearch, MonitorTypeNginx:
+		return CategoryMiddleware, true
+	case MonitorTypeApplicationHTTP:
+		return CategoryApplication, true
+	case MonitorTypeSNMP:
+		return CategoryGenericTarget, true
+	default:
+		return "", false
+	}
+}

@@ -58,6 +58,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	labelSvc := service.NewLabelService(repository.NewGORMLabelRepository(gormDB), resourceRepo)
 	refs := references.NewGORMReader(gormDB)
 	importSvc := service.NewImportService(resourceRepo, repository.NewGORMImportRepository(gormDB), dictionarySvc, dictionarySvc)
+	labelTemplateSvc := service.NewLabelTemplateService(repository.NewLabelTemplateRepository(gormDB), nil)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -66,6 +67,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewDictionaryHandler(dictionarySvc),
 		NewLabelHandler(labelSvc),
 		NewImportHandler(importSvc),
+		NewLabelTemplateHandler(labelTemplateSvc),
 	)
 	return router, gormDB
 }

@@ -4,7 +4,7 @@ import "github.com/gin-gonic/gin"
 
 // RegisterRoutes mounts the M07 v3 HTTP API under the given platform group
 // (expected prefix: /api/v3/platform).
-func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dictionaries *DictionaryHandler, labels *LabelHandler, imports *ImportHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dictionaries *DictionaryHandler, labels *LabelHandler, imports *ImportHandler, labelTemplates *LabelTemplateHandler) {
 	resourceGroup := platform.Group("/resources")
 	{
 		resourceGroup.GET("", resources.List)
@@ -21,6 +21,15 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 			labelGroup.PUT("/:label_id", labels.Update)
 			labelGroup.DELETE("/:label_id", labels.Delete)
 		}
+	}
+
+	labelTemplateGroup := platform.Group("/label-templates")
+	{
+		labelTemplateGroup.GET("", labelTemplates.List)
+		labelTemplateGroup.POST("", labelTemplates.Create)
+		labelTemplateGroup.GET("/:id", labelTemplates.Get)
+		labelTemplateGroup.PUT("/:id", labelTemplates.Update)
+		labelTemplateGroup.DELETE("/:id", labelTemplates.Delete)
 	}
 
 	platform.GET("/business-domains", dictionaries.ListBusinessDomains)

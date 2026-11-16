@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	platformdb "github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/service"
 )
@@ -42,7 +43,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	mappings := repository.NewMappingRepository(gormDB)
 	jobs := repository.NewJobRepository(gormDB)
 	exporterSvc := service.NewExporterTemplateService(exporters, mappings)
-	mappingSvc := service.NewMappingService(mappings, exporters, jobs, nil)
+	mappingSvc := service.NewMappingService(mappings, exporters, jobs, references.NewLabelTemplateReader(gormDB))
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -184,11 +185,21 @@ func TestMappingCRUDAndGuards(t *testing.T) {
 	}`, mysqlID))
 	assert.Equal(t, http.StatusBadRequest, code, out)
 
-	// Label template has a dedicated endpoint; no-op resolver accepts the id.
+	// Label template has a dedicated endpoint and must belong to the mapping's
+	// resource category.
+	require.NoError(t, gormDB.Exec(`INSERT INTO m07_label_templates(id,name,resource_category)
+		VALUES ('lt-host','host-default','host')`).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO m07_label_templates(id,name,resource_category)
+		VALUES ('lt-db','db-default','database')`).Error)
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID+"/label-template",
+		`{"label_template_id":"lt-db"}`)
+	assert.Equal(t, http.StatusBadRequest, code, out, "category mismatch must be rejected")
+
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID+"/label-template",
 		`{"label_template_id":"lt-host"}`)
 	require.Equal(t, http.StatusOK, code, out)
 	assert.Equal(t, "lt-host", out["data"].(map[string]any)["label_template_id"])
+	assert.Equal(t, "host-default", out["data"].(map[string]any)["label_template_name"])
 
 	// Default mappings cannot be deleted.
 	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/ci-exporter-mappings/"+mappingID, "")

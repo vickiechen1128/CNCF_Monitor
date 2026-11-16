@@ -1,0 +1,87 @@
+package service
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	platformdb "github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
+)
+
+type fixedUsageChecker struct {
+	count int64
+}
+
+func (f fixedUsageChecker) CountReferences(context.Context, string) (int64, error) {
+	return f.count, nil
+}
+
+func newLabelTemplateService(t *testing.T, usage fixedUsageChecker) (*LabelTemplateService, *gorm.DB) {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), "m07_label_service.db")
+	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	repo := repository.NewLabelTemplateRepository(gormDB)
+	return NewLabelTemplateService(repo, usage), gormDB
+}
+
+func TestLabelTemplateDeleteGuardsReferences(t *testing.T) {
+	svc, _ := newLabelTemplateService(t, fixedUsageChecker{count: 2})
+	ctx := context.Background()
+
+	template, err := svc.Create(ctx, &domain.LabelTemplate{
+		Name:             "host-default",
+		ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+
+	err = svc.Delete(ctx, template.ID)
+	var conflict *domain.LabelTemplateConflictError
+	require.ErrorAs(t, err, &conflict)
+}
+
+func TestLabelTemplateDeleteUnreferenced(t *testing.T) {
+	svc, _ := newLabelTemplateService(t, fixedUsageChecker{})
+	ctx := context.Background()
+
+	template, err := svc.Create(ctx, &domain.LabelTemplate{
+		Name:             "host-default",
+		ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.Delete(ctx, template.ID))
+
+	_, err = svc.Get(ctx, template.ID)
+	var nf *domain.LabelTemplateNotFoundError
+	require.ErrorAs(t, err, &nf)
+}
+
+func TestLabelTemplateDefaultIsExclusive(t *testing.T) {
+	svc, _ := newLabelTemplateService(t, fixedUsageChecker{})
+	ctx := context.Background()
+
+	first, err := svc.Create(ctx, &domain.LabelTemplate{
+		Name: "host-a", ResourceCategory: domain.CategoryHost, IsDefault: true,
+	})
+	require.NoError(t, err)
+	second, err := svc.Create(ctx, &domain.LabelTemplate{
+		Name: "host-b", ResourceCategory: domain.CategoryHost, IsDefault: true,
+	})
+	require.NoError(t, err)
+
+	reloadedFirst, err := svc.Get(ctx, first.ID)
+	require.NoError(t, err)
+	assert.False(t, reloadedFirst.IsDefault)
+	reloadedSecond, err := svc.Get(ctx, second.ID)
+	require.NoError(t, err)
+	assert.True(t, reloadedSecond.IsDefault)
+}

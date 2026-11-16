@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m01/handler"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/service"
 )
@@ -32,9 +33,11 @@ type Repositories struct {
 
 // Module wires M01 v3 repositories, services and handlers.
 type Module struct {
-	repos     Repositories
-	exporters *handler.ExporterTemplateHandler
-	mappings  *handler.MappingHandler
+	repos          Repositories
+	exporters      *handler.ExporterTemplateHandler
+	mappings       *handler.MappingHandler
+	labelTemplates service.LabelTemplateResolver
+	labelUsage     *references.LabelTemplateUsageChecker
 }
 
 // NewModule constructs the M01 v3 module.
@@ -52,15 +55,18 @@ func NewModule(db *gorm.DB) (*Module, error) {
 		Installations:   repository.NewInstallationRepository(db),
 		ProbeModules:    repository.NewProbeModuleRepository(db),
 	}
-	// D-3: M07 exposes no v3 label-template API yet; the no-op resolver accepts
-	// ids and leaves display names empty until that lands.
+	// D-3 resolved: M07 now owns m07_label_templates; M01 reads it read-only.
+	labelReader := references.NewLabelTemplateReader(db)
+	labelUsage := references.NewLabelTemplateUsageChecker(db)
 	exporterSvc := service.NewExporterTemplateService(repos.Exporters, repos.Mappings)
-	mappingSvc := service.NewMappingService(repos.Mappings, repos.Exporters, repos.Jobs, nil)
+	mappingSvc := service.NewMappingService(repos.Mappings, repos.Exporters, repos.Jobs, labelReader)
 
 	return &Module{
-		repos:     repos,
-		exporters: handler.NewExporterTemplateHandler(exporterSvc),
-		mappings:  handler.NewMappingHandler(mappingSvc),
+		repos:          repos,
+		exporters:      handler.NewExporterTemplateHandler(exporterSvc),
+		mappings:       handler.NewMappingHandler(mappingSvc),
+		labelTemplates: labelReader,
+		labelUsage:     labelUsage,
 	}, nil
 }
 
@@ -76,3 +82,13 @@ func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
 
 // Repositories exposes the persistence adapters for later services and tests.
 func (m *Module) Repositories() Repositories { return m.repos }
+
+// LabelTemplateResolver exposes the read-only label template port for job
+// creation later (B3).
+func (m *Module) LabelTemplateResolver() service.LabelTemplateResolver { return m.labelTemplates }
+
+// LabelTemplateUsageChecker exposes the reference counter M07 injects to guard
+// label template deletion.
+func (m *Module) LabelTemplateUsageChecker() *references.LabelTemplateUsageChecker {
+	return m.labelUsage
+}
