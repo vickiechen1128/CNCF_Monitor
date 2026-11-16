@@ -213,11 +213,14 @@ describe('ApplicationDictDrawer', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('登记合法编码调用 create 提交 {app_code,app_name,description}（不含 platform_code）', async () => {
-    render(<ApplicationDictDrawer open record={null} onCancel={() => {}} onSuccess={() => {}} />)
+  it('登记合法编码调用 create 提交 {app_code,app_name,description,platform_codes}（D42：首个平台即主平台）', async () => {
+    render(<ApplicationDictDrawer open record={null} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await userEvent.type(screen.getByLabelText('应用编码'), 'gateway-service')
     await userEvent.type(screen.getByLabelText('应用名'), '网关服务')
+    // D42：应用必须归属至少一个平台，登记时即须选定
+    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    fireEvent.click(await findOption('电商中台（ecommerce）'))
     await userEvent.click(screen.getByText(/提\s*交/))
 
     await waitFor(() =>
@@ -225,18 +228,32 @@ describe('ApplicationDictDrawer', () => {
         app_code: 'gateway-service',
         app_name: '网关服务',
         description: undefined,
+        platform_codes: ['ecommerce'],
       }),
     )
     const [bodyArg] = createMock.mock.calls[0] as [Record<string, unknown>]
-    // 决策 111：应用字典写链路不再承载 platform_code
+    // 决策 111 / D42：仍不承载单值 platform_code；平台关系经 platform_codes 一次性提交
     expect(bodyArg).not.toHaveProperty('platform_code')
+  })
+
+  it('D42：未选所属平台时拒绝提交，不调用 create', async () => {
+    render(<ApplicationDictDrawer open record={null} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
+
+    await userEvent.type(screen.getByLabelText('应用编码'), 'gateway-service')
+    await userEvent.type(screen.getByLabelText('应用名'), '网关服务')
+    await userEvent.click(screen.getByText(/提\s*交/))
+
+    expect(
+      await screen.findByText('应用必须归属至少一个平台，请选择所属平台（首个即主平台）'),
+    ).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
   })
 
   it('受限编辑仅提交 app_name/description/status，不携带 app_code 与 platform_code', async () => {
     render(
       <ApplicationDictDrawer
         open
-        record={apps[1]}
+        record={apps[0]}
         platforms={platforms}
         onCancel={() => {}}
         onSuccess={() => {}}
@@ -248,21 +265,22 @@ describe('ApplicationDictDrawer', () => {
     expect(codeInput).toBeDisabled()
 
     const nameInput = screen.getByLabelText('应用名')
-    expect(nameInput).toHaveValue('支付服务')
+    expect(nameInput).toHaveValue('订单服务')
     await userEvent.clear(nameInput)
-    await userEvent.type(nameInput, '支付服务(新)')
+    await userEvent.type(nameInput, '订单服务(新)')
 
+    await waitRelsLoaded()
     await userEvent.click(screen.getByText(/保\s*存/))
 
     await waitFor(() =>
-      expect(updateMock).toHaveBeenCalledWith('pay-service', {
-        app_name: '支付服务(新)',
-        description: '支付域',
+      expect(updateMock).toHaveBeenCalledWith('order-service', {
+        app_name: '订单服务(新)',
+        description: '订单主链路',
         status: 'enabled',
       }),
     )
     const [codeArg, bodyArg] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
-    expect(codeArg).toBe('pay-service')
+    expect(codeArg).toBe('order-service')
     expect(bodyArg).not.toHaveProperty('app_code')
     expect(bodyArg).not.toHaveProperty('platform_code')
   })
@@ -323,8 +341,26 @@ describe('ApplicationDictDrawer', () => {
     expect(updateMock.mock.invocationCallOrder[0]).toBeLessThan(relCreateMock.mock.invocationCallOrder[0])
   })
 
-  // F2：rel diff ② 解绑关联 → DELETE /app-platform-rel/:rel_id
-  it('决策 111：清空所属平台即解绑，走 DELETE /app-platform-rel/:rel_id', async () => {
+  // F2：rel diff ② 解绑关联 → DELETE /app-platform-rel/:rel_id（D42：主平台不可直接解绑）
+  it('决策 111 / D42：解绑非主平台走 DELETE /app-platform-rel/:rel_id，主平台保留', async () => {
+    render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
+
+    await waitRelsLoaded()
+    // 摘掉「已下线平台（停用历史关联）」这个非主平台 tag，保留主平台「电商中台」
+    const tag = screen.getAllByTitle('已下线平台（已停用）')[0]
+    const removeIcon = tag.querySelector('.ant-select-selection-item-remove') as HTMLElement
+    expect(removeIcon).toBeTruthy()
+    fireEvent.click(removeIcon)
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(relRemoveMock).toHaveBeenCalledWith('rel-3'))
+    // 主平台不得被解绑（D42 I3）
+    expect(relRemoveMock).not.toHaveBeenCalledWith('rel-1')
+    expect(relCreateMock).not.toHaveBeenCalled()
+  })
+
+  // D42 I1：应用必须归属至少一个平台——不允许把所属平台清空后提交
+  it('D42：清空全部所属平台被拒绝，不发起任何解绑', async () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
@@ -336,9 +372,11 @@ describe('ApplicationDictDrawer', () => {
     await waitFor(() => expect(document.querySelector('.ant-select-selection-item')).toBeNull())
 
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    await waitFor(() => expect(relRemoveMock).toHaveBeenCalledWith('rel-1'))
-    expect(relRemoveMock).toHaveBeenCalledWith('rel-3')
-    expect(relCreateMock).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('应用必须归属至少一个平台，请选择所属平台（首个即主平台）'),
+    ).toBeInTheDocument()
+    expect(relRemoveMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
   })
 
   // F2：rel diff ③ 主平台切换 → PUT /app-platform-rel/:rel_id {is_primary:true}

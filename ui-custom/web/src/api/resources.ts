@@ -489,11 +489,17 @@ export interface ApplicationDictsResponse {
  *
  * {v2026-10-03 决策 118-3} **不含 `platform_code`**——应用↔平台已改 M:N（决策 111），
  * 后端写链路忽略该字段，保留声明即误导源。平台关系一律走 `appPlatformRelApi`。
+ *
+ * {D42} **`platform_codes` 必填（≥1）**：应用必须归属至少一个平台，登记时即须选定；
+ * 服务端在同一事务内创建应用与其平台关联，**首个编码即主平台**（前端按「主平台在前」
+ * 的顺序提交，避免额外的 SetPrimary 往返）。编辑态不重复提交该字段（走增量 diff）。
  */
 export interface ApplicationDictCreateInput {
   app_code: string
   app_name: string
   description?: string
+  /** 所属平台编码（≥1；首个即主平台） */
+  platform_codes: string[]
 }
 
 /**

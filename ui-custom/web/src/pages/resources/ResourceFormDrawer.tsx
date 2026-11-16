@@ -107,6 +107,19 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
    */
   const selectedPlatformCode = Form.useWatch('platform_code', form) as string | undefined
 
+  /**
+   * {D43} 组成型资源（application）的平台归属不单独填写，恒由所选应用的主平台决定。
+   * 这里把派生结果显示成只读文本，让用户看见「平台从哪里来」，而不是留空。
+   */
+  const watchedAppCode = Form.useWatch('app_code', form) as string | undefined
+  const derivedPlatformLabel = useMemo(() => {
+    if (displayCategory !== 'application' || !watchedAppCode) return ''
+    const primary = appPlatformRels.find((r) => r.app_code === watchedAppCode && r.is_primary)
+    if (!primary) return ''
+    const dict = platformDicts.find((d) => d.platform_code === primary.platform_code)
+    return dict ? `${dict.platform_name} (${primary.platform_code})` : primary.platform_code
+  }, [displayCategory, watchedAppCode, appPlatformRels, platformDicts])
+
   /** 关联到所选平台的应用编码集合（未选平台时为 null，表示「不按平台过滤」） */
   const appCodesOnSelectedPlatform = useMemo(() => {
     if (!selectedPlatformCode) return null
@@ -266,6 +279,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     osOptions,
     handlePlatformChange,
     scrapePortField,
+    derivedPlatformLabel,
   }
 
   return (

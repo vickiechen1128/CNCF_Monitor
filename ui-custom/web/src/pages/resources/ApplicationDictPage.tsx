@@ -36,10 +36,14 @@ const APP_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
 const DISABLED_SUFFIX = '（已停用）'
 
 /**
- * 应用↔平台关联增量同步（决策 111 / §5.24）
+ * 应用↔平台关联增量同步（决策 111 / §5.24 / D42）
  *
- * 顺序固定为「解绑 → 新增 → 主平台切换」：先摘除越界关联，再补齐新增关联
- * （一律以 `is_primary=false` 建立），最后单独切换主平台（服务端保证同一应用主平台唯一）。
+ * 顺序固定为「新增 → 主平台切换 → 解绑」：
+ * - 先补齐新增关联（一律以 `is_primary=false` 建立），保证后续解绑时应用仍至少保留一个平台；
+ * - 再切换主平台（服务端 `SetPrimary=true` 会先清同应用其余主平台）；
+ * - 最后解绑本次未保留的关联——此时既不会删到零个平台，也不会删掉当前主平台。
+ *
+ * 原「解绑 → 新增」顺序在 D42 落地后会失败：切换唯一平台时先解绑会让应用短暂零平台而被拒。
  * **任一请求失败即抛错**，由调用方提示——关系变更不静默丢弃。
  */
 async function syncAppPlatformRels(
@@ -48,24 +52,22 @@ async function syncAppPlatformRels(
   primaryCode: string | undefined,
   original: AppPlatformRel[],
 ) {
-  // ① 解绑：本次未保留的关联
-  for (const rel of original.filter((r) => !nextCodes.includes(r.platform_code))) {
-    await appPlatformRelApi.remove(rel.rel_id)
-  }
-  // ② 新增：本次新选的关联（主平台统一在 ③ 切换，避免与存量主平台冲突）
+  // ① 新增：本次新选的关联（主平台统一在 ② 切换，避免与存量主平台冲突）
   const created: AppPlatformRel[] = []
   for (const code of nextCodes.filter((c) => !original.some((r) => r.platform_code === c))) {
     const res = await appPlatformRelApi.create({ app_code: appCode, platform_code: code, is_primary: false })
     if (res.data) created.push(res.data)
   }
   const current = [...original.filter((r) => nextCodes.includes(r.platform_code)), ...created]
-  // ③ 主平台切换：置新主 / 摘旧主（服务端 SetPrimary=true 会先清同应用其余主平台）
+  // ② 主平台切换：置新主（服务端 SetPrimary=true 会先清同应用其余主平台）。
+  // 表单已保证主平台必填且属于已选集合，故此处不需要「取消主平台」分支（D42 禁止）。
   if (primaryCode) {
     const target = current.find((r) => r.platform_code === primaryCode && !r.is_primary)
     if (target) await appPlatformRelApi.update(target.rel_id, { is_primary: true })
-  } else {
-    const oldPrimary = current.find((r) => r.is_primary)
-    if (oldPrimary) await appPlatformRelApi.update(oldPrimary.rel_id, { is_primary: false })
+  }
+  // ③ 解绑：本次未保留的关联
+  for (const rel of original.filter((r) => !nextCodes.includes(r.platform_code))) {
+    await appPlatformRelApi.remove(rel.rel_id)
   }
 }
 
@@ -428,12 +430,13 @@ export function ApplicationDictDrawer({
       .catch(() => setOriginalRels([]))
   }, [open, record, form])
 
-  /** 主平台必须落在已选平台集合内：多选变化后清掉越界取值 */
+  /** 主平台必须落在已选平台集合内（D42）：多选变化后修正越界取值，
+   *  未选主平台时默认取首个已选平台，保证应用始终有且仅有一个主平台。 */
   useEffect(() => {
+    const codes = selectedCodes ?? []
     const primary = form.getFieldValue('primary_platform_code') as string | undefined
-    if (primary && !(selectedCodes ?? []).includes(primary)) {
-      form.setFieldValue('primary_platform_code', undefined)
-    }
+    if (primary && codes.includes(primary)) return
+    form.setFieldValue('primary_platform_code', codes[0])
   }, [selectedCodes, form])
 
   const handleSubmit = async () => {
@@ -465,18 +468,17 @@ export function ApplicationDictDrawer({
         message.success('应用信息已更新')
       } else {
         const appCode = values.app_code!
+        // D42：应用必须归属至少一个平台；首个编码即主平台，故把主平台排到最前，
+        // 服务端「首个关联自动置主」即可一步到位，无需额外 SetPrimary 往返。
+        const orderedPlatforms = primaryCode
+          ? [primaryCode, ...nextCodes.filter((code) => code !== primaryCode)]
+          : nextCodes
         await applicationDictApi.create({
           app_code: appCode,
           app_name: values.app_name,
           description: values.description,
+          platform_codes: orderedPlatforms,
         })
-        for (const code of nextCodes) {
-          await appPlatformRelApi.create({
-            app_code: appCode,
-            platform_code: code,
-            is_primary: code === primaryCode,
-          })
-        }
         message.success('应用已登记')
       }
       onSuccess()
@@ -547,14 +549,22 @@ export function ApplicationDictDrawer({
         <Form.Item
           name="platform_codes"
           label="所属平台"
-          extra="选填：应用关联的平台（可多选，支持一套软件跨多个平台部署）；仅启用平台可被新选，已停用的历史关联保留展示"
+          rules={[
+            {
+              validator: (_, value?: string[]) =>
+                (value ?? []).length > 0
+                  ? Promise.resolve()
+                  : Promise.reject(new Error('应用必须归属至少一个平台，请选择所属平台（首个即主平台）')),
+            },
+          ]}
+          extra="必填：应用必须归属至少一个平台（可多选，支持一套软件跨多个平台部署）；仅启用平台可被新选，已停用的历史关联保留展示"
         >
           <Select
             mode="multiple"
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="选填，可多选"
+            placeholder="必选，可多选"
             options={platformOptions}
           />
         </Form.Item>
@@ -564,19 +574,23 @@ export function ApplicationDictDrawer({
           dependencies={['platform_codes']}
           rules={[
             {
+              required: true,
+              message: '请选择主平台（默认取首个所属平台）',
+            },
+            {
               validator: (_, value?: string) =>
                 value && !(selectedCodes ?? []).includes(value)
                   ? Promise.reject(new Error('主平台必须属于已选平台'))
                   : Promise.resolve(),
             },
           ]}
-          extra="选填：至多一个，用于资源未显式填写平台时的兜底归属；只能从已选平台中选择"
+          extra="必填：有且仅有一个，决定资源兜底归属与告警派单方向；只能从已选平台中选择，变更主平台须在此显式切换"
         >
           <Select
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="选填，需先选择所属平台"
+            placeholder="必选，需先选择所属平台"
             options={primaryOptions}
           />
         </Form.Item>

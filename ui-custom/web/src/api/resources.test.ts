@@ -505,9 +505,20 @@ describe('resources API (v3)', () => {
       status: 'success',
       data: { app_code: 'inventory', app_name: '库存服务', description: '库存', status: 'enabled' },
     })
-    await applicationDictApi.create({ app_code: 'inventory', app_name: '库存服务', description: '库存' })
+    // {D42} 登记应用必须携带 platform_codes（应用必须归属至少一个平台，首个即主平台）
+    await applicationDictApi.create({
+      app_code: 'inventory',
+      app_name: '库存服务',
+      description: '库存',
+      platform_codes: ['ecommerce'],
+    })
     expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({ app_code: 'inventory', app_name: '库存服务', description: '库存' })
+    expect(lastInitBody()).toEqual({
+      app_code: 'inventory',
+      app_name: '库存服务',
+      description: '库存',
+      platform_codes: ['ecommerce'],
+    })
 
     mockFetch({
       status: 'success',

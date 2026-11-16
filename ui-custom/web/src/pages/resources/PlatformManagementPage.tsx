@@ -18,8 +18,8 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { DownOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { platformDictApi } from '../../api/resources'
-import type { PlatformDict } from '../../types/resource'
+import { appPlatformRelApi, applicationDictApi, platformDictApi } from '../../api/resources'
+import type { AppPlatformRel, ApplicationDict, PlatformDict } from '../../types/resource'
 import { Callout } from '../../components/Callout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -37,7 +37,8 @@ const PLATFORM_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
  *
  * 与业务 / 应用字典页同构：编码不可变 + 展示名必填 + 停用不删除（无删除入口）。
  * 平台是四层实体层级 `platform(1) → app(N) → service(M) → instance(K)` 的顶层，
- * 应用经「所属平台」可选挂靠；本页不提供任何平台填写控件之外的层级选择器。
+ * 应用经「所属平台」挂靠（**必挂**，D42：应用必须归属至少一个平台且恰有一个主平台）；
+ * 本页提供「关联应用」反查入口，用于回答「本平台下有哪些应用」。
  */
 export function PlatformManagementPage() {
   const [list, setList] = useState<PlatformDict[]>([])
@@ -46,6 +47,8 @@ export function PlatformManagementPage() {
   const [keyword, setKeyword] = useState('')
   const [drawer, setDrawer] = useState<{ open: boolean; record: PlatformDict | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  /** D42 / G4：关联应用反查抽屉——回答「本平台下有哪些应用」。 */
+  const [appsTarget, setAppsTarget] = useState<PlatformDict | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -144,9 +147,12 @@ export function PlatformManagementPage() {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 140,
+      width: 200,
       render: (_: unknown, r: PlatformDict) => (
         <Space size={12}>
+          <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setAppsTarget(r)}>
+            关联应用
+          </Button>
           <Button type="link" size="small" style={{ padding: 0 }} onClick={() => openEdit(r)}>
             编辑
           </Button>
@@ -188,7 +194,9 @@ export function PlatformManagementPage() {
           <Callout tone="info" title="平台编码是应用归属平台的权威标识">
             平台编码随应用归属派生为监控标签、用于按平台维度聚合，<Text strong>创建后不可修改</Text>；
             停用平台不删除，仅不再可被新增 / 编辑应用条目选用，存量应用保留原归属。
-            平台是「平台 → 应用 → 服务 → 实例」层级的最顶层，应用通过「所属平台」挂靠（可选）。
+            平台是「平台 → 应用 → 服务 → 实例」层级的<Text strong>顶层组织单元</Text>：
+            <Text strong>应用必须归属平台</Text>
+            （D42，至少一个平台且恰有一个主平台），可点操作列「关联应用」查看本平台下的应用清单。
           </Callout>
         </div>
         {error && (
@@ -236,8 +244,114 @@ export function PlatformManagementPage() {
             void load()
           }}
         />
+        <PlatformAppsDrawer record={appsTarget} onClose={() => setAppsTarget(null)} />
       </Card>
     </MainLayout>
+  )
+}
+
+interface PlatformAppsDrawerProps {
+  /** 非空即打开；展示该平台下关联的应用（经 `app_platform_rel` 反查）。 */
+  record: PlatformDict | null
+  onClose: () => void
+}
+
+/**
+ * 平台关联应用抽屉（D42 / G4）
+ *
+ * 组织视角下「平台 = 应用的聚合」，故平台页必须能回答「本平台下有哪些应用」。
+ * 数据经 `GET /app-platform-rel?platform_code=...` 反查关联 + 应用字典解析展示名，
+ * 只读展示，不在此处维护关系（关系在应用管理页维护）。
+ */
+export function PlatformAppsDrawer({ record, onClose }: PlatformAppsDrawerProps) {
+  const [rels, setRels] = useState<AppPlatformRel[]>([])
+  const [apps, setApps] = useState<ApplicationDict[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!record) return
+    let cancelled = false
+    // 打开抽屉即重置加载态；沿用本模块既有抓取 effect 模式（同 ApplicationDictPage）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true)
+    setError(null)
+    Promise.all([appPlatformRelApi.list({ platform_code: record.platform_code }), applicationDictApi.list()])
+      .then(([relRes, appRes]) => {
+        if (cancelled) return
+        setRels(relRes.data?.list ?? [])
+        setApps(appRes.data?.list ?? [])
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : '关联应用加载失败，请稍后重试')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [record])
+
+  const appName = useCallback(
+    (code: string) => {
+      const hit = apps.find((a) => a.app_code === code)
+      if (!hit) return code
+      return hit.status === 'enabled' ? hit.app_name : `${hit.app_name}（已停用）`
+    },
+    [apps],
+  )
+
+  const columns: ColumnsType<AppPlatformRel> = [
+    {
+      title: '应用编码',
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 180,
+      render: (v: string) => <EllipsisText>{v}</EllipsisText>,
+    },
+    {
+      title: '应用名',
+      dataIndex: 'app_code',
+      key: 'app_name',
+      width: 200,
+      render: (v: string) => <EllipsisText>{appName(v)}</EllipsisText>,
+    },
+    {
+      title: '归属',
+      dataIndex: 'is_primary',
+      key: 'is_primary',
+      width: 90,
+      render: (v: boolean) =>
+        v ? <Badge status="processing" text="主平台" /> : <Text type="secondary">关联平台</Text>,
+    },
+  ]
+
+  return (
+    <Drawer
+      title={record ? `「${record.platform_name}」下的应用` : '关联应用'}
+      open={!!record}
+      onClose={onClose}
+      width={560}
+      forceRender
+    >
+      <Callout tone="info" title="应用是平台的组织单元">
+        应用↔平台关系在「应用管理」页维护；此处只读展示。每个应用必须有且仅有一个主平台，主平台标记即该应用的归属方向。
+      </Callout>
+      {error && <Alert type="error" showIcon message="关联应用加载失败" description={error} style={{ marginTop: 16 }} />}
+      <Table<AppPlatformRel>
+        rowKey="rel_id"
+        dataSource={rels}
+        loading={loading}
+        columns={columns}
+        size="small"
+        style={{ marginTop: 16 }}
+        scroll={TABLE_SCROLL_X}
+        locale={{ emptyText: <Empty description="该平台下暂无关联应用" /> }}
+        pagination={{ ...TABLE_PAGINATION, showSizeChanger: false }}
+      />
+    </Drawer>
   )
 }
 

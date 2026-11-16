@@ -12,12 +12,21 @@ import type { PlatformDict } from '../../types/resource'
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const relListMock = vi.fn()
+const appListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   platformDictApi: {
     list: (...args: unknown[]) => listMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+  },
+  // D42 / G4：平台页「关联应用」反查依赖应用↔平台关联 + 应用字典展示名
+  appPlatformRelApi: {
+    list: (...args: unknown[]) => relListMock(...args),
+  },
+  applicationDictApi: {
+    list: (...args: unknown[]) => appListMock(...args),
   },
 }))
 
@@ -71,6 +80,10 @@ describe('PlatformManagementPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    relListMock.mockReset()
+    appListMock.mockReset()
+    relListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    appListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     listMock.mockResolvedValue({ status: 'success', data: { list: platforms, total: platforms.length } })
     createMock.mockResolvedValue({
       status: 'success',
@@ -128,6 +141,33 @@ describe('PlatformManagementPage', () => {
     await onOk?.()
 
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith('ecommerce', { enabled: false }))
+  })
+
+  // D42 / G4：组织视角下「平台 = 应用的聚合」，平台页须能回答「本平台下有哪些应用」
+  it('D42：操作列「关联应用」反查本平台下的应用（含主平台标记）', async () => {
+    relListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ rel_id: 'rel-1', app_code: 'order-service', platform_code: 'ecommerce', is_primary: true }],
+        total: 1,
+      },
+    })
+    appListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ app_code: 'order-service', app_name: '订单服务', status: 'enabled' }],
+        total: 1,
+      },
+    })
+
+    renderPage()
+    await screen.findByText('ecommerce')
+    const row = screen.getByText('ecommerce').closest('tr')!
+    await userEvent.click(within(row).getByRole('button', { name: /关联应用/ }))
+
+    expect(await screen.findByText('订单服务')).toBeInTheDocument()
+    expect(screen.getByText('主平台')).toBeInTheDocument()
+    expect(relListMock).toHaveBeenCalledWith({ platform_code: 'ecommerce' })
   })
 })
 
@@ -216,4 +256,5 @@ describe('PlatformDictDrawer', () => {
     await waitFor(() => expect(screen.getByLabelText('平台名')).toHaveValue('电商中台'))
     expect(screen.getByLabelText('平台编码')).toHaveValue('ecommerce')
   })
+
 })

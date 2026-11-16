@@ -115,14 +115,21 @@ export interface ResourceFormFieldsContext {
   handlePlatformChange: () => void
   /** host / database / middleware 共用的「采集端口（选填）」表单项（由 Drawer 构造） */
   scrapePortField: ReactNode
+  /**
+   * {D43} 组成型资源（application）的派生平台展示文本——由所选应用的主平台算出。
+   * 组成型资源的平台归属不单独填写（服务端按 app 主平台派生），此处只读展示来源。
+   */
+  derivedPlatformLabel?: string
 }
 
 /**
  * 六类资源共享字段（§5.2 公共字段）。两列紧凑布局，避免单列留白。
  * 行序：网域 /（平台归属｜环境）→ 业务 / 应用 →（环境｜运行状态）/（运行状态｜集群）→（集群 / 负责人｜负责人满宽）。
- * 「业务」与「应用」固定在**同一行**靠拢；「平台归属」仅对接口服务以外的类别渲染
- * （接口服务由 blackbox 拨测承载、无平台归属概念，后端 Excel 导入模板亦不含 platform_code 列）。
- * 平台归属仍排在「应用」之前，保留「平台 → 应用」级联（选中平台后应用下拉按平台过滤）。
+ * 「平台归属」按资源类型分派（D43）：
+ * - 接口服务：无平台归属概念（blackbox 拨测承载，后端 Excel 模板亦无 platform_code 列），该格换为「环境」；
+ * - 应用服务：组成型资源，平台恒由所属应用的主平台派生，渲染**只读展示**（不提交 platform_code）；
+ * - 主机 / 数据库 / 中间件 / 其他监控目标：静态资源，显式下拉（可留空，留空按应用主平台兜底）。
+ * 静态资源仍保留「平台 → 应用」级联（选中平台后应用下拉按平台过滤）。
  */
 export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): ReactNode {
   const {
@@ -136,8 +143,11 @@ export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): Reac
     appCodeRequired,
     clusterRequired,
     handlePlatformChange,
+    derivedPlatformLabel,
   } = ctx
   const isInterface = category === 'interface_service'
+  /** {D43} 组成型资源：平台归属由所属应用的主平台派生，不单独填写。 */
+  const isComposed = category === 'application'
   return (
     <>
       <Row gutter={16}>
@@ -168,6 +178,15 @@ export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): Reac
                   </Select.Option>
                 ))}
               </Select>
+            </Form.Item>
+          ) : isComposed ? (
+            /* {D43} 组成型资源：平台归属恒等于所属应用的主平台，只读展示、不可手填，
+               避免手填值与「应用主平台」不一致。数据库 / 中间件 / 主机等静态资源仍保留下拉。 */
+            <Form.Item
+              label="平台归属"
+              extra="由所属应用的主平台自动决定（D43：应用服务不单独填写平台）"
+            >
+              <Input value={derivedPlatformLabel} disabled placeholder="选择应用后自动带出" />
             </Form.Item>
           ) : (
             <Form.Item
