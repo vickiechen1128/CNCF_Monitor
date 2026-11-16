@@ -15,12 +15,26 @@ export function aggregateJobStatus(job: {
   draft_status?: string
   enabled?: boolean
   change_status?: string
+  /** v3 同步状态；存在时优先于 legacy change_status。 */
+  sync?: { status?: string }
 }): JobStatusView {
   if (job.draft_status === 'draft') {
     return { label: '草稿', badgeStatus: 'default', disabled: true }
   }
   if (!job.enabled) {
     return { label: '已停用', badgeStatus: 'error', disabled: true }
+  }
+  if (job.sync?.status) {
+    switch (job.sync.status) {
+      case 'failed':
+        return { label: '同步失败', badgeStatus: 'error', disabled: false }
+      case 'synced':
+        return { label: '已同步', badgeStatus: 'success', disabled: false }
+      case 'pending':
+      case 'syncing':
+      default:
+        return { label: '待同步', badgeStatus: 'warning', disabled: false }
+    }
   }
   switch (job.change_status) {
     case 'pending':
