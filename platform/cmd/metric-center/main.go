@@ -52,6 +52,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/edge"
 	"github.com/metriccenter/metriccenter/platform/foundation/httpx"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	m01seed "github.com/metriccenter/metriccenter/platform/modules/m01/seed"
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
@@ -148,6 +149,11 @@ func main() {
 	// （DB 空时导入 + infra 兜底条目），之后 DB 为唯一权威，热加载机制退役。
 	if err := seed.BusinessDomains(db.DB, *businessDomainsFile); err != nil {
 		log.Fatalf("failed to seed business domains: %v", err)
+	}
+	// v3 M01 built-in strategy data is seeded in both startup modes so the v3
+	// module is usable during the transition window as well.
+	if err := m01seed.Run(db.DB); err != nil {
+		log.Fatalf("failed to seed m01 data: %v", err)
 	}
 
 	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录

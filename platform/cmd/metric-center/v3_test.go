@@ -105,7 +105,7 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
-	assert.Equal(t, []string{"system", "m06", "m07", "m09", "auth"}, meta.Data.Modules)
+	assert.Equal(t, []string{"system", "m06", "m07", "m01", "m09", "auth"}, meta.Data.Modules)
 
 	// M09 edge protocol is token-only: the global user-auth gate is bypassed
 	// for /api/v3/edge/*, so this 401 comes from EdgeTokenMiddleware.

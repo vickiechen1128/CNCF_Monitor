@@ -19,6 +19,8 @@ import (
 	"github.com/metriccenter/metriccenter/platform/foundation/module"
 	"github.com/metriccenter/metriccenter/platform/foundation/system"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	m01 "github.com/metriccenter/metriccenter/platform/modules/m01"
+	m01seed "github.com/metriccenter/metriccenter/platform/modules/m01/seed"
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 	m09 "github.com/metriccenter/metriccenter/platform/modules/m09"
@@ -53,6 +55,9 @@ func runV3(ctx context.Context) {
 	}
 	if err := seed.CoreV3(db.DB, *businessDomainsFile); err != nil {
 		log.Fatalf("failed to seed v3 core data: %v", err)
+	}
+	if err := m01seed.Run(db.DB); err != nil {
+		log.Fatalf("failed to seed m01 data: %v", err)
 	}
 
 	promURL, err := parseURL(*prometheusURL)
@@ -126,7 +131,7 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	}
 	// M09 owns monitoring retirement (D23). Build it before M06 so its
 	// MonitoringRetirer can be injected into M06; registration order below
-	// keeps the meta list as system → m06 → m07 → m09 → auth.
+	// keeps the meta list as system → m06 → m07 → m01 → m09 → auth.
 	m09Module, err := m09.NewModule(db.DB, m09.Options{
 		PromURL:         m06Opts.PromURL,
 		ConfigOutputDir: *configDir,
@@ -139,9 +144,9 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	if m06Opts.Monitoring == nil {
 		m06Opts.Monitoring = m09Module.MonitoringRetirer()
 	}
-	// Order: system → m06 → m07 → m09 → auth. M06 owns tenant/network-domain
-	// administration; M07 consumes the domain usability view; M09 owns access,
-	// edge agents, config sync and the query surface.
+	// Order: system → m06 → m07 → m01 → m09 → auth. M06 owns tenant/network-domain
+	// administration; M07 consumes the domain usability view; M01 owns strategy
+	// source data; M09 owns access, edge agents, config sync and the query surface.
 	m06Module, err := m06.NewModule(db.DB, m06Opts)
 	if err != nil {
 		return nil, fmt.Errorf("register m06 v3 module: %w", err)
@@ -154,6 +159,13 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 		return nil, fmt.Errorf("register m07 v3 module: %w", err)
 	}
 	if err := registry.Register(m07Module); err != nil {
+		return nil, err
+	}
+	m01Module, err := m01.NewModule(db.DB)
+	if err != nil {
+		return nil, fmt.Errorf("register m01 v3 module: %w", err)
+	}
+	if err := registry.Register(m01Module); err != nil {
 		return nil, err
 	}
 	if err := registry.Register(m09Module); err != nil {
