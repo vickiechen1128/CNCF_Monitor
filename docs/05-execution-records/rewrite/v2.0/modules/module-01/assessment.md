@@ -321,7 +321,7 @@ platform/modules/m01/
 - 凭证落密文（安全审查前置项）。
 - **验收**：SRS §9.1 第 3/4/6/7/8 条单测覆盖；候选查询无 N+1（基准测试）。
 
-### P4 M09 Job 源接入 + Job 同步/采集状态（4~5 人日，含 M09 改动）
+### P4 M09 Job 源接入 + Job 同步/采集状态（4~5 人日，Job 源与写回已完成 2026-11-16；中心规则随 P5）
 
 - M09 `references/source_reader.go` 切换为 `m01_scrape_jobs`（含启停/软删/labels/blackbox），`Fingerprint` 覆盖 M01 表与软删时间。
 - M09 `configgen` 接入 moduleDefs；每域 outcomes 通过 `SyncResultSink` 回写（§6.5）。
@@ -417,6 +417,6 @@ platform/modules/m01/
 
 1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-3 / D-5 已确认（2026-11-16）；D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
-3. ~~P1~~、~~P2~~、~~P3（ScrapeJob 核心）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B4 M09 源接入与同步写回**（凭证加密 B3-4 并行）。
+3. ~~P1~~、~~P2~~、~~P3（ScrapeJob 核心）~~、~~P4 Job 源接入与同步写回~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B5 监控规则 + 中心规则同步**（凭证加密 B3-4 并行）。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
 5. D-3 已关闭；继续推进 D-4（M09 中心规则）与 D-6/D-7 的 owner 决策。

@@ -218,6 +218,8 @@ POST /network-domains/:id/token/reset
 ## 4. 配置快照（只读历史）
 
 > 配置同步为后台自动服务，无人工确认/回滚。本组只暴露只读快照。
+>
+> **源数据（2026-11-16 起）**：每域配置由 M01 `m01_scrape_jobs`（`ready + enabled + 未删`）驱动；targets 取 `selected_instance_ids` 对应的 M07 v3 资源，blackbox 使用资源的探测 URL。M09 生成/校验完成后通过 `SyncResultSink` 将 per-job 结果回写 M01 的 `sync_*` 列（D-2）。
 
 ### 4.1 快照视图
 

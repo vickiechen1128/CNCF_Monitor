@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）
-> **状态**：B1 / B2 / B3 完成（凭证加密与 M09 写回待后续）
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4a（M09 源接入与同步写回）
+> **状态**：B1 / B2 / B3 / B4a 完成（凭证加密、M09 中心规则、前端状态聚合待后续）
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -214,10 +214,50 @@ POST /scrape-jobs（不存在的实例）
 4. **无 M09 写回**：Job 写入只置 `pending/draft`，`synced/failed` 由 B4 的 `SyncResultSink` 回写。
 5. **未做实例级采集状态前端聚合**（T01-B4-4）：后端已提供选中实例与 target 估算，前端按 §9.4 与 M09 targets 合并。
 
+
+---
+
+## 7. B4a 变更与验证（M09 源接入 + 同步写回）
+
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B4-1 | `m09/references/source_reader.go` | 改为读取 `m01_scrape_jobs`（ready+enabled+未删）；targets 来自选中实例，blackbox 用探测 URL，参数取 Job 快照；Fingerprint 覆盖资源/Job/软删/拨测模块 |
+| B4-1 | `m01/domain/job.go` | 抽出 `domain.ResourceAddress`，M01 preview 与 M09 生成共用同一端口解析 |
+| B4-3 | `m01/references/sync_sink.go` | `RecordDomainSync` / `RecordRuleSync`：按 `updated_at` 与 `generatedAt` 比较，旧结果不覆盖新编辑 |
+| B4-3 | `m09/service/config_sync_service.go` | 快照生成后调用 `SyncResultSink`；校验失败/无可用 target 也会回写 failed 原因 |
+| B4 | `m09/module.go`、`v3.go` | M01 先构建，`SyncResultSink` 注入 M09；注册顺序不变 |
+
+### 7.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+v3 服务实测（端口 18084，PATH 注入 promtool/blackbox_exporter）：
+
+```text
+POST /scrape-jobs host-prod   -> sync=pending
+（M09 watcher 30s）
+GET  /scrape-jobs/{id}        -> sync.status=synced, version=20261116-9331
+domain_config_snapshots       -> validation_status=passed, is_current=1
+targets/host-prod.json        -> 10.0.0.1:9100
+```
+
+### 7.2 偏差与遗留
+
+1. **target labels 仍最小化**：仅注入 `resource_id`；external label `network_domain_id` 由 generator 统一注入。按标签模板展开 target labels 尚未实现，需在 M09 生成期读取 M07 模板映射。
+2. **中心规则同步未做**（T01-B4-2）：`RecordRuleSync` 已提供，但 M09 尚未生成中心 `rules.yml` 与 reload；随 B5 规则一起落地。
+3. **Fingerprint 含全局拨测模块**：任一模版变更会触发所有域重算（checksum 不变时 M09 直接返回当前快照，不产生新版本）。
+4. **写回失败只记日志**：快照已发布，M01 状态可能短暂陈旧，下一次源变更会重试。
+
 ---
 
 ## 8. 下一步
 
-- **B4**：M09 `SourceReader` 切换 `m01_scrape_jobs`、中心规则同步、`SyncResultSink` 写回、Job 同步/实例状态。
+- **B5**：监控规则 CRUD/校验 + M09 中心规则产物与 reload（T01-B4-2 与 B5 合并）。
 - **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
-- 每个资源组按「service + handler + 契约测试」独立提交；B2 起 schema 不变。
+- **B4-4**：前端实例级采集状态聚合（M09 targets + 选中实例）。
+- schema 自 B2 起不变；后续如需中心规则快照表再增加 migration。

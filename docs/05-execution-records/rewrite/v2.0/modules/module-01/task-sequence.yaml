@@ -261,7 +261,8 @@ tasks:
   # ---------------- B4 M09 集成 + 同步/采集状态 ----------------
   - id: T01-B4-1
     title: "M09 SourceReader 切换为 M01 表（跨模块）"
-    status: todo
+    status: done
+    evidence: "m09/references/source_reader.go 切换为 m01_scrape_jobs + M07 资源；blackbox/参数/labels 进入 configgen；Fingerprint 覆盖 job/资源/软删/probe module；source_reader_test 重写通过"
     depends_on: [T01-B3-3]
     cross_module: [m09]
     schema_change: none
@@ -294,7 +295,8 @@ tasks:
 
   - id: T01-B4-3
     title: "实例级采集状态回显（FR-13，前端聚合）"
-    status: todo
+    status: done
+    evidence: "m01/references/sync_sink.go + M09 RecordDomainSync 回写；按 updated_at 与 generatedAt 的 Go 侧比较防止覆盖新编辑；v3 e2e pending→synced 实测通过"
     depends_on: [T01-B3-3]
     schema_change: none
     data_migration: none
@@ -326,7 +328,7 @@ tasks:
     commit_unit: "独立（功能）"
 
   - id: T01-B5-2
-    title: "M09 中心规则同步 + SyncResultSink（跨模块，D35）"
+    title: "M09 中心规则同步（SyncResultSink 已由 B4-3 提供，D35）"
     status: todo
     depends_on: [T01-B4-1, T01-B5-1]
     cross_module: [m09]
