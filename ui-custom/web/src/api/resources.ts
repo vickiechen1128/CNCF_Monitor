@@ -628,13 +628,36 @@ export interface CloudDictsResponse {
 }
 
 /**
- * 云字典（§5.20 / 决策 102-③）：`cloud_code → cloud` label 的取值权威，随部署预置、
- * **全局只读**——仅暴露 `list`，**不提供 create / update / remove**（后端无写接口，
- * 前端亦不提供任何登记 / 编辑 / 删除入口，增删改随版本发版）。
+ * 云字典新增输入（D37）：`cloud_code` 必须是 `{cloud_type}-{carrier}` 复合码，
+ * 且与 `cloud_type` / `carrier` 一致；服务端校验全局唯一性。
+ */
+export interface CloudDictCreateInput {
+  cloud_code: string
+  cloud_name: string
+  cloud_type: string
+  carrier: string
+  description?: string
+}
+
+/**
+ * 云字典（§5.20 / 决策 98 / 102；D37）：`cloud_code → cloud` label 的取值权威。
+ * 部署预置条目；管理员**只增维护**——仅提供 list / create / disable，无编辑与删除
+ * （编码不可变，停用不删除；被网域引用的编码停用返回 409）。
  */
 export const cloudDictApi = {
   list(): Promise<ApiResponse<CloudDictsResponse>> {
     return apiClient.get<CloudDictsResponse>('/api/v3/platform/cloud-dict')
+  },
+  /** 新增云（POST，admin）：复合码格式、类型/载体一致性与唯一性由后端校验 */
+  create(input: CloudDictCreateInput): Promise<ApiResponse<CloudDict>> {
+    return apiClient.post<CloudDict>('/api/v3/platform/cloud-dict', { body: input })
+  },
+  /** 停用云（PUT :cloud_code，admin）：仅接受 enabled=false，被网域引用时 409 */
+  disable(code: string): Promise<ApiResponse<CloudDict>> {
+    return apiClient.put<CloudDict>(
+      `/api/v3/platform/cloud-dict/${encodeURIComponent(code)}`,
+      { body: { enabled: false } },
+    )
   },
 }
 

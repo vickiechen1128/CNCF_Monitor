@@ -25,7 +25,7 @@ export interface ResourceListAlertsProps {
 /**
  * 资源列表提示区（T07-R6 从 ResourcesPage 原样迁出，行为等价）。
  *
- * 1. 「采集状态」为前端过滤的显式披露（M02 coverage 派生字段，M07 资源表无该列）；
+ * 1. 「采集状态」为前端过滤的显式披露（M09 coverage 派生字段，M07 资源表无该列）；
  * 2. 首页下钻预筛提示（决策 91 / design-proposal §2.1），含云名解析与一键清除。
  *
  * 纯展示组件：不请求数据、不持有状态。
@@ -44,7 +44,7 @@ export function ResourceListAlerts({
   return (
     <>
       {/*
-        F-18 遗留风险的**显式化**：采集状态（`monitor_state`）是 M02 coverage API 的派生字段，
+        F-18 遗留风险的**显式化**：采集状态（`monitor_state`）是 M09 coverage API 的派生字段，
         M07 资源表**无该列**，故这一维筛选仍在前端按当页过滤——分页`total` 来自后端统计，
         不随该筛选变化。此前该限制完全静默（用户会以为看到的是全量筛选结果），
         这里显式提示，避免误读。其余五维（业务 / 运行状态 / 平台 / 应用 / 服务）已全部下沉后端，
@@ -58,7 +58,7 @@ export function ResourceListAlerts({
           message="「采集状态」为前端过滤"
           description={
             <Text style={{ fontSize: 12 }}>
-              采集状态来自 M02 覆盖聚合（M07 资源表无此列），仅过滤当前页；分页总数仍为未按此条件过滤的总数。
+              采集状态来自 M09 覆盖聚合（M07 资源表无此列），仅过滤当前页；分页总数仍为未按此条件过滤的总数。
               其余筛选条件均已由服务端过滤。
             </Text>
           }

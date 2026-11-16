@@ -63,7 +63,7 @@ export function ResourcesPage() {
   const { tokens } = useSkin()
   // 删除动线（T07-R5）：引用预检 + 二次确认 + DELETE + 回刷列表
   const { deletingId, handleDeleteClick } = useResourceDelete({ reload })
-  // 决策 47-3：采集状态四态 badge 数据源（M02 coverage 聚合，Map by resource_id）
+  // 决策 47-3：采集状态四态 badge 数据源（M09 coverage 聚合，Map by resource_id）
   const {
     coverageByResource,
     loading: coverageLoading,

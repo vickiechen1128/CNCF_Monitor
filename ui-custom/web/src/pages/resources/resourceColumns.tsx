@@ -52,7 +52,7 @@ function InstanceNameTitle() {
 export interface ResourceColumnContext {
   /** 当前皮肤 token（运行状态色 `statusColor`） */
   tokens: SkinTokens
-  /** resource_id → M02 coverage item（采集状态列） */
+  /** resource_id → M09 coverage item（采集状态列） */
   coverageByResource: Record<string, CoverageItem>
   /** coverage 加载错误：非空时采集状态列降级为 '-' */
   coverageError: string | null
@@ -259,7 +259,7 @@ export function buildResourceColumns(
       </Space>
     ),
   }
-  // 决策 47-3：采集状态四态 badge 列（数据源 M02 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
+  // 决策 47-3：采集状态四态 badge 列（数据源 M09 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
   const monitorColumn: ColumnsType<ResourceListItem>[number] = {
     title: '采集状态',
     key: 'monitor_state',

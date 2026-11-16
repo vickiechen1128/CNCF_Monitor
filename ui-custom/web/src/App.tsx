@@ -5,7 +5,7 @@ import DomainsPage from './pages/admin/domains/DomainsPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
-// 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）
+// 云字典维护页（D37：admin 只增维护；读视图由 M07 提供）
 import CloudDictPage from './pages/admin/clouddict/CloudDictPage'
 // 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
@@ -108,7 +108,7 @@ function AppRoutes() {
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/tenants" element={<TenantsPage />} />
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
-          {/* 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19） */}
+          {/* 云字典维护页（D37：admin 只增维护；读视图由 M07 提供） */}
           <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
           <Route path="/admin/dashboard-panels" element={<DashboardPanelsPage />} />

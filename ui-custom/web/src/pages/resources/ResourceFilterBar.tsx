@@ -27,7 +27,7 @@ export interface ResourceFilterBarProps {
   /** 「应用」下拉候选：启用应用 ∩ 所选平台关联集合（由父页字典 Hook 计算） */
   filterAppOptions: ApplicationDict[]
   businessDomains: BusinessDomain[]
-  /** 采集状态筛选（M02 coverage 派生字段，前端当页过滤） */
+  /** 采集状态筛选（M09 coverage 派生字段，前端当页过滤） */
   monitorState: CoverageState | undefined
   onMonitorStateChange: (state: CoverageState | undefined) => void
   /** 当前资源类别 Tab（列设置按类别分区） */

@@ -34,7 +34,7 @@ vi.mock('../../api/resources', () => ({
   applicationDictApi: {
     list: (...args: unknown[]) => applicationDictListMock(...args),
   },
-  // 决策 103：云列经 cloudDictApi.list 解析 cloud_name（部署级只读，仅有 list）
+  // 决策 103 / D37：云列经 cloudDictApi.list 解析 cloud_name（读视图由 M07 提供，本页只消费 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
   },
@@ -48,7 +48,7 @@ vi.mock('../../api/resources', () => ({
   },
 }))
 
-// 决策 47-3：采集状态 badge / 三态筛选，测试侧 mock M02 coverage 聚合接口
+// 决策 47-3：采集状态 badge / 三态筛选，测试侧 mock M09 coverage 聚合接口
 vi.mock('../../api/coverage', () => ({
   coverageApi: {
     list: (...args: unknown[]) => coverageListMock(...args),
@@ -418,7 +418,7 @@ describe('ResourcesPage', () => {
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('res-1'))
   })
 
-  // 决策 47-3：资源列表「采集状态」三态 badge / 三态筛选（数据源 M02 coverage，Map by resource_id）
+  // 决策 47-3：资源列表「采集状态」三态 badge / 三态筛选（数据源 M09 coverage，Map by resource_id）
   it('renders collecting badge from coverage merged by resource_id', async () => {
     coverageListMock.mockResolvedValue({
       status: 'success',

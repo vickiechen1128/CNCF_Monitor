@@ -1,5 +1,5 @@
 /**
- * 采集健康度 / 覆盖率 API（Module_02 决策 47-3，/api/v1，api-contract-snapshot.md §2.2）
+ * 采集健康度 / 覆盖率 API（Module_09 决策 47-3，/api/v1；原 M02 查询面已并入 M09）
  *
  * coverageApi.list：GET /api/v1/health/coverage 实例状态聚合（collecting /
  * partial_collecting / pending_down / not_monitored），按 resource_id 回连资源。

@@ -23,7 +23,7 @@ export interface UseResourceDictionariesResult {
   businessDomains: BusinessDomain[]
   /** 应用字典（决策 92/96）：应用列 / 模板弹窗展示名解析，与业务字典正交两维 */
   applicationDomains: ApplicationDict[]
-  /** 云字典（决策 103，部署级只读）：云列展示名解析 */
+  /** 云字典（决策 103 / D37：M07 读视图，写接口在 M06）：云列展示名解析 */
   cloudDicts: CloudDict[]
   /** 平台字典（决策 110）：平台筛选下拉 + 平台列展示名解析 */
   platformDicts: PlatformDict[]

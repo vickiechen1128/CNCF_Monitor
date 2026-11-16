@@ -15,7 +15,7 @@ export interface UseResourceCoverageResult {
 
 /**
  * M07 资源列表「采集状态」数据 Hook（决策 47-3）。
- * 一次拉取 M02 `GET /api/v1/health/coverage`（按当前 resource_category），Map by resource_id
+ * 一次拉取 M09 `GET /api/v1/health/coverage`（按当前 resource_category），Map by resource_id
  * 与列表行合并；coverage 加载失败不影响资源列表主渲染（列降级为 '-'）。
  * 随 Tab category 切换自动重拉；reload 用于编辑/删除后刷新 badge。
  */

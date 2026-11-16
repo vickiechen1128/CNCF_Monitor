@@ -109,7 +109,7 @@ const appPlatformRels: AppPlatformRel[] = [
   { rel_id: 'r-2', app_code: 'billing', platform_code: 'finance', is_primary: true, created_at: '' },
 ]
 
-/** 云字典（§5.20 / 决策 98：部署级只读；表单已不再消费，保留供字典 mock 兼容） */
+/** 云字典（§5.20 / 决策 98 / D37：M07 读视图；表单已不再消费，保留供字典 mock 兼容） */
 const cloudDicts: CloudDict[] = [
   { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
   { cloud_code: 'OLD-TX', cloud_name: '已下线云', cloud_type: 'PUB', carrier: 'TX', enabled: false },
@@ -801,7 +801,7 @@ describe('ResourceFormDrawer', () => {
     await waitFor(() => expect(screen.getByText('请选择网域')).toBeInTheDocument())
     expect(screen.queryByText('请选择云')).toBeNull()
     expect(screen.queryByText('请选择云（可选）')).toBeNull()
-    // 决策 102-③ 精神延续：云随部署预置、全局只读，表单无任何「新建云」入口
+    // D37：云字典由管理员只增维护（新增/停用），资源表单仍无任何「新建云」入口
     expect(screen.queryByText(/新建云|创建云|登记云/)).toBeNull()
   })
 

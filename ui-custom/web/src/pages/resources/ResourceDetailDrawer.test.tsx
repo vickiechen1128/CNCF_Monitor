@@ -28,7 +28,7 @@ vi.mock('../../api/resources', () => ({
     updateLabel: (...args: unknown[]) => updateLabelMock(...args),
     removeLabel: (...args: unknown[]) => removeLabelMock(...args),
   },
-  // 决策 103：详情「云」展示经云字典解析 cloud_name（部署级只读，仅 list）
+  // 决策 103 / D37：详情「云」展示经云字典读视图解析 cloud_name（本页仅消费 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
   },

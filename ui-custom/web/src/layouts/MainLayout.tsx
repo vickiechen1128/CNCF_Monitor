@@ -198,7 +198,7 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
-      // 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）：云归属取值唯一来源，只读不维护
+      // 云字典维护页（D37：admin 只增维护；读视图由 M07 提供）：云归属取值唯一来源
       { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
       { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
       { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },

@@ -539,13 +539,20 @@ describe('resources API (v3)', () => {
     expect(lastFetchCall()[1]?.method).toBe('PUT')
   })
 
-  // 决策 98 / 102-③：云字典部署级只读——只有 list，不得给前端留任何写入口
-  it('cloudDictApi.list GETs /cloud-dict and exposes read-only list only', async () => {
+  // 决策 D37：云字典 admin 只增维护——list + create + disable，无编辑 / 删除
+  it('cloudDictApi.list GETs /cloud-dict with descriptive attributes', async () => {
     mockFetch({
       status: 'success',
       data: {
         list: [
-          { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
+          {
+            cloud_code: 'PUB-TX',
+            cloud_name: '腾讯云',
+            cloud_type: 'PUB',
+            carrier: 'TX',
+            description: '预置',
+            enabled: true,
+          },
         ],
         total: 1,
       },
@@ -555,8 +562,63 @@ describe('resources API (v3)', () => {
 
     expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict')
     expect(res.data.total).toBe(1)
-    expect(res.data.list[0]).toMatchObject({ cloud_code: 'PUB-TX', cloud_name: '腾讯云' })
-    expect(Object.keys(cloudDictApi)).toEqual(['list'])
+    expect(res.data.list[0]).toMatchObject({
+      cloud_code: 'PUB-TX',
+      cloud_name: '腾讯云',
+      cloud_type: 'PUB',
+      carrier: 'TX',
+      description: '预置',
+    })
+    expect(Object.keys(cloudDictApi).sort()).toEqual(['create', 'disable', 'list'])
+  })
+
+  it('cloudDictApi.create POSTs the composite code entry', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        cloud_code: 'IND-CM',
+        cloud_name: '行业云（移动）',
+        cloud_type: 'IND',
+        carrier: 'CM',
+        enabled: true,
+      },
+    })
+
+    await cloudDictApi.create({
+      cloud_code: 'IND-CM',
+      cloud_name: '行业云（移动）',
+      cloud_type: 'IND',
+      carrier: 'CM',
+      description: '新增',
+    })
+
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toMatchObject({
+      cloud_code: 'IND-CM',
+      cloud_name: '行业云（移动）',
+      cloud_type: 'IND',
+      carrier: 'CM',
+    })
+  })
+
+  it('cloudDictApi.disable PUTs enabled=false', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        cloud_code: 'IND-CM',
+        cloud_name: '行业云（移动）',
+        cloud_type: 'IND',
+        carrier: 'CM',
+        enabled: false,
+      },
+    })
+
+    await cloudDictApi.disable('IND-CM')
+
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict/IND-CM')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
+    expect(lastInitBody()).toEqual({ enabled: false })
   })
 
   // ---- 决策 111：应用↔平台关联 app_platform_rel（§5.24 / §6.1）----

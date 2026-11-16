@@ -18,7 +18,7 @@ const { Text } = Typography
 
 /** 云归属字段说明（对齐原型 CLOUD_CODE_FIELD_HINT）：权威在网域、资源侧只读派生 */
 const CLOUD_CODE_FIELD_HINT =
-  '取自云字典（部署级只读、仅含启用项），不开放自由文本；云归属是资源「云」标签的唯一来源，资源侧不再单独维护。'
+  '取自云字典（管理员维护、仅含启用项），不开放自由文本；云归属是资源「云」标签的唯一来源，资源侧不再单独维护。'
 /** 编辑态云归属只读说明（MVP 收口：登记后不可编辑） */
 const CLOUD_CODE_READONLY_HINT = '网域云归属登记后不可修改；如需跨云请新登记网域'
 /** 网络分区字段说明（对齐原型 ZONE_TYPE_FIELD_HINT，必填口径去除「可留空」表述） */
@@ -48,7 +48,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
   const [submitting, setSubmitting] = useState(false)
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
-  // 云归属下拉数据源（云字典只读接口 GET /api/v3/platform/cloud-dict，仅启用项）
+  // 云归属下拉数据源（云字典读接口 GET /api/v3/platform/cloud-dict，仅启用项；写接口在 M06，D37）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
 

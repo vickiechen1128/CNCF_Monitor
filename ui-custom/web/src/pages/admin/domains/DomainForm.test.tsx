@@ -18,7 +18,7 @@ vi.mock('../../../api/domain', () => ({
   tenantApi: { list: (...a: unknown[]) => tenantListMock(...a) },
 }))
 
-// 云归属下拉数据源（云字典只读接口，M06 §5.2 / M07 §5.20）
+// 云归属下拉数据源（云字典读接口，M06 §5.2 / M07 §5.20；写接口在 M06，D37）
 vi.mock('../../../api/resources', () => ({
   cloudDictApi: { list: (...a: unknown[]) => cloudDictListMock(...a) },
 }))

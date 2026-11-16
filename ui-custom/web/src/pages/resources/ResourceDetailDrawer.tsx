@@ -41,7 +41,7 @@ interface ResourceDetailDrawerProps {
  */
 export function ResourceDetailDrawer({ open, record, networkDomains, businessDomains, onCancel }: ResourceDetailDrawerProps) {
   const navigate = useNavigate()
-  // 决策 103 scheme-B：云字典（部署级只读，cloud_code → cloud_name 展示名解析；
+  // 决策 103 scheme-B / D37：云字典读视图（写接口在 M06），cloud_code → cloud_name 展示名解析；
   // 云的取值由所属网域派生，此处仅做展示名解析）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   // 决策 101：M06 zone_type 字典（网络分区展示名解析，互联网区 / 政务外网区）

@@ -540,7 +540,7 @@ describe('MainLayout', () => {
   })
 
   /**
-   * 云字典（M07 §5.20 / 决策 98/102；dev-feedback #19）：只读展示页入口落在
+   * 云字典（D37：admin 只增维护）：维护页入口落在
    * 「系统与平台管理」模块，靠近「网域管理」（云归属是网域登记取值来源）。
    */
   it('exposes 云字典 under 系统与平台管理 and highlights it on /admin/cloud-dict', () => {

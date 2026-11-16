@@ -406,17 +406,18 @@ export interface PlatformDict {
 }
 
 /**
- * 云字典条目（§5.20 / 决策 98 / 102）：**一个云 = 云类型 × 云载体的组合整体**——
+ * 云字典条目（§5.20 / 决策 98 / 102；D37 升级为 admin 只增维护）：**一个云 = 云类型 × 云载体的组合整体**——
  * `cloud_code` 是不可变复合码（`{类型}-{载体}`，如 `PUB-TX`），是 `cloud` label 的唯一取值来源；
- * `cloud_name` 为必填展示名（仅 UI 展示，改动不触发配置重生成）；
+ * `cloud_name` 为必填展示名（仅 UI 展示）；
  * `cloud_type` / `carrier` 仅为条目**描述属性**——不独立成列 / 成筛选维度 / 成 label。
- * 云字典随部署预置、**全局只读**（后端无写接口，前端不提供登记入口，决策 102-③）。
+ * 云字典随部署预置；管理员可新增与停用，编码/属性不可修改、条目不可删除（D37）。
  */
 export interface CloudDict {
   cloud_code: string
   cloud_name: string
   cloud_type: string
   carrier: string
+  description?: string
   enabled: boolean
 }
 
