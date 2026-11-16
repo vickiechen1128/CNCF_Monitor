@@ -32,6 +32,7 @@ type JobRepository interface {
 	CountByLabelTemplate(ctx context.Context, labelTemplateID string) (int64, error)
 	CountByNetworkDomain(ctx context.Context, domainID string) (int64, error)
 	CountByProbeModule(ctx context.Context, name string) (int64, error)
+	CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error)
 }
 
 // GORMJobRepository is the GORM-backed implementation.
@@ -162,6 +163,16 @@ func (r *GORMJobRepository) CountByNetworkDomain(ctx context.Context, domainID s
 	var count int64
 	err := r.db.WithContext(ctx).Model(&jobRecord{}).
 		Where("network_domain_id = ?", domainID).Count(&count).Error
+	return count, err
+}
+
+// CountByMapping counts jobs that inherited a mapping (same monitor type and
+// exporter implementation). Used to protect mapping deletion.
+func (r *GORMJobRepository) CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&jobRecord{}).
+		Where("monitor_type = ? AND exporter_template_id = ?", monitorType, exporterTemplateID).
+		Count(&count).Error
 	return count, err
 }
 

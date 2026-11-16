@@ -23,8 +23,13 @@ func (e *ValidationError) Error() string {
 // ErrorKind implements apierror.Coded.
 func (e *ValidationError) ErrorKind() apierror.Kind { return apierror.BadRequest }
 
-// NewValidationError builds a field validation error.
-func NewValidationError(field, format string, args ...any) *ValidationError {
+// NewValidationError builds a field validation error with a fixed message.
+func NewValidationError(field, message string) *ValidationError {
+	return &ValidationError{Field: field, Message: message}
+}
+
+// NewValidationErrorf builds a field validation error with a formatted message.
+func NewValidationErrorf(field, format string, args ...any) *ValidationError {
 	return &ValidationError{Field: field, Message: fmt.Sprintf(format, args...)}
 }
 
@@ -44,13 +49,17 @@ func (e *NotFoundError) ErrorKind() apierror.Kind { return apierror.NotFound }
 
 // ConflictError indicates a uniqueness / reference conflict.
 type ConflictError struct {
-	Entity string
-	Field  string
-	Value  string
+	Entity  string
+	Field   string
+	Value   string
+	Message string
 }
 
 // Error implements the error interface.
 func (e *ConflictError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
 	if e.Field == "" {
 		return fmt.Sprintf("%s conflict: %s", e.Entity, e.Value)
 	}
