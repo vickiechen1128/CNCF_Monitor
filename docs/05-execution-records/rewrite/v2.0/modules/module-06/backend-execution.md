@@ -411,3 +411,5 @@ v3 冒烟（`METRIC_CENTER_DB_MODE=v3` + 临时 SQLite）：admin 登录成功 �
 | `2176025` | `feat(module-07): 云字典读视图补充描述属性（T07-B3-3 / D37）` |
 | `04f8bbf` | `feat(module-06): 云字典 admin 维护页与 M09 采集状态注释对齐（T06-B7）` |
 | `c76458a` | `refactor(module-07): 移除 InstanceSelector 冗余依赖（lint）` |
+| `cfb9738` | `refactor(module-06): 更新云字典模型注释为 v3 只增维护（D37）` |
+| `ed080ab` | `test(module-06): 云字典 admin 只增维护端到端回归（T06-B7）` |
