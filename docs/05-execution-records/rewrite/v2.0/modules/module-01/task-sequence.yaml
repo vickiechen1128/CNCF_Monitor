@@ -371,7 +371,8 @@ tasks:
   # ---------------- B6 指标库 / 安装 / 对账 ----------------
   - id: T01-B6-1
     title: "技术指标库（FR-18）"
-    status: todo
+    status: done
+    evidence: "技术指标库 CRUD + 筛选 + 内置只读/删除保护已落地；handler 测试通过"
     depends_on: [T01-B1-4]
     schema_change: none
     data_migration: none
@@ -386,7 +387,8 @@ tasks:
 
   - id: T01-B6-2
     title: "业务指标库状态机（FR-19）"
-    status: todo
+    status: done
+    evidence: "业务指标库 CRUD + pending→instrumented→online 状态机 + 非 pending 禁删已落地；测试通过"
     depends_on: [T01-B1-4]
     schema_change: none
     data_migration: none
@@ -401,7 +403,8 @@ tasks:
 
   - id: T01-B6-3
     title: "拨测模块管理（FR-11 支撑）"
-    status: todo
+    status: done
+    evidence: "拨测模块 CRUD + YAML 根键校验 + 内置仅启停 + 被 Job 引用禁删已落地；测试通过"
     depends_on: [T01-B1-3]
     schema_change: none
     data_migration: none
@@ -416,7 +419,8 @@ tasks:
 
   - id: T01-B6-4
     title: "资源删除回收循环（D40 / NFR-05）"
-    status: todo
+    status: done
+    evidence: "D40 对账循环：默认 60s 可配、批量回收失效/跨域实例、刷新 pending；ReconcileOnce 测试通过"
     depends_on: [T01-B3-3, T01-B1-4]
     schema_change: none
     data_migration: none

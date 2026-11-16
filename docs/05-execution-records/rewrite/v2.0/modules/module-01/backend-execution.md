@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4（M09 源接入 + 中心规则同步 + 写回）、B5（监控规则 CRUD/校验）
-> **状态**：B1 / B2 / B3 / B4 / B5 完成（凭证加密、前端状态聚合、B6 待后续）
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4（M09 源接入 + 中心规则同步 + 写回）、B5（监控规则 CRUD/校验）、B6（指标库/拨测模块/对账循环）
+> **状态**：B1–B6 完成（凭证加密、前端、B8 待后续）
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -332,11 +332,48 @@ center_config_snapshots                     -> validation_status=passed, is_curr
 3. **规则 outcomes 按 rule id**：`RecordRuleSync` 以 M01 rule id 为键，避免规则展示名重复。
 4. **无历史清理**：中心规则快照暂未实现保留策略（每域快照仍保留 5 份）；后续按需补。
 
+
 ---
 
-## 10. 下一步
+## 10. B6 变更与验证（指标库 / 业务指标 / 拨测模块 / 对账循环）
 
-- **B6**：技术指标库、业务指标、拨测模块、安装登记（部分已由 Job 侧提供）、D40 对账循环。
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B6-1 | `service/metric.go`、`dto/metric.go`、`handler/metric.go` | 技术指标库 CRUD/筛选；内置只读、删除 403 |
+| B6-2 | `service/business_metric.go`、`dto/business_metric.go`、`handler/business_metric.go` | 业务指标 CRUD；`pending→instrumented→online` 状态机；非 pending 禁删 |
+| B6-3 | `service/probe_module.go`、`dto/probe_module.go`、`handler/probe_module.go` | 拨测模块 CRUD；YAML 根键=名称；内置仅启停；被 Job 引用禁删 |
+| B6-4 | `service/reconcile.go`、`module.go` | D40 对账循环（默认 60s，`Options.ReconcileInterval` 可配）；批量回收失效/跨域实例并置 pending |
+| B6 | `handler/catalog_test.go`、`service/reconcile_test.go` | 指标/业务指标/拨测模块契约测试 + 对账单测 |
+
+### 10.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/modules/m01/...
+ok  .../m01
+ok  .../m01/domain
+ok  .../m01/handler
+ok  .../m01/references
+ok  .../m01/repository
+ok  .../m01/seed
+ok  .../m01/service
+
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+### 10.2 偏差与遗留
+
+1. **指标库 monitor_type 过滤未实现**：标的 `monitor_types` 为 JSON，当前按 `metric_type`/`category`/`keyword` 过滤；按监控对象类型筛选留待后续（需 JSON 查询）。
+2. **安装登记**：已在 B3 的 Job 实例接口提供，不再单独暴露。
+3. **对账循环日志**：仅回收数量日志，未逐条审计；后续可接审计链路（M07 S-6）。
+4. **凭证加密仍未做**（T01-B3-4）。
+
+---
+
+## 11. 下一步
+
 - **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
-- **B4-4 / F1-F4**：前端实例状态聚合与 M01 页面切 v3。
+- **B4-4 / F1-F4**：前端 M01 页面切 v3、同步/采集状态列。
 - **B8**：回归矩阵、安全审查、handover。

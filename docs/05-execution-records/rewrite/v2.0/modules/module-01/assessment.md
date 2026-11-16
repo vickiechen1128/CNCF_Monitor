@@ -335,7 +335,7 @@ platform/modules/m01/
 - M09 中心规则产物（centerEvaluator=true）+ reload（D35）；规则 outcomes 经 `SyncResultSink.RecordRuleSync` 回写。
 - **验收**：`validate` 响应形状与旧契约兼容（`valid/error/job_ref`）；error 级需 ack 才能提交；promtool 缺失降级 warning；规则保存 → 中心生效 → `synced`。
 
-### P6 指标库 + 安装登记 + 对账循环（3~4 人日）
+### P6 指标库 + 安装登记 + 对账循环（3~4 人日，已完成 2026-11-16）
 
 - FR-18/19/20：技术指标库（含停用）、业务指标状态机、安装留痕。
 - D40：`ReconcileLoop`（默认 60s，`m01.Options.ReconcileInterval` 可配），批量回收失效/跨域实例，刷新 `updated_at`。
@@ -417,6 +417,6 @@ platform/modules/m01/
 
 1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-3 / D-5 已确认（2026-11-16）；D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
-3. ~~P1~~、~~P2~~、~~P3~~、~~P4~~、~~P5（含中心规则同步）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B6 指标库/拨测模块/对账循环**（凭证加密 B3-4 并行）。
+3. ~~P1~~–~~P6~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B3-4 凭证加密、前端迁移与 B8 回归/审查/交接**。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
 5. D-3 已关闭；继续推进 D-4（M09 中心规则）与 D-6/D-7 的 owner 决策。
