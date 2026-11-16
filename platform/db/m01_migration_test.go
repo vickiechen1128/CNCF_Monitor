@@ -111,7 +111,9 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	_, err = sqlDB.Exec(`INSERT INTO m01_probe_modules(id,name,content) VALUES ('probe-2','http_2xx','http_2xx: {}')`)
 	require.Error(t, err, "duplicate probe module name must fail")
 
-	// --- Down: roll back 00006 only; M06/M09 tables stay ---
+	// --- Down: roll back 00007 (M07 label templates) then 00006 only; M06/M09
+	// tables stay ---
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
 	for _, table := range tables {
 		requireTableCount(t, sqlDB, table, 0)
