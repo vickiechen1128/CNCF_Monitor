@@ -437,7 +437,8 @@ tasks:
   # ---------------- F 前端 ----------------
   - id: T01-F1
     title: "前端契约层：6 个 API 客户端切 v3 + 类型"
-    status: todo
+    status: done
+    evidence: "新增 types/strategyV3.ts + api/strategyV3.ts（6 组 v3 客户端）+ 6 个契约测试；vitest/typecheck:test/eslint 通过；页面切换由 F2/F3 消费"
     depends_on: [T01-B0-2]
     cross_module: [web]
     schema_change: none
