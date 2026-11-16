@@ -50,6 +50,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	userSvc := service.NewUserService(repository.NewGORMUserRepository(db))
 	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(db))
 	storageSvc := storage.NewService(storage.Options{EnvFile: opts.EnvFile, PromURL: opts.PromURL})
+	cloudSvc := service.NewCloudDictService(repository.NewGORMCloudDictRepository(db))
 
 	return &Module{handlers: handler.Handlers{
 		Tenants:   handler.NewTenantHandler(tenantSvc),
@@ -57,6 +58,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		Users:     handler.NewUserHandler(userSvc),
 		LoginLogs: handler.NewLoginLogHandler(loginLogSvc),
 		Storage:   handler.NewStorageHandler(storageSvc),
+		Clouds:    handler.NewCloudDictHandler(cloudSvc),
 	}}, nil
 }
 

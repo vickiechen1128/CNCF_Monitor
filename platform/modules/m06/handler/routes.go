@@ -13,6 +13,7 @@ type Handlers struct {
 	Users     *UserHandler
 	LoginLogs *LoginLogHandler
 	Storage   *StorageHandler
+	Clouds    *CloudDictHandler
 }
 
 // RegisterRoutes mounts the M06 v3 administrative routes.
@@ -47,6 +48,14 @@ func RegisterRoutes(platform *gin.RouterGroup, h Handlers) {
 	admin.DELETE("/users/:id", h.Users.Delete)
 
 	admin.GET("/login-logs", h.LoginLogs.List)
+
+	// Cloud dictionary maintenance (D37): admin grows only — create and disable.
+	// The read list stays in M07 (resources consume the enabled entries); there is
+	// deliberately no DELETE and no attribute-edit route.
+	if h.Clouds != nil {
+		admin.POST("/cloud-dict", h.Clouds.Create)
+		admin.PUT("/cloud-dict/:cloud_code", h.Clouds.Update)
+	}
 
 	admin.GET("/storage-logs", h.Storage.GetOverview)
 	admin.PUT("/storage-logs/retention", h.Storage.UpdateRetention)

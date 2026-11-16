@@ -36,7 +36,8 @@ func runCloudDicts(db *gorm.DB) error {
 			existing.CloudName = entry.CloudName
 			existing.CloudType = entry.CloudType
 			existing.Carrier = entry.Carrier
-			existing.Enabled = entry.Enabled
+			// enabled 由管理员维护（D37 只增维护），seed 不覆盖已有行的启停状态，
+			// 避免服务重启把已停用条目重新启用。
 			existing.Description = entry.Description
 			if err := db.Save(&existing).Error; err != nil {
 				return fmt.Errorf("seed cloud dict %q: %w", entry.CloudCode, err)

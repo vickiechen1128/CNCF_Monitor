@@ -53,5 +53,6 @@ func TestRunCloudDictsRealignsPresetValues(t *testing.T) {
 	assert.Equal(t, "腾讯云", got.CloudName)
 	assert.Equal(t, models.CloudTypePublic, got.CloudType)
 	assert.Equal(t, models.CloudCarrierTencent, got.Carrier)
-	assert.True(t, got.Enabled)
+	// D37：启停状态归管理员维护，seed 不得覆盖（否则重启会复活已停用条目）。
+	assert.False(t, got.Enabled, "seed 保留管理员设置的停用状态")
 }
