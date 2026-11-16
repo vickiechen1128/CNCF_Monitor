@@ -383,3 +383,75 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 		WHERE r.deleted_at IS NULL AND d.id IS NULL`).Scan(&orphanResources).Error)
 	assert.Zero(t, orphanResources)
 }
+
+// TestV3CloudDictMaintenanceEndToEnd covers D37 across the real v3 router:
+// M07 serves the read list, M06 owns create/disable, and normal users stay
+// read-only. It also proves the M06 write routes do not duplicate the M07 GET
+// route (Gin would panic at setup time).
+func TestV3CloudDictMaintenanceEndToEnd(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "v3_cloud_dict_e2e.db")
+	require.NoError(t, db.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("viewer123"), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	require.NoError(t, gormDB.Create(&models.User{
+		ID: "user-cloud-viewer", TenantID: models.PlatformAdminTenantID, Username: "cloud-viewer",
+		PasswordHash: string(hash), DisplayName: "云字典只读用户",
+		Role: models.UserRoleUser, Status: models.UserStatusActive,
+	}).Error)
+
+	prev := db.DB
+	db.DB = gormDB
+	t.Cleanup(func() { db.DB = prev })
+
+	router, err := setupV3Router(context.Background(), "", m06.Options{})
+	require.NoError(t, err)
+	adminToken := v3LoginToken(t, router, "admin", "admin123")
+
+	code, out := doV3JSON(t, router, http.MethodGet, "/api/v3/platform/cloud-dict", adminToken, "")
+	require.Equal(t, http.StatusOK, code, out)
+	list := out["data"].(map[string]any)["list"].([]any)
+	require.NotEmpty(t, list)
+
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict", adminToken,
+		`{"cloud_code":"IND-CM","cloud_name":"行业云（移动）","cloud_type":"IND","carrier":"CM","description":"e2e"}`)
+	require.Equal(t, http.StatusOK, code, out)
+	created := out["data"].(map[string]any)
+	assert.Equal(t, "IND-CM", created["cloud_code"])
+	assert.Equal(t, true, created["enabled"], "new entries are enabled by default")
+
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict", adminToken,
+		`{"cloud_code":"IND-CM","cloud_name":"重复","cloud_type":"IND","carrier":"CM"}`)
+	require.Equal(t, http.StatusConflict, code, out)
+	assert.Equal(t, "conflict", out["errorType"])
+
+	code, out = doV3JSON(t, router, http.MethodPut, "/api/v3/platform/cloud-dict/IND-CM", adminToken,
+		`{"enabled":true}`)
+	require.Equal(t, http.StatusBadRequest, code, out)
+
+	code, out = doV3JSON(t, router, http.MethodPut, "/api/v3/platform/cloud-dict/IND-CM", adminToken,
+		`{"enabled":false}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, false, out["data"].(map[string]any)["enabled"])
+
+	// A cloud referenced by a live network domain cannot be disabled.
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/network-domains", adminToken,
+		`{"name":"云字典引用域","cloud_code":"GM-CU","zone_type":"internet","domain_code":"dict-e2e"}`)
+	require.Equal(t, http.StatusOK, code, out)
+	code, out = doV3JSON(t, router, http.MethodPut, "/api/v3/platform/cloud-dict/GM-CU", adminToken,
+		`{"enabled":false}`)
+	require.Equal(t, http.StatusConflict, code, out)
+	assert.Equal(t, "conflict", out["errorType"])
+
+	// Normal users can read the dictionary but cannot maintain it.
+	viewerToken := v3LoginToken(t, router, "cloud-viewer", "viewer123")
+	code, out = doV3JSON(t, router, http.MethodGet, "/api/v3/platform/cloud-dict", viewerToken, "")
+	require.Equal(t, http.StatusOK, code, out)
+	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict", viewerToken,
+		`{"cloud_code":"PRI-TX","cloud_name":"私有云","cloud_type":"PRI","carrier":"TX"}`)
+	require.Equal(t, http.StatusForbidden, code, out)
+	assert.Equal(t, "forbidden", out["errorType"])
+}
