@@ -91,7 +91,7 @@ export function InstanceSelector({
     } finally {
       setLoading(false)
     }
-  }, [params, monitorType, resourceCategory, networkDomainId, targetField])
+  }, [params, monitorType, resourceCategory, networkDomainId])
 
   useEffect(() => {
     // 异步请求回调内 setState；沿用本模块既有抓取 effect 模式
