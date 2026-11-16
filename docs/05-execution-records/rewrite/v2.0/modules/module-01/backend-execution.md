@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）
-> **状态**：B1 完成；资源路由与 service 在 B2+ 落地
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）
+> **状态**：B1 / B2 完成；ScrapeJob 在 B3 落地
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -103,10 +103,64 @@ m01_scrape_jobs               0
 4. **repository 不做业务默认值**：`JobType` / `Scheme` / `AuthType` / `SyncStatus` 等默认值由 B3 的 service 层补齐，repository 只做持久化与约束映射；测试显式构造完整实体。
 5. **PostgreSQL 未实跑**：本环境无 PG；`00006_m01_strategy.postgres.sql` 按 SQLite 同构编写（`jsonb` + 部分唯一索引），待 R3 环境验证。
 
+
 ---
 
-## 6. 下一步
+## 6. B2 变更与验证（采集实现池 + 默认采集配置）
 
-- **B2**：采集实现池 + 默认采集配置的 service / handler（FR-01/02/03）；D-3（M07 `label_templates`）仍未就绪，模板名称解析先降级。
-- **B3**：ScrapeJob CRUD / 参数层叠 / 实例候选 / blackbox / preview-targets。
-- 每个资源组按「service + handler + 契约测试」独立提交；schema 不再变更。
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B2-1 | `domain/{monitor_type,params}.go` | 监控对象类型白名单、Prometheus duration/端口/路径校验（纯函数） |
+| B2-1 | `dto/exporter_template.go` + `service/exporter_template.go` + `handler/exporter_template.go` | 采集实现池 CRUD；内置行 403、被映射引用 409、name 冲突 409 |
+| B2-2 | `dto/mapping.go` + `service/mapping.go` + `handler/mapping.go` | 默认采集配置 CRUD + `PUT /:id/label-template` 专用入口；`is_default` 唯一、内置行只读、被 Job 引用禁删 |
+| B2-2 | `handler/{json,errors,pagination}.go` | 严格 JSON（未知字段 400）、`httpapi` 错误映射、分页解析 |
+| B2-2 | `service/ports.go` | `LabelTemplateResolver` 端口 + D-3 no-op 实现（接受 id、名称为空） |
+| B2 | `handler/routes_test.go` | 契约级集成测试：CRUD、403/404/409/400、严格 JSON、label-template 专用端点 |
+| B2 | `domain/params_test.go`、`service/service_test.go` | 校验函数与规范化单测 |
+| B2 | `module.go` | 组合根接入 exporter / mapping service + handler |
+
+### 6.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/modules/m01/...
+ok  .../m01
+ok  .../m01/domain
+ok  .../m01/handler
+ok  .../m01/repository
+ok  .../m01/seed
+ok  .../m01/service
+
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+v3 服务启动（端口 18081，临时库）实测：
+
+```text
+匿名 GET /exporter-templates                    -> 401
+GET  /exporter-templates?page_size=3            -> total=6（内置采集实现）
+GET  /ci-exporter-mappings?page_size=3          -> total=6，exporter_template_name 已解析
+POST /exporter-templates {"name":"e2e-exporter"} -> 200，is_builtin=false
+POST /ci-exporter-mappings                      -> 200，label_template_id=""
+PUT  /ci-exporter-mappings/{id}/label-template  -> 200，label_template_id="lt-e2e"（name 为空，D-3 降级）
+DELETE 内置 mapping                              -> 403 forbidden
+POST 未知字段 {"job_name":"x"}                   -> 400 bad_request
+```
+
+### 6.2 偏差
+
+1. **内置 mapping 禁删**：契约 §3.2 原仅写 `is_default`/被引用两类 409。代码沿用旧线语义，内置行优先返回 403（否则 seed 下次启动会重建，用户操作无效）；契约已补注。
+2. **label_template_id 只经专用端点写**：Create/Update 请求不接收该字段（严格 JSON 下出现即 400），与契约「专用入口」一致。
+3. **Mapping Update 保留 label_template_id / is_builtin**：更新请求是「全量业务字段」，但这两个字段不在 DTO 中，服务端从 existing 继承，避免误清空。
+4. **Label template 名称解析为空**：D-3 未就绪，`NoopLabelTemplateResolver` 只校验非空 id，`label_template_name` 返回空串；M07 端口落地后替换实现即可。
+
+---
+
+## 7. 下一步
+
+- **B3**：ScrapeJob CRUD / 参数层叠 / 实例候选 / blackbox / preview-targets（FR-05~FR-11）；依赖 B2 的映射与采集实现校验。
+- **B2-3**：M07 v3 `label_templates` 表 + 只读 API（D-3）就绪后，替换 `NoopLabelTemplateResolver` 并补模板名称/类别校验。
+- 每个资源组按「service + handler + 契约测试」独立提交；B2 起 schema 不变。

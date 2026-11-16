@@ -308,7 +308,7 @@ platform/modules/m01/
 - `seed/m01_v3.go`（内置采集实现 / 映射 / 指标 / 拨测模块，幂等）。
 - **验收**：v3 模式启动 `registry.Names()` 含 `m01`；迁移 up/down 于空库通过；seed 二次执行无变更；repository 单测通过。
 
-### P2 采集实现池 + 默认采集配置（3~4 人日）
+### P2 采集实现池 + 默认采集配置（3~4 人日，已完成 2026-11-16）
 
 - FR-01 / FR-02：CRUD、内置只读、被引用禁删、`is_default` 唯一。
 - FR-03：模板引用校验与列表展示（依赖 D-3；未就绪时端口返回空并降级）。
@@ -417,6 +417,6 @@ platform/modules/m01/
 
 1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-5 已确认（2026-11-16）；D-3 / D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
-3. ~~启动 P1（`00006` schema + repository + seed + 模块骨架）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B2 采集实现池 + 默认采集配置**。
+3. ~~P1（`00006` schema + repository + seed + 模块骨架）~~、~~P2（采集实现池 + 默认采集配置）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B3 ScrapeJob 核心**。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
 5. 并行推进 D-3（M07 label_template）与 D-4（M09 中心规则）的 owner 决策，解除 `T01-B2-3` 阻塞。

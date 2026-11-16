@@ -146,7 +146,7 @@ Job / 规则响应统一内联：
 | POST | `/ci-exporter-mappings` | 创建（**不接收** `label_template_id`） |
 | PUT | `/ci-exporter-mappings/{id}` | 更新（**不接收** `label_template_id`）；内置行 → 403 |
 | PUT | `/ci-exporter-mappings/{id}/label-template` | 专用变更入口：`{ "label_template_id": "" }`（空串 = 清除） |
-| DELETE | `/ci-exporter-mappings/{id}` | 软删；`is_default=true` → 409（先取消默认）；被 Job 引用 → 409 |
+| DELETE | `/ci-exporter-mappings/{id}` | 软删；内置行 → 403；`is_default=true` → 409（先取消默认）；被 Job 引用 → 409 |
 
 ### 3.3 校验
 

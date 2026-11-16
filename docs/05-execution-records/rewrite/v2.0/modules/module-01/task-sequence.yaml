@@ -142,7 +142,8 @@ tasks:
   # ---------------- B2 采集实现池 + 默认采集配置 ----------------
   - id: T01-B2-1
     title: "采集实现池 CRUD（FR-02）"
-    status: todo
+    status: done
+    evidence: "采集实现池 CRUD 已落地（handler/exporter_template.go + service/exporter_template.go）；内置行 403、被引用删除 409、name 冲突 409、未知字段 400 测试通过"
     depends_on: [T01-B1-4]
     schema_change: none
     data_migration: none
@@ -157,7 +158,8 @@ tasks:
 
   - id: T01-B2-2
     title: "默认采集配置 CRUD + 标签模板专用端点（FR-01/FR-03）"
-    status: todo
+    status: done
+    evidence: "默认采集配置 CRUD + label-template 专用端点已落地；is_default 409、内置 403、被 Job 引用 409、duration/类型/路径校验测试通过"
     depends_on: [T01-B1-4]
     schema_change: none
     data_migration: none
