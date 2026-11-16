@@ -44,6 +44,7 @@ type Module struct {
 	onboard  *service.OnboardingService
 	edge     *service.EdgeService
 	config   *service.ConfigSyncService
+	center   *service.CenterRulesService
 	query    *service.QueryService
 	opts     Options
 }
@@ -60,6 +61,13 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	store := storage.NewContentStore(opts.ConfigOutputDir)
 	configSync := service.NewConfigSyncService(repo, sources, store, nil)
 	configSync.SetSyncSink(opts.SyncSink)
+	centerRules := service.NewCenterRulesService(
+		repository.NewCenterSnapshotRepository(db),
+		m09refs.NewCenterRuleSource(db),
+		opts.SyncSink,
+		opts.ConfigOutputDir,
+		opts.PromURL,
+	)
 	query := service.NewQueryService(opts.PromURL, repo, repo)
 	packages := service.NewPackageService(opts.EdgePackagesDir)
 	return &Module{
@@ -75,6 +83,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		onboard: onboarding,
 		edge:    edge,
 		config:  configSync,
+		center:  centerRules,
 		query:   query,
 		opts:    opts,
 	}, nil
@@ -127,5 +136,8 @@ func (m *Module) StartBackground(ctx context.Context) {
 	}
 	if m.config != nil {
 		go m.config.RunWatcher(ctx, 30*time.Second)
+	}
+	if m.center != nil {
+		go m.center.RunWatcher(ctx, 30*time.Second)
 	}
 }

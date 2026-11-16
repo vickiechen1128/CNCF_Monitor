@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/metriccenter/metriccenter/platform/models"
 )
 
 func TestGenerateRendersDeterministicArtifacts(t *testing.T) {
@@ -70,4 +72,24 @@ func TestGenerateRequiresDomainAndVersion(t *testing.T) {
 	assert.Error(t, err)
 	_, err = Generate(Source{NetworkDomainID: "mc-demo"}, "", time.Unix(0, 0))
 	assert.Error(t, err)
+}
+
+func TestGenerateCenterRules(t *testing.T) {
+	rules := []models.MonitoringRule{{
+		ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n- name: host\n  rules:\n  - alert: HostDown\n    expr: up == 0\n",
+		Enabled:     true,
+		DraftStatus: "ready",
+		Scope:       models.ScopeTypeCentral,
+	}}
+	artifacts, err := GenerateCenterRules(rules, "v1", time.Now())
+	require.NoError(t, err)
+	assert.NotEmpty(t, artifacts.Checksum)
+	assert.Contains(t, artifacts.RulesYML, "HostDown")
+	assert.Contains(t, artifacts.PrometheusYML, "rule_files")
+	assert.Contains(t, artifacts.PrometheusYML, "rules.yml")
+
+	empty, err := GenerateCenterRules(nil, "v2", time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, empty.RulesYML)
 }

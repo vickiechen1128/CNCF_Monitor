@@ -249,3 +249,37 @@ func Validate(artifacts *Artifacts) ValidationResult {
 		Details: string(rawDetails),
 	}
 }
+
+// GenerateCenterRules renders the platform-global rules artifact evaluated by
+// the center Prometheus (D35). Edge packages never include rules.
+func GenerateCenterRules(rules []models.MonitoringRule, version string, generatedAt time.Time) (*Artifacts, error) {
+	if strings.TrimSpace(version) == "" {
+		return nil, fmt.Errorf("configgen: version is required")
+	}
+	rendered, err := generator.AssembleWithModules(
+		"center", "", "", nil, rules, "", "", true, nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("configgen: assemble center rules: %w", err)
+	}
+	checksum := rendered.Checksum()
+	meta := Metadata{
+		ConfigVersion: version,
+		GeneratedAt:   generatedAt.UTC().Format(time.RFC3339),
+		AgentType:     "center",
+		Checksum:      checksum,
+	}
+	metaRaw, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("configgen: marshal center metadata: %w", err)
+	}
+	return &Artifacts{
+		Version:       version,
+		Checksum:      checksum,
+		PrometheusYML: rendered.PrometheusYML,
+		RulesYML:      rendered.RulesYML,
+		BlackboxYML:   rendered.BlackboxYML,
+		TargetsFiles:  rendered.TargetsFiles,
+		Metadata:      string(metaRaw),
+	}, nil
+}
