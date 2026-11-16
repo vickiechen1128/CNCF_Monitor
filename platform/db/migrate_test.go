@@ -39,11 +39,30 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 		requireTableCount(t, sqlDB, table, 1)
 	}
 
+	// 00006 M01 strategy tables.
+	m01Tables := []string{
+		"m01_exporter_templates", "m01_ci_type_exporter_mappings",
+		"m01_scrape_jobs", "m01_monitoring_rules", "m01_metric_library",
+		"m01_business_metrics", "m01_installations", "m01_probe_modules",
+	}
+	for _, table := range m01Tables {
+		requireTableCount(t, sqlDB, table, 1)
+	}
+
 	// Up is idempotent: a second run must not fail or duplicate rows.
 	require.NoError(t, MigrateV3("sqlite", dsn), "second apply should be a no-op")
 	require.NoError(t, MigrateV3Status("sqlite", dsn), "status should be readable")
 
-	// 00005 is the latest; one Down drops the M09 edge-platform tables but
+	// 00006 is the latest; one Down drops the M01 strategy tables but keeps
+	// every M00/M06/M07/M09 table.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
+	for _, table := range m01Tables {
+		requireTableCount(t, sqlDB, table, 0)
+	}
+	requireTableCount(t, sqlDB, "network_domain_access", 1)
+	requireTableCount(t, sqlDB, "resources", 1)
+
+	// 00005 is now the latest; one Down drops the M09 edge-platform tables but
 	// keeps every M00/M06/M07 table.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 edge platform migration")
 	for _, table := range []string{
@@ -63,22 +82,22 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 	requireTableCount(t, sqlDB, "resources", 1)
 	requireTableCount(t, sqlDB, "network_domains", 1)
 
-	// 00003 is now the latest; second Down drops import_records only.
+	// 00003 is now the latest; one Down drops import_records only.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback import records migration")
 	requireTableCount(t, sqlDB, "import_records", 0)
 	requireTableCount(t, sqlDB, "resources", 1)
 
-	// 00002 is now the latest; third Down drops the resource schema.
+	// 00002 is now the latest; one Down drops the resource schema.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback resource schema")
 	requireTableCount(t, sqlDB, "resources", 0)
 	requireTableCount(t, sqlDB, "schema_meta", 1)
 
-	// 00001 is now the latest; fourth Down removes the baseline marker.
+	// 00001 is now the latest; one Down removes the baseline marker.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback baseline migration")
 	requireTableCount(t, sqlDB, "schema_meta", 0)
 	requireTableCount(t, sqlDB, "tenants", 1)
 
-	// 00000 is now the latest; fifth Down removes the platform core schema.
+	// 00000 is now the latest; one Down removes the platform core schema.
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback platform core migration")
 	requireTableCount(t, sqlDB, "tenants", 0)
 	requireTableCount(t, sqlDB, "network_domains", 0)
@@ -264,10 +283,12 @@ func TestMigrateV3M06DomainAdministration(t *testing.T) {
 	}
 
 	// Down restores the historical constraint so legacy rows can be written
-	// again during a rollback window. 00005 is the latest migration, so the
-	// first Down drops the M09 edge-platform tables; the second rolls back
-	// 00004 and restores the old network_domains CHECK.
+	// again during a rollback window. 00006 is the latest migration, so the
+	// first Down drops the M01 strategy tables, the second drops the M09
+	// edge-platform tables, and the third rolls back 00004 and restores the old
+	// network_domains CHECK.
 	require.NoError(t, sqlDB.Close())
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 edge platform migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M06 domain administration migration")
 
@@ -406,7 +427,8 @@ func TestMigrateV3M09EdgePlatform(t *testing.T) {
 	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 
-	// --- Down: roll back 00005 only; M06 administrative data stays ---
+	// --- Down: roll back 00006 (M01) and 00005 only; M06 administrative data stays ---
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 edge platform migration")
 	for _, table := range []string{
 		"network_domain_access", "edge_agents", "edge_heartbeats",
