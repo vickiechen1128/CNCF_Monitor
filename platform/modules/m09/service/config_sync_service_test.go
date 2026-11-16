@@ -239,3 +239,58 @@ func TestRunWatcherInitialPassPublishesSnapshot(t *testing.T) {
 		t.Fatal("watcher did not stop after context cancellation")
 	}
 }
+
+type recordingSink struct {
+	calls       int
+	domainID    string
+	version     string
+	generatedAt time.Time
+	outcomes    map[string]string
+}
+
+func (r *recordingSink) RecordDomainSync(_ context.Context, domainID, version string, generatedAt time.Time, outcomes map[string]string) error {
+	r.calls++
+	r.domainID = domainID
+	r.version = version
+	r.generatedAt = generatedAt
+	r.outcomes = outcomes
+	return nil
+}
+
+func (r *recordingSink) RecordRuleSync(_ context.Context, _ string, _ time.Time, _ map[string]string) error {
+	return nil
+}
+
+func TestSyncDomainWritesBackJobOutcomes(t *testing.T) {
+	_, _, repo := newTestStack(t)
+	ctx := context.Background()
+	svc := service.NewConfigSyncService(repo, &fakeSource{src: configgen.Source{Jobs: []configgen.Job{
+		{Name: "node", Targets: []configgen.Target{{Instance: "10.0.0.1:9100"}}},
+		{Name: "empty"},
+	}}}, storage.NewContentStore(t.TempDir()), passed())
+	sink := &recordingSink{}
+	svc.SetSyncSink(sink)
+
+	snap, err := svc.SyncDomain(ctx, "mc-a")
+	require.NoError(t, err)
+	require.Equal(t, 1, sink.calls)
+	assert.Equal(t, "mc-a", sink.domainID)
+	assert.Equal(t, snap.Version, sink.version)
+	assert.Empty(t, sink.outcomes["node"])
+	assert.Equal(t, "no resolvable targets", sink.outcomes["empty"])
+}
+
+func TestSyncDomainFailureWritesBackFailure(t *testing.T) {
+	_, _, repo := newTestStack(t)
+	ctx := context.Background()
+	svc := service.NewConfigSyncService(repo, &fakeSource{src: configgen.Source{Jobs: []configgen.Job{
+		{Name: "node", Targets: []configgen.Target{{Instance: "10.0.0.1:9100"}}},
+	}}}, storage.NewContentStore(t.TempDir()), failed("user_config"))
+	sink := &recordingSink{}
+	svc.SetSyncSink(sink)
+
+	_, err := svc.SyncDomain(ctx, "mc-a")
+	require.NoError(t, err)
+	require.Equal(t, 1, sink.calls)
+	assert.Contains(t, sink.outcomes["node"], "user_config")
+}

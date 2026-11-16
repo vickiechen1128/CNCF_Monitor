@@ -129,6 +129,12 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	if err := registry.Register(systemModule); err != nil {
 		return nil, err
 	}
+	// M01 is built first so M07 (label-template usage) and M09 (sync result
+	// sink) can receive its ports without importing M01.
+	m01Module, err := m01.NewModule(db.DB)
+	if err != nil {
+		return nil, fmt.Errorf("register m01 v3 module: %w", err)
+	}
 	// M09 owns monitoring retirement (D23). Build it before M06 so its
 	// MonitoringRetirer can be injected into M06; registration order below
 	// keeps the meta list as system → m06 → m07 → m01 → m09 → auth.
@@ -136,6 +142,7 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 		PromURL:         m06Opts.PromURL,
 		ConfigOutputDir: *configDir,
 		EdgePackagesDir: *edgePackageDir,
+		SyncSink:        m01Module.SyncResultSink(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("register m09 v3 module: %w", err)
@@ -153,12 +160,6 @@ func mountV3Modules(platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.
 	}
 	if err := registry.Register(m06Module); err != nil {
 		return nil, err
-	}
-	// M01 is built before M07 so its label-template usage checker can guard
-	// template deletion (M07 must not import M01).
-	m01Module, err := m01.NewModule(db.DB)
-	if err != nil {
-		return nil, fmt.Errorf("register m01 v3 module: %w", err)
 	}
 	m07Module, err := m07.NewModule(db.DB, m07.Options{
 		LabelTemplateUsage: m01Module.LabelTemplateUsageChecker(),

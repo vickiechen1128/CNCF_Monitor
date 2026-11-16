@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -655,16 +652,6 @@ func targetAddressForJob(ref domain.ResourceRef, job *domain.Job, mapping *domai
 }
 
 func targetAddress(ref domain.ResourceRef, mapping *domain.Mapping, exporter *domain.ExporterTemplate) string {
-	host := strings.TrimSpace(ref.InstanceIP)
-	if host == "" && ref.Category == domain.CategoryApplication {
-		host = hostFromURL(ref.Endpoint)
-		if host == "" {
-			host = hostFromURL(ref.TargetURL)
-		}
-	}
-	if host == "" {
-		return ""
-	}
 	mappingPort, exporterPort := 0, 0
 	if mapping != nil {
 		mappingPort = mapping.DefaultPort
@@ -672,26 +659,7 @@ func targetAddress(ref domain.ResourceRef, mapping *domain.Mapping, exporter *do
 	if exporter != nil {
 		exporterPort = exporter.DefaultPort
 	}
-	port := domain.ResolvePort(ref, mappingPort, exporterPort)
-	if port <= 0 {
-		return host
-	}
-	return net.JoinHostPort(host, strconv.Itoa(port))
-}
-
-func hostFromURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if !strings.Contains(raw, "://") {
-		raw = "http://" + raw
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return parsed.Hostname()
+	return domain.ResourceAddress(ref, mappingPort, exporterPort)
 }
 
 func applyMappingDefaults(input, existing *domain.Job) {

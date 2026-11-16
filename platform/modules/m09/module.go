@@ -33,6 +33,9 @@ type Options struct {
 	// EdgePackagesDir is the offline package directory read for
 	// release_meta.json and tar.gz downloads (default dist/edge-package).
 	EdgePackagesDir string
+	// SyncSink receives per-job sync outcomes after a snapshot is generated.
+	// Injected by the v3 composition root (M01 owns the sync columns, D-2).
+	SyncSink m09refs.SyncResultSink
 }
 
 // Module wires M09 v3 repositories, services and handlers.
@@ -56,6 +59,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	sources := m09refs.NewGORMSourceReader(db)
 	store := storage.NewContentStore(opts.ConfigOutputDir)
 	configSync := service.NewConfigSyncService(repo, sources, store, nil)
+	configSync.SetSyncSink(opts.SyncSink)
 	query := service.NewQueryService(opts.PromURL, repo, repo)
 	packages := service.NewPackageService(opts.EdgePackagesDir)
 	return &Module{

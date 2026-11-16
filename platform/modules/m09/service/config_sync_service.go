@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type ConfigSyncService struct {
 	sources   references.SourceReader
 	store     *storage.ContentStore
 	validator Validator
+	sink      references.SyncResultSink
 
 	now       func() time.Time
 	retention int
@@ -68,6 +70,12 @@ func NewConfigSyncService(
 		retention:   DefaultSnapshotRetention,
 		domainLocks: map[string]*sync.Mutex{},
 	}
+}
+
+// SetSyncSink injects the M01 writeback port. A nil sink disables writeback
+// (tests / standalone M09).
+func (s *ConfigSyncService) SetSyncSink(sink references.SyncResultSink) {
+	s.sink = sink
 }
 
 // SyncDomain regenerates the domain config and publishes it when valid. On
@@ -123,6 +131,7 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 			return nil, err
 		}
 		record.ID = id
+		s.recordSyncResult(ctx, source, record, now)
 		return &record, nil
 	}
 
@@ -138,7 +147,35 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 			_ = s.store.Delete(domainID, oldVersion)
 		}
 	}
+	s.recordSyncResult(ctx, source, record, now)
 	return &record, nil
+}
+
+// recordSyncResult writes per-job outcomes back to M01. Writeback failures are
+// logged, not propagated: the snapshot is already published and M01 can retry
+// on the next source change.
+func (s *ConfigSyncService) recordSyncResult(ctx context.Context, source configgen.Source, record repository.ConfigSnapshot, generatedAt time.Time) {
+	if s.sink == nil {
+		return
+	}
+	outcomes := make(map[string]string, len(source.Jobs))
+	for _, job := range source.Jobs {
+		switch {
+		case record.ValidationStatus != "passed":
+			message := "config validation failed"
+			if record.ValidationCause == "user_config" {
+				message = "config validation failed (user_config)"
+			}
+			outcomes[job.Name] = message
+		case len(job.Targets) == 0:
+			outcomes[job.Name] = "no resolvable targets"
+		default:
+			outcomes[job.Name] = ""
+		}
+	}
+	if err := s.sink.RecordDomainSync(ctx, record.NetworkDomainID, record.Version, generatedAt, outcomes); err != nil {
+		log.Printf("m09: record sync result for domain %s: %v", record.NetworkDomainID, err)
+	}
 }
 
 // CurrentContent returns the current passed snapshot checksum and content.

@@ -39,6 +39,7 @@ type Module struct {
 	jobs           *handler.JobHandler
 	labelTemplates service.LabelTemplateResolver
 	labelUsage     *references.LabelTemplateUsageChecker
+	syncSink       *references.SyncSink
 }
 
 // NewModule constructs the M01 v3 module.
@@ -59,6 +60,7 @@ func NewModule(db *gorm.DB) (*Module, error) {
 	// D-3 resolved: M07 now owns m07_label_templates; M01 reads it read-only.
 	labelReader := references.NewLabelTemplateReader(db)
 	labelUsage := references.NewLabelTemplateUsageChecker(db)
+	syncSink := references.NewSyncSink(db)
 	exporterSvc := service.NewExporterTemplateService(repos.Exporters, repos.Mappings)
 	mappingSvc := service.NewMappingService(repos.Mappings, repos.Exporters, repos.Jobs, labelReader)
 	jobSvc := service.NewJobService(
@@ -73,6 +75,7 @@ func NewModule(db *gorm.DB) (*Module, error) {
 		jobs:           handler.NewJobHandler(jobSvc),
 		labelTemplates: labelReader,
 		labelUsage:     labelUsage,
+		syncSink:       syncSink,
 	}, nil
 }
 
@@ -98,3 +101,7 @@ func (m *Module) LabelTemplateResolver() service.LabelTemplateResolver { return 
 func (m *Module) LabelTemplateUsageChecker() *references.LabelTemplateUsageChecker {
 	return m.labelUsage
 }
+
+// SyncResultSink exposes the M09 writeback port. M09 calls it after generating
+// a domain snapshot so jobs can move from pending to synced/failed.
+func (m *Module) SyncResultSink() *references.SyncSink { return m.syncSink }

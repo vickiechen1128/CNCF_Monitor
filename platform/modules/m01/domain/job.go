@@ -1,7 +1,10 @@
 package domain
 
 import (
+	"net"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -150,4 +153,40 @@ func ResolvePort(ref ResourceRef, mappingPort, exporterPort int) int {
 	default:
 		return 0
 	}
+}
+
+// ResourceAddress renders the standard-scrape target address for a resource
+// using the MVP port chain. It returns an empty string when no host exists.
+func ResourceAddress(ref ResourceRef, mappingPort, exporterPort int) string {
+	host := strings.TrimSpace(ref.InstanceIP)
+	if host == "" && ref.Category == CategoryApplication {
+		host = HostFromURL(ref.Endpoint)
+		if host == "" {
+			host = HostFromURL(ref.TargetURL)
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	port := ResolvePort(ref, mappingPort, exporterPort)
+	if port <= 0 {
+		return host
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+// HostFromURL extracts the hostname from a URL or host[:port] string.
+func HostFromURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
 }
