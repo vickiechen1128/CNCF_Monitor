@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）
-> **状态**：B1 / B2 完成；ScrapeJob 在 B3 落地
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）
+> **状态**：B1 / B2 / B3 完成（凭证加密与 M09 写回待后续）
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -157,10 +157,67 @@ POST 未知字段 {"job_name":"x"}                   -> 400 bad_request
 3. **Mapping Update 保留 label_template_id / is_builtin**：更新请求是「全量业务字段」，但这两个字段不在 DTO 中，服务端从 existing 继承，避免误清空。
 4. **Label template 解析（已解决）**：B2 初期 D-3 未就绪时使用 no-op resolver；2026-11-16 M07 补齐 `m07_label_templates`（00007）后，M01 已切换为只读 reader，模板存在性/类别匹配与删除引用计数均生效。
 
+
 ---
 
-## 7. 下一步
+## 7. B3 变更与验证（ScrapeJob 核心）
 
-- **B3**：ScrapeJob CRUD / 参数层叠 / 实例候选 / blackbox / preview-targets（FR-05~FR-11）；依赖 B2 的映射与采集实现校验。
-- ~~B2-3：M07 `label_templates`（D-3）~~ → 已完成（M07 00007 + CRUD，M01 resolver/usage checker 接入）。
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B3-1 | `domain/job.go`、`service/job.go` | 参数层叠（Job→映射→采集实现→全局）、快照、mapping_overrides 计算、`sync_mapping_defaults` |
+| B3-1 | `dto/job.go`、`handler/job.go` | CRUD + 列表筛选 + 内联 `sync`；strict JSON |
+| B3-2 | `domain/{resource,job}.go`、`service/job.go` | 网域纳管、实例存在/同域/类别、offline 拒绝、blackbox 门禁、认证、duration/路径、模板类别 |
+| B3-2 | `references/{resource,domain}.go` | 只读 M07 六类资源与 M06/M09 网域纳管状态；候选 SQL 单次 JOIN |
+| B3-3 | `service/job.go`、`handler/job.go` | 候选收敛、Job 实例、安装登记、`preview-targets` |
+| B3 | `handler/job_test.go`、`m01/references/*_test.go` | 候选/Job/预演/离线/网域/blackbox/严格 JSON 集成测试 |
+
+### 7.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/modules/m01/...
+ok  .../m01
+ok  .../m01/domain
+ok  .../m01/handler
+ok  .../m01/references
+ok  .../m01/repository
+ok  .../m01/seed
+ok  .../m01/service
+
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+v3 服务实测（端口 18083）：
+
+```text
+GET  /scrape-jobs/instance-candidates?monitor_type=host_linux&network_domain_id=mc-demo
+     -> total=1, display_name=web-01, target_address=10.0.0.1:9100, selectable=true
+POST /scrape-jobs（standard, host_linux）
+     -> 200, sync.status=pending, interval=15s, timeout=10s, /metrics, http
+POST /scrape-jobs/{id}/preview-targets
+     -> targets=[10.0.0.1:9100]
+POST /scrape-jobs（blackbox, interface_service, http_2xx）
+     -> 200, target_field=api_url, monitor_type=""
+POST /scrape-jobs/{blackbox}/preview-targets
+     -> targets=[http://10.0.0.20:8080/health]
+POST /scrape-jobs（不存在的实例）
+     -> 400 selected_instance_ids: resource "nope" not found
+```
+
+### 7.2 偏差与遗留
+
+1. **凭证仍是占位编码**：`password_cipher` / `token_cipher` 以 `plain:<value>` 前缀存储，未做 AES-GCM / secret ref；安全审查前必须替换（记为 S-M01-1）。响应只回 `credential_configured`，不回显明文。
+2. **preview-targets 标签最小化**：当前只注入 `network_domain`，未按标签模板展开 target labels；完整标签在 B4/M09 生成期由 M07 模板解析。
+3. **application 目标地址**：v3 application 资源无 `instance_ip`，候选地址从 `endpoint` 或 `health_check_url` 解析 host + 资源 `port`；解析失败进入 `skipped`。
+4. **无 M09 写回**：Job 写入只置 `pending/draft`，`synced/failed` 由 B4 的 `SyncResultSink` 回写。
+5. **未做实例级采集状态前端聚合**（T01-B4-4）：后端已提供选中实例与 target 估算，前端按 §9.4 与 M09 targets 合并。
+
+---
+
+## 8. 下一步
+
+- **B4**：M09 `SourceReader` 切换 `m01_scrape_jobs`、中心规则同步、`SyncResultSink` 写回、Job 同步/实例状态。
+- **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
 - 每个资源组按「service + handler + 契约测试」独立提交；B2 起 schema 不变。

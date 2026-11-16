@@ -314,7 +314,7 @@ platform/modules/m01/
 - FR-03：模板引用校验与列表展示（M07 `m07_label_templates`；存在性 + 类别匹配）。
 - **验收**：契约测试 + 冲突/禁删错误码；与 M07 模板端口联调（若已就绪）。
 
-### P3 ScrapeJob 核心（6~7 人日）
+### P3 ScrapeJob 核心（6~7 人日，已完成 2026-11-16；凭证加密除外）
 
 - FR-05/06/07/08/09/10/11：CRUD、参数快照与覆盖、同步默认值、端口解析、实例候选（offline 置灰、NPU、同网域）、blackbox 派生与拒绝手填目标、preview-targets。
 - 校验矩阵：网域纳管、实例存在/同域/类别、认证 TLS 组合、duration 合法性、`job_name` 唯一。
@@ -417,6 +417,6 @@ platform/modules/m01/
 
 1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-3 / D-5 已确认（2026-11-16）；D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
-3. ~~P1（`00006` schema + repository + seed + 模块骨架）~~、~~P2（采集实现池 + 默认采集配置）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B3 ScrapeJob 核心**。
+3. ~~P1~~、~~P2~~、~~P3（ScrapeJob 核心）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B4 M09 源接入与同步写回**（凭证加密 B3-4 并行）。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
 5. D-3 已关闭；继续推进 D-4（M09 中心规则）与 D-6/D-7 的 owner 决策。

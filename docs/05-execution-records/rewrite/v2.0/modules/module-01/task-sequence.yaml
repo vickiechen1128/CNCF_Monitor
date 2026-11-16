@@ -192,7 +192,8 @@ tasks:
   # ---------------- B3 ScrapeJob 核心 ----------------
   - id: T01-B3-1
     title: "ScrapeJob CRUD + 参数快照/覆盖/同步默认值（FR-05/06/07）"
-    status: todo
+    status: done
+    evidence: "domain/job.go + service/job.go：参数层叠/快照、mapping_overrides、sync_mapping_defaults、启用与草稿语义；handler 测试通过"
     depends_on: [T01-B2-2, T01-B1-2]
     schema_change: none
     data_migration: none
@@ -208,7 +209,8 @@ tasks:
 
   - id: T01-B3-2
     title: "网域 / 实例 / 认证校验矩阵（NFR-02/07，FR-05/11）"
-    status: todo
+    status: done
+    evidence: "网域纳管、实例存在/同域/类别、offline 拒绝、blackbox 门禁、认证组合、duration/路径、模板类别校验全部落地并有测试"
     depends_on: [T01-B3-1]
     schema_change: none
     data_migration: none
@@ -224,7 +226,8 @@ tasks:
 
   - id: T01-B3-3
     title: "实例候选 / Job 实例 / 安装登记 / 目标预演（FR-09/10/11/20）"
-    status: todo
+    status: done
+    evidence: "候选（monitor_type+域收敛、offline 置灰、NPU 全集）、Job 实例、安装登记、preview-targets 已落地；v3 端点实测通过"
     depends_on: [T01-B3-2]
     schema_change: none
     data_migration: none

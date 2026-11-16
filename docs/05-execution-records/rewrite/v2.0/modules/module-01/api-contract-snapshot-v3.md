@@ -201,7 +201,7 @@ Job / 规则响应统一内联：
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `job_name` | string | 是 | 唯一；Prometheus `job_name`；`^[a-zA-Z_:][a-zA-Z0-9_:]*$`，≤100 |
+| `job_name` | string | 是 | 唯一；Prometheus `job_name`；`^[a-zA-Z_][a-zA-Z0-9_.-]*$`，≤100 |
 | `job_type` | enum | 否 | `standard`（默认）/ `blackbox` |
 | `resource_category` | enum | 是 | `host` / `database` / `middleware` / `application` / `interface_service` / `generic_target` |
 | `monitor_type` | string | 条件 | standard 必填；blackbox 必须为空 |
@@ -600,6 +600,6 @@ M01 不写 M07 表；M07 资源删除由 M01 对账循环回收（D40）。
 |---|---|---|
 | ~~`label_template_name` 解析~~ | 已落地：`m07_label_templates` 只读 | D-3 已关闭 |
 | 中心规则同步响应 | M09 center rules 产物版本/校验和如何回传 | D-4 |
-| 凭证加密 | `password_cipher` / `token_cipher` 的密钥来源与轮换 | 安全审查 |
+| 凭证加密 | 当前以 `plain:<value>` 占位存储（S-M01-1）；需在安全审查前替换为 AES-GCM / secret ref | 安全审查 |
 | `syncing` 瞬态 | 是否在 MVP 实现（否则 `pending → synced/failed` 两态） | D-2 |
 | 业务指标权限 | `owner` 语义与 M03 权限模型对齐 | D-6 |
