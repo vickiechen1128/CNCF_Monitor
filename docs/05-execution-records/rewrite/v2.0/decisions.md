@@ -45,6 +45,9 @@
 | D38 | 2026-11-12 | API 版本口径统一 v3 | 新线统一 `/api/v3/platform/*`（用户认证）+ `/api/v3/edge/*`（边缘 Token，D2 重申）；SRS 正文中的 `/api/v1/query*`、`/api/v1/targets`、`/api/v1/webhooks/*` 等视为**原生语义子路径**，B 阶段实施时统一挂载 v3 前缀，权威路径以 api-contract-snapshot-v3 为准；SRS 不逐一改写，仅在端点枚举处加注。owner 2026-11-12 确认 | 契约 / 全部模块 |
 | D39 | 2026-11-12 | 接入 Token 仅存哈希 | 网域接入 Token 数据库**仅存哈希**（SHA-256），明文仅在纳管成功/重置时完整展示一次，任何接口/日志不返回明文；校验按哈希比对。收紧 M09 NFR-07 原「可存哈希或明文」措辞。owner 2026-11-12 确认 | M09 / 安全 |
 | D40 | 2026-11-12 | 资源删除回收机制 | M07 删除资源后，由 **M01 内置对账循环（pull，默认 60s 可配置）**发现已选中实例失效并自动从各 Job `selected_instance_ids` 回收；M07 不反向依赖 M01（无跨模块同步调用、不引入外键/触发器）；Job 保存与 targets 生成时保留实例存在性强校验兜底。与 M09 配置同步的 pull 偏好一致，保持单向依赖。owner 2026-11-12 确认 | M01 / M07 / 后端 |
+| D41 | 2026-11-16 | `platform` 维度定位 | **修正**旧线决策 112 / 顶层 T7「`platform` 非排障主维度、退为顶层可选过滤器」的片面结论：区分两个问题——①**组织归属 / 告警分发**：`platform` 是**第一维度**（告警先归平台、派给该平台运维团队）；②**排障下钻到实例**：路径为 `app → resource_id`，platform 为背景。**运维组织架构为「平台 → 应用运维团队 → 应用」**，平台是组织根节点、应用是平台的组织单元（非孤立实体）。据此 M08 告警面板按 `platform` / `app` / `biz` 三维聚合，`platform` 为一级聚合维度；资源类型维走 `resource_category` 回填字段、不经 label。owner 2026-11-16 确认 | M07 / M08 / M05 / 契约 |
+| D42 | 2026-11-16 | 应用必归属平台 | `app_platform_rel` 增加组织归属硬约束（服务端强制，DB 无需迁移）：**I1** 每个 `app_code` 至少 1 个关联（删除最后一个 → 拒绝）；**I2** 恰有 1 个主平台（首个关联由服务端强制置主）；**I3** 删除主平台且仍有其他关联 → 拒绝并提示先转移主平台（**不自动提升**，避免静默改变告警派单归属）。`POST /application-dict` 新增 `platform_codes`（≥1，事务内原子创建应用 + 关联）。堵「孤立应用」缺口。owner 2026-11-16 确认 | M07 / 前端 / 契约 |
+| D43 | 2026-11-16 | `platform_code` 适用范围收敛 | 决策 110 的「全类型资源行一等字段」收敛为**仅静态资源**（host / database / middleware / generic_target）显式维护；组成型资源（application / interface_service）因 `app_code` 必填 + 主平台唯一（D42）⇒ `platform` 恒可稳定派生、零歧义，改为服务端 `resolvePlatform` 派生，登记表单不再暴露该输入。标签模板注入机制、Excel 可空列、判重键均不变；`resolvePlatform` 无主平台分支改为可观测告警（D42 后理论不可达）。owner 2026-11-16 确认 | M07 / 前端 / 契约 |
 
 ---
 
@@ -64,6 +67,11 @@
 - [x] API 版本口径统一 v3（D38）—— owner 2026-11-12 确认：SRS 路径视为原生语义子路径，实施期统一挂 `/api/v3/*` 前缀，已在 M09 FR-18 / M08 FR-12 加注。
 - [x] 接入 Token 仅存哈希（D39）—— owner 2026-11-12 确认，已回填 M09 SRS v1.4 NFR-07。
 - [x] 资源删除回收机制（D40）—— owner 2026-11-12 确认：M01 周期对账 pull 模式，已回填 M01 SRS v1.2 §8.5。
+- [x] `platform` 维度定位（D41）—— owner 2026-11-16 确认：平台 = 运维组织第一维度（告警分发）≠ 排障下钻维度，已回填 M07 SRS v1.2。
+- [x] 应用必归属平台（D42）—— owner 2026-11-16 确认：I1/I2/I3 三条服务端不变量 + `platform_codes` 契约，已回填 M07 SRS v1.2。
+- [x] `platform_code` 适用范围收敛（D43）—— owner 2026-11-16 确认：仅静态资源显式维护，组成型资源派生，已回填 M07 SRS v1.2。
+- [ ] **M08 告警面板三维聚合**（D41 消费侧）：按 `platform` / `app` / `biz` 聚合展示分析，`platform` 为一级维度；资源类型维走 `resource_category` 回填字段。待 M08 owner 在告警面板排期时回填 PRD。
+- [ ] **M05 看板平台汇总卡**（D41 消费侧）：平台维作为一级汇总卡，不再标注「可选顶层过滤器」。待 M05 owner 回填。
 
 ## 审计记录
 
@@ -71,3 +79,4 @@
 - **2026-11-12 D32 路由冲突发现（B2 实施中）**：B2 接入 m09 骨架时发现冻结契约 `api-contract-snapshot-v3.md` §2.2 列 m09 `GET /network-domains` 与 `GET /network-domains/:id`，但 m06 v3 已在同一 group `/api/v3/platform` 注册同路径（`m06/handler/routes.go`），gin 对重复路由会 panic，B0 未识别。B2 回避：只注册 m09 不冲突的 platform 路由，冲突的两条读端点推迟到 B3。推荐方案（D32）：B3 由 m06 让出这两条行政读，m09 提供 enriched 视图（行政字段 + 运行态），m06 保留行政写。待 owner 确认；确认前 B2 不改动 m06 以避免破坏其现有绿测。
 - **2026-11-12 D33 标签名对齐（B6 实施中）**：核查 `configcenter/generator/buildExternalLabels` 实际 external label 为 `network_domain_id`（非契约用词 `network_domain`）。为避免「注入即匹配空」的 D28 同类事故，B6 查询代理按 `network_domain_id` 注入；对外字段（targets.network_domain、meta.network_domains、筛选参数 network_domain）保持契约命名。待 owner 确认是否将 SRS/契约用词统一为 `network_domain_id`。
 - **2026-11-12 D35/D36 决策与 SRS 全量回填（owner 授权）**：SRS 评审发现两处架构级缺口——①告警求值拓扑未定义（边缘 vmagent 不求值规则，M08 FR-19「网域离线抑制」只能中心侧检测）；②MonitoringRule 网域归属未建模。owner 确认 D35（规则统一在中心 Prometheus 集中求值，边缘配置包不含规则文件，M09 中心侧生成 rules 产物并 reload）与 D36（规则平台级全局、job 引用校验按全平台生效 Job 并集）。**已回填 6 份 SRS**：M01 v1.1（FR-15/NFR-07/§8.2/依赖表/风险表）、M09 v1.3（§3.4/FR-10/FR-14/FR-15/验收清单，含 v1.1 漏改的「注入租户/网域标签」残留）、M06 v1.1（NFR-03 双重注入旧口径修正为 D28/D33 单标签、清理 M02/M11 残留引用）、M08 v1.1（matcher 标签名 `network_domain`→`network_domain_id`、M02 依赖并入 M09、依赖表「边缘分发」措辞按 D31 收敛）、M05 v1.1（配置预览/下发页→配置与同步状态页、六步引导补纳管装节点、移除 pending_draft_count、M02 依赖并入 M09）、M07 v1.1（采集状态 badge 数据源改指 M09）。
+- **2026-11-16 D41/D42/D43 平台组织维度修正（owner 直接发起）**：owner 在 M07 功能复核中澄清运维组织架构事实——「**先有平台，再由应用运维团队组织保障，平台由该有多少应用聚合而成；应用不是孤立、人为随意定义的**」，并提出来将告警面板除按静态资源对象类型（主机/数据库/中间件/应用/接口）聚合外，还能按平台/应用/业务三维聚合。据此修正 2026-11-16 首轮复核中「砍掉平台维度」的误判（该建议基于纯技术排障视角，把「排障下钻顺序」误当作「组织归属优先级」，已作废）。**落档**：design-proposal `rewrite/v2.0/modules/module-07/design-proposals/platform-org-dimension-and-app-membership.md`（状态 draft）；新增 D41（`platform` 为组织归属/告警分发第一维度，修正旧线决策 112 与 T7 的片面结论）/ D42（应用必归属平台：I1 至少一关联、I2 主平台唯一必填、I3 转移主平台须显式；`POST /application-dict` 增 `platform_codes` 必填）/ D43（`platform_code` 一等字段收敛至静态资源，组成型资源回归主平台派生）。**已回填** M07 SRS v1.1 → v1.2（§3.2 组织视角、§4.1 角色、§5.1 FR 新增、§5.2 FR-07/08/09 红线、§7.3 标签用途）。**遗留**：M08 告警面板三维聚合与 M05 平台汇总卡由各 owner 排期回填。
