@@ -63,3 +63,28 @@ func CategoryHint() string {
 	}
 	return strings.Join(parts, "/")
 }
+
+// IsComposed reports whether the category belongs to the vertical composition
+// chain `platform → app → 资源实例`. Composed resources always carry a required
+// immutable app_code, so their platform can be derived from the app's primary
+// platform without ambiguity (D43).
+func (c Category) IsComposed() bool {
+	switch c {
+	case CategoryApplication, CategoryInterfaceService:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsStatic reports whether the category is a static/supporting resource whose
+// app ownership may be empty or shared across apps, so its platform_code must
+// be maintained explicitly (D43).
+func (c Category) IsStatic() bool {
+	switch c {
+	case CategoryHost, CategoryDatabase, CategoryMiddleware, CategoryGenericTarget:
+		return true
+	default:
+		return false
+	}
+}

@@ -156,3 +156,62 @@ func TestDeleteNotFound(t *testing.T) {
 	var notFound *domain.NotFoundError
 	require.ErrorAs(t, err, &notFound)
 }
+
+// D43：组成型资源的平台归属恒由所属应用的主平台派生——即便请求体显式带了
+// 一个不同的 platform_code，也必须被覆盖，避免手填值与应用归属不一致。
+func TestComposedResourceAlwaysDerivesPrimaryPlatform(t *testing.T) {
+	repo := newFakeRepository()
+	svc := NewResourceService(repo, &fakeDictionary{primary: "ecommerce"})
+
+	input := applicationResource()
+	input.PlatformCode = "hand-typed-wrong-platform"
+
+	resource, err := svc.Create(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "ecommerce", resource.PlatformCode, "组成型资源应忽略显式输入，恒取应用主平台")
+
+	// 更新路径同理：清空或改写都不影响派生结果。
+	update := applicationResource()
+	update.PlatformCode = "another-wrong-platform"
+	updated, err := svc.Update(context.Background(), resource.ResourceID, update)
+	require.NoError(t, err)
+	assert.Equal(t, "ecommerce", updated.PlatformCode)
+}
+
+// D43：静态资源保留显式 platform_code；仅当为空时才回落到应用主平台。
+func TestStaticResourceKeepsExplicitPlatform(t *testing.T) {
+	repo := newFakeRepository()
+	svc := NewResourceService(repo, &fakeDictionary{primary: "ecommerce"})
+
+	explicit := staticHostResource()
+	explicit.PlatformCode = "lab"
+	created, err := svc.Create(context.Background(), explicit)
+	require.NoError(t, err)
+	assert.Equal(t, "lab", created.PlatformCode, "静态资源显式填写的平台优先")
+
+	fallback := staticHostResource()
+	fallback.Attributes = domain.HostAttributes{
+		Hostname:   "host-2",
+		OSType:     "linux",
+		InstanceIP: "10.0.0.12",
+	}
+	fallback.PlatformCode = ""
+	createdFallback, err := svc.Create(context.Background(), fallback)
+	require.NoError(t, err)
+	assert.Equal(t, "ecommerce", createdFallback.PlatformCode, "留空时按应用主平台兜底")
+}
+
+func staticHostResource() *domain.Resource {
+	return &domain.Resource{
+		Category:        domain.CategoryHost,
+		NetworkDomainID: "mc-demo",
+		AppCode:         "order-service",
+		Env:             domain.EnvPRD,
+		Cluster:         "prod-a",
+		Attributes: domain.HostAttributes{
+			Hostname:   "host-1",
+			OSType:     "linux",
+			InstanceIP: "10.0.0.11",
+		},
+	}
+}

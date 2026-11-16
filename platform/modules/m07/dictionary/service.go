@@ -138,8 +138,11 @@ func (s *Service) ListApplications(ctx context.Context) ([]Application, error) {
 	return s.repo.ListApplications(ctx)
 }
 
-// CreateApplication registers an application dictionary entry (default enabled).
-func (s *Service) CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error) {
+// CreateApplication registers an application dictionary entry together with its
+// platform ownership (D42). At least one platform is required: an application
+// never exists without a platform, and the first platform becomes its primary
+// platform.
+func (s *Service) CreateApplication(ctx context.Context, appCode, appName, description string, platformCodes []string) (*Application, error) {
 	appCode = strings.TrimSpace(appCode)
 	appName = strings.TrimSpace(appName)
 	if !models.ValidAppCode.MatchString(appCode) {
@@ -148,7 +151,48 @@ func (s *Service) CreateApplication(ctx context.Context, appCode, appName, descr
 	if appName == "" {
 		return nil, &domain.ValidationError{Field: "app_name", Message: "is required"}
 	}
-	return s.repo.CreateApplication(ctx, appCode, appName, strings.TrimSpace(description))
+	codes, err := normalizePlatformCodes(platformCodes)
+	if err != nil {
+		return nil, err
+	}
+	for _, code := range codes {
+		ok, err := s.repo.PlatformEnabled(ctx, code)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, &domain.ValidationError{
+				Field:   "platform_codes",
+				Message: fmt.Sprintf("platform %q is missing or disabled", code),
+			}
+		}
+	}
+	return s.repo.CreateApplication(ctx, appCode, appName, strings.TrimSpace(description), codes)
+}
+
+// normalizePlatformCodes trims, de-duplicates and requires a non-empty platform
+// set (D42 I1: 应用必须归属至少一个平台).
+func normalizePlatformCodes(raw []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		code := strings.TrimSpace(item)
+		if code == "" {
+			continue
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		out = append(out, code)
+	}
+	if len(out) == 0 {
+		return nil, &domain.ValidationError{
+			Field:   "platform_codes",
+			Message: "应用必须归属至少一个平台，请选择所属平台（首个即主平台）",
+		}
+	}
+	return out, nil
 }
 
 // UpdateApplication applies a restricted edit (app_name/description/status).

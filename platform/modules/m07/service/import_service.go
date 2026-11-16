@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
@@ -158,17 +157,7 @@ func (s *ImportService) Get(ctx context.Context, importID string) (*domain.Impor
 }
 
 func (s *ImportService) resolvePlatform(ctx context.Context, resource *domain.Resource) error {
-	if strings.TrimSpace(resource.PlatformCode) != "" || strings.TrimSpace(resource.AppCode) == "" {
-		return nil
-	}
-	platform, ok, err := s.dict.PrimaryPlatformOfApp(ctx, resource.AppCode)
-	if err != nil {
-		return err
-	}
-	if ok {
-		resource.PlatformCode = platform
-	}
-	return nil
+	return resolvePlatformFor(ctx, s.dict, resource)
 }
 
 func importDetail(rowNumber int, resource *domain.Resource, field string, err error) domain.ImportErrorDetail {

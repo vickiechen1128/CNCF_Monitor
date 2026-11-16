@@ -90,6 +90,8 @@ type createApplicationRequest struct {
 	AppCode     string `json:"app_code"`
 	AppName     string `json:"app_name"`
 	Description string `json:"description"`
+	// PlatformCodes 是应用必须归属的平台集合（D42：至少一个，首个即主平台）。
+	PlatformCodes []string `json:"platform_codes"`
 }
 
 func (h *DictionaryHandler) CreateApplication(c *gin.Context) {
@@ -98,7 +100,7 @@ func (h *DictionaryHandler) CreateApplication(c *gin.Context) {
 		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	item, err := h.svc.CreateApplication(c.Request.Context(), req.AppCode, req.AppName, req.Description)
+	item, err := h.svc.CreateApplication(c.Request.Context(), req.AppCode, req.AppName, req.Description, req.PlatformCodes)
 	if err != nil {
 		respondDictionaryError(c, err)
 		return
@@ -301,6 +303,12 @@ func respondDictionaryError(c *gin.Context, err error) {
 	case errors.Is(err, dictionary.ErrAppPlatformRelExists):
 		response.Conflict(c, err)
 	case errors.Is(err, dictionary.ErrPrimaryPlatformExists):
+		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrAppRequiresPlatform):
+		// D42 I1：删除后应用将无平台归属，属状态冲突。
+		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrPrimaryPlatformTransferRequired):
+		// D42 I3：主平台须显式转移，属状态冲突。
 		response.Conflict(c, err)
 	case errors.Is(err, dictionary.ErrDictionaryExists):
 		response.Conflict(c, err)

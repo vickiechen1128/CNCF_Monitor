@@ -19,6 +19,10 @@ var (
 	ErrPrimaryPlatformExists  = errors.New("primary platform already exists")
 	ErrDictionaryNotFound     = errors.New("dictionary entry not found")
 	ErrDictionaryExists       = errors.New("dictionary entry already exists")
+	// ErrAppRequiresPlatform 表示删除后应用将不再归属任何平台（D42 I1）。
+	ErrAppRequiresPlatform = errors.New("应用必须归属至少一个平台，不允许解绑最后一个平台")
+	// ErrPrimaryPlatformTransferRequired 表示试图直接取消 / 解绑主平台（D42 I3）。
+	ErrPrimaryPlatformTransferRequired = errors.New("主平台须显式转移：请先将其他平台设为主平台，勿直接取消或解绑当前主平台")
 )
 
 // BusinessDomain is a business dictionary entry.
@@ -91,7 +95,7 @@ type Repository interface {
 	ListPlatforms(ctx context.Context) ([]Platform, error)
 	CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error)
 	UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*BusinessDomain, error)
-	CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error)
+	CreateApplication(ctx context.Context, appCode, appName, description string, platformCodes []string) (*Application, error)
 	UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, error)
 	CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error)
 	UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (*Platform, error)
@@ -268,19 +272,36 @@ func (r *GORMRepository) UpdateBusinessDomain(ctx context.Context, code string, 
 	}, nil
 }
 
-func (r *GORMRepository) CreateApplication(ctx context.Context, appCode, appName, description string) (*Application, error) {
+// CreateApplication registers an application together with its platform
+// ownership in a single transaction (D42): an application never exists without
+// at least one platform, and the first platform becomes its primary platform.
+func (r *GORMRepository) CreateApplication(ctx context.Context, appCode, appName, description string, platformCodes []string) (*Application, error) {
 	if err := r.ensureAbsent(ctx, &applicationDictRecord{}, "app_code", appCode); err != nil {
 		return nil, err
 	}
-	row := &applicationDictRecord{
-		AppCode: appCode, AppName: appName, Description: optionalString(description), Status: "enabled",
+	var out *Application
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row := &applicationDictRecord{
+			AppCode: appCode, AppName: appName, Description: optionalString(description), Status: "enabled",
+		}
+		if err := tx.Create(row).Error; err != nil {
+			return fmt.Errorf("create application %q: %w", appCode, err)
+		}
+		for i, code := range platformCodes {
+			// The first relation is forced primary by createAppPlatformRelTx.
+			if _, err := createAppPlatformRelTx(tx, appCode, code, i == 0); err != nil {
+				return err
+			}
+		}
+		out = &Application{
+			AppCode: row.AppCode, AppName: row.AppName, Description: derefString(row.Description), Status: row.Status,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
-		return nil, fmt.Errorf("create application %q: %w", appCode, err)
-	}
-	return &Application{
-		AppCode: row.AppCode, AppName: row.AppName, Description: derefString(row.Description), Status: row.Status,
-	}, nil
+	return out, nil
 }
 
 func (r *GORMRepository) UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, error) {
@@ -440,22 +461,54 @@ func (r *GORMRepository) ListAppPlatformRels(ctx context.Context, appCode, platf
 }
 
 func (r *GORMRepository) CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error) {
-	var count int64
-	if err := r.db.WithContext(ctx).Model(&appPlatformRelRecord{}).
+	var out *AppPlatformRel
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		rel, err := createAppPlatformRelTx(tx, appCode, platformCode, isPrimary)
+		if err != nil {
+			return err
+		}
+		out = rel
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// createAppPlatformRelTx enforces the organization invariants (D42) inside a
+// transaction: the first relation of an application is always its primary
+// platform, and a second primary platform is rejected.
+func createAppPlatformRelTx(tx *gorm.DB, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error) {
+	var existing int64
+	if err := tx.Model(&appPlatformRelRecord{}).
 		Where("app_code = ? AND platform_code = ?", appCode, platformCode).
-		Count(&count).Error; err != nil {
+		Count(&existing).Error; err != nil {
 		return nil, fmt.Errorf("check app-platform relation: %w", err)
 	}
-	if count > 0 {
+	if existing > 0 {
 		return nil, ErrAppPlatformRelExists
 	}
+
+	// I2（D42）：首个关联必为主平台——应用必须归属平台且恰有一个主平台。
+	var total int64
+	if err := tx.Model(&appPlatformRelRecord{}).
+		Where("app_code = ?", appCode).
+		Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("count app-platform relations: %w", err)
+	}
+	if total == 0 {
+		isPrimary = true
+	}
+
 	if isPrimary {
-		if err := r.db.WithContext(ctx).Model(&appPlatformRelRecord{}).
+		var primary int64
+		if err := tx.Model(&appPlatformRelRecord{}).
 			Where("app_code = ? AND is_primary = ?", appCode, true).
-			Count(&count).Error; err != nil {
+			Count(&primary).Error; err != nil {
 			return nil, fmt.Errorf("check primary platform: %w", err)
 		}
-		if count > 0 {
+		if primary > 0 {
 			return nil, ErrPrimaryPlatformExists
 		}
 	}
@@ -472,7 +525,7 @@ func (r *GORMRepository) CreateAppPlatformRel(ctx context.Context, appCode, plat
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
-	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
+	if err := tx.Create(rec).Error; err != nil {
 		return nil, fmt.Errorf("create app-platform relation: %w", err)
 	}
 	return &AppPlatformRel{
@@ -496,6 +549,9 @@ func (r *GORMRepository) SetPrimaryAppPlatformRel(ctx context.Context, relID str
 				Update("is_primary", false).Error; err != nil {
 				return fmt.Errorf("clear primary platform: %w", err)
 			}
+		} else if rec.IsPrimary {
+			// I2 / I3（D42）：主平台只能「转移」不能「取消」，撤销会留下无主平台的应用。
+			return ErrPrimaryPlatformTransferRequired
 		}
 		if err := tx.Model(&rec).Updates(map[string]any{
 			"is_primary": isPrimary,
@@ -512,15 +568,43 @@ func (r *GORMRepository) SetPrimaryAppPlatformRel(ctx context.Context, relID str
 	return out, err
 }
 
+// DeleteAppPlatformRel removes one relation after enforcing the organization
+// invariants (D42): an application must keep at least one platform (I1), and
+// its primary platform can only be removed after an explicit transfer (I3).
 func (r *GORMRepository) DeleteAppPlatformRel(ctx context.Context, relID string) error {
-	result := r.db.WithContext(ctx).Where("id = ?", relID).Delete(&appPlatformRelRecord{})
-	if result.Error != nil {
-		return fmt.Errorf("delete app-platform relation: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrAppPlatformRelNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rec appPlatformRelRecord
+		if err := tx.Where("id = ?", relID).First(&rec).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAppPlatformRelNotFound
+			}
+			return fmt.Errorf("load app-platform relation: %w", err)
+		}
+
+		var total int64
+		if err := tx.Model(&appPlatformRelRecord{}).
+			Where("app_code = ?", rec.AppCode).
+			Count(&total).Error; err != nil {
+			return fmt.Errorf("count app-platform relations: %w", err)
+		}
+		// I1（D42）：应用必须归属至少一个平台。
+		if total <= 1 {
+			return ErrAppRequiresPlatform
+		}
+		// I3（D42）：主平台须显式转移，不自动提升（避免静默改变告警派单归属）。
+		if rec.IsPrimary {
+			return ErrPrimaryPlatformTransferRequired
+		}
+
+		result := tx.Where("id = ?", relID).Delete(&appPlatformRelRecord{})
+		if result.Error != nil {
+			return fmt.Errorf("delete app-platform relation: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return ErrAppPlatformRelNotFound
+		}
+		return nil
+	})
 }
 
 func (r *GORMRepository) ListOSOptions(ctx context.Context) ([]OSOption, error) {

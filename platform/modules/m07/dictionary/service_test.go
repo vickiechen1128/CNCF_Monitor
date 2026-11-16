@@ -135,23 +135,92 @@ func TestServiceAppPlatformRelCRUD(t *testing.T) {
 	svc := NewService(NewGORMRepository(openDictionaryTestDB(t)))
 	ctx := context.Background()
 
+	// D42 I2：首个关联即使传 isPrimary=false，也由服务端强制置为主平台。
 	rel, err := svc.CreateAppPlatformRel(ctx, "new-app", "new-platform", false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, rel.RelID)
-
-	updated, err := svc.SetPrimaryAppPlatformRel(ctx, rel.RelID, true)
-	require.NoError(t, err)
-	assert.True(t, updated.IsPrimary)
+	assert.True(t, rel.IsPrimary)
 
 	rels, err := svc.ListAppPlatformRels(ctx, "new-app", "")
 	require.NoError(t, err)
 	require.Len(t, rels, 1)
 	assert.True(t, rels[0].IsPrimary)
 
+	// D42 I1：不允许解绑应用的最后一个平台。
+	require.ErrorIs(t, svc.DeleteAppPlatformRel(ctx, rel.RelID), ErrAppRequiresPlatform)
+
+	// 增加第二个平台（非主平台）。
+	second, err := svc.CreateAppPlatformRel(ctx, "new-app", "ecommerce", false)
+	require.NoError(t, err)
+	assert.False(t, second.IsPrimary)
+
+	// D42 I3：主平台须显式转移——直接解绑主平台被拒绝。
+	require.ErrorIs(t, svc.DeleteAppPlatformRel(ctx, rel.RelID), ErrPrimaryPlatformTransferRequired)
+	// 主平台也不能靠「取消 is_primary」撤销。
+	_, err = svc.SetPrimaryAppPlatformRel(ctx, rel.RelID, false)
+	require.ErrorIs(t, err, ErrPrimaryPlatformTransferRequired)
+
+	// 显式转移主平台到第二个平台。
+	updated, err := svc.SetPrimaryAppPlatformRel(ctx, second.RelID, true)
+	require.NoError(t, err)
+	assert.True(t, updated.IsPrimary)
+
+	// 转移后原主平台可以解绑。
 	require.NoError(t, svc.DeleteAppPlatformRel(ctx, rel.RelID))
 	rels, err = svc.ListAppPlatformRels(ctx, "new-app", "")
 	require.NoError(t, err)
-	assert.Empty(t, rels)
+	require.Len(t, rels, 1)
+	assert.Equal(t, "ecommerce", rels[0].PlatformCode)
+	assert.True(t, rels[0].IsPrimary)
+
+	// 剩下的也是最后一个，仍不允许解绑。
+	require.ErrorIs(t, svc.DeleteAppPlatformRel(ctx, second.RelID), ErrAppRequiresPlatform)
+}
+
+func TestCreateApplicationRequiresPlatforms(t *testing.T) {
+	svc := NewService(NewGORMRepository(openDictionaryTestDB(t)))
+	ctx := context.Background()
+
+	var validation *domain.ValidationError
+
+	// D42 I1：登记应用必须携带至少一个平台。
+	_, err := svc.CreateApplication(ctx, "no-platform-app", "无平台应用", "", nil)
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "platform_codes", validation.Field)
+
+	// 空串 / 空白不算平台。
+	_, err = svc.CreateApplication(ctx, "blank-platform-app", "空平台应用", "", []string{" ", ""})
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "platform_codes", validation.Field)
+
+	// 平台必须存在且启用。
+	_, err = svc.CreateApplication(ctx, "disabled-platform-app", "停用平台应用", "", []string{"legacy-platform"})
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "platform_codes", validation.Field)
+
+	// 正常登记：去重 + 首个平台即主平台。
+	app, err := svc.CreateApplication(ctx, "with-platform-app", "有平台应用", "", []string{"ecommerce", "lab", "ecommerce"})
+	require.NoError(t, err)
+	assert.Equal(t, "with-platform-app", app.AppCode)
+	assert.Equal(t, "enabled", app.Status)
+
+	rels, err := svc.ListAppPlatformRels(ctx, "with-platform-app", "")
+	require.NoError(t, err)
+	require.Len(t, rels, 2, "重复的平台编码应被去重")
+	assert.Equal(t, "ecommerce", rels[0].PlatformCode)
+	assert.True(t, rels[0].IsPrimary, "首个平台自动成为主平台")
+	assert.False(t, rels[1].IsPrimary)
+
+	// 平台校验失败时不得留下半个应用（原子性）。
+	apps, err := svc.ListApplications(ctx)
+	require.NoError(t, err)
+	for _, item := range apps {
+		assert.NotContains(t,
+			[]string{"no-platform-app", "blank-platform-app", "disabled-platform-app"},
+			item.AppCode,
+			"校验失败的应用不应落库",
+		)
+	}
 }
 
 func TestServiceList(t *testing.T) {

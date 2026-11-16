@@ -256,12 +256,26 @@ func TestV3DictionaryWriteLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, out)
 	assert.GreaterOrEqual(t, out["data"].(map[string]any)["total"].(float64), float64(2))
 
-	// application-dict: create → status edit.
+	// application-dict: create → status edit（D42：登记即须归属至少一个平台）。
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/application-dict", `{
-		"app_code":"inventory","app_name":"库存服务","description":"库存"
+		"app_code":"inventory","app_name":"库存服务","description":"库存","platform_codes":["ecommerce"]
 	}`)
 	require.Equal(t, http.StatusOK, code, out)
 	assert.Equal(t, "enabled", out["data"].(map[string]any)["status"])
+
+	// D42 I1：缺少 platform_codes 直接拒绝（应用不可孤立存在）。
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/application-dict", `{
+		"app_code":"orphan","app_name":"孤立应用"
+	}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// 新建应用的平台归属应同时落为关联，且首个即主平台。
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/app-platform-rel?app_code=inventory", "")
+	require.Equal(t, http.StatusOK, code, out)
+	rels := out["data"].(map[string]any)["list"].([]any)
+	require.Len(t, rels, 1)
+	assert.Equal(t, "ecommerce", rels[0].(map[string]any)["platform_code"])
+	assert.Equal(t, true, rels[0].(map[string]any)["is_primary"])
 
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/application-dict/inventory", `{
 		"app_name":"库存服务2","status":"disabled"

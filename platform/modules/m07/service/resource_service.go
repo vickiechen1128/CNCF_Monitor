@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
@@ -130,15 +129,5 @@ func (s *ResourceService) Delete(ctx context.Context, resourceID string) error {
 }
 
 func (s *ResourceService) resolvePlatform(ctx context.Context, resource *domain.Resource) error {
-	if strings.TrimSpace(resource.PlatformCode) != "" || strings.TrimSpace(resource.AppCode) == "" {
-		return nil
-	}
-	platform, ok, err := s.dict.PrimaryPlatformOfApp(ctx, resource.AppCode)
-	if err != nil {
-		return fmt.Errorf("resolve primary platform for %q: %w", resource.AppCode, err)
-	}
-	if ok {
-		resource.PlatformCode = platform
-	}
-	return nil
+	return resolvePlatformFor(ctx, s.dict, resource)
 }
