@@ -472,7 +472,8 @@ tasks:
 
   - id: T01-F3
     title: "规则 / 指标库 / 采集器 / 拨测模块页面"
-    status: todo
+    status: done
+    evidence: "规则/指标库/拨测模块/采集器/默认映射客户端切 v3 兼容层；规则 validate 统一 /validate；API 21 tests + F3 页面 28 tests 通过"
     depends_on: [T01-F1, T01-B5-1, T01-B6-1]
     cross_module: [web]
     schema_change: none

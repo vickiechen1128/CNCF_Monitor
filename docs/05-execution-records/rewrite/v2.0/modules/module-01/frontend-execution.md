@@ -62,7 +62,21 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 
 页面层未重写，但运行在 v3 后端；`aggregateJobStatus` 已优先使用 `sync`。列级文案清理（移除「变更进度」列）归 F3/B8。
 
-## 4. 后续（F2/F3/F4）
+## 4. F3 完成（规则 / 指标库 / 拨测模块 / 采集器）
+
+| 客户端 | v3 适配 |
+|---|---|
+| `monitoringRules.ts` | CRUD + `POST /monitoring-rules/validate`；`change_status` → `none` + `sync`；标签探查无 v3 端点，降级空结果 |
+| `metricLibrary.ts` | v3 路径；update 先 GET 合并再 PUT；新增 remove |
+| `blackboxModules.ts` | v3 路径；`referenced_job_count` 映射；update 先取 name |
+| `exporterTemplates.ts` | v3 路径；字符串 ID |
+| `ciExporterMappings.ts` | v3 路径；`label_template_id` 自动拆到专用端点 |
+
+验证：4 个 API 测试文件 21 通过；F3 页面测试（Rules/Metric/Blackbox/Collector）28 通过；`typecheck:test`/eslint 通过。
+
+> 残留：`labelTemplates.ts` 仍指向 v2（M07 标签模板），Job 表单模板选择在 v3-only 模式需在 F4 一并切到 `/api/v3/platform/label-templates`。
+
+## 5. 后续（F4）
 
 1. **F2 Job 页面**：列表/表单/详情改 `scrapeJobApiV3`；用 `sync.status` 替换 `change_status` 列；移除 pending 锁与批量草稿；实例候选/实例/预演对接 v3。
 2. **F3 规则/指标库/采集器/拨测模块**：规则页切 `ruleApiV3.validate`；指标库/业务指标/拨测模块切 v3 客户端。
