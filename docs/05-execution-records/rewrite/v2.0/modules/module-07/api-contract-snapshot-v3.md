@@ -163,6 +163,42 @@
 
 ---
 
+### 4.1 标签模板（v3 新增）
+
+v3 使用 `m07_label_templates`（前缀避免与 legacy `label_templates` 冲突）。模板锚定资源类别，携带有序 mappings；M01 只读引用，并在删除时通过引用计数端口拦截。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v3/platform/label-templates` | 列表；筛选 `resource_category` / `is_default` / `keyword` + 分页 |
+| POST | `/api/v3/platform/label-templates` | 创建；同名同类别 → 409 |
+| GET | `/api/v3/platform/label-templates/{id}` | 详情 |
+| PUT | `/api/v3/platform/label-templates/{id}` | 更新；`resource_category` 不可变（400） |
+| DELETE | `/api/v3/platform/label-templates/{id}` | 软删；被 M01 映射/Job 引用 → 409 |
+
+对象：
+
+```json
+{
+  "id": "lt-1",
+  "name": "host-default",
+  "resource_category": "host",
+  "is_default": true,
+  "mappings": [
+    { "source_field": "resource_id", "source_type": "resource_field", "target_label": "resource_id", "enabled": true }
+  ],
+  "created_at": "2026-11-16T10:00:00Z",
+  "updated_at": "2026-11-16T10:00:00Z"
+}
+```
+
+约束：
+
+- 同一 `resource_category` 至多一个 `is_default=true`；设置新默认时旧默认自动取消。
+- `target_label` 必须匹配 `^[a-zA-Z_][a-zA-Z0-9_]*$`、不得以 `__` 开头、模板内唯一；`source_type=composite` 时目标必须为 `instance`。
+- M01 删除引用计数端口由 `v3.go` 注入（M07 不 import M01）。
+
+---
+
 ## 5. 字典接口
 
 | 方法 | 路径 | 说明 |

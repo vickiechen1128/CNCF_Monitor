@@ -1,7 +1,7 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）
 > **状态**：B1 / B2 完成；ScrapeJob 在 B3 落地
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
@@ -155,12 +155,12 @@ POST 未知字段 {"job_name":"x"}                   -> 400 bad_request
 1. **内置 mapping 禁删**：契约 §3.2 原仅写 `is_default`/被引用两类 409。代码沿用旧线语义，内置行优先返回 403（否则 seed 下次启动会重建，用户操作无效）；契约已补注。
 2. **label_template_id 只经专用端点写**：Create/Update 请求不接收该字段（严格 JSON 下出现即 400），与契约「专用入口」一致。
 3. **Mapping Update 保留 label_template_id / is_builtin**：更新请求是「全量业务字段」，但这两个字段不在 DTO 中，服务端从 existing 继承，避免误清空。
-4. **Label template 名称解析为空**：D-3 未就绪，`NoopLabelTemplateResolver` 只校验非空 id，`label_template_name` 返回空串；M07 端口落地后替换实现即可。
+4. **Label template 解析（已解决）**：B2 初期 D-3 未就绪时使用 no-op resolver；2026-11-16 M07 补齐 `m07_label_templates`（00007）后，M01 已切换为只读 reader，模板存在性/类别匹配与删除引用计数均生效。
 
 ---
 
 ## 7. 下一步
 
 - **B3**：ScrapeJob CRUD / 参数层叠 / 实例候选 / blackbox / preview-targets（FR-05~FR-11）；依赖 B2 的映射与采集实现校验。
-- **B2-3**：M07 v3 `label_templates` 表 + 只读 API（D-3）就绪后，替换 `NoopLabelTemplateResolver` 并补模板名称/类别校验。
+- ~~B2-3：M07 `label_templates`（D-3）~~ → 已完成（M07 00007 + CRUD，M01 resolver/usage checker 接入）。
 - 每个资源组按「service + handler + 契约测试」独立提交；B2 起 schema 不变。

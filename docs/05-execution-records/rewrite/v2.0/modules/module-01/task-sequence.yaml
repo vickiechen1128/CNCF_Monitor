@@ -20,7 +20,7 @@ design_decisions:
   - "D-5（owner 2026-11-16 确认）：data_migration=none，v3 空库 + seed"
 
 open_decisions:
-  - "D-3：M07 v3 label_templates 表 + 只读 API（阻塞 T01-B2-3）"
+  - "D-3：已关闭（M07 `m07_label_templates` + CRUD API，00007；M01 只读 + 引用计数）"
   - "D-4：M09 中心规则同步（与 T01-B5-2 合并排期）"
   - "D-6：FR-04 / FR-09 filter / FR-17 不做；FR-19 仅轻量 CRUD"
   - "D-7：前端契约层先行、按页切换"
@@ -174,9 +174,9 @@ tasks:
     commit_unit: "独立（功能）"
 
   - id: T01-B2-3
-    title: "M07 label_template 只读端口（依赖 M07 v3 补齐）"
-    status: blocked
-    blocked_by: "D-3 / M07 v3 label_templates 表 + 只读 API"
+    title: "M07 label_template 只读端口与引用计数"
+    status: done
+    evidence: "M07 00007_m07_label_templates + CRUD API；M01 references.LabelTemplateReader/UsageChecker；映射模板存在性/类别校验与删除 409 联调通过"
     depends_on: [T01-B2-2]
     schema_change: none
     data_migration: none

@@ -1,6 +1,6 @@
 # Module 01 监控策略与指标管理 v3 现状评估与重构计划
 
-> **状态**：draft（D-1 / D-2 / D-5 已由 owner 2026-11-16 确认；D-3 / D-4 / D-6 / D-7 待定）
+> **状态**：draft（D-1 / D-2 / D-3 / D-5 已确认；D-4 / D-6 / D-7 待定）
 > **分支**：`rewrite/v2.0`
 > **日期**：2026-11-16
 > **性质**：R4 前的模块输入（现状评估 + 重构计划），本轮不含代码改动。
@@ -21,7 +21,7 @@
 3. **难点不在 CRUD，而在 4 个跨模块契约**：
    - M01 表成为 M09 配置生成的唯一源（job / targets / labels / blackbox / rules）；
    - 同步状态（`synced/syncing/failed/draft`）的**写回模型**；
-   - M07 v3 **缺 label_template 能力**（表 + 读 API）；
+   - M07 v3 **label_template 能力已补齐**（`m07_label_templates` + CRUD API，00007）；
    - D40 资源删除的**回收循环**。
 4. **规模估算**：后端约 30~34 人日（含回归与审查）、前端约 10~12 人日；按 P0~P7 八个阶段推进，每阶段独立验收、独立提交（schema / API / 功能分开 commit）。
 
@@ -101,7 +101,7 @@
 | `platform/modules/m01/` | 不存在 | M01 全部 v3 能力未落地 |
 | M01 v3 migration | 最新 `00005` | 无表、无 seed |
 | M01 v3 契约快照 | 已产出 draft（[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)） | 待 G2 评审冻结 |
-| M07 label_template | v3 无表、无 API（旧表仅 legacy AutoMigrate 创建） | FR-03 标签模板引导 / Job 模板选择无法实现 |
+| M07 label_template | 已补齐 `m07_label_templates` 表 + CRUD API（00007，2026-11-16） | FR-03 标签模板引导 / Job 模板选择可用 |
 | 中心规则同步（D35） | M09 未实现中心 rules 产物与 reload | FR-16 规则同步状态无法闭环 |
 | M01 → M09 源接入 | M09 从 M07 resources 临时派生 | Job 启停 / 删除 / blackbox / labels 均无法正确生效 |
 
@@ -115,7 +115,7 @@
 |---|---|---|---|
 | FR-01 | 类型 ↔ 采集实现映射、默认标记 | 有 | 重写；`is_default` 唯一性用部分唯一索引 + 服务校验 |
 | FR-02 | 采集实现池 CRUD、内置只读、被引用禁删 | 有 | 重写 |
-| FR-03 | 标签模板引导与引用 | 有（v1） | **阻塞**：依赖 M07 v3 label_template（D-3） |
+| FR-03 | 标签模板引导与引用 | 有（v1） | 重写；存在性 + 类别匹配校验已生效（M07 `m07_label_templates`） |
 | FR-04 | 网域级参数覆盖 | 无 | **MVP 不做**（v0.2+） |
 | FR-05 | ScrapeJob CRUD | 有 | 重写 |
 | FR-06 | 草稿 / 生效正交，仅 ready+enabled 进候选 | 有，但耦合变更单 | 重写并去掉变更单状态 |
@@ -153,7 +153,7 @@
 
 1. **同步状态模型**：旧 `change_status` 与 D25 冲突，必须整体替换为 `sync_status` + M09 写回。
 2. **M09 源接入**：不切换 source reader，Job 的启停 / 删除 / blackbox / labels 都不会进入配置包。
-3. **label_template 依赖**：M07 v3 不补齐，FR-03 与 Job 模板选择只能留空。
+3. ~~label_template 依赖~~：M07 v3 已补齐，M01 只读消费并校验存在性/类别。
 4. **中心规则同步**：D35 未落地，规则的「已同步」无法真实成立。
 5. **回收循环**：D40 未实现，M07 删除资源后会留下悬空 `selected_instance_ids`。
 
@@ -253,7 +253,7 @@ platform/modules/m01/
 | 端口 | 定义位置 | 实现 | 用途 |
 |---|---|---|---|
 | `references.Resources` | `m01/references` | 直接只读 M07 `resources` + 6 张扩展表 | 候选实例、存在性、地址/标签字段 |
-| `references.LabelTemplates` | `m01/references` | 只读 M07 label_template（**待补齐**） | 模板名称、映射内容、类别默认模板 |
+| `references.LabelTemplates` | `m01/references` | 只读 `m07_label_templates`（已落地） | 模板名称、类别、默认标记；删除引用计数 |
 | `references.Domains` | `m01/references` | 只读 `network_domains` + `network_domain_access` | 纳管校验、可选项列表 |
 | `references.SyncSink` | `m09/references` | M01 service 实现 | M09 生成/校验后回写 per-job / per-rule 同步结果 |
 | `references.SourceReader` | `m09/references` | 直接只读 `m01_scrape_jobs` / `m01_monitoring_rules` / `m01_probe_modules` | 配置生成输入 |
@@ -311,7 +311,7 @@ platform/modules/m01/
 ### P2 采集实现池 + 默认采集配置（3~4 人日，已完成 2026-11-16）
 
 - FR-01 / FR-02：CRUD、内置只读、被引用禁删、`is_default` 唯一。
-- FR-03：模板引用校验与列表展示（依赖 D-3；未就绪时端口返回空并降级）。
+- FR-03：模板引用校验与列表展示（M07 `m07_label_templates`；存在性 + 类别匹配）。
 - **验收**：契约测试 + 冲突/禁删错误码；与 M07 模板端口联调（若已就绪）。
 
 ### P3 ScrapeJob 核心（6~7 人日）
@@ -392,7 +392,7 @@ platform/modules/m01/
 | 风险 | 影响 | 应对 |
 |---|---|---|
 | M09 集成排期晚于 M01 | 同步状态长期 `pending`，无法验收 FR-12/16 | P4 与 M09 任务合并排期；P3 先交付无 sync 的 CRUD |
-| M07 label_template 未补齐 | FR-03 与模板选择器不可用 | D-3 前置；未就绪时端口降级为空并在 UI 提示 |
+| M07 label_template 变更 | 模板删除 / 类别调整影响 M01 引用 | M07 删除前经 M01 引用计数端口拦截；M01 保存时校验存在性与类别 |
 | legacy/v3 双管线并存 | 过渡期配置来源歧义 | v3 表独立命名；legacy 模式不启动 M09 watcher（现状）；文档标注 |
 | 前端一次性切换 | 回归面大 | F1 契约层先行 + 按页切换；保留旧客户端到所有页面迁完 |
 | promtool 不可用 | 规则语义校验缺失 | 沿用旧归因：unavailable 只提示不阻断 |
@@ -405,7 +405,7 @@ platform/modules/m01/
 |---|---|---|---|
 | D-1 | v3 表命名与 legacy 共存 | **`m01_*` 新表**，不复用同名表 | ✅ 2026-11-16 确认 |
 | D-2 | 同步状态归属 | **M01 持有列 + M09 调 `SyncResultSink` 写回**（SRS §8.4） | ✅ 2026-11-16 确认 |
-| D-3 | label_template v3 归属 | **M07 补 `label_templates` 表 + 只读 API**；M01 只消费 | ⏳ 待定（阻塞 P2/P3 模板能力） |
+| D-3 | label_template v3 归属 | M07 新增 `m07_label_templates` + CRUD API；M01 只读 + 引用计数 | ✅ 2026-11-16 完成 |
 | D-4 | 中心规则同步（D35）落地时点 | 与 P5 同批实现（M09 center rules + reload） | ⏳ 待定 |
 | D-5 | 数据迁移 | **none**（空库 + seed） | ✅ 2026-11-16 确认 |
 | D-6 | MVP 裁剪 | FR-04/09-filter/17 不做；FR-19 仅轻量 CRUD | ⏳ 待定 |
@@ -415,8 +415,8 @@ platform/modules/m01/
 
 ## 11. 下一步
 
-1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-5 已确认（2026-11-16）；D-3 / D-4 / D-6 / D-7 待定。
+1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-3 / D-5 已确认（2026-11-16）；D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
 3. ~~P1（`00006` schema + repository + seed + 模块骨架）~~、~~P2（采集实现池 + 默认采集配置）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B3 ScrapeJob 核心**。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
-5. 并行推进 D-3（M07 label_template）与 D-4（M09 中心规则）的 owner 决策，解除 `T01-B2-3` 阻塞。
+5. D-3 已关闭；继续推进 D-4（M09 中心规则）与 D-6/D-7 的 owner 决策。

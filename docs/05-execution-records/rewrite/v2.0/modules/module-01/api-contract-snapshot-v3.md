@@ -134,7 +134,7 @@ Job / 规则响应统一内联：
 | `scrape_interval` | duration | 否 | 默认 `15s` |
 | `scrape_timeout` | duration | 否 | 默认 `10s`，须 < interval |
 | `label_template_id` | string | 否 | 只读返回；变更走专用端点 |
-| `label_template_name` | string | 响应 | 仅 M07 模板端口就绪时返回值 |
+| `label_template_name` | string | 响应 | M07 模板名称；模板不存在时为空串 |
 | `is_builtin` | bool | 响应 | 内置行只读 |
 | `created_at` / `updated_at` | datetime | 响应 | |
 
@@ -153,7 +153,7 @@ Job / 规则响应统一内联：
 - `monitor_type` 必须是已知类型；`exporter_template_id` 必须存在且 `supported_monitor_types` 为空或包含该类型。
 - `is_default=true` 且同类型已有其它默认 → 409。
 - duration 必须匹配 `^\d+(ms|s|m|h|d|w|y)$`；`scrape_timeout < scrape_interval`。
-- `label_template_id` 非空时必须存在且类别匹配（依赖 M07 端口；未就绪时仅存字符串、不校验存在性并在响应 `label_template_name` 留空）。
+- `label_template_id` 非空时必须存在于 `m07_label_templates`，且模板 `resource_category` 与 `monitor_type` 推导类别一致。
 
 ---
 
@@ -257,7 +257,7 @@ Job / 规则响应统一内联：
 | 8 | 认证组合：`basic` 需 username + password（更新可留空沿用）；`bearer` 需 token | 400 |
 | 9 | `tls_skip_verify=true` 且 `scheme=http` → 允许但告警（不阻断） | — |
 | 10 | duration 合法且 timeout < interval；`metrics_path` 以 `/` 开头 | 400 |
-| 11 | `label_template_id` 存在且类别匹配（端口就绪时） | 400 |
+| 11 | `label_template_id` 存在且类别匹配（M07 `m07_label_templates`） | 400 |
 | 12 | `exporter_template_id` 存在且支持该 `monitor_type` | 400 |
 
 ### 4.4 生效参数层叠（保存时解析并落快照）
@@ -555,7 +555,7 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 | 数据 | 用途 | 读取方式 |
 |---|---|---|
 | `resources` + 六类扩展表 | 候选实例、地址/端口、标签字段、存在性 | `m01/references` 只读 |
-| `label_templates` | 模板名称 / 映射内容 / 类别默认模板 | **待 M07 v3 补齐**（D-3）；未就绪时 `label_template_name` 为空、不做存在性校验 |
+| `m07_label_templates` | 模板名称 / 类别 / 默认标记 / mappings | M07 v3 只读（00007）；删除前由 M01 引用计数端口拦截 |
 
 M01 不写 M07 表；M07 资源删除由 M01 对账循环回收（D40）。
 
@@ -598,7 +598,7 @@ M01 不写 M07 表；M07 资源删除由 M01 对账循环回收（D40）。
 
 | 项 | 说明 | 关联 |
 |---|---|---|
-| `label_template_name` 解析 | 依赖 M07 v3 label_template 读 API | D-3 |
+| ~~`label_template_name` 解析~~ | 已落地：`m07_label_templates` 只读 | D-3 已关闭 |
 | 中心规则同步响应 | M09 center rules 产物版本/校验和如何回传 | D-4 |
 | 凭证加密 | `password_cipher` / `token_cipher` 的密钥来源与轮换 | 安全审查 |
 | `syncing` 瞬态 | 是否在 MVP 实现（否则 `pending → synced/failed` 两态） | D-2 |
