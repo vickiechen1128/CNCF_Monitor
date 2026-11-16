@@ -39,7 +39,7 @@ describe('exporterTemplates API', () => {
     await exporterTemplateApi.list({ monitor_type: 'mysql', source: 'official', page: 2, page_size: 20 })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/exporter-templates')
+    expect(url.pathname).toBe('/api/v3/platform/exporter-templates')
     expect(url.searchParams.get('monitor_type')).toBe('mysql')
     expect(url.searchParams.get('source')).toBe('official')
     expect(url.searchParams.get('page')).toBe('2')
@@ -80,7 +80,7 @@ describe('exporterTemplates API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/exporter-templates')
+    expect(url.pathname).toBe('/api/v3/platform/exporter-templates')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({
       name: 'custom-exporter',
@@ -101,7 +101,7 @@ describe('exporterTemplates API', () => {
     await exporterTemplateApi.update(9, { version: '1.1.0' })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/exporter-templates/9')
+    expect(url.pathname).toBe('/api/v3/platform/exporter-templates/9')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({ version: '1.1.0' })
   })
@@ -112,7 +112,7 @@ describe('exporterTemplates API', () => {
     const res = await exporterTemplateApi.remove(9)
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/exporter-templates/9')
+    expect(url.pathname).toBe('/api/v3/platform/exporter-templates/9')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.id).toBe(9)
   })

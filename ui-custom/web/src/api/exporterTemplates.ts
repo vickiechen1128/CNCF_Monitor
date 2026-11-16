@@ -1,14 +1,10 @@
 /**
- * 采集器模板（ExporterTemplate）平台 API（/api/v2/platform/...）
- *
- * Module_01 §6.2 / api-contract-snapshot §3：登记 / 编辑 / 软删采集器模板。
- * 统一信封 `apiClient`；列表分页信封 `list` 键（03_API_Standard §7.2）。
+ * 采集器模板 API —— v3 兼容层（/api/v3/platform/exporter-templates）。
  */
-import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
 import type { ExporterSource, ExporterTemplate } from '../types/strategy'
+import { exporterTemplateApiV3 } from './strategyV3'
 
-/** 采集器模板列表分页与筛选参数（§3，默认 page_size=20 上限 100） */
 export interface ExporterTemplateListParams extends Record<string, string | number | boolean | undefined> {
   monitor_type?: string
   source?: ExporterSource
@@ -16,7 +12,6 @@ export interface ExporterTemplateListParams extends Record<string, string | numb
   page_size?: number
 }
 
-/** 采集器模板登记输入（§10 必填口径） */
 export interface ExporterTemplateInput {
   name: string
   version?: string
@@ -33,23 +28,28 @@ export interface ExporterTemplateInput {
   source: ExporterSource
 }
 
-/** 采集器模板编辑输入（部分可改字段，内置只读拒绝） */
 export interface ExporterTemplateUpdateInput extends Partial<ExporterTemplateInput> {
   name?: string
 }
 
-/** 采集器模板管理（登记/编辑/软删，§3） */
 export const exporterTemplateApi = {
-  list(params?: ExporterTemplateListParams): Promise<ApiResponse<Paginated<ExporterTemplate>>> {
-    return apiClient.get<Paginated<ExporterTemplate>>('/api/v2/platform/exporter-templates', { params })
+  async list(params?: ExporterTemplateListParams): Promise<ApiResponse<Paginated<ExporterTemplate>>> {
+    const res = await exporterTemplateApiV3.list(params)
+    return { ...res, data: { ...res.data, list: (res.data?.list ?? []) as unknown as ExporterTemplate[] } }
   },
-  create(input: ExporterTemplateInput): Promise<ApiResponse<ExporterTemplate>> {
-    return apiClient.post<ExporterTemplate>('/api/v2/platform/exporter-templates', { body: input })
+  async create(input: ExporterTemplateInput): Promise<ApiResponse<ExporterTemplate>> {
+    const res = await exporterTemplateApiV3.create(input)
+    return { ...res, data: res.data as unknown as ExporterTemplate }
   },
-  update(id: number, input: ExporterTemplateUpdateInput): Promise<ApiResponse<ExporterTemplate>> {
-    return apiClient.put<ExporterTemplate>(`/api/v2/platform/exporter-templates/${id}`, { body: input })
+  async update(
+    id: string | number,
+    input: ExporterTemplateUpdateInput,
+  ): Promise<ApiResponse<ExporterTemplate>> {
+    const res = await exporterTemplateApiV3.update(String(id), input as never)
+    return { ...res, data: res.data as unknown as ExporterTemplate }
   },
-  remove(id: number): Promise<ApiResponse<{ id: number }>> {
-    return apiClient.delete<{ id: number }>(`/api/v2/platform/exporter-templates/${id}`)
+  async remove(id: string | number): Promise<ApiResponse<{ id: number }>> {
+    await exporterTemplateApiV3.remove(String(id))
+    return { status: 'success', data: { id: Number(id) } }
   },
 }

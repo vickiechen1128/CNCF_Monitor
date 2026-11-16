@@ -11,17 +11,19 @@ describe('monitoringRules API', () => {
   })
 
   function mockFetch(body: unknown, init: ResponseInit = {}) {
-    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-        ...init,
-      }),
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          ...init,
+        }),
     )
   }
 
   function lastFetchCall() {
-    return (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    return calls[calls.length - 1]
   }
 
   function lastUrlInstance(): URL {
@@ -39,7 +41,7 @@ describe('monitoringRules API', () => {
     await monitoringRuleApi.list({ rule_type: 'alert', enabled: true, keyword: 'cpu', page: 1, page_size: 20 })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/monitoring-rules')
+    expect(url.pathname).toBe('/api/v3/platform/monitoring-rules')
     expect(url.searchParams.get('rule_type')).toBe('alert')
     expect(url.searchParams.get('enabled')).toBe('true')
     expect(url.searchParams.get('keyword')).toBe('cpu')
@@ -49,7 +51,7 @@ describe('monitoringRules API', () => {
   it('create POSTs yaml_passthrough rule content', async () => {
     mockFetch({
       status: 'success',
-      data: { id: 5, name: 'cpu-rules', content_mode: 'yaml_passthrough', change_status: 'pending' },
+      data: { id: 5, name: 'cpu-rules', content_mode: 'yaml_passthrough', change_status: 'none' },
     })
 
     const res = await monitoringRuleApi.create({
@@ -60,7 +62,7 @@ describe('monitoringRules API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/monitoring-rules')
+    expect(url.pathname).toBe('/api/v3/platform/monitoring-rules')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({
       content_mode: 'yaml_passthrough',
@@ -68,7 +70,7 @@ describe('monitoringRules API', () => {
       name: 'cpu-rules',
       enabled: true,
     })
-    expect(res.data.change_status).toBe('pending')
+    expect(res.data.change_status).toBe('none')
   })
 
   it('update PUTs /:id with editable fields', async () => {
@@ -77,9 +79,9 @@ describe('monitoringRules API', () => {
     await monitoringRuleApi.update(5, { enabled: false })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/monitoring-rules/5')
+    expect(url.pathname).toBe('/api/v3/platform/monitoring-rules/5')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toEqual({ enabled: false })
+    expect(lastInitBody()).toMatchObject({ enabled: false })
   })
 
   it('remove DELETEs /:id', async () => {
@@ -87,7 +89,7 @@ describe('monitoringRules API', () => {
 
     const res = await monitoringRuleApi.remove(5)
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/monitoring-rules/5')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/monitoring-rules/5')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.id).toBe(5)
   })
@@ -98,9 +100,9 @@ describe('monitoringRules API', () => {
     const res = await monitoringRuleApi.validateYaml(5, 'groups: []')
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/monitoring-rules/5/validate-yaml')
+    expect(url.pathname).toBe('/api/v3/platform/monitoring-rules/validate')
     expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({ rule_content: 'groups: []' })
+    expect(lastInitBody()).toEqual({ id: '5', rule_content: 'groups: []' })
     expect(res.data.valid).toBe(true)
   })
 
@@ -113,7 +115,7 @@ describe('monitoringRules API', () => {
     const res = await monitoringRuleApi.get(5)
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/monitoring-rules/5')
+    expect(url.pathname).toBe('/api/v3/platform/monitoring-rules/5')
     expect(lastFetchCall()[1]?.method).toBe('GET')
     expect(res.data.rule_content).toBe('groups: []')
   })

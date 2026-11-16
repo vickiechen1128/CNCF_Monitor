@@ -1,14 +1,12 @@
 /**
- * 技术指标库（ExporterMetricLibrary）平台 API（/api/v2/platform/...）
- *
- * Module_01 §6.2.3 / api-contract-snapshot §8：只读列表筛选 + 用户扩展 POST + 内置只读。
- * 统一信封 `apiClient`；列表分页信封 `list` 键。
+ * 技术指标库 API —— v3 兼容层（/api/v3/platform/metric-library）。
+ * 页面沿用 legacy 视图类型；ID 为字符串 UUID。
  */
-import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
 import type { ExporterMetricLibraryItem, MetricType } from '../types/strategy'
+import { metricApiV3 } from './strategyV3'
+import type { MetricInputV3 } from './strategyV3'
 
-/** 指标库列表分页与筛选参数（§8，默认 page_size=20 上限 100） */
 export interface MetricLibraryListParams extends Record<string, string | number | boolean | undefined> {
   monitor_type?: string
   metric_type?: MetricType
@@ -18,7 +16,6 @@ export interface MetricLibraryListParams extends Record<string, string | number 
   page_size?: number
 }
 
-/** 指标库用户扩展创建输入（§5.3 / §8，is_builtin=false） */
 export interface MetricLibraryInput {
   metric_name: string
   metric_type: MetricType
@@ -31,7 +28,6 @@ export interface MetricLibraryInput {
   enabled?: boolean
 }
 
-/** 指标库内置只读编辑输入（仅 enabled/help/unit/monitor_types/category 可改，§8） */
 export interface MetricLibraryUpdateInput {
   enabled?: boolean
   help?: string
@@ -40,15 +36,60 @@ export interface MetricLibraryUpdateInput {
   category?: string
 }
 
-/** 技术指标库管理（列表/用户扩展/内置只读，§8） */
+type MetricViewSource = MetricInputV3 & {
+  id: string
+  is_builtin: boolean
+  created_at: string
+  updated_at: string
+}
+
+function toView(item: MetricViewSource): ExporterMetricLibraryItem {
+  return {
+    id: item.id,
+    metric_name: item.metric_name,
+    metric_type: item.metric_type as MetricType,
+    help: item.help ?? '',
+    unit: item.unit ?? '',
+    labels: item.labels ?? [],
+    monitor_types: item.monitor_types ?? [],
+    category: item.category,
+    exporter_template_id: item.exporter_template_id,
+    is_builtin: item.is_builtin,
+    enabled: item.enabled ?? true,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  }
+}
+
 export const metricLibraryApi = {
-  list(params?: MetricLibraryListParams): Promise<ApiResponse<Paginated<ExporterMetricLibraryItem>>> {
-    return apiClient.get<Paginated<ExporterMetricLibraryItem>>('/api/v2/platform/metric-library', { params })
+  async list(params?: MetricLibraryListParams): Promise<ApiResponse<Paginated<ExporterMetricLibraryItem>>> {
+    const res = await metricApiV3.list(params)
+    return { ...res, data: { ...res.data, list: (res.data?.list ?? []).map((x) => toView(x as MetricViewSource)) } }
   },
-  create(input: MetricLibraryInput): Promise<ApiResponse<ExporterMetricLibraryItem>> {
-    return apiClient.post<ExporterMetricLibraryItem>('/api/v2/platform/metric-library', { body: input })
+  async create(input: MetricLibraryInput): Promise<ApiResponse<ExporterMetricLibraryItem>> {
+    const res = await metricApiV3.create(input)
+    return { ...res, data: toView(res.data as MetricViewSource) }
   },
-  update(metricId: number, input: MetricLibraryUpdateInput): Promise<ApiResponse<ExporterMetricLibraryItem>> {
-    return apiClient.put<ExporterMetricLibraryItem>(`/api/v2/platform/metric-library/${metricId}`, { body: input })
+  async update(
+    metricId: string | number,
+    input: MetricLibraryUpdateInput,
+  ): Promise<ApiResponse<ExporterMetricLibraryItem>> {
+    const current = await metricApiV3.get(String(metricId))
+    const body: MetricInputV3 = {
+      metric_name: current.data.metric_name,
+      metric_type: current.data.metric_type,
+      help: input.help ?? current.data.help,
+      unit: input.unit ?? current.data.unit,
+      labels: current.data.labels,
+      monitor_types: input.monitor_types ?? current.data.monitor_types,
+      category: input.category ?? current.data.category,
+      exporter_template_id: current.data.exporter_template_id,
+      enabled: input.enabled ?? current.data.enabled,
+    }
+    const res = await metricApiV3.update(String(metricId), body)
+    return { ...res, data: toView(res.data as MetricViewSource) }
+  },
+  async remove(metricId: string | number): Promise<ApiResponse<{ id: string }>> {
+    return metricApiV3.remove(String(metricId))
   },
 }

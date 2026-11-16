@@ -39,7 +39,7 @@ describe('ciExporterMappings API', () => {
     await ciExporterMappingApi.list({ monitor_type: 'mysql', is_default: true, page: 1, page_size: 20 })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/ci-exporter-mappings')
+    expect(url.pathname).toBe('/api/v3/platform/ci-exporter-mappings')
     expect(url.searchParams.get('monitor_type')).toBe('mysql')
     expect(url.searchParams.get('is_default')).toBe('true')
     expect(url.searchParams.get('page')).toBe('1')
@@ -72,7 +72,7 @@ describe('ciExporterMappings API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/ci-exporter-mappings')
+    expect(url.pathname).toBe('/api/v3/platform/ci-exporter-mappings')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({
       monitor_type: 'mysql',
@@ -96,7 +96,7 @@ describe('ciExporterMappings API', () => {
     await ciExporterMappingApi.update(4, { is_default: false })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/ci-exporter-mappings/4')
+    expect(url.pathname).toBe('/api/v3/platform/ci-exporter-mappings/4')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({ is_default: false })
   })
@@ -107,7 +107,7 @@ describe('ciExporterMappings API', () => {
     const res = await ciExporterMappingApi.remove(4)
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/ci-exporter-mappings/4')
+    expect(url.pathname).toBe('/api/v3/platform/ci-exporter-mappings/4')
     expect(lastFetchCall()[1]?.method).toBe('DELETE')
     expect(res.data.id).toBe(4)
   })

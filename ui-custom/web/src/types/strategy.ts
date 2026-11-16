@@ -68,7 +68,7 @@ export interface ScrapeJob {
 
 /** CI 类型 → Exporter 映射（各 monitor_type 下的默认采集实现） */
 export interface CITypeExporterMapping {
-  id: number
+  id: string
   monitor_type: string
   exporter_template_id: string
   is_default: boolean
@@ -94,7 +94,7 @@ export type ExporterSource = 'official' | 'third_party' | 'internal'
 
 /** Exporter 模板（采集实现片段） */
 export interface ExporterTemplate {
-  id: number
+  id: string
   name: string
   version: string
   default_port: number
@@ -122,7 +122,7 @@ export type ScopeType = 'central' | 'edge' | 'both'
 
 /** 监控规则（告警/录制） */
 export interface MonitoringRule {
-  id: number
+  id: string
   name: string
   content_mode: RuleContentMode
   rule_content?: string
@@ -136,7 +136,12 @@ export interface MonitoringRule {
   scope: ScopeType
   enabled: boolean
   draft_status: string
-  change_status: ChangeStatus
+  change_status?: ChangeStatus
+  sync?: { status: 'draft' | 'pending' | 'syncing' | 'synced' | 'failed'; version: string; error: string; synced_at: string | null }
+  group_count?: number
+  rule_count?: number
+  ack_job_ref_errors?: boolean
+  ack_reason?: string
   created_at: string
   updated_at: string
   deleted_at?: string
@@ -182,7 +187,7 @@ export interface ExporterMetricAnchor {
 
 /** 技术指标库条目（§5.3 / §6.2.3） */
 export interface ExporterMetricLibraryItem {
-  id: number
+  id: string
   metric_name: string
   metric_type: MetricType
   help: string

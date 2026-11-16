@@ -11,17 +11,19 @@ describe('metricLibrary API', () => {
   })
 
   function mockFetch(body: unknown, init: ResponseInit = {}) {
-    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-        ...init,
-      }),
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          ...init,
+        }),
     )
   }
 
   function lastFetchCall() {
-    return (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    return calls[calls.length - 1]
   }
 
   function lastUrlInstance(): URL {
@@ -47,7 +49,7 @@ describe('metricLibrary API', () => {
     await metricLibraryApi.list({ monitor_type: 'host_linux', metric_type: 'gauge', category: 'cpu', keyword: 'cpu', page: 2, page_size: 20 })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/metric-library')
+    expect(url.pathname).toBe('/api/v3/platform/metric-library')
     expect(url.searchParams.get('monitor_type')).toBe('host_linux')
     expect(url.searchParams.get('metric_type')).toBe('gauge')
     expect(url.searchParams.get('category')).toBe('cpu')
@@ -76,7 +78,7 @@ describe('metricLibrary API', () => {
     })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/metric-library')
+    expect(url.pathname).toBe('/api/v3/platform/metric-library')
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({
       metric_name: 'mysql_slow_queries_total',
@@ -97,9 +99,9 @@ describe('metricLibrary API', () => {
     await metricLibraryApi.update(1, { help: 'Updated', enabled: true })
 
     const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/metric-library/1')
+    expect(url.pathname).toBe('/api/v3/platform/metric-library/1')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toEqual({ help: 'Updated', enabled: true })
+    expect(lastInitBody()).toMatchObject({ help: 'Updated', enabled: true, metric_name: 'mysql_slow_queries_total' })
   })
 
   it('throws on forbidden error envelope for builtin metric edit', async () => {

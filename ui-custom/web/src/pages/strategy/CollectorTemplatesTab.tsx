@@ -146,8 +146,8 @@ export function CollectorTemplatesTab() {
   const [viewTemplate, setViewTemplate] = useState<ExporterTemplate | null>(null)
 
   const templateById = useMemo(() => {
-    const m = new Map<number, ExporterTemplate>()
-    templates.forEach((t) => m.set(t.id, t))
+    const m = new Map<string, ExporterTemplate>()
+    templates.forEach((t) => m.set(String(t.id), t))
     return m
   }, [templates])
 
@@ -250,7 +250,7 @@ export function CollectorTemplatesTab() {
   /** 按下拉 source 前端过滤（契约 §4 列表仅按 monitor_type/is_default 筛选） */
   const sourceFilteredMappings = useMemo(() => {
     if (!filters.source) return mappings
-    return mappings.filter((m) => templateById.get(Number(m.exporter_template_id))?.source === filters.source)
+    return mappings.filter((m) => templateById.get(String(m.exporter_template_id))?.source === filters.source)
   }, [mappings, filters.source, templateById])
 
   // 「未被引用」模板池行：未被任何默认映射引用，且（若选来源）匹配来源（F1-5）。
@@ -275,7 +275,7 @@ export function CollectorTemplatesTab() {
       kind: 'mapping',
       key: `m-${m.id}`,
       mapping: m,
-      template: templateById.get(Number(m.exporter_template_id)),
+      template: templateById.get(String(m.exporter_template_id)),
     }))
     const templateRows: CollectorRow[] = unreferencedTemplates.map((t) => ({ kind: 'template', key: `t-${t.id}`, template: t }))
     return [...mappingRows, ...templateRows]
