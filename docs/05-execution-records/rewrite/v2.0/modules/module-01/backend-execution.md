@@ -1,8 +1,8 @@
 # Module 01 v3 后端执行记录
 
 > **分支**：`rewrite/v2.0`
-> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4a（M09 源接入与同步写回）、B5a（监控规则 CRUD/校验）
-> **状态**：B1 / B2 / B3 / B4a / B5a 完成（凭证加密、M09 中心规则、前端状态聚合待后续）
+> **范围**：P1 / B1（schema + repository + seed + 模块骨架）、B2（采集实现池 + 默认采集配置）、B2-3（M07 标签模板接入）、B3（ScrapeJob 核心）、B4（M09 源接入 + 中心规则同步 + 写回）、B5（监控规则 CRUD/校验）
+> **状态**：B1 / B2 / B3 / B4 / B5 完成（凭证加密、前端状态聚合、B6 待后续）
 > **任务序列**：[`task-sequence.yaml`](task-sequence.yaml)（T01-B1-1 ~ T01-B1-4）
 > **契约**：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)
 
@@ -291,11 +291,52 @@ $ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
 3. **字段化编辑未做**：`content_mode=structured` 返回 400（v0.3+）。
 4. **name 默认值**：为空时取首个 group 名，与旧实现一致。
 
+
 ---
 
-## 9. 下一步
+## 9. B4-2 / B5-2 中心规则同步（2026-11-16 完成）
 
-- **B5-2 / B4-2**：M09 中心规则产物（`rules.yml`）+ reload + `RecordRuleSync` 回写；需新增中心规则快照表（migration）。
+| 任务 | 产物 | 说明 |
+|---|---|---|
+| B4-2 | `platform/db/migrations/v3/00008_m09_center_rules.{sqlite,postgres}.sql` | `center_config_snapshots`：唯一版本、单 current、校验状态/归因 |
+| B4-2 | `m09/repository/center_snapshot_repository.go` | 中心快照 Insert / InsertAndActivate / CurrentPassed |
+| B4-2 | `m09/configgen/configgen.go` | `GenerateCenterRules`：centerEvaluator=true，生成中心 `rules.yml` |
+| B4-2 | `m09/references/center_rules.go` | 只读 `m01_monitoring_rules`（enabled+ready）与变更指纹 |
+| B4-2 | `m09/service/center_rules_service.go` | 生成/校验/原子写 `rules.yml` + POST `/-/reload` + `RecordRuleSync` 回写；30s watcher |
+| B5-3 | `m01/references/sync_sink.go` | `RecordRuleSync` 按 rule id 回写，按 `updated_at` 防覆盖 |
+| B4-2 | `m09/module.go` | 中心规则服务与 watcher 接入 `StartBackground` |
+
+### 9.1 验证证据
+
+```text
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go test ./platform/...
+# 全量通过
+$ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
+# 无输出
+```
+
+v3 实测（端口 18085，假 Prometheus 19090 响应 `POST /-/reload`）：
+
+```text
+POST /monitoring-rules（HostDown, up == 0） -> sync=pending
+（中心 watcher 30s）
+GET  /monitoring-rules/{id}                 -> sync.status=synced, version=20261116-609a
+$configDir/rules.yml                        -> groups[host] HostDown
+center_config_snapshots                     -> validation_status=passed, is_current=1
+```
+
+### 9.2 偏差与遗留
+
+1. **中心规则文件位置**：写入 `--config.dir` 下的 `rules.yml`；与 legacy local 通道共用目录，v3-only 模式下由中心 Prometheus 读取。
+2. **reload 失败即失败**：写文件成功但 reload 失败时快照标记 `platform_fault`、不切换 current；下一次 watcher 会重试。
+3. **规则 outcomes 按 rule id**：`RecordRuleSync` 以 M01 rule id 为键，避免规则展示名重复。
+4. **无历史清理**：中心规则快照暂未实现保留策略（每域快照仍保留 5 份）；后续按需补。
+
+---
+
+## 10. 下一步
+
+- **B6**：技术指标库、业务指标、拨测模块、安装登记（部分已由 Job 侧提供）、D40 对账循环。
 - **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
-- **B4-4**：前端实例级采集状态聚合（M09 targets + 选中实例）。
-- B6：指标库、业务指标、拨测模块、D40 对账循环。
+- **B4-4 / F1-F4**：前端实例状态聚合与 M01 页面切 v3。
+- **B8**：回归矩阵、安全审查、handover。

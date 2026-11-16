@@ -329,7 +329,7 @@ platform/modules/m01/
 - FR-12 / FR-13。
 - **验收**：端到端「保存 Job → watcher 生成快照 → synced」；校验失败 → `failed` + 原因；禁用/删除 → target 移除。
 
-### P5 监控规则 + 中心规则同步（4~5 人日；规则 CRUD/校验已完成 2026-11-16，中心同步待做）
+### P5 监控规则 + 中心规则同步（4~5 人日，已完成 2026-11-16）
 
 - FR-14/15/16：规则 CRUD；YAML/groups/组名全局唯一/promtool/jobref 分级（全平台并集、逃生门留痕）。
 - M09 中心规则产物（centerEvaluator=true）+ reload（D35）；规则 outcomes 经 `SyncResultSink.RecordRuleSync` 回写。
@@ -417,6 +417,6 @@ platform/modules/m01/
 
 1. ~~Owner 确认 D-1~D-7~~ → D-1 / D-2 / D-3 / D-5 已确认（2026-11-16）；D-4 / D-6 / D-7 待定。
 2. ~~产出契约快照与任务序列~~ → 已完成：[`api-contract-snapshot-v3.md`](api-contract-snapshot-v3.md)、[`task-sequence.yaml`](task-sequence.yaml)（30 个任务，B0 已完成）。
-3. ~~P1~~、~~P2~~、~~P3~~、~~P4~~、~~P5 规则 CRUD/校验~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **M09 中心规则同步 + B6 指标库/对账循环**（凭证加密 B3-4 并行）。
+3. ~~P1~~、~~P2~~、~~P3~~、~~P4~~、~~P5（含中心规则同步）~~ → 已完成（2026-11-16，见 [`backend-execution.md`](backend-execution.md)）；下一步 **B6 指标库/拨测模块/对账循环**（凭证加密 B3-4 并行）。
 4. 与 M09 负责人对齐 P4 的 `SourceReader` / `SyncResultSink` / 中心规则同步接口，避免两端各自演进。
 5. D-3 已关闭；继续推进 D-4（M09 中心规则）与 D-6/D-7 的 owner 决策。

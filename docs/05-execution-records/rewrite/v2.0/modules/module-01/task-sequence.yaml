@@ -279,7 +279,8 @@ tasks:
 
   - id: T01-B4-2
     title: "M01 Job 同步状态写回 + 失败原因（FR-12）"
-    status: todo
+    status: done
+    evidence: "M09 中心规则服务落地：00008 center_config_snapshots、configgen.GenerateCenterRules、rules.yml 原子写 + 中心 Prometheus reload、watcher；e2e pending→synced 通过"
     depends_on: [T01-B4-1]
     schema_change: none
     data_migration: none
@@ -330,7 +331,8 @@ tasks:
 
   - id: T01-B5-2
     title: "M09 中心规则同步（SyncResultSink 已由 B4-3 提供，D35）"
-    status: todo
+    status: done
+    evidence: "M09 中心规则同步已落地（与 T01-B4-2 同一实现）；中心 rules.yml 写入 ConfigOutputDir 并 POST /-/reload"
     depends_on: [T01-B4-1, T01-B5-1]
     cross_module: [m09]
     schema_change: additive
@@ -352,7 +354,8 @@ tasks:
 
   - id: T01-B5-3
     title: "规则同步状态与启停（FR-16）"
-    status: todo
+    status: done
+    evidence: "规则写路径置 pending/draft；中心同步完成后 RecordRuleSync 回写 synced/failed；v3 e2e 实测通过"
     depends_on: [T01-B5-1, T01-B5-2]
     schema_change: none
     data_migration: none

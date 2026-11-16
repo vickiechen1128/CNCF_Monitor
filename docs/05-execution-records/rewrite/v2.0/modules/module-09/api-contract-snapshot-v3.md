@@ -220,6 +220,8 @@ POST /network-domains/:id/token/reset
 > 配置同步为后台自动服务，无人工确认/回滚。本组只暴露只读快照。
 >
 > **源数据（2026-11-16 起）**：每域配置由 M01 `m01_scrape_jobs`（`ready + enabled + 未删`）驱动；targets 取 `selected_instance_ids` 对应的 M07 v3 资源，blackbox 使用资源的探测 URL。M09 生成/校验完成后通过 `SyncResultSink` 将 per-job 结果回写 M01 的 `sync_*` 列（D-2）。
+>
+> **中心规则（2026-11-16 起）**：规则为平台级全局对象（D35/D36），M09 后台服务读取 M01 `m01_monitoring_rules`（`enabled + ready`），以 `centerEvaluator=true` 生成 `rules.yml`，原子写入 `--config.dir/rules.yml` 并 `POST /-/reload` 中心 Prometheus；快照记录在 `center_config_snapshots`（唯一 current），结果通过 `SyncResultSink.RecordRuleSync` 回写 M01。
 
 ### 4.1 快照视图
 
