@@ -34,9 +34,12 @@ type platformDictRecord struct {
 func (platformDictRecord) TableName() string { return "platform_dicts" }
 
 type cloudDictRecord struct {
-	CloudCode string `gorm:"column:cloud_code;primaryKey"`
-	CloudName string `gorm:"column:cloud_name"`
-	Enabled   bool   `gorm:"column:enabled"`
+	CloudCode   string  `gorm:"column:cloud_code;primaryKey"`
+	CloudName   string  `gorm:"column:cloud_name"`
+	CloudType   string  `gorm:"column:cloud_type"`
+	Carrier     string  `gorm:"column:carrier"`
+	Description *string `gorm:"column:description"`
+	Enabled     bool    `gorm:"column:enabled"`
 }
 
 func (cloudDictRecord) TableName() string { return "cloud_dicts" }

@@ -45,7 +45,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		`INSERT INTO application_dicts(app_code,app_name,status) VALUES ('order-service','订单服务','enabled')`,
 		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
 		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',1)`,
-		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled) VALUES ('PUB-TX','腾讯云','public','telecom',1)`,
+		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,description,enabled) VALUES ('PUB-TX','腾讯云','PUB','TX','预置',1)`,
 		`INSERT INTO zone_types(code,display_name,enabled) VALUES ('internet','互联网区',1)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
@@ -288,6 +288,25 @@ func TestV3DictionaryWriteLifecycle(t *testing.T) {
 	var count int64
 	require.NoError(t, gormDB.Model(&struct{}{}).Table("business_domains").Where("code = ?", "logistics").Count(&count).Error)
 	assert.EqualValues(t, 1, count)
+}
+
+// TestV3CloudDictReadView verifies the M07 read-only view carries the
+// descriptive attributes required by the M06 admin page (D37).
+func TestV3CloudDictReadView(t *testing.T) {
+	router, _ := newTestRouter(t)
+
+	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/cloud-dict", "")
+	require.Equal(t, http.StatusOK, code, out)
+	list, ok := out["data"].(map[string]any)["list"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+	item := list[0].(map[string]any)
+	assert.Equal(t, "PUB-TX", item["cloud_code"])
+	assert.Equal(t, "腾讯云", item["cloud_name"])
+	assert.Equal(t, "PUB", item["cloud_type"])
+	assert.Equal(t, "TX", item["carrier"])
+	assert.Equal(t, "预置", item["description"])
+	assert.Equal(t, true, item["enabled"])
 }
 
 func TestV3ImportTemplateXLSX(t *testing.T) {

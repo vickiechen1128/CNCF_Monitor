@@ -45,11 +45,15 @@ type Platform struct {
 	Enabled      bool
 }
 
-// Cloud is a read-only cloud dictionary entry.
+// Cloud is a cloud dictionary entry. M07 only reads it; writes live in M06
+// (D37: admin grows only — create and disable, never edit or delete).
 type Cloud struct {
-	CloudCode string
-	CloudName string
-	Enabled   bool
+	CloudCode   string
+	CloudName   string
+	CloudType   string
+	Carrier     string
+	Description string
+	Enabled     bool
 }
 
 // ZoneType is a read-only zone type entry.
@@ -387,7 +391,14 @@ func (r *GORMRepository) ListClouds(ctx context.Context) ([]Cloud, error) {
 	}
 	out := make([]Cloud, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Cloud{CloudCode: row.CloudCode, CloudName: row.CloudName, Enabled: row.Enabled})
+		out = append(out, Cloud{
+			CloudCode:   row.CloudCode,
+			CloudName:   row.CloudName,
+			CloudType:   row.CloudType,
+			Carrier:     row.Carrier,
+			Description: derefString(row.Description),
+			Enabled:     row.Enabled,
+		})
 	}
 	return out, nil
 }

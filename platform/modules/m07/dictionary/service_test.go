@@ -42,7 +42,15 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Create(&platformDictRecord{PlatformCode: "legacy-platform", PlatformName: "旧平台", Enabled: false}).Error)
 	require.NoError(t, db.Create(&appPlatformRelRecord{ID: "rel-1", AppCode: "order-service", PlatformCode: "ecommerce", IsPrimary: true}).Error)
 	require.NoError(t, db.Create(&appPlatformRelRecord{ID: "rel-2", AppCode: "order-service", PlatformCode: "lab", IsPrimary: false}).Error)
-	require.NoError(t, db.Create(&cloudDictRecord{CloudCode: "PUB-TX", CloudName: "腾讯云", Enabled: true}).Error)
+	cloudDescription := "预置"
+	require.NoError(t, db.Create(&cloudDictRecord{
+		CloudCode:   "PUB-TX",
+		CloudName:   "腾讯云",
+		CloudType:   "PUB",
+		Carrier:     "TX",
+		Description: &cloudDescription,
+		Enabled:     true,
+	}).Error)
 	require.NoError(t, db.Create(&zoneTypeRecord{Code: "internet", DisplayName: "互联网区", Enabled: true}).Error)
 	return db
 }
@@ -164,7 +172,11 @@ func TestServiceList(t *testing.T) {
 
 	clouds, err := svc.ListClouds(ctx)
 	require.NoError(t, err)
-	assert.Len(t, clouds, 1)
+	require.Len(t, clouds, 1)
+	// D37: the admin maintenance page needs the descriptive attributes too.
+	assert.Equal(t, "PUB", clouds[0].CloudType)
+	assert.Equal(t, "TX", clouds[0].Carrier)
+	assert.Equal(t, "预置", clouds[0].Description)
 
 	zones, err := svc.ListZoneTypes(ctx)
 	require.NoError(t, err)

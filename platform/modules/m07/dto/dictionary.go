@@ -28,11 +28,15 @@ type Platform struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-// Cloud is a v3 cloud dictionary item.
+// Cloud is a v3 cloud dictionary item. Writes live in M06 (D37); M07 serves
+// the read list consumed by resource/domain dropdowns and the admin page.
 type Cloud struct {
-	CloudCode string `json:"cloud_code"`
-	CloudName string `json:"cloud_name"`
-	Enabled   bool   `json:"enabled"`
+	CloudCode   string `json:"cloud_code"`
+	CloudName   string `json:"cloud_name"`
+	CloudType   string `json:"cloud_type"`
+	Carrier     string `json:"carrier"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // ZoneType is a v3 zone type item.
@@ -135,7 +139,14 @@ func FromPlatform(item *dictionary.Platform) Platform {
 func FromClouds(items []dictionary.Cloud) []Cloud {
 	out := make([]Cloud, 0, len(items))
 	for _, item := range items {
-		out = append(out, Cloud{CloudCode: item.CloudCode, CloudName: item.CloudName, Enabled: item.Enabled})
+		out = append(out, Cloud{
+			CloudCode:   item.CloudCode,
+			CloudName:   item.CloudName,
+			CloudType:   item.CloudType,
+			Carrier:     item.Carrier,
+			Description: item.Description,
+			Enabled:     item.Enabled,
+		})
 	}
 	return out
 }
