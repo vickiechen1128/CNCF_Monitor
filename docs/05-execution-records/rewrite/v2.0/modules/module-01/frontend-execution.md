@@ -41,7 +41,21 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 
 ---
 
-## 3. 后续（F2/F3/F4）
+## 3. F2 进展（同步状态展示基座）
+
+| 产物 | 说明 |
+|---|---|
+| `pages/strategy/syncStatus.ts` | v3 `sync.status` → 文案/颜色/说明；`aggregateJobSyncStatus` 处理草稿/停用/同步态 |
+| `pages/strategy/SyncStatusTag.tsx` | 同步状态 Tag；失败时 Tooltip 展示 M09 `sync.error` |
+| 测试 | `syncStatus.test.ts`（5）+ `SyncStatusTag.test.tsx`（3） |
+
+页面尚未切换：列表/表单/详情仍使用 v2 客户端与 `change_status`，F2 剩余工作为：
+
+1. `useScrapeJobs` / `ScrapeJobListPage` 切 `scrapeJobApiV3`，用 `SyncStatusTag` 替换「生效状态/变更进度」列。
+2. `ScrapeJobFormDrawer` 去掉 `mapping_overrides` 入参、`blackbox_targets`、批量草稿；label template 走专用端点。
+3. `ScrapeJobDetailDrawer` / 实例面板切 v3 `sync` 与 `instances.list`。
+
+## 4. 后续（F2/F3/F4）
 
 1. **F2 Job 页面**：列表/表单/详情改 `scrapeJobApiV3`；用 `sync.status` 替换 `change_status` 列；移除 pending 锁与批量草稿；实例候选/实例/预演对接 v3。
 2. **F3 规则/指标库/采集器/拨测模块**：规则页切 `ruleApiV3.validate`；指标库/业务指标/拨测模块切 v3 客户端。
