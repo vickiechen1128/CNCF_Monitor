@@ -1,0 +1,534 @@
+# Module 01 监控策略与指标管理 v3 重写任务序列（轻量 L3，mode: rewrite）
+# 来源：assessment.md、api-contract-snapshot-v3.md
+# 上级章程：docs/05-execution-records/rewrite/v2.0/charter.md
+# 分支：rewrite/v2.0
+# 约束：允许 API v3 / DB schema 演进；schema 变更必须 migration + 回滚 + 对账；
+#       M01 不生成配置、不 reload、不写 M09/upstream；legacy strategy 冻结不改。
+
+phase: "M01 Rewrite（监控策略与指标管理）"
+module: "module-01-strategy"
+module_branch: "rewrite/v2.0"
+mode: "rewrite"
+milestone: "v2.0-m2"
+legacy_baseline: "v1.0.0"
+api_version: "v3"
+owner: "orchestrator → backend-developer / frontend-developer"
+
+design_decisions:
+  - "D-1（owner 2026-11-16 确认）：v3 模块重写，表名 m01_*，不复用 legacy 同名表"
+  - "D-2（owner 2026-11-16 确认）：M01 持有 sync_status 列，M09 通过 SyncResultSink 回写"
+  - "D-5（owner 2026-11-16 确认）：data_migration=none，v3 空库 + seed"
+
+open_decisions:
+  - "D-3：M07 v3 label_templates 表 + 只读 API（阻塞 T01-B2-3）"
+  - "D-4：M09 中心规则同步（与 T01-B5-2 合并排期）"
+  - "D-6：FR-04 / FR-09 filter / FR-17 不做；FR-19 仅轻量 CRUD"
+  - "D-7：前端契约层先行、按页切换"
+
+verification:
+  targeted: "go test ./platform/modules/m01/... ./platform/db/... ./platform/modules/m09/..."
+  phase_gate: "go test ./platform/... && go vet ./platform/..."
+  contract: "api-contract-snapshot-v3.md golden + 旧 v2 vs 新 v3 行为矩阵"
+  frontend: "pnpm vitest run <目标> && pnpm run typecheck:test && pnpm lint"
+
+tasks:
+  # ---------------- B0 决策与契约 ----------------
+  - id: T01-B0-1
+    title: "决策冻结：重构路线 / 表命名 / 同步写回 / MVP 裁剪"
+    status: done
+    evidence: "2026-11-16 owner 确认 D-1（v3 模块重写 + m01_* 表）与 D-2（M09 写回）；D-5 data_migration=none；其余见 assessment.md §10.2"
+    depends_on: []
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "确认 v3 模块重写而非原地重构"
+      - "确认 m01_* 独立表，避免 legacy AutoMigrate 冲突"
+      - "确认同步状态由 M01 持有、M09 回写"
+      - "确认 MVP 裁剪：FR-04 / FR-09 filter / FR-17 不做"
+    acceptance: "assessment.md 状态从 draft 更新；owner 确认记录入档"
+    verify: ["人工评审"]
+    commit_unit: "独立（文档）"
+
+  - id: T01-B0-2
+    title: "API v3 契约快照 + 任务序列"
+    status: done
+    evidence: "api-contract-snapshot-v3.md（§1~§11）+ 本文件产出；待 G2 评审冻结"
+    depends_on: [T01-B0-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "定义 /api/v3/platform/* 全部端点、DTO、错误码、分页"
+      - "定义 sync 对象与写回语义"
+      - "定义旧 v2 → v3 差异与冻结不变量"
+    acceptance: "契约评审通过；前后端可并行"
+    verify: ["人工评审", "契约字段 grep 核对"]
+    commit_unit: "独立（文档）"
+
+  # ---------------- B1 骨架 + schema + seed ----------------
+  - id: T01-B1-1
+    title: "v3 schema：00006_m01_strategy（sqlite + postgres）"
+    status: done
+    evidence: "00006_m01_strategy.{sqlite,postgres}.sql 已落地；空库 Up/Down、8 表、唯一索引/部分唯一索引/CHECK/FK 测试通过（TestMigrateV3M01Strategy）"
+    depends_on: [T01-B0-1]
+    schema_change: additive
+    migration_files:
+      - "platform/db/migrations/v3/00006_m01_strategy.sqlite.sql"
+      - "platform/db/migrations/v3/00006_m01_strategy.postgres.sql"
+    data_migration: none
+    api_version: v3
+    scope:
+      - "8 张表：m01_exporter_templates / m01_ci_type_exporter_mappings / m01_scrape_jobs / m01_monitoring_rules / m01_metric_library / m01_business_metrics / m01_installations / m01_probe_modules"
+      - "唯一索引：job_name / name / (resource_id, scrape_job_id) / (monitor_type, exporter_template_id)"
+      - "部分唯一索引：每 monitor_type 至多一个 is_default"
+      - "sync 列：sync_status / sync_version / sync_error / synced_at"
+      - "规则 ack 列：ack_job_ref_errors / ack_reason"
+      - "Up/Down 对称；SQLite foreign_keys=on"
+    acceptance: "空库 Up 成功；Down 可回滚；约束/索引测试通过"
+    verify: ["go test ./platform/db/...", "migration Up/Down"]
+    commit_unit: "独立（schema）"
+
+  - id: T01-B1-2
+    title: "repository 层：8 张表记录与接口实现"
+    status: done
+    evidence: "repository 8 表实现 + repository_test.go；CRUD、唯一约束映射、软删、JSON roundtrip 全部通过"
+    depends_on: [T01-B1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "每资源一文件：exporter / mapping / job / rule / metric / business_metric / installation / probe_module"
+      - "软删、分页、筛选、部分唯一约束错误映射"
+      - "批量查 selected_instance_ids 反查（供 M07/M09 只读）"
+    acceptance: "repository 单测通过（SQLite 内存 DSN）；约束冲突返回可识别错误"
+    verify: ["go test ./platform/modules/m01/repository/..."]
+    commit_unit: "独立（数据访问）"
+
+  - id: T01-B1-3
+    title: "seed：内置采集实现 / 默认映射 / 指标库 / 拨测模块（幂等）"
+    status: done
+    evidence: "m01/seed/seed.go + seed_test.go；6 exporter / 6 mapping / 19 metric / 4 probe，二次执行幂等且不覆盖用户默认"
+    depends_on: [T01-B1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "复用 models.BuiltinExporterTemplates() / DefaultBlackboxModules()"
+      - "每 monitor_type 一个默认映射（与采集实现 supported_monitor_types 对齐）"
+      - "内置技术指标库子集"
+      - "runV3 与 legacy 模式 MigrateV3 后调用；二次执行无变更"
+    acceptance: "空库 seed 后 M01 列表开箱可用；重复执行幂等"
+    verify: ["go test ./platform/db/seed/..."]
+    commit_unit: "独立（seed）"
+
+  - id: T01-B1-4
+    title: "模块骨架：module.go + handler/routes 空壳 + v3 注册"
+    status: done
+    evidence: "module.go + handler/routes.go 骨架；v3 registry 顺序 system→m06→m07→m01→m09→auth；v3 启动 meta 与 v3_test 通过"
+    depends_on: [T01-B1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "platform/modules/m01/{module.go,domain,dto,repository,service,handler,references,seed}"
+      - "registry 顺序：system → m06 → m07 → m01 → m09 → auth"
+      - "StartBackground(ctx) 空实现（B6 接对账循环）"
+      - "errors.go 统一走 foundation/httpapi"
+    acceptance: "v3 启动 registry.Names() 含 m01；/api/v3/platform 无重复路由"
+    verify: ["go test ./platform/cmd/metric-center/...", "服务启动探测"]
+    commit_unit: "独立（骨架）"
+
+  # ---------------- B2 采集实现池 + 默认采集配置 ----------------
+  - id: T01-B2-1
+    title: "采集实现池 CRUD（FR-02）"
+    status: todo
+    depends_on: [T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /exporter-templates；GET/PUT/DELETE /exporter-templates/{id}"
+      - "内置行 PUT/DELETE → 403；被映射引用删除 → 409；name 重复 → 409"
+      - "URL / metrics_path / port / scheme 校验"
+    acceptance: "契约测试覆盖 200/400/403/404/409"
+    verify: ["go test ./platform/modules/m01/handler/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B2-2
+    title: "默认采集配置 CRUD + 标签模板专用端点（FR-01/FR-03）"
+    status: todo
+    depends_on: [T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /ci-exporter-mappings；PUT/DELETE /{id}"
+      - "PUT /{id}/label-template 专用入口"
+      - "is_default 唯一（409）；被 Job 引用删除 409；内置行 403"
+      - "duration / timeout<interval / 采集实现支持类型校验"
+    acceptance: "默认唯一性并发测试通过；标签模板端点契约测试"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B2-3
+    title: "M07 label_template 只读端口（依赖 M07 v3 补齐）"
+    status: blocked
+    blocked_by: "D-3 / M07 v3 label_templates 表 + 只读 API"
+    depends_on: [T01-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "m01/references.LabelTemplates：List / Get / DefaultByCategory"
+      - "端口未就绪时降级：label_template_name 为空、跳过存在性校验"
+      - "M07 就绪后补类别匹配与默认模板回落"
+    acceptance: "M07 端口就绪后映射/Job 模板选择联调通过；未就绪时无 panic"
+    verify: ["go test ./platform/modules/m01/references/..."]
+    commit_unit: "独立（集成）"
+
+  # ---------------- B3 ScrapeJob 核心 ----------------
+  - id: T01-B3-1
+    title: "ScrapeJob CRUD + 参数快照/覆盖/同步默认值（FR-05/06/07）"
+    status: todo
+    depends_on: [T01-B2-2, T01-B1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /scrape-jobs；GET/PUT/DELETE /{id}"
+      - "domain 层：参数层叠解析、mapping_overrides 服务端计算、sync_mapping_defaults"
+      - "draft_status 单向流转；enabled 正交；候选集判定 ready+enabled"
+      - "列表内联 sync 对象（B4 填充真实值，先返回 draft/pending）"
+    acceptance: "参数继承矩阵单测；同步默认值只刷新未覆盖字段"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B3-2
+    title: "网域 / 实例 / 认证校验矩阵（NFR-02/07，FR-05/11）"
+    status: todo
+    depends_on: [T01-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "网域校验：M06 enabled + edge + M09 monitored"
+      - "实例：存在、同域、类别匹配、offline 不可新增"
+      - "blackbox：类别门禁、module 存在、target_field 派生、blackbox_targets 非空 400"
+      - "认证/TLS 组合、duration、metrics_path、label_template、exporter 支持类型"
+    acceptance: "校验矩阵逐条单测；错误文案给下一步指引"
+    verify: ["go test ./platform/modules/m01/service/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B3-3
+    title: "实例候选 / Job 实例 / 安装登记 / 目标预演（FR-09/10/11/20）"
+    status: todo
+    depends_on: [T01-B3-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET /scrape-jobs/instance-candidates（类型+域收敛，offline 置灰，NPU 全集）"
+      - "GET /scrape-jobs/{id}/instances（选中实例 + 安装留痕）"
+      - "POST/DELETE /{id}/instances/{resource_id}/confirm"
+      - "POST /{id}/preview-targets（只读，复用 configcenter/generator）"
+      - "端口/地址解析按分类（host/database/middleware/application/generic_target）"
+    acceptance: "候选无 N+1；preview 不落盘；skipped 归因正确"
+    verify: ["go test ./platform/modules/m01/...", "benchmark 候选查询"]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B3-4
+    title: "采集凭证落密文（password_cipher / token_cipher）"
+    status: todo
+    depends_on: [T01-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "AES-GCM 或 secret ref（按安全审查结论）"
+      - "写接口只入不出；响应仅 credential_configured"
+      - "更新时留空 = 保持原值；日志脱敏"
+      - "密钥来源：环境变量 / secret 文件，不入库"
+    acceptance: "DB 无明文；日志无明文；security-review 通过"
+    verify: ["go test ./platform/modules/m01/...", "security-review"]
+    commit_unit: "独立（安全）"
+
+  # ---------------- B4 M09 集成 + 同步/采集状态 ----------------
+  - id: T01-B4-1
+    title: "M09 SourceReader 切换为 M01 表（跨模块）"
+    status: todo
+    depends_on: [T01-B3-3]
+    cross_module: [m09]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "m09/references/source_reader.go 读 m01_scrape_jobs（ready+enabled+未删）"
+      - "job 的 targets / labels / blackbox_module / metrics_path / scheme 进入 configgen"
+      - "Fingerprint 覆盖 M01 job/rule/module 的 updated_at 与 deleted_at"
+      - "生效端口按 M01 解析结果或共享 portchain"
+    acceptance: "Job 保存/启停/删除后 M09 下一周期生成正确 targets；blackbox 配置生成"
+    verify: ["go test ./platform/modules/m09/...", "集成测试"]
+    commit_unit: "独立（跨模块）"
+
+  - id: T01-B4-2
+    title: "M01 Job 同步状态写回 + 失败原因（FR-12）"
+    status: todo
+    depends_on: [T01-B4-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "写路径：ready+enabled → pending 并刷新 updated_at；draft/停用 → draft"
+      - "Sink 实现：RecordDomainSync，按 updated_at <= generatedAt 回写"
+      - "synced/failed + sync_version/sync_error/synced_at；syncing 可选"
+      - "列表/详情返回 sync；失败可跳转 M09 快照"
+    acceptance: "端到端 pending→synced / pending→failed；并发编辑不被旧结果覆盖"
+    verify: ["go test ./platform/modules/m01/...", "集成测试"]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B4-3
+    title: "实例级采集状态回显（FR-13，前端聚合）"
+    status: todo
+    depends_on: [T01-B3-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "复用 GET /api/v1/targets?job=<job_name>（M09 D28/D33 隔离）"
+      - "前端按 instance 与选中实例交集派生 待采集/up/stale/down/unknown"
+      - "汇总：在线 X / 总数 Y · 待采集 Z"
+    acceptance: "目标增删后状态正确；无越权数据"
+    verify: ["vitest", "手工 E2E"]
+    commit_unit: "独立（前端）"
+
+  # ---------------- B5 监控规则 + 中心规则同步 ----------------
+  - id: T01-B5-1
+    title: "规则 CRUD + 校验管线（FR-14/15，D36）"
+    status: todo
+    depends_on: [T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /monitoring-rules；GET/PUT/DELETE /{id}；POST /monitoring-rules/validate"
+      - "domain/rule.go：YAML / groups / 组名全局唯一（enabled+ready）/ jobref / promtool"
+      - "job 引用基准 = 全平台 ready+enabled Job 并集"
+      - "逃生门 ack_job_ref_errors + ack_reason 留痕"
+      - "复用 strategy/rule/jobref + promtool 归因逻辑"
+    acceptance: "validate 契约 golden；error 级需 ack 才能提交；promtool 缺失降级"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B5-2
+    title: "M09 中心规则同步 + SyncResultSink（跨模块，D35）"
+    status: todo
+    depends_on: [T01-B4-1, T01-B5-1]
+    cross_module: [m09]
+    schema_change: additive
+    migration_version: "00007+（按实际落地顺序分配；若 M07 label_template 先落地则顺延）"
+    migration_files:
+      - "platform/db/migrations/v3/00007_m09_center_rules.sqlite.sql"
+      - "platform/db/migrations/v3/00007_m09_center_rules.postgres.sql"
+    data_migration: none
+    api_version: v3
+    scope:
+      - "配置生成读取 m01_monitoring_rules（enabled+ready），中心产物 centerEvaluator=true"
+      - "中心 rules.yml 原子切换 + 中心 Prometheus reload（--web.enable-lifecycle）"
+      - "新增 center rules 快照记录（版本/校验和/校验状态/时间）"
+      - "定义 SyncResultSink 端口（m09/references），v3.go 注入 M01 实现"
+      - "每域 outcomes：job_name → included/skipped + 原因；规则 outcomes 同构"
+    acceptance: "规则保存后中心 rules 生效；sink 回写按 generatedAt 防覆盖"
+    verify: ["go test ./platform/modules/m09/...", "集成测试"]
+    commit_unit: "独立（跨模块）"
+
+  - id: T01-B5-3
+    title: "规则同步状态与启停（FR-16）"
+    status: todo
+    depends_on: [T01-B5-1, T01-B5-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "规则写路径置 pending；停用/草稿置 draft"
+      - "中心规则 sink 回写 synced/failed"
+      - "列表内联 sync"
+    acceptance: "规则保存→中心生效→synced；失败原因可见"
+    verify: ["go test ./platform/modules/m01/...", "集成测试"]
+    commit_unit: "独立（功能）"
+
+  # ---------------- B6 指标库 / 安装 / 对账 ----------------
+  - id: T01-B6-1
+    title: "技术指标库（FR-18）"
+    status: todo
+    depends_on: [T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /metric-library；PUT/DELETE /{id}"
+      - "内置只读；同名同锚点冲突 409；停用/软删"
+      - "按 monitor_type / metric_type / category 筛选"
+    acceptance: "契约测试；内置行写 403"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B6-2
+    title: "业务指标库状态机（FR-19）"
+    status: todo
+    depends_on: [T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /business-metrics；GET/PUT/DELETE /{id}"
+      - "状态 pending→instrumented→online，禁止跳级/回退"
+      - "owner 必填；pending 才允许删除"
+    acceptance: "状态流转矩阵单测"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B6-3
+    title: "拨测模块管理（FR-11 支撑）"
+    status: todo
+    depends_on: [T01-B1-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "GET/POST /blackbox-modules；PUT/DELETE /{id}"
+      - "content YAML 根键 == name；内置行禁改 content/禁删"
+      - "被 Job 引用禁删 409"
+    acceptance: "契约测试；引用保护有效"
+    verify: ["go test ./platform/modules/m01/..."]
+    commit_unit: "独立（功能）"
+
+  - id: T01-B6-4
+    title: "资源删除回收循环（D40 / NFR-05）"
+    status: todo
+    depends_on: [T01-B3-3, T01-B1-4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "m01.Options.ReconcileInterval（默认 60s，可配）"
+      - "批量查 M07 资源存在性 + 网域一致性"
+      - "回收 selected_instance_ids 并刷新 updated_at（触发 M09 重算）"
+      - "StartBackground 仅在生产 ctx 启动；可停止"
+    acceptance: "删除资源后 ≤60s 回收；测试无 goroutine 泄漏；日志可追溯"
+    verify: ["go test ./platform/modules/m01/...", "go test -race"]
+    commit_unit: "独立（后台任务）"
+
+  # ---------------- F 前端 ----------------
+  - id: T01-F1
+    title: "前端契约层：6 个 API 客户端切 v3 + 类型"
+    status: todo
+    depends_on: [T01-B0-2]
+    cross_module: [web]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "scrapeJobs / ciExporterMappings / exporterTemplates / monitoringRules / metricLibrary / blackboxModules 指向 /api/v3/platform"
+      - "分页 items→list；新增 sync / credential_configured / resource_category"
+      - "删除 change_status / blackbox_targets 类型"
+    acceptance: "api 层单测通过；typecheck 通过；无 /api/v2 残留"
+    verify: ["pnpm vitest run src/api", "pnpm run typecheck:test"]
+    commit_unit: "独立（前端契约）"
+
+  - id: T01-F2
+    title: "采集 Job 页面：列表/表单/详情 + 同步状态"
+    status: todo
+    depends_on: [T01-F1, T01-B3-3]
+    cross_module: [web]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "同步状态列 + 失败原因 + 跳转 M09；移除变更进度列与 pending 锁"
+      - "拆分 ScrapeJobFormDrawer / ScrapeJobListPage 单体"
+      - "实例选择器复用；模板选择接入 M07（D-3 就绪后）"
+      - "采集状态聚合（FR-13）"
+    acceptance: "目标 vitest 通过；typecheck + lint；NFR-09 文案检查"
+    verify: ["pnpm vitest run src/pages/strategy", "pnpm lint"]
+    commit_unit: "独立（前端功能）"
+
+  - id: T01-F3
+    title: "规则 / 指标库 / 采集器 / 拨测模块页面"
+    status: todo
+    depends_on: [T01-F1, T01-B5-1, T01-B6-1]
+    cross_module: [web]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "规则检查/提交两段式 + 逃生门 + PromQL 结果 + 同步状态"
+      - "指标库筛选/内置只读/停用"
+      - "采集器模板与拨测模块 CRUD"
+    acceptance: "目标 vitest 通过；typecheck + lint"
+    verify: ["pnpm vitest run src/pages/strategy", "pnpm lint"]
+    commit_unit: "独立（前端功能）"
+
+  - id: T01-F4
+    title: "前端回归与测试门禁"
+    status: todo
+    depends_on: [T01-F2, T01-F3]
+    cross_module: [web]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "目标页面 vitest + 关键交互；typecheck:test + lint"
+      - "去除旧 change_status / pending 锁测试"
+      - "VITE_STATIC_PREVIEW 冒烟"
+    acceptance: "testing-tdd §4.2 允许范围内全绿"
+    verify: ["pnpm run typecheck:test", "pnpm lint", "pnpm vitest run <目标>"]
+    commit_unit: "独立（测试）"
+
+  # ---------------- B8 回归 / 安全 / 交接 ----------------
+  - id: T01-B8-1
+    title: "旧 v2 vs 新 v3 行为矩阵 + acceptance.md"
+    status: todo
+    depends_on: [T01-B4-2, T01-B5-3, T01-B6-4, T01-F4]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "SRS §9.1 14 条功能验收逐条映射"
+      - "SRS §9.2 6 条非功能验收逐条映射"
+      - "旧 v2 保留/变更/删除项矩阵"
+      - "legacy strategy 冻结声明"
+    acceptance: "矩阵逐项有结论；acceptance.md 完成"
+    verify: ["go test ./platform/...", "人工评审"]
+    commit_unit: "独立（文档）"
+
+  - id: T01-B8-2
+    title: "安全审查：凭证、鉴权、越权、注入"
+    status: todo
+    depends_on: [T01-B3-4, T01-B4-2, T01-B5-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "凭证密文与日志脱敏"
+      - "网域/实例越权校验"
+      - "SQL 注入 / 分页边界 / 大 YAML 输入"
+      - "preview-targets 不写盘"
+    acceptance: "security-reviewer PASS；问题闭环"
+    verify: ["security-review"]
+    commit_unit: "独立（记录）"
+
+  - id: T01-B8-3
+    title: "handover + 旧线冻结说明"
+    status: todo
+    depends_on: [T01-B8-1, T01-B8-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "handover.md 增补 M01 行"
+      - "数据模型 / API / migration / runbook / 已知问题"
+      - "legacy platform/strategy 冻结与删除条件（v2 线退役后）"
+    acceptance: "handover checklist 全绿"
+    verify: ["人工评审"]
+    commit_unit: "独立（文档）"
