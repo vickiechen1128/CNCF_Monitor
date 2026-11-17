@@ -526,9 +526,9 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 
 对象：`id` / `name` / `content` / `is_builtin` / `enabled` / `referenced_job_count` / `created_at` / `updated_at`。
 
-- `GET/POST /blackbox-modules`；`PUT/DELETE /blackbox-modules/{id}`。
-- `content` 必须是合法 YAML，根键与 `name` 一致；预置：`http_2xx` / `icmp_ping` / `tcp_connect` / `dns_query`（`is_builtin` 由种子写入，内置行可停用但不可删/改 content）。
-- 被 `m01_scrape_jobs.blackbox_module` 引用时删除 → 409。
+- 仅 `GET /blackbox-modules`、`GET /blackbox-modules/{id}`（只读，v2.0 不提供维护页）。
+- 模块由平台 seed 预置：`http_2xx` / `icmp_ping` / `tcp_connect` / `dns_query`；Job 保存时校验存在且 enabled。
+- M09 生成边缘 `blackbox.yml` 时读取 `m01_probe_modules`（enabled）作为模块定义。
 
 ---
 

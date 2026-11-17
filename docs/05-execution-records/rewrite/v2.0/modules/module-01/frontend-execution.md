@@ -76,7 +76,13 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 
 > 残留：`labelTemplates.ts` 仍指向 v2（M07 标签模板），Job 表单模板选择在 v3-only 模式需在 F4 一并切到 `/api/v3/platform/label-templates`。
 
-## 5. 后续（F4）
+## 5. 2026-11-17 收敛
+
+- 删除「拨测模块」页面、菜单与路由；`blackboxModuleApi` 仅保留 `list`；v3 probe 客户端移除写方法。
+- 采集 Job / 规则列表移除「变更进度」列，改为「启用状态 + 同步状态」；移除 pending 锁与批量提交。
+- 对应测试已更新：strategy/api/layout 322 用例通过。
+
+## 6. 后续（F4）
 
 1. **F2 Job 页面**：列表/表单/详情改 `scrapeJobApiV3`；用 `sync.status` 替换 `change_status` 列；移除 pending 锁与批量草稿；实例候选/实例/预演对接 v3。
 2. **F3 规则/指标库/采集器/拨测模块**：规则页切 `ruleApiV3.validate`；指标库/业务指标/拨测模块切 v3 客户端。

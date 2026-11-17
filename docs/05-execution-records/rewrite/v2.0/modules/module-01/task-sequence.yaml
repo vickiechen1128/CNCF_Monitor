@@ -402,9 +402,9 @@ tasks:
     commit_unit: "独立（功能）"
 
   - id: T01-B6-3
-    title: "拨测模块管理（FR-11 支撑）"
+    title: "拨测模块只读列表（FR-11 支撑，v2.0 不提供维护页）"
     status: done
-    evidence: "拨测模块 CRUD + YAML 根键校验 + 内置仅启停 + 被 Job 引用禁删已落地；测试通过"
+    evidence: "拨测模块改为平台 seed + 只读 list/get；删除页面/写接口；M09 加载 enabled 模块定义注入 configgen（修复 blackbox 生成）"
     depends_on: [T01-B1-3]
     schema_change: none
     data_migration: none

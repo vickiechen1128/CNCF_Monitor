@@ -377,3 +377,20 @@ $ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
 - **B3-4**：凭证 AES-GCM / secret ref（安全审查前置项，S-M01-1）。
 - **B4-4 / F1-F4**：前端 M01 页面切 v3、同步/采集状态列。
 - **B8**：回归矩阵、安全审查、handover。
+
+---
+
+## 11. 2026-11-17 收敛（拨测模块只读 + 列表状态列清理）
+
+### 11.1 拨测模块
+
+- 删除独立「拨测模块」页面与菜单（SRS v1.2 未要求维护页）。
+- `POST/PUT/DELETE /api/v3/platform/blackbox-modules` 移除；保留 `GET` 列表/详情（Job 表单下拉与只读展示）。
+- `m01_probe_modules` 表与 4 个预置模块 seed 保留。
+- **修复 M09 缺口**：`configgen.Source` 新增 `Modules`，M09 `SourceReader` 读取 `m01_probe_modules`（enabled）并传入 `AssembleWithModules`；此前传 `nil` 会导致 blackbox Job 生成报「模块不存在」。
+
+### 11.2 列表状态列
+
+- 采集 Job / 监控规则列表删除「变更进度」列。
+- 改为「启用状态 + 同步状态」两列，由 `SyncStatusTag` 消费 v3 `sync`。
+- 移除 pending 期编辑/启停/删除锁、批量提交草稿入口与 `triggerConfigDrafts` 调用。
