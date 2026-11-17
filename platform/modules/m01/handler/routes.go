@@ -64,13 +64,12 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		businessGroup.DELETE("/:id", business.Delete)
 	}
 
+	// Probe modules are platform-seeded and read-only in v2.0; they are still
+	// exposed so the blackbox Job form can list available module names.
 	probeGroup := platform.Group("/blackbox-modules")
 	{
 		probeGroup.GET("", probes.List)
-		probeGroup.POST("", probes.Create)
 		probeGroup.GET("/:id", probes.Get)
-		probeGroup.PUT("/:id", probes.Update)
-		probeGroup.DELETE("/:id", probes.Delete)
 	}
 
 	ruleGroup := platform.Group("/monitoring-rules")

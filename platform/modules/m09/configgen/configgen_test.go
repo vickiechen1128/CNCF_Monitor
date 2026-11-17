@@ -93,3 +93,22 @@ func TestGenerateCenterRules(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, empty.RulesYML)
 }
+
+func TestGenerateRendersEnabledBlackboxModules(t *testing.T) {
+	src := Source{
+		NetworkDomainID: "mc-demo",
+		ZoneType:        "beijing",
+		Modules: []models.BlackboxModule{{
+			Name: "http_2xx", Content: "http_2xx:\n  prober: http\n  timeout: 5s\n", Enabled: true,
+		}},
+		Jobs: []Job{{
+			Name:           "api-probe",
+			BlackboxModule: "http_2xx",
+			Targets:        []Target{{Instance: "http://10.0.0.1:8080/health"}},
+		}},
+	}
+	artifacts, err := Generate(src, "v1", time.Now())
+	require.NoError(t, err)
+	assert.Contains(t, artifacts.BlackboxYML, "http_2xx:")
+	assert.Contains(t, artifacts.PrometheusYML, "__param_target")
+}

@@ -48,21 +48,6 @@ func (h *ProbeModuleHandler) List(c *gin.Context) {
 	response.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": pageSize})
 }
 
-// Create handles POST /blackbox-modules.
-func (h *ProbeModuleHandler) Create(c *gin.Context) {
-	var req dto.ProbeModuleRequest
-	if err := bindJSON(c, &req); err != nil {
-		response.BadRequest(c, err)
-		return
-	}
-	created, err := h.svc.Create(c.Request.Context(), req.ToDomain())
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	response.OK(c, dto.FromProbeModule(created, 0))
-}
-
 // Get handles GET /blackbox-modules/{id}.
 func (h *ProbeModuleHandler) Get(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
@@ -81,43 +66,4 @@ func (h *ProbeModuleHandler) Get(c *gin.Context) {
 		return
 	}
 	response.OK(c, dto.FromProbeModule(item, count))
-}
-
-// Update handles PUT /blackbox-modules/{id}.
-func (h *ProbeModuleHandler) Update(c *gin.Context) {
-	id := strings.TrimSpace(c.Param("id"))
-	if id == "" {
-		response.BadRequest(c, fmt.Errorf("id is required"))
-		return
-	}
-	var req dto.ProbeModuleRequest
-	if err := bindJSON(c, &req); err != nil {
-		response.BadRequest(c, err)
-		return
-	}
-	updated, err := h.svc.Update(c.Request.Context(), id, req.ToDomain())
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	count, err := h.svc.ReferenceCount(c.Request.Context(), updated.Name)
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	response.OK(c, dto.FromProbeModule(updated, count))
-}
-
-// Delete handles DELETE /blackbox-modules/{id}.
-func (h *ProbeModuleHandler) Delete(c *gin.Context) {
-	id := strings.TrimSpace(c.Param("id"))
-	if id == "" {
-		response.BadRequest(c, fmt.Errorf("id is required"))
-		return
-	}
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		respondError(c, err)
-		return
-	}
-	response.OK(c, gin.H{"id": id})
 }

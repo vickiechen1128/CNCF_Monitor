@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,41 +79,18 @@ func TestBusinessMetricLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, code, out)
 }
 
-func TestProbeModuleGuards(t *testing.T) {
+func TestProbeModulesReadOnly(t *testing.T) {
 	router, gormDB := newTestRouter(t)
 
-	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/blackbox-modules",
-		`{"name":"http_custom","content":"http_custom:\n  prober: http\n"}`)
+	require.NoError(t, gormDB.Exec(`INSERT INTO m01_probe_modules(id,name,content,is_builtin,enabled)
+		VALUES ('probe-http','http_2xx','http_2xx: {}',TRUE,TRUE)`).Error)
+
+	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/blackbox-modules", "")
 	require.Equal(t, http.StatusOK, code, out)
-	module := out["data"].(map[string]any)
-	id := module["id"].(string)
-	assert.Equal(t, false, module["is_builtin"])
+	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
 
-	// Root key must equal the module name.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/blackbox-modules",
-		`{"name":"bad","content":"other:\n  prober: http\n"}`)
-	assert.Equal(t, http.StatusBadRequest, code, out)
-
-	// Duplicate name conflicts.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/blackbox-modules",
-		`{"name":"http_custom","content":"http_custom:\n  prober: http\n"}`)
-	assert.Equal(t, http.StatusConflict, code, out)
-
-	// Built-in modules only allow enable/disable.
-	require.NoError(t, gormDB.Exec(`INSERT INTO m01_probe_modules(id,name,content,is_builtin)
-		VALUES ('probe-http','http_2xx','http_2xx: {}',TRUE)`).Error)
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/blackbox-modules/probe-http",
-		`{"name":"http_2xx","content":"http_2xx:\n  prober: http\n"}`)
-	assert.Equal(t, http.StatusForbidden, code, out)
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/blackbox-modules/probe-http",
-		`{"name":"http_2xx","content":"http_2xx: {}","enabled":false}`)
-	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, false, out["data"].(map[string]any)["enabled"])
-
-	// Referenced modules cannot be deleted.
-	require.NoError(t, gormDB.Exec(`INSERT INTO m01_scrape_jobs(
-		id,job_name,job_type,resource_category,network_domain_id,blackbox_module
-	) VALUES ('job-1','probe-job','blackbox','interface_service','mc-demo','http_custom')`).Error)
-	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/blackbox-modules/"+id, "")
-	assert.Equal(t, http.StatusConflict, code, out)
+	// v2.0 exposes probe modules read-only.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v3/platform/blackbox-modules", nil))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

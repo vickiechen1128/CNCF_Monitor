@@ -54,6 +54,9 @@ type Source struct {
 	ZoneType        string
 	Replica         string
 	Jobs            []Job
+	// Modules are the enabled blackbox module definitions rendered into the
+	// edge blackbox.yml. The M09 source reader loads them from m01_probe_modules.
+	Modules []models.BlackboxModule
 }
 
 // Artifacts is the rendered result. Checksum covers every artifact except
@@ -101,7 +104,7 @@ func Generate(src Source, version string, generatedAt time.Time) (*Artifacts, er
 
 	rendered, err := generator.AssembleWithModules(
 		src.NetworkDomainID, src.ZoneType, src.Replica,
-		builds, nil, "", "", false, nil,
+		builds, nil, "", "", false, src.Modules,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("configgen: assemble domain %q: %w", src.NetworkDomainID, err)

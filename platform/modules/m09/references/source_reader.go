@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	m01refs "github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
@@ -133,7 +134,33 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 		jobs = append(jobs, job)
 	}
 	sort.SliceStable(jobs, func(i, j int) bool { return jobs[i].Name < jobs[j].Name })
-	return configgen.Source{NetworkDomainID: domainID, ZoneType: zoneRow.ZoneType, Jobs: jobs}, nil
+	modules, err := r.loadProbeModules(ctx)
+	if err != nil {
+		return configgen.Source{}, err
+	}
+	return configgen.Source{NetworkDomainID: domainID, ZoneType: zoneRow.ZoneType, Jobs: jobs, Modules: modules}, nil
+}
+
+// loadProbeModules returns the enabled blackbox module definitions. They are
+// platform-global and rendered into every edge blackbox.yml.
+func (r *GORMSourceReader) loadProbeModules(ctx context.Context) ([]models.BlackboxModule, error) {
+	var rows []struct {
+		Name    string `gorm:"column:name"`
+		Content string `gorm:"column:content"`
+	}
+	if err := r.db.WithContext(ctx).
+		Table("m01_probe_modules").
+		Select("name, content").
+		Where("enabled = ? AND deleted_at IS NULL", true).
+		Order("name ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load m01 probe modules: %w", err)
+	}
+	out := make([]models.BlackboxModule, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.BlackboxModule{Name: row.Name, Content: row.Content, Enabled: true})
+	}
+	return out, nil
 }
 
 // Fingerprint returns the newest source change across M07 resources and M01
