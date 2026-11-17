@@ -84,6 +84,9 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		{"/api/v3/platform/network-domains", http.StatusUnauthorized},
 		// M09 platform routes are behind the same global user-auth gate.
 		{"/api/v3/platform/edge-agents", http.StatusUnauthorized},
+		// M05 dashboard reads are authenticated (writes are admin-only).
+		{"/api/v3/platform/dashboard/summary", http.StatusUnauthorized},
+		{"/api/v3/platform/dashboard/panels", http.StatusUnauthorized},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -105,7 +108,7 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
-	assert.Equal(t, []string{"system", "m06", "m07", "m01", "m09", "auth"}, meta.Data.Modules)
+	assert.Equal(t, []string{"system", "m06", "m07", "m01", "m09", "m08", "m05", "auth"}, meta.Data.Modules)
 
 	// M09 edge protocol is token-only: the global user-auth gate is bypassed
 	// for /api/v3/edge/*, so this 401 comes from EdgeTokenMiddleware.
@@ -147,6 +150,20 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
+	// M05 dashboard summary is readable by any authenticated user on the v3 line
+	// (it replaces /api/v2/platform/dashboard/summary for the v3-only frontend).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/dashboard/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/dashboard/panels", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
 	// A normal user is authenticated but forbidden from the admin surface.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v3/platform/auth/login",
@@ -158,6 +175,15 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/tenants", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+	// Panel mutations are admin-only: an authenticated non-admin gets 403.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v3/platform/dashboard/panels",
+		strings.NewReader(`{"name":"只读用户面板","url":"http://grafana.example.com/d/ro"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())

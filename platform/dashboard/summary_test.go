@@ -341,7 +341,6 @@ func TestSummaryHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	assert.Equal(t, 15, s.ResourceCount, "六类资源合计")
-	assert.Equal(t, 2, s.PendingDraftCount)
 	assert.Equal(t, 1, s.DomainCount, "仅 default 网域已纳管")
 
 	// 已监控：ready+enabled Job 覆盖 9 个资源——标准 Job 6 个（host-1/2、db-1、mw-1、
@@ -449,29 +448,18 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, 7, s.ScrapeJobCount)
 	assert.Equal(t, 5, s.ScrapeJobEnabledCount)
 
-	// 最近下发：created_at 最早 i=1（now-1h）最新，前 5 条为 DEP-001..005。
-	require.Len(t, s.RecentDeployments, 5, "应返回最近 5 条下发记录")
-	assert.Equal(t, "CHG-DEP-001", s.RecentDeployments[0].ChangeNo)
-	assert.Equal(t, "管理网域", s.RecentDeployments[0].NetworkDomainName)
-	assert.Equal(t, string(models.DeploymentStatusSuccess), s.RecentDeployments[0].Status)
-	assert.NotNil(t, s.RecentDeployments[0].TriggeredAt)
-	assert.NotZero(t, s.RecentDeployments[0].ID)
-	assert.Equal(t, "CHG-DEP-005", s.RecentDeployments[4].ChangeNo)
 }
 
 func TestSummaryHandlerEmpty(t *testing.T) {
-	// 空库：各计数为 0，recent_deployments 为空数组而非 null。
+	// 空库：各计数为 0。
 	db := newTestDB(t)
 	code, s := runSummaryRequest(t, db)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, 0, s.ResourceCount)
-	assert.Equal(t, 0, s.PendingDraftCount)
 	assert.Equal(t, 0, s.DomainCount)
 	assert.Equal(t, 0, s.MonitoredCount)
 	assert.Equal(t, 0, s.ScrapeJobCount)
 	assert.Equal(t, 0, s.ScrapeJobEnabledCount)
-	assert.NotNil(t, s.RecentDeployments)
-	assert.Empty(t, s.RecentDeployments)
 
 	// 空库下分组聚合字段同样为零值：六类固定齐全（全 0）、by_app 空、拨测 0。
 	require.Len(t, s.ByCategory, 6, "空库仍返回六类 0 值条目")
@@ -495,10 +483,6 @@ func TestSummaryHandlerEmpty(t *testing.T) {
 	require.NoError(t, rawErr)
 	assert.Equal(t, "[]", string(raw))
 
-	// JSON 编码校验 recent_deployments 输出为 []。
-	raw, err := json.Marshal(s.RecentDeployments)
-	require.NoError(t, err)
-	assert.Equal(t, "[]", string(raw))
 }
 
 // TestSummaryMonitoredCountExcludesDeletedResources 校验「已监控」与五类资源表现存 ID
@@ -513,7 +497,7 @@ func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T) {
 		BizCode:          "infra",
 		SourceType:       models.SourceTypeManual,
 		AppCode:          "app",
-		EnvFlag: "PRD",
+		EnvFlag:          "PRD",
 		SubAppCode:       "cluster",
 		InstanceName:     "web-01",
 		Status:           "online",

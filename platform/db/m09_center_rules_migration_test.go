@@ -35,7 +35,10 @@ func TestMigrateV3M09CenterRules(t *testing.T) {
 	) VALUES ('v2','checksum-2','passed',TRUE)`)
 	require.Error(t, err, "second current center snapshot must fail")
 
-	// Down drops 00008 then 00007; M01/M07/M09 tables stay.
+	// Down drops 00010 (M05 dashboard), 00009 then 00008; M01/M07/M09 tables
+	// stay.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
 	requireTableCount(t, sqlDB, "center_config_snapshots", 0)
 	requireTableCount(t, sqlDB, "m07_label_templates", 1)

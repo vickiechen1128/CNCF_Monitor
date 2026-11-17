@@ -49,7 +49,10 @@ func TestMigrateV3M07LabelTemplates(t *testing.T) {
 		VALUES ('lt-6','bad','kubernetes')`)
 	require.Error(t, err, "unknown category must be rejected")
 
-	// Down drops 00008 (center rules) then 00007; M01/M09/M06 tables stay.
+	// Down drops 00010 (M05 dashboard), 00009 (M08 alerting), 00008 (center
+	// rules) then 00007; M01/M09/M06 tables stay.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	requireTableCount(t, sqlDB, "m07_label_templates", 0)

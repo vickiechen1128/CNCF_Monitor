@@ -111,8 +111,11 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	_, err = sqlDB.Exec(`INSERT INTO m01_probe_modules(id,name,content) VALUES ('probe-2','http_2xx','http_2xx: {}')`)
 	require.Error(t, err, "duplicate probe module name must fail")
 
-	// --- Down: roll back 00008 (center rules), 00007 (M07 label templates) then
-	// 00006 only; M06/M09 tables stay ---
+	// --- Down: roll back 00010 (M05 dashboard), 00009 (M08 alerting), 00008
+	// (center rules), 00007 (M07 label templates) then 00006 only; M06/M09
+	// tables stay ---
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")

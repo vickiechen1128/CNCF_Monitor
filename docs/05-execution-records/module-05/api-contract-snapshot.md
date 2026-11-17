@@ -3,6 +3,7 @@
 > **计划版本**: v1.7（对应 `05_Code_Implementation_Plan.md` / `task-sequence.yaml`）  
 > **日期**: 2026-10-16（v1.8 按 M05 dev-feedback 反馈 11 刷新首页版式与两个新聚合字段；v1.7 = 2026-09-19 按 PRD v1.7 / 决策 91；初版 2026-09-14）  
 > **说明**: 首页 MVP 子集（决策 72 / 72-1 / 72-2）为前端增量，仅消费既有接口并在前端本地计数；决策 72-3（v1.5）放宽该约束——`dashboard/summary` 新增 3 个计数字段（增字段、向后兼容）；**决策 91（v1.7）再增 6 个分组聚合字段**（`by_category` 含 `by_subtype` / `by_app` / `unclassified_*` / `probe_target_*`）；**反馈 11（v1.8）再增 2 个**（`by_platform_app` 平台 × 应用主机矩阵 / `by_cloud` 按云主机数，权威来源见 §1.1 `by_cloud` 口径段）——全程**不新增接口**。本快照记录前端任务消费的既有 API 契约、新增前端路由与页面级深链。  
+> **2026-11-16 后续变更（M05 SRS v1.1 / D25）**: `dashboard/summary` 已移除 `pending_draft_count` 与 `recent_deployments`（后端结构与前端 `DashboardSummary` 同步删除；M09 配置同步去确认化后两者无消费方）。下方 v1.8 响应结构保留为历史快照，不再代表当前字段集。
 
 ---
 

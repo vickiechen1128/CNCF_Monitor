@@ -18,9 +18,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// recentDeploymentLimit 最近下发记录条数上限。
-const recentDeploymentLimit = 5
-
 // scrapeJobDraftReady 采集 Job 可生效的 draft_status 取值（models.ScrapeJob.DraftStatus）。
 // 与 platform/query/coverage.go 的「未监控 = 未被任何 ready+enabled Job 选中」判定保持同源。
 const scrapeJobDraftReady = "ready"
@@ -64,15 +61,6 @@ func resourceModels() []interface{} {
 		&models.GenericTarget{},
 		&models.InterfaceService{},
 	}
-}
-
-// DeploymentItem 是 recent_deployments 单条下发记录摘要。
-type DeploymentItem struct {
-	ID                string     `json:"id"`
-	ChangeNo          string     `json:"change_no"`
-	NetworkDomainName string     `json:"network_domain_name"`
-	Status            string     `json:"status"`
-	TriggeredAt       *time.Time `json:"triggered_at"`
 }
 
 // ProbeTargetItem 是首页拨测态势面板单条拨测目标明细（决策 93 / M05 PRD v1.8）。
@@ -124,13 +112,11 @@ func lookupProbeSample(
 
 // Summary 是首页聚合接口的返回结构。
 type Summary struct {
-	ResourceCount         int              `json:"resource_count"`           // 监控资源总数（M07 resource）
-	MonitoredCount        int              `json:"monitored_count"`          // 已监控资源数（口径见 §3.5：ready+enabled Job——含拨测资源模式——覆盖去重）
-	ScrapeJobCount        int              `json:"scrape_job_count"`         // 采集 Job 总数（M01，未软删）
-	ScrapeJobEnabledCount int              `json:"scrape_job_enabled_count"` // 采集 Job 中 enabled=true 数
-	PendingDraftCount     int              `json:"pending_draft_count"`      // 待确认配置草稿数（M09，status=pending）
-	RecentDeployments     []DeploymentItem `json:"recent_deployments"`       // 最近下发记录（最多 5 条）
-	DomainCount           int              `json:"domain_count"`             // 已纳管网域数（is_monitored=true）
+	ResourceCount         int `json:"resource_count"`           // 监控资源总数（M07 resource）
+	MonitoredCount        int `json:"monitored_count"`          // 已监控资源数（口径见 §3.5：ready+enabled Job——含拨测资源模式——覆盖去重）
+	ScrapeJobCount        int `json:"scrape_job_count"`         // 采集 Job 总数（M01，未软删）
+	ScrapeJobEnabledCount int `json:"scrape_job_enabled_count"` // 采集 Job 中 enabled=true 数
+	DomainCount           int `json:"domain_count"`             // 已纳管网域数（is_monitored=true）
 
 	// —— 决策 91（M05 PRD v1.7）：首页分组聚合字段（不变量见各测试）——
 	ByCategory                 []CategorySummary `json:"by_category"`                  // 按资源类型分组，6 类固定齐全（缺则补 0 值条目）
@@ -270,20 +256,19 @@ func WithUpHealthQuerier(q UpHealthQuerier) Option {
 }
 
 // Build 聚合各模块已有数据生成首页统计概览。
-// 复用 models 五类资源表 / ScrapeJob / ConfigDraft / ConfigDeployment / NetworkDomain 的
-// GORM 查询（Count/Find/Pluck），软删由 GORM 自动排除；错误沿用 fmt.Errorf("...: %w")。
+// 复用 models 五类资源表 / ScrapeJob / NetworkDomain 的 GORM 查询（Count/Find/Pluck），
+// 软删由 GORM 自动排除；错误沿用 fmt.Errorf("...: %w")。
 func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	cfg := buildOptions{}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	s := &Summary{
-		RecentDeployments: []DeploymentItem{},
-		ByCategory:        []CategorySummary{},
-		ByApp:             []AppSummary{},
-		ProbeTargets:      []ProbeTargetItem{},
-		ByPlatformApp:     []PlatformAppSummary{},
-		ByCloud:           []CloudSummary{},
+		ByCategory:    []CategorySummary{},
+		ByApp:         []AppSummary{},
+		ProbeTargets:  []ProbeTargetItem{},
+		ByPlatformApp: []PlatformAppSummary{},
+		ByCloud:       []CloudSummary{},
 	}
 
 	// 0. 被 ready+enabled Job（所有 job_type，含拨测资源模式选择）选中的
@@ -388,39 +373,7 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	}
 	s.ScrapeJobEnabledCount = int(enabledJobCount)
 
-	// 4. pending_draft_count：status=pending 的配置草稿数。
-	var pendingDrafts int64
-	if err := db.Model(&models.ConfigDraft{}).
-		Where("status = ?", models.DraftStatusPending).
-		Count(&pendingDrafts).Error; err != nil {
-		return nil, fmt.Errorf("count pending config drafts: %w", err)
-	}
-	s.PendingDraftCount = int(pendingDrafts)
-
-	// 5. recent_deployments：最近 5 条下发记录，LEFT JOIN 网域表取网域名。
-	var rows []struct {
-		models.ConfigDeployment
-		NetworkDomainName string `gorm:"column:network_domain_name"`
-	}
-	if err := db.Model(&models.ConfigDeployment{}).
-		Select("config_deployments.*, network_domains.name AS network_domain_name").
-		Joins("LEFT JOIN network_domains ON network_domains.id = config_deployments.network_domain_id").
-		Order("config_deployments.created_at DESC").
-		Limit(recentDeploymentLimit).
-		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list recent deployments: %w", err)
-	}
-	for _, r := range rows {
-		s.RecentDeployments = append(s.RecentDeployments, DeploymentItem{
-			ID:                r.DeploymentID,
-			ChangeNo:          r.SourceChangeNo,
-			NetworkDomainName: r.NetworkDomainName,
-			Status:            string(r.Status),
-			TriggeredAt:       r.TriggeredAt,
-		})
-	}
-
-	// 6. domain_count：已纳管网域数（is_monitored=true）。
+	// 4. domain_count：已纳管网域数（is_monitored=true）。
 	var domainCount int64
 	if err := db.Model(&models.NetworkDomain{}).
 		Where("is_monitored = ?", true).
@@ -429,7 +382,7 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	}
 	s.DomainCount = int(domainCount)
 
-	// 7. 拨测（blackbox）目标：目标来自 ScrapeJob.selected_instance_ids 所选的拨测资源，
+	// 5. 拨测（blackbox）目标：目标来自 ScrapeJob.selected_instance_ids 所选的拨测资源，
 	//    按类别取展示名与地址（models.BlackboxProbeCategories 仅两类）：
 	//      - interface_service（偏业务）：展示名 api_name，地址 api_url；
 	//      - application（偏平台）：展示名取**应用字典 app_name**（app_code → 中文应用名，
@@ -590,7 +543,7 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	// 无样本（未下发 / 指标未回传）不计入异常，避免把「未知」误报为「异常」。
 	s.ProbeTargetAbnormalCount = abnormalCount
 
-	// 8. 组装 by_category：六类固定齐全（缺则补 0 值条目）。
+	// 6. 组装 by_category：六类固定齐全（缺则补 0 值条目）。
 	for _, cat := range models.ValidResourceCategories() {
 		cs := CategorySummary{ResourceCategory: string(cat), BySubtype: []SubtypeSummary{}}
 		if ca := cats[cat]; ca != nil {
@@ -607,9 +560,9 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 		s.ByCategory = append(s.ByCategory, cs)
 	}
 
-	// 9. 组装 by_app（app_code 非空资源），并回填未归类计数。
-	// 应用字典（M07 §5.19 / 决策 92）：app_code → app_name 展示名，直接复用第 7 步的
-	// appNames（第 7 步已查过一次，不重复查库）；字典缺条目时回落为 app_code。
+	// 7. 组装 by_app（app_code 非空资源），并回填未归类计数。
+	// 应用字典（M07 §5.19 / 决策 92）：app_code → app_name 展示名，直接复用拨测步骤的
+	// appNames（第 5 步已查过一次，不重复查库）；字典缺条目时回落为 app_code。
 	// 业务字典（决策 48 / 92/93/95）：biz_code → biz_name 展示名。字典缺条目时回落为
 	// biz_code（不编造名称）。
 	var bizDomains []models.BusinessDomain
@@ -654,11 +607,11 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	s.UnclassifiedResourceCount = unclassifiedResourceCount
 	s.UnclassifiedMonitoredCount = unclassifiedMonitoredCount
 
-	// 10. 组装 by_platform_app（反馈 11）：平台 × 应用 · 主机数矩阵。
-	//     复用第 7 步已查好的 appNames / platformNames，不重复查库。
+	// 8. 组装 by_platform_app（反馈 11）：平台 × 应用 · 主机数矩阵。
+	//     复用第 5 步已查好的 appNames / platformNames，不重复查库。
 	s.ByPlatformApp = buildPlatformAppSummary(hostPlatformApps, platformNames, appNames)
 
-	// 11. 组装 by_cloud：按云 · 主机台数。cloud_code 权威来源为网域派生链
+	// 9. 组装 by_cloud：按云 · 主机台数。cloud_code 权威来源为网域派生链
 	//     （决策 103 scheme-B），cloud_name 查云字典、缺条目回落编码。
 	s.ByCloud = buildCloudSummary(hostClouds, cloudNames)
 
