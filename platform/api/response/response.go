@@ -121,6 +121,21 @@ func BadRequestWithType(c *gin.Context, errorType string, err error) {
 	c.JSON(http.StatusBadRequest, Fail(errorType, err))
 }
 
+// BadRequestWithDetails writes a 400 response that carries a structured data
+// block (for example line-level validation issues). It keeps the shared
+// envelope while letting clients branch on data instead of parsing messages.
+func BadRequestWithDetails(c *gin.Context, errorType string, err error, data interface{}) {
+	if errorType == "" {
+		errorType = ErrorTypeBadRequest
+	}
+	c.JSON(http.StatusBadRequest, Response{
+		Status:    StatusError,
+		ErrorType: errorType,
+		Error:     err.Error(),
+		Data:      data,
+	})
+}
+
 // Unauthorized writes an unauthorized response to the gin context.
 func Unauthorized(c *gin.Context, message string) {
 	c.JSON(http.StatusUnauthorized, Fail(ErrorTypeUnauthorized, strError(message)))

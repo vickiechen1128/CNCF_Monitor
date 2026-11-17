@@ -68,6 +68,7 @@ var (
 	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（IANA 名称，如 Asia/Shanghai），可用环境变量 NOTIFY_RENDER_TIMEZONE 覆盖；为空默认东八区固定偏移（不依赖宿主机时区）")
 	notifyBridgeURL         = flag.String("notify.bridge-url", "", "通知渲染桥基础地址覆盖（默认由 --listen-address 推导）；跨网/边缘域部署时显式设为中心桥公网可达地址（如 http://center.example.com:8080），使接收人片段与 M09 物化的 receiver 指向正确跨网地址，可用环境变量 NOTIFY_BRIDGE_URL 覆盖")
 	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
+	alertmanagerCenterDomain = flag.String("alertmanager.center-domain-id", "", "M08 快照同步到 M09 时使用的中心网域 ID；为空时跳过同步并记 warn（D-M08-01）")
 	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")

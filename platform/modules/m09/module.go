@@ -120,6 +120,13 @@ func (m *Module) ConfigSync() *service.ConfigSyncService {
 	return m.config
 }
 
+// AlertmanagerSnapshotSink returns the port M08 uses to persist the generated
+// alertmanager.yml as read-only history (D31). It never becomes the current
+// scrape snapshot and is never fanned out to edge domains.
+func (m *Module) AlertmanagerSnapshotSink() m09refs.AlertmanagerSnapshotSink {
+	return m.config
+}
+
 // RegisterQueryRoutes mounts the Prometheus-compatible query surface
 // (expected prefix: /api/v1). Only used in v3-only mode (D30).
 func (m *Module) RegisterQueryRoutes(apiV1 *gin.RouterGroup) error {
