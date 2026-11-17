@@ -233,29 +233,6 @@
   opacity: 0.9;
 }
 
-/* 可视化大屏页（M05 FR-11 / FR-12）：工具栏 + 单面板 iframe。 */
-.visualization-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.visualization-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.visualization-frame-wrap .dashboard-panel-frame {
-  height: calc(100vh - 176px);
-}
-
-.visualization-empty {
-  padding: 48px 0;
-}
-
 /* 侧栏菜单项副标题（D-1b：「规则编辑 · 含告警规则、记录规则」）：
    主标题 + 次行副标题纵向排列，用次要色弱化，仅补充信息量、不改变菜单项归属与跳转。 */
 .app-sider-label-stacked {
@@ -359,8 +336,4 @@
     padding: 12px !important;
   }
 
-  /* 可视化大屏：手机端工具栏折行后 iframe 高度相应收缩，仍保证可投屏可操作。 */
-  .visualization-frame-wrap .dashboard-panel-frame {
-    height: calc(100vh - 220px);
-  }
 }

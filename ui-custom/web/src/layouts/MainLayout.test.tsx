@@ -62,7 +62,7 @@ describe('MainLayout', () => {
     })
   })
 
-  it('renders the 首页 secondary nav and an empty custom dashboard group', async () => {
+  it('renders the 可视化大屏 secondary nav and an empty custom dashboard group', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <Routes>
@@ -72,7 +72,8 @@ describe('MainLayout', () => {
     )
 
     expect(screen.getByText('概览 Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('使用引导')).toBeInTheDocument()
+    // M05 SRS v1.2：「使用引导」独立子页已下线，导航不再出现该入口。
+    expect(screen.queryByText('使用引导')).not.toBeInTheDocument()
     const selected = screen
       .getAllByRole('menuitem')
       .find((el) => (el.textContent || '').includes('概览 Dashboard'))
@@ -85,22 +86,22 @@ describe('MainLayout', () => {
     expect(screen.getByText('去登记面板')).toBeInTheDocument()
   })
 
-  it('exposes 可视化大屏 as the second primary tab and highlights it on /visualization', () => {
+  it('merges the former 首页 into the single 可视化大屏 primary tab', () => {
     render(
-      <MemoryRouter initialEntries={['/visualization']}>
+      <MemoryRouter initialEntries={['/']}>
         <Routes>
-          <Route path="/visualization" element={<MainLayout>visualization-content</MainLayout>} />
+          <Route path="/" element={<MainLayout>big-screen-content</MainLayout>} />
         </Routes>
       </MemoryRouter>,
     )
 
     const tabs = screen.getAllByRole('button').filter((el) => el.className.includes('app-module-tab'))
-    expect(tabs[0]).toHaveTextContent('首页')
-    expect(tabs[1]).toHaveTextContent('可视化大屏')
-    expect(tabs[1].className).toContain('active')
-    expect(screen.getByText('visualization-content')).toBeInTheDocument()
-    // 大屏页不设二级导航（整宽展示），避免无效侧栏占位。
-    expect(document.querySelector('.ant-layout-sider')).toBeNull()
+    expect(tabs[0]).toHaveTextContent('可视化大屏')
+    expect(tabs[0].className).toContain('active')
+    // 原独立「可视化大屏」一级入口已合并，导航中只应有一个同名一级 tab。
+    expect(tabs.filter((tab) => (tab.textContent || '').includes('可视化大屏'))).toHaveLength(1)
+    expect(screen.queryByText('首页')).not.toBeInTheDocument()
+    expect(screen.getByText('big-screen-content')).toBeInTheDocument()
   })
 
   it('builds custom dashboard menus from mounted panels and highlights the current panel', async () => {

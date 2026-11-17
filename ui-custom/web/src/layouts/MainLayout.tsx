@@ -22,7 +22,6 @@ import {
   MenuUnfoldOutlined,
   PartitionOutlined,
   PlusOutlined,
-  QuestionCircleOutlined,
   RadarChartOutlined,
   SendOutlined,
   StopOutlined,
@@ -49,7 +48,7 @@ const { Title } = Typography
 interface MainLayoutProps {
   children: ReactNode
   /**
-   * 单屏铺满模式（首页）：内容区高度锁定为「视口 − 顶部栏」，页内不再出现下拉进度条，
+   * 单屏铺满模式（可视化大屏）：内容区高度锁定为「视口 − 顶部栏」，页内不再出现下拉进度条，
    * 由页内自适应布局（指标卡定高 / 告警卡自适应分页 / 右列等高对齐）消化高度。
    * 默认关闭：其余页面保持「内容超出即滚动」的常规行为。
    */
@@ -60,7 +59,7 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 一级模块顶部栏顺序为「首页 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
+ * D3（临时）：MVP 一级模块顶部栏顺序为「可视化大屏 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
  * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
  * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置快照 / 快照历史）；
@@ -93,19 +92,14 @@ const COLLAPSIBLE_GROUPS = [
 const MODULES: ModuleDef[] = [
   {
     key: 'home',
-    label: '首页',
+    // 2026-11-17：首页并入「可视化大屏」——原「首页 / 可视化大屏」两级入口功能重复，
+    // 统一为单一默认落地入口（M05 SRS v1.2 FR-24）。「使用引导」子页已下线，
+    // 六步开箱指引仍保留在首页内容区（FR-07）。
+    label: '可视化大屏',
     path: '/',
     subItems: [
       { key: '/', label: '概览 Dashboard', icon: <DashboardOutlined /> },
-      { key: '/onboarding', label: '使用引导', icon: <QuestionCircleOutlined /> },
     ],
-  },
-  {
-    // M05 SRS v1.1 FR-11 / FR-24：一级导航第 2 位「可视化大屏」。
-    // 页面内不设二级导航（大屏本身需要整宽），故不配置 subItems。
-    key: 'visualization',
-    label: '可视化大屏',
-    path: '/visualization',
   },
   {
     key: 'monitoring-object',
@@ -284,17 +278,15 @@ function findModuleByKey(key: string): ModuleDef {
 
 /**
  * 依据当前路由推断激活的一级模块。
- * /visualization → 可视化大屏（M05 FR-11）；/admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
+ * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
  * /domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/blackbox-modules、/scrape-jobs、/rules、/metric-library → 采集策略；
- * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 首页。
+ * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 可视化大屏（默认落地页）。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
   // /admin/* 全部归属「系统与平台管理」（M06）：按前缀收口而非逐个枚举路由，
-  // 避免将来新增平台级页面（如本次的 /admin/appearance）时漏改此处而落到首页。
+  // 避免将来新增平台级页面（如本次的 /admin/appearance）时漏改此处而落到可视化大屏。
   if (locationPath.startsWith('/admin/')) return findModuleByKey('platform-admin')
-  // M05 可视化大屏（FR-11）：一级入口独占 /visualization，不与首页子菜单混用。
-  if (locationPath.startsWith('/visualization')) return findModuleByKey('visualization')
   if (
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
@@ -313,7 +305,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
-    // 拨测模块同属采集策略；遗漏会让一级 tab 落回「首页」，侧栏也切到首页的二级菜单。
+    // 拨测模块同属采集策略；遗漏会让一级 tab 落回「可视化大屏」，侧栏也切到可视化大屏的二级菜单。
     locationPath.startsWith('/blackbox-modules') ||
     locationPath.startsWith('/scrape-jobs') ||
     locationPath.startsWith('/rules') ||
@@ -352,7 +344,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
  * 移动适配（手机竖屏 ≤767px，见 App.css 同名媒体查询）：
  * 顶部一级模块 tab 改为**横向滚动**（六个模块在手机宽度下必然溢出，不换行、不撑高顶栏），
  * 角色 / 账号紧凑化，侧栏由 `breakpoint="md"` 自动折叠为 56px 图标列；
- * 首页各区域的栅格降列见 `pages/home/homeResponsive.ts`。
+ * 可视化大屏各区域的栅格降列见 `pages/home/homeResponsive.ts`。
  */
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
@@ -360,7 +352,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   // 品牌位文案随「外观设置 · 产品名称」变化（用户 2026-09-18 补充，见 productNamePreference.ts）
   const { productName } = useProductName()
   const active = resolveActiveModule(location.pathname)
-  // 当前登录账号（顶栏展示 + 首页自定义大屏空态引导的权限判断共用）。
+  // 当前登录账号（顶栏展示 + 可视化大屏「自定义大屏」空态引导的权限判断共用）。
   const authUser = getStoredUser()
   const isAdmin = authUser?.role === 'admin'
   const [panels, setPanels] = useState<DashboardPanel[]>([])
@@ -369,7 +361,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   useEffect(() => {
     if (active.key !== 'home') return
     let cancelled = false
-    // 首页「自定义大屏」子菜单需要全部面板；管理页自身按 20/页分页。
+    // 可视化大屏「自定义大屏」子菜单需要全部面板；管理页自身按 20/页分页。
     dashboardPanelApi.list({ page: 1, page_size: 100 })
       .then((res) => {
         if (cancelled) return
