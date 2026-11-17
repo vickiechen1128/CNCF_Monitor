@@ -1,0 +1,564 @@
+# Module 08 告警收敛与通知管理 重写任务序列（轻量 L3，mode: rewrite）
+# 来源：docs/05-execution-records/rewrite/v2.0/modules/module-08/assessment.md
+# 上级章程：docs/05-execution-records/rewrite/v2.0/charter.md
+# 分支：rewrite/v2.0
+# 约束：允许 API v3 / DB schema 演进；schema 变更必须 migration + 回滚；旧 v2 数据不迁移（D7）
+# 权威需求：docs/02-product-requirements/Modules/SRS/Module_08_Alertmanager_Notification_Management_Requirements.md v1.3
+
+phase: "M08 Rewrite（后端 platform/modules/m08 + 前端 alerts 页）"
+module: "module-08-alertmanager-notification"
+module_branch: "rewrite/v2.0"
+mode: "rewrite"
+milestone: "v2.0-m3"
+legacy_baseline: "v2.0-m0"
+api_version: "v3"
+owner: "orchestrator → backend-developer / frontend-developer"
+scope_note: "三维聚合按 D44 延后；渠道密钥加密按 D45 承接全局项；本序列只做 M08 自身能力"
+
+verification:
+  targeted: "go test ./platform/modules/m08/... ./platform/db/... ./platform/cmd/metric-center/..."
+  phase_gate: "go test ./platform/... && go vet ./platform/..."
+  contract: "v3 golden + SRS FR-01~26 / NFR-01~12 映射（acceptance.md）"
+  migration: "00009 Up/Down 各 2 次 + 唯一索引/部分唯一索引检查"
+  frontend: "pnpm vitest run src/pages/alerts src/api; pnpm run typecheck:test; pnpm lint"
+
+tasks:
+  # ---------------------------------------------------------------------------
+  # B0 评估与契约
+  # ---------------------------------------------------------------------------
+  - id: T08-B0-1
+    title: "现状评估 / 差异矩阵 / 风险清单"
+    status: doing
+    depends_on: []
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "盘点 legacy platform/alertmanager/* 七个包的职责、行数与质量热点"
+      - "对照 M08 SRS v1.3 逐条给出保留/变更/删除，输出 14 行差异矩阵"
+      - "登记 D44（三维聚合延后）/ D45（加密全局承接）对范围的影响"
+    acceptance: "assessment.md 完成并评审通过"
+    verify: ["人工评审 assessment.md"]
+    commit_unit: "独立（文档）"
+
+  - id: T08-B0-2
+    title: "API v3 契约快照冻结"
+    status: doing
+    depends_on: [T08-B0-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "冻结 30 个端点的路径、鉴权、请求/响应 DTO、枚举"
+      - "冻结 alert-events* 字段与 stats 口径（D-M08-03，M05 消费方零改造）"
+      - "输出 v2 → v3 映射表，标注删除端点（product / 导入 / 重挂 / 模式切换）"
+      - "冻结错误矩阵：409 乐观锁、409 引用保护、503 amtool/reload 未配置、502 AM 不可达"
+    acceptance: "api-contract-snapshot-v3.md 评审通过；前端可据此并行"
+    verify: ["人工评审", "contract 字段 grep 核对"]
+    commit_unit: "独立（文档）"
+
+  - id: T08-B0-3
+    title: "决策落档 + acceptance 矩阵 + plan 状态"
+    status: doing
+    depends_on: [T08-B0-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "登记 D-M08-01（CenterDomainID 注入）/ 02（抑制段持久化）/ 03（事件契约冻结）/ 04（CSV 留前端）/ 05（00009）"
+      - "输出 acceptance.md：FR-01~26 / NFR-01~12 逐条映射任务与证据"
+      - "更新 plan.md M08 状态与待决项"
+    acceptance: "决策与契约一致；验收矩阵可追溯"
+    verify: ["人工评审"]
+    commit_unit: "独立（文档）"
+
+  # ---------------------------------------------------------------------------
+  # B1 Schema
+  # ---------------------------------------------------------------------------
+  - id: T08-B1-1
+    title: "新增 00009_m08_alerting：7 张表 + 索引 + 约束"
+    status: pending
+    depends_on: [T08-B0-3]
+    schema_change: breaking
+    data_migration: none
+    api_version: v3
+    scope:
+      - "7 张表：m08_notify_channels / m08_notify_templates / m08_config_snapshots / m08_reload_logs / m08_alert_events / m08_inhibition_rules（D49 独立表）/ m08_silence_audits（D50）"
+      - "is_current 部分唯一索引（每类快照仅一份生效）；occurrence_key 唯一；软删列；created_at 索引"
+      - "SQLite 与 PostgreSQL 双 dialect 文件（.sqlite.sql / .postgres.sql），Up/Down 成对"
+    acceptance: "迁移可 Up/Down；索引与唯一约束生效；双 dialect 语法各自可执行"
+    verify: ["go test ./platform/db -run TestMigrateV3M08", "手工 psql 执行 postgres 版"]
+    commit_unit: "独立（schema，不与代码混提）"
+
+  - id: T08-B1-2
+    title: "迁移测试：Up/Down ×2 + 约束断言"
+    status: pending
+    depends_on: [T08-B1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "Up 两次幂等；Down 回滚后表/索引全部移除且不影响 00000–00008"
+      - "断言 is_current 唯一、occurrence_key 唯一、抑制规则 keyword 检索索引、审计时间索引、外键（若有）行为"
+    acceptance: "SQLite 全绿；PG 用例就绪待环境"
+    verify: ["go test ./platform/db -run TestMigrateV3M08"]
+    commit_unit: "并入 B1-1 或独立（测试）"
+
+  # ---------------------------------------------------------------------------
+  # B2 骨架与装配
+  # ---------------------------------------------------------------------------
+  - id: T08-B2-1
+    title: "m08 分层骨架：domain / dto / repository / service / handler"
+    status: pending
+    depends_on: [T08-B1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "按 m09 同构建立六层目录与 doc.go 注释"
+      - "repository：GORM + 双 dialect，软删，分页；不引 platform/models"
+      - "dto：{list,total,page,page_size} 与 snake_case"
+    acceptance: "空模块可编译、可单测；无 legacy 包导入"
+    verify: ["go build ./platform/modules/m08/...", "go vet"]
+    commit_unit: "独立（骨架）"
+
+  - id: T08-B2-2
+    title: "module.go + Options + 路由注册 + v3 装配接线 + 降级策略"
+    status: pending
+    depends_on: [T08-B2-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "Options{AMURL, AMConfigDir, AMReloadURL, AmtoolPath, CenterDomainID, SnapshotSink, DomainAuthorizer, ResourceNamer}"
+      - "RegisterRoutes(/api/v3/platform) + RegisterWebhookRoutes（公开前缀）"
+      - "注册进 mountV3Modules；v3-only 模式不挂 /api/v2；缺 AM 配置时不 panic（D46/D48）"
+      - "模块自注册 Name()/RegisterRoutes，符合 R4"
+    acceptance: "服务可启动；路由清单与契约 §2 一致；缺依赖时写操作 503 可重试"
+    verify: ["go test ./platform/cmd/metric-center/...", "启动 + curl /api/v3/platform/system/modules"]
+    commit_unit: "独立（装配）"
+
+  - id: T08-B2-3
+    title: "seed：默认 alertmanager.yml + 内置通知模板"
+    status: pending
+    depends_on: [T08-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "首次启动幂等写入默认配置快照（FR-01：根路由 + default 空接收人 + global）"
+      - "内置模板幂等 seed，builtin=true 只读"
+    acceptance: "重复启动不产生重复快照/模板；默认配置可被 route 保存覆盖为下一版本"
+    verify: ["go test ./platform/modules/m08/seed", "两次启动后 count 不变"]
+    commit_unit: "独立（seed）"
+
+  # ---------------------------------------------------------------------------
+  # B3 渠道 / 模板 / 渲染桥
+  # ---------------------------------------------------------------------------
+  - id: T08-B3-1
+    title: "通知渠道 CRUD：SSRF、引用计数、409、零明文"
+    status: pending
+    depends_on: [T08-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "CRUD + 校验：IM 类必填 template_id、webhook 禁模板、无 enabled 字段"
+      - "SSRF：拒绝私网/环回/link-local/云元数据；管理员显式放行内网"
+      - "删除被路由引用的渠道 → 409 并列出引用节点"
+      - "列表/详情永不返回 secret；仅 secret_set 布尔（D45 口径）"
+    acceptance: "单测覆盖四类渠道 + SSRF 拒绝 + 409 + 零明文 grep"
+    verify: ["go test ./platform/modules/m08/... -run Channel", "grep 断言无 secret 输出路径"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B3-2
+    title: "通知模板 CRUD：内置只读、绑定禁删、校验内聚"
+    status: pending
+    depends_on: [T08-B3-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "按 channel_type 分 Tab 的列表/详情/新建/编辑/删除"
+      - "内置模板 PUT/DELETE → 403/409；被渠道绑定 → 409"
+      - "Go template 语法校验内聚在 m08，不再复用 legacy config 包"
+      - "模板不进入 alertmanager.yml（FR-10）"
+    acceptance: "单测覆盖 内置/绑定/语法错误 三类拒绝"
+    verify: ["go test ./platform/modules/m08/... -run Template"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B3-3
+    title: "渲染桥：/webhooks/notify + /webhooks/alerts"
+    status: pending
+    depends_on: [T08-B3-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "notify：仅接受 id=<channel_id>（拒 URL 参数）；按类型渲染 + 加签 + 投递；未知 ID 404"
+      - "alerts：留痕入口，任何情况 2xx；解析失败只记日志"
+      - "两路径加入公开前缀，豁免用户认证"
+    acceptance: "单测：正常渲染/未知 ID/拒绝 URL 参数/AM 异常仍 2xx"
+    verify: ["go test ./platform/modules/m08/... -run Bridge"]
+    commit_unit: "独立（功能）"
+
+  # ---------------------------------------------------------------------------
+  # B4 生成器与校验
+  # ---------------------------------------------------------------------------
+  - id: T08-B4-1
+    title: "configgen：route_tree + inhibit_rules + 接收人物化 → 整份 YAML"
+    status: pending
+    depends_on: [T08-B3-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "从快照内 route_tree / inhibit_rules 生成 global + route + inhibit_rules + receivers"
+      - "receivers 仅物化 default 与被路由引用的 notify-<id>（FR-11）"
+      - "输出 checksum（sha256）与待写内容，不改盘"
+    acceptance: "golden 断言：树转 YAML 稳定、未引用渠道不出现、checksum 可复现"
+    verify: ["go test ./platform/modules/m08/configgen"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B4-2
+    title: "validate：结构/matcher/时长/receiver 可达 + amtool check-config（D48）"
+    status: pending
+    depends_on: [T08-B4-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "纯函数前置校验（标签名非空、时长格式、receiver 候选集、continue/children 结构）"
+      - "amtool check-config 等价执行，行级错误经共享 response.BadRequestWithDetails 输出（data.validation，D-M08-08）"
+      - "amtool 缺失 → 503 可重试 + cause=platform_fault（D48），不 panic"
+    acceptance: "单测：逐类错误行号可定位；缺 amtool 返回 503 而非 500"
+    verify: ["go test ./platform/modules/m08/... -run Validate"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B4-3
+    title: "快照持久化 + base_checksum 乐观锁 + pending_sections"
+    status: pending
+    depends_on: [T08-B4-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "通过校验后写入新快照并原子切换 is_current；历史只读保留（保留数上限）"
+      - "checksum 不一致 → 409；响应 pending_sections 表达未覆盖段（FR-20）"
+      - "删除 applied/discarded/applied_at 两段式语义（NFR-04）"
+    acceptance: "单测：并发保存仅一个成功；历史不可回滚；grep 无 rollback 端点"
+    verify: ["go test ./platform/modules/m08/... -run Snapshot"]
+    commit_unit: "独立（功能）"
+
+  # ---------------------------------------------------------------------------
+  # B5 内部 Reload 子模块
+  # ---------------------------------------------------------------------------
+  - id: T08-B5-1
+    title: "apply：原子写 + reload + 验证 + reload 日志（D46）"
+    status: pending
+    depends_on: [T08-B4-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "temp + rename 原子写；内容未变化不重复写/reload"
+      - "POST /-/reload → 200 后校验 /-/healthy 或等价状态"
+      - "写 m08_reload_logs（版本/触发/操作人/耗时/结果/错误）"
+      - "AM 客户端抽象为可注入接口（fake 可测）"
+    acceptance: "单测：成功/超时/健康校验失败三路；日志落库字段齐全"
+    verify: ["go test ./platform/modules/m08/apply"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B5-2
+    title: "回退链路：失败回写上一版 + 二次 reload + rolled_back"
+    status: pending
+    depends_on: [T08-B5-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "reload 失败 → 回写上一生效 content → 二次 reload → 记 rolled_back"
+      - "回退自身失败 → 记 failed + 返回 502/503，保留现场供排障"
+    acceptance: "单测：一次失败触发回退；回退成功与回退失败两条路径均可断言"
+    verify: ["go test ./platform/modules/m08/apply -run Rollback"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B5-3
+    title: "保存编排：生成 → 校验 → 快照 → apply → M09 sink"
+    status: pending
+    depends_on: [T08-B5-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "路由/抑制保存共用一条编排；抑制保存保留当前路由段（FR-20）"
+      - "错误映射：400 行级 / 409 乐观锁 / 503 依赖未就绪 / 502 AM 不可达"
+      - "reload 目标未配置时保存请求返回 503，不静默成功（D46）"
+    acceptance: "handler 单测覆盖四条错误映射 + 成功响应字段（§3.2）"
+    verify: ["go test ./platform/modules/m08/... -run Save"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B5-4
+    title: "手动重载端点（D-M08-06）"
+    status: pending
+    depends_on: [T08-B5-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "POST /alertmanager/config/reload（admin）：用当前生效快照重跑 apply，不产生新版本"
+      - "写 m08_reload_logs（trigger=manual）；失败走同一回退链路"
+      - "错误映射：无生效配置 400 / 依赖未就绪 503 / AM 不可达 502"
+    acceptance: "handler 单测：成功/失败/无配置 三路；不新增快照行"
+    verify: ["go test ./platform/modules/m08/... -run Reload"]
+    commit_unit: "独立（功能）"
+
+  # ---------------------------------------------------------------------------
+  # B6 告警事件
+  # ---------------------------------------------------------------------------
+  - id: T08-B6-1
+    title: "事件入库：webhook 留痕（恒 2xx）+ occurrence_key 去重"
+    status: pending
+    depends_on: [T08-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "解析 AM webhook payload，按 fingerprint + starts_at 生成 occurrence_key"
+      - "补插/刷新/关闭三态处理；任何解析失败仍返回 2xx"
+      - "七态状态机（firing/silenced/inhibited/resolved/silenced_closed/inhibited_closed/resolved_unknown）"
+    acceptance: "单测：重复 payload 不产生重复行；异常 payload 2xx"
+    verify: ["go test ./platform/modules/m08/... -run Ingest"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B6-2
+    title: "分钟级对账：补插漏记、关闭消失行、对齐静默/抑制"
+    status: pending
+    depends_on: [T08-B6-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "60s 周期拉取 AM /api/v2/alerts 与 uptime；单轮 ≤30s（NFR-10）"
+      - "对账失败可观测（日志 + 计数器），不阻断下一轮"
+      - "后台循环在 v3 bootstrap 接线，可取消 ctx"
+    acceptance: "单测：漏记补插、消失行关闭、静默/抑制态对齐；取消 ctx 退出"
+    verify: ["go test ./platform/modules/m08/... -run Reconcile"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B6-3
+    title: "查询 / current / stats + 实例名回填 + 七态筛选"
+    status: pending
+    depends_on: [T08-B6-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "列表分页 + 多维筛选（状态/分组/严重度/名称/网域/时间范围/排序）"
+      - "current 返回未结三态全量；stats 冻结四指标 + 未结分组计数（D-M08-03）"
+      - "按 resource_id 回连 ResourceNamer 回填 instance_name/resource_category，缺失显示空串"
+    acceptance: "契约测试锁字段名与 stats 口径；回填缺失不报错"
+    verify: ["go test ./platform/modules/m08/... -run Events", "golden 断言 stats 字段集"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B6-4
+    title: "保留策略 180 天 + 未结行不清理 + 循环接线"
+    status: pending
+    depends_on: [T08-B6-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "启动清一次 + 24h 周期；仅清理已结束且超期行（NFR-09）"
+      - "保留天数可配置（env），默认 180"
+    acceptance: "单测：未结行不删；超期已结行删除；可配天数生效"
+    verify: ["go test ./platform/modules/m08/... -run Retention"]
+    commit_unit: "独立（功能）"
+
+  # ---------------------------------------------------------------------------
+  # B7 静默与抑制
+  # ---------------------------------------------------------------------------
+  - id: T08-B7-1
+    title: "静默代理：列表/创建/删除 + 网域授权 + 502 映射"
+    status: pending
+    depends_on: [T08-B2-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "代理 AM /api/v2/silences 与 /api/v2/silence/:id；不落本地表"
+      - "创建前校验 matcher 的 network_domain_id ∈ 授权集合，越权 403（FR-17）"
+      - "label-options 本地聚合；AM 不可达 → 502"
+    acceptance: "单测：越权 403、AM 不可达 502、授权内成功"
+    verify: ["go test ./platform/modules/m08/... -run Silence"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B7-2
+    title: "抑制规则 CRUD/启停 + 预置规则 + 不覆盖路由"
+    status: pending
+    depends_on: [T08-B5-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "单条 CRUD + PATCH status；预置规则 DELETE → 409，允许启停/调参（FR-19）"
+      - "独立表 m08_inhibition_rules（D49）+ 检索分页：keyword 匹配名称/匹配条件、enabled 过滤"
+      - "保存整份重建但保留当前路由段；pending_sections=inhibit_rules_changed"
+      - "matcher 中的网域同样受授权集合约束（NFR-06）"
+    acceptance: "单测：预置不可删、路由段不变、越权 matcher 拒绝"
+    verify: ["go test ./platform/modules/m08/... -run Inhibition"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B7-3
+    title: "AM 通知状态代理（/alerts 四态，兼容保留）"
+    status: pending
+    depends_on: [T08-B7-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "代理 AM /api/v2/alerts，归一 active/silenced/inhibited/unprocessed"
+      - "前端不作主视图；事件表对账内部消费"
+    acceptance: "单测：四态归一 + 上游错误映射"
+    verify: ["go test ./platform/modules/m08/... -run Alerts"]
+    commit_unit: "独立（功能）"
+
+  - id: T08-B7-4
+    title: "静默操作留痕：写入 + 只读查询（D50）"
+    status: pending
+    depends_on: [T08-B7-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "创建/删除静默时写 m08_silence_audits（含越权被拒，result=rejected + failure_reason）"
+      - "GET /alertmanager/silence-audits（admin）：operator/action/silence_id/时间范围/分页"
+      - "无编辑/删除端点；保留策略随事件表 180 天可配"
+      - "一次操作写审计失败不阻断静默创建/删除（记日志由对账补偿）"
+    acceptance: "单测：成功/拒绝两路留痕；查询筛选；grep 无修改/删除端点"
+    verify: ["go test ./platform/modules/m08/... -run Audit"]
+    commit_unit: "独立（功能）"
+
+  # ---------------------------------------------------------------------------
+  # B8 M09 快照接线
+  # ---------------------------------------------------------------------------
+  - id: T08-B8-1
+    title: "AlertmanagerSnapshotSink 接线 + CenterDomainID + snapshot_synced"
+    status: pending
+    depends_on: [T08-B5-3]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "装配注入 m09 ConfigSyncService 为 sink（D31）"
+      - "CenterDomainID 为空时跳过并 warn，不阻断保存（D-M08-01）"
+      - "sink 失败不回滚本地保存；响应 snapshot_synced=false"
+    acceptance: "单测：sink 被调且参数正确；为空跳过；失败不影响保存结果"
+    verify: ["go test ./platform/modules/m08/... -run Sink", "m09 侧 SaveAlertmanagerSnapshot 联合断言"]
+    commit_unit: "独立（接线）"
+
+  - id: T08-B8-2
+    title: "端到端：保存 → 快照 → 校验 → reload → M09 留痕不切 current"
+    status: pending
+    depends_on: [T08-B8-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "e2e 覆盖 route 保存全链路（fake AM + 内存 DB）"
+      - "断言 M09 快照仅新增历史行，domain_config_snapshots current 不变"
+    acceptance: "e2e 通过；无跨模块写 current"
+    verify: ["go test ./platform/modules/m08/... -run E2E"]
+    commit_unit: "独立（e2e）"
+
+  # ---------------------------------------------------------------------------
+  # F1 前端
+  # ---------------------------------------------------------------------------
+  - id: T08-F1-1
+    title: "API 客户端切 v3 + 类型对齐"
+    status: pending
+    depends_on: [T08-B0-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "src/api/alertmanager.ts 基址切 /api/v3/platform/alertmanager"
+      - "类型补 route_tree / reload / pending_sections / 行级 validation"
+    acceptance: "typecheck 通过；无 v2 残留路径"
+    verify: ["pnpm run typecheck:test", "grep 无 /api/v2/platform/alertmanager"]
+    commit_unit: "独立（前端）"
+
+  - id: T08-F1-2
+    title: "页面适配：配置 / 路由 / 抑制 / 渠道 / 模板 / 静默 / 当前 / 历史"
+    status: pending
+    depends_on: [T08-F1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "移除配置页残留的导入/重挂/模式切换入口（若仍有）"
+      - "路由保存展示 pending_sections 与 reload 结果；抑制页支持启停与预置标识"
+      - "静默创建展示越权错误指引；历史告警保持七态筛选与前端 CSV 导出"
+    acceptance: "目标页 ut 通过；无控制台报错"
+    verify: ["pnpm vitest run src/pages/alerts"]
+    commit_unit: "独立（前端）"
+
+  - id: T08-F1-3
+    title: "前端门禁：目标测试 + typecheck:test + lint"
+    status: pending
+    depends_on: [T08-F1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "按 testing-tdd §6 执行变更范围回归"
+    acceptance: "三道门禁全绿"
+    verify: ["pnpm vitest run src/pages/alerts src/api", "pnpm run typecheck:test", "pnpm lint"]
+    commit_unit: "不单独提交（随 F1-2）"
+
+  # ---------------------------------------------------------------------------
+  # V1 验收
+  # ---------------------------------------------------------------------------
+  - id: T08-V1-1
+    title: "后端验收：go test / vet / 启动 / 路由清单"
+    status: pending
+    depends_on: [T08-B8-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "go test ./platform/... 与 vet 全绿"
+      - "v3-only 启动 + /api/v3/platform/system/modules 含 m08"
+      - "curl 冒烟：config / routes / inhibitions / channels / templates / silences / alert-events"
+    acceptance: "全绿 + 冒烟清单通过"
+    verify: ["make test-platform", "启动后 curl"]
+    commit_unit: "执行记录（docs）"
+
+  - id: T08-V1-2
+    title: "安全审查：密钥零明文 / SSRF / 越权 / 注入"
+    status: pending
+    depends_on: [T08-V1-1]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "确认 secret 不出现在任何响应/日志；DB 明文列登记为 D45 已知缺口"
+      - "SSRF 用例：私网/环回/link-local/云元数据全部拒绝"
+      - "静默/抑制网域越权拒绝；admin 无 bypass"
+    acceptance: "审查记录落 docs，无高危未闭环"
+    verify: ["security-review 记录"]
+    commit_unit: "执行记录（docs）"
+
+  - id: T08-V1-3
+    title: "新旧行为矩阵 + 迁移对账 + 部署验证"
+    status: pending
+    depends_on: [T08-V1-2]
+    schema_change: none
+    data_migration: none
+    api_version: v3
+    scope:
+      - "legacy v2 与 v3 关键行为逐条对照（含删除端点不回退）"
+      - "00009 Up/Down 对账；空库 + seed 启动验证"
+    acceptance: "矩阵无未解释差异；对账通过"
+    verify: ["regression 记录"]
+    commit_unit: "执行记录（docs）"

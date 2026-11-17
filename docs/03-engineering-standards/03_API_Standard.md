@@ -66,8 +66,32 @@
 | `forbidden` | 403 | 无权限访问 |
 | `not_found` | 404 | 资源不存在 |
 | `conflict` | 409 | 资源冲突（如重复创建） |
+| `unavailable` | 503 | 依赖未就绪（v3 readiness：外部工具缺失 / reload 目标未配置，可重试） |
 | `internal` | 500 | 服务器内部错误 |
-| `bad_gateway` | 502 | 代理到 Prometheus 失败 |
+| `bad_gateway` | 502 | 代理到上游（Prometheus / Alertmanager）失败 |
+
+### 结构化错误详情（可选，`data` 内）
+
+行级 / 字段级校验错误（如 `amtool` / `promtool` 校验失败）允许在错误信封上追加 `data`，
+其余错误不带该字段。统一由 `response.BadRequestWithDetails` 输出：
+
+```json
+{
+  "status": "error",
+  "errorType": "bad_request",
+  "error": "第 12 行: receiver 'notify-9' not found",
+  "data": {
+    "validation": {
+      "cause": "user_config",
+      "note": "配置未保存，当前生效版本未被覆盖",
+      "items": [{ "line": 12, "field": "route.receiver", "message": "receiver 'notify-9' not found" }]
+    }
+  }
+}
+```
+
+- `cause`：`user_config`（用户可改）/ `platform_fault`（外部工具缺失，用户不可修）。
+- 客户端以「是否存在 `data.validation`」识别行级错误，不依赖 `error` 文案解析。
 
 ---
 

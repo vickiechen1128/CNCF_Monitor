@@ -34,7 +34,7 @@
 | 4 | M01 指标采集中心 | doing（P1–P6 + F1 + D-3 完成：后端全链路 + 前端 v3 契约层；待 F4 测试门禁/残留清理（labelTemplates）、F2 列级清理、凭证加密（单独排期）与 B8） | 依赖 M07 / M06 / M09；产物见 `modules/module-01/`（assessment + api-contract-snapshot-v3 + task-sequence + backend-execution + frontend-execution）；D-1/D-2/D-3/D-4/D-5 已闭环，凭证加密单独排期 |
 | 5 | M09 网域接入与查询中心 | doing（后端 B0–B7 + 后台调度 + A1-1/A1-2 完成；V1 回归待执行） | 合并原 M09/M11/M02；依赖 M01 / M06 / M07 / M08；产物见 `modules/module-09/`；B0 决策 D23–D33 已登记、SRS 升至 v1.2（注入标签统一 network_domain_id）；00005 迁移已落地（SQLite 测试全绿，PG 待 R3）；B2 骨架、B3 纳管/Token、B4 心跳/节点/edge config、B5 configgen+快照同步、B6 targets/coverage/PromQL 代理、B7 离线包已落地；维护循环与配置 watcher 已接入 v3 bootstrap；agent 已适配 v3 协议（zip 配置包 + If-None-Match）且主循环迁入 internal/app；M01 源接入、V1 回归待后续 |
 | 6 | M02 指标查询中心 | todo | 依赖 M00 |
-| 7 | M08 告警 | todo（开工级阻塞：SRS 评审 G2；D44–D48 已拍板——三维聚合 / 凭据加密延后，Reload 判据 / route 持久化 / amtool 降级授权实现层落地） | 依赖 M01 / M09；B0–B3 与 M01 无代码耦合可提前并行 |
+| 7 | M08 告警 | doing（**后端 B0–B8 完成**：00009 迁移、m08 分层模块、生成器+amtool 校验、内部 Reload、事件对账、静默审计、抑制检索、M09 快照接线；`go test ./platform/...` 69 包全绿 + v3 启动冒烟通过；**前端 F1 完成**：API 适配层 + 路由/抑制页适配，`tsc`/`vitest` 393 例/scoped eslint 全绿） | 依赖 M01 / M09；产物见 `modules/module-08/`（assessment + 契约 + acceptance + task-sequence + backend-execution）；D44 三维聚合 / D45 凭据加密延后；SRS v1.4 待 owner 签字冻结 |
 | 8 | M05 自定义 UI / 看板 | todo | 依赖 M02 / M08 |
 | 9 | M03 / M04 / M10 / M11 | todo | 按实际范围排期 |
 
