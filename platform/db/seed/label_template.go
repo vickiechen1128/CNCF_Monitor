@@ -16,7 +16,7 @@ func runLabelTemplates(db *gorm.DB) error {
 }
 
 // ensurePlatformMapping 把 platform_code → platform 映射补进已存在的默认模板
-//（决策 110 / 115，PRD §5.12.1）：默认模板只读、用户无法经 UI 补映射，故由种子
+// （决策 110 / 115，PRD §5.12.1）：默认模板只读、用户无法经 UI 补映射，故由种子
 // 回填；已有 platform 映射时幂等跳过，既有映射顺序与内容保持不变（仅追加）。
 func ensurePlatformMapping(db *gorm.DB, name string) error {
 	return ensureLabelMapping(db, name, models.LabelMapping{

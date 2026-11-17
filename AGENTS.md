@@ -167,6 +167,7 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 
 ```bash
 make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；已默认传 --config.reload-url=http://localhost:9090/-/reload）
+make run-metric-center-v3  # v3-only 启动：独立 SQLite（metric_center_v3.db，V3_DB_DSN 可覆盖），只挂 /api/v3，不跑 legacy 后台任务；用于 M01 v3 改造验证
 make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
 make run-alertmanager      # 编译并启动 Alertmanager（默认 http://localhost:9093；--config.file 指向 config-output/alertmanager.yml（首次自动 seed），M08 静默代理/配置挂载依赖）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）

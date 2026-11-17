@@ -11,18 +11,18 @@ import (
 )
 
 type importRecordRecord struct {
-	ID               string                      `gorm:"column:id;primaryKey"`
-	ImportNo         string                      `gorm:"column:import_no;not null"`
-	ResourceCategory string                      `gorm:"column:resource_category;not null"`
-	Mode             string                      `gorm:"column:mode;not null"`
-	Total            int                         `gorm:"column:total;not null"`
-	Success          int                         `gorm:"column:success;not null"`
-	Updated          int                         `gorm:"column:updated;not null"`
-	Failed           int                         `gorm:"column:failed;not null"`
-	Status           string                      `gorm:"column:status;not null"`
-	Errors           []domain.ImportErrorDetail  `gorm:"column:errors_json;serializer:json"`
-	Operator         string                      `gorm:"column:operator"`
-	CreatedAt        time.Time                   `gorm:"column:created_at"`
+	ID               string                     `gorm:"column:id;primaryKey"`
+	ImportNo         string                     `gorm:"column:import_no;not null"`
+	ResourceCategory string                     `gorm:"column:resource_category;not null"`
+	Mode             string                     `gorm:"column:mode;not null"`
+	Total            int                        `gorm:"column:total;not null"`
+	Success          int                        `gorm:"column:success;not null"`
+	Updated          int                        `gorm:"column:updated;not null"`
+	Failed           int                        `gorm:"column:failed;not null"`
+	Status           string                     `gorm:"column:status;not null"`
+	Errors           []domain.ImportErrorDetail `gorm:"column:errors_json;serializer:json"`
+	Operator         string                     `gorm:"column:operator"`
+	CreatedAt        time.Time                  `gorm:"column:created_at"`
 }
 
 func (importRecordRecord) TableName() string { return "import_records" }

@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/metriccenter/metriccenter/platform/models"
-	"gorm.io/gorm"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 )
 
 // yamlBusinessDomain 是 business_domains.yaml 中一条字典条目的加载视图。

@@ -126,7 +126,7 @@ export GOROOT := $(GO_DIR)
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-prometheus dev-ui test-platform test-postgres migrate migrate-status migrate-down clean repo-map \
+        run-metric-center run-metric-center-v3 run-prometheus dev-ui test-platform test-postgres migrate migrate-status migrate-down clean repo-map \
         check-repo-map sync-skills check-skills install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
@@ -143,6 +143,7 @@ help:
 	@echo "  make build-all          编译后端 + Prometheus + 前端"
 	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz（默认全量含 alertmanager/amtool/blackbox_exporter；WITH_ALERTMANAGER=0 / WITH_BLACKBOX=0 可裁剪）"
 	@echo "  make run-metric-center  编译并启动 MetricCenter 控制面"
+	@echo "  make run-metric-center-v3  以 v3-only 模式启动（独立 SQLite，只挂 /api/v3，用于 M01 v3 改造验证）"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
 	@echo "  make test-platform      运行 platform/ 测试"
@@ -448,6 +449,23 @@ run-metric-center: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
 		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
 		./platform/cmd/metric-center/metric-center$(EXE) \
+		--config.reload-url=http://localhost:9090/-/reload
+
+# v3-only 启动（M01 v3 改造验证）：独立 SQLite，只挂 /api/v3，不跑任何依赖旧
+# AutoMigrate schema 的后台任务；/api/v2 不注册，未迁移页面 404 属预期
+# （M05 看板 / M06 前端 / M07 标签模板 / M09 草稿与下发记录，见 rewrite/v2.0 计划）。
+# 重置数据：停服务后删除 $(V3_DB_DSN)（含 -wal/-shm）。可用 V3_DB_DSN=xxx.db 覆盖库名。
+V3_DB_DSN ?= metric_center_v3.db
+
+run-metric-center-v3: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
+	@echo ">>> Starting metric-center (v3-only, sqlite=$(V3_DB_DSN))"
+	@cd "$(PROJECT_ROOT)" && \
+		METRIC_CENTER_DB_DRIVER=sqlite \
+		METRIC_CENTER_DB_DSN="$(V3_DB_DSN)" \
+		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
+		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
+		./platform/cmd/metric-center/metric-center$(EXE) \
+		--database.mode=v3 \
 		--config.reload-url=http://localhost:9090/-/reload
 
 # M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
