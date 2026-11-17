@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { userApi } from '../../../api/admin'
-import type { ItemsResult, UserItem } from '../../../types/admin'
+import type { UserItem } from '../../../types/admin'
+import type { Paginated } from '../../../types/api'
 
-/** 默认空分页（避免未加载完成时空指针） */
-const EMPTY: ItemsResult<UserItem> = { items: [], total: 0 }
+/** 默认空分页（v3 信封 {list,total,page,page_size}；避免未加载完成时空指针） */
+const EMPTY: Paginated<UserItem> = { list: [], total: 0, page: 1, page_size: 20 }
 
 export interface UseUsersResult {
-  data: ItemsResult<UserItem>
+  data: Paginated<UserItem>
   loading: boolean
   error: string | null
   reload: () => void
@@ -17,7 +18,7 @@ export interface UseUsersResult {
  * 异步请求回调内完成 setState，不在 effect 内同步 setState。
  */
 export function useUsers(): UseUsersResult {
-  const [data, setData] = useState<ItemsResult<UserItem>>(EMPTY)
+  const [data, setData] = useState<Paginated<UserItem>>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)

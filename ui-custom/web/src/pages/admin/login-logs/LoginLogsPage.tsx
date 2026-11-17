@@ -13,7 +13,7 @@ const { Text } = Typography
 
 /**
  * 登录日志列表页（Module_06 §6.3 / §11.1）。
- * - 数据来自 GET /api/v2/platform/login-logs，接口按时间倒序返回（前端不二次排序）。
+ * - 数据来自 GET /api/v3/platform/login-logs，接口按时间倒序返回（前端不二次排序）。
  * - 覆盖：加载骨架屏 / 空态「暂无登录日志」/ 接口错误 Alert+重新加载。
  * - 筛选：按 username 搜索、按 success 结果筛选（FilterBar 栅格布局 + 共享分页预设）。
  */
@@ -44,7 +44,7 @@ export function LoginLogsPage() {
       dataIndex: 'ip',
       key: 'ip',
       width: 180,
-      render: (ip: string) => (ip ? <EllipsisText>{ip}</EllipsisText> : <Text type="secondary">—</Text>),
+      render: (ip?: string) => (ip ? <EllipsisText>{ip}</EllipsisText> : <Text type="secondary">—</Text>),
     },
     {
       title: '登录时间',
@@ -99,7 +99,7 @@ export function LoginLogsPage() {
 
           <Table<LoginLogItem>
             rowKey="id"
-            dataSource={data.items}
+            dataSource={data.list}
             loading={loading}
             columns={columns}
             scroll={TABLE_SCROLL_X}

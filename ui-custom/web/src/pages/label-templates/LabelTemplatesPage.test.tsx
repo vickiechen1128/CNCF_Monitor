@@ -18,15 +18,14 @@ vi.mock('../../api/labelTemplates', () => ({
   },
 }))
 
-/** 模板列表 item 构造器（对齐 LabelTemplateListItem） */
-function templateItem(id: number, name: string, extra: Partial<LabelTemplateListItem> = {}): LabelTemplateListItem {
+/** 模板列表 item 构造器（对齐 v3 LabelTemplate：id 为 string，无 instance_count） */
+function templateItem(id: string, name: string, extra: Partial<LabelTemplateListItem> = {}): LabelTemplateListItem {
   return {
     id,
     name,
     resource_category: 'host',
     is_default: false,
     mappings: [],
-    instance_count: 0,
     created_at: '2026-08-21T00:00:00Z',
     updated_at: '2026-08-21T00:00:00Z',
     ...extra,
@@ -52,8 +51,8 @@ describe('LabelTemplatesPage', () => {
     cloneMock.mockReset()
     removeMock.mockReset()
     listMock.mockResolvedValue(emptyPage())
-    createMock.mockResolvedValue({ status: 'success', data: templateItem(10, '新模板') })
-    cloneMock.mockResolvedValue({ status: 'success', data: templateItem(11, '克隆') })
+    createMock.mockResolvedValue({ status: 'success', data: templateItem('lt-10', '新模板') })
+    cloneMock.mockResolvedValue({ status: 'success', data: templateItem('lt-11', '克隆') })
     removeMock.mockResolvedValue({ status: 'success', data: null })
   })
 
@@ -74,23 +73,21 @@ describe('LabelTemplatesPage', () => {
     )
   })
 
-  it('renders template cards with tag / mapping count / instance badge', async () => {
+  it('renders template cards with tag / mapping count (v3 has no instance count)', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: {
         list: [
-          templateItem(1, '主机默认模板', {
+          templateItem('lt-1', '主机默认模板', {
             is_default: true,
             mappings: [] as never,
-            instance_count: 3,
             resource_category: 'application',
           }),
-          templateItem(2, '支付自定义模板', {
+          templateItem('lt-2', '支付自定义模板', {
             mappings: [
               { source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true },
               { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
             ] as LabelTemplateListItem['mappings'],
-            instance_count: 5,
             resource_category: 'application',
           }),
         ],
@@ -105,34 +102,10 @@ describe('LabelTemplatesPage', () => {
     // 默认模板显示「默认」Tag，自定义模板显示「自定义」Tag
     expect(screen.getByText('默认')).toBeInTheDocument()
     expect(screen.getAllByText('自定义').length).toBeGreaterThanOrEqual(1)
-    // 映射数与关联实例数 badge 文本
+    // 映射数 badge 文本
     expect(screen.getByText('2 条映射')).toBeInTheDocument()
-    expect(screen.getByText('关联实例 3')).toBeInTheDocument()
-    expect(screen.getByText('关联实例 5')).toBeInTheDocument()
-  })
-
-  it('hides instance badge for static resource templates (host), shows for application (F-34)', async () => {
-    listMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          templateItem(1, '主机模板', { instance_count: 3 }),
-          templateItem(2, '数据库模板', { resource_category: 'database', instance_count: 4 }),
-          templateItem(3, '应用模板', { resource_category: 'application', instance_count: 5 }),
-        ],
-        total: 3,
-        page: 1,
-        page_size: 50,
-      },
-    })
-    renderPage()
-    expect(await screen.findByText('主机模板')).toBeInTheDocument()
-    expect(screen.getByText('数据库模板')).toBeInTheDocument()
-    expect(screen.getByText('应用模板')).toBeInTheDocument()
-    // 静态资源（host/database）隐藏「关联实例」badge，仅 application 展示
-    expect(screen.queryByText('关联实例 3')).not.toBeInTheDocument()
-    expect(screen.queryByText('关联实例 4')).not.toBeInTheDocument()
-    expect(screen.getByText('关联实例 5')).toBeInTheDocument()
+    // v3 模板不绑定资源实例：不再展示「关联实例」badge / 文案
+    expect(screen.queryByText(/关联实例/)).not.toBeInTheDocument()
   })
 
   it('renders empty state with 暂无标签模板 and 新建模板 guidance', async () => {
@@ -164,7 +137,7 @@ describe('LabelTemplatesPage', () => {
   it('clears selected template and leftover list when switching resource tab (F-35)', async () => {
     listMock.mockResolvedValueOnce({
       status: 'success',
-      data: { list: [templateItem(1, '主机默认模板')], total: 1, page: 1, page_size: 50 },
+      data: { list: [templateItem('lt-1', '主机默认模板')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     // 点击主机模板 → 右栏展示该模板详情（映射明细 Tab）
@@ -213,7 +186,7 @@ describe('LabelTemplatesPage', () => {
   it('clones a template via clone API', async () => {
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [templateItem(1, '主机默认模板')], total: 1, page: 1, page_size: 50 },
+      data: { list: [templateItem('lt-1', '主机默认模板')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('主机默认模板')
@@ -222,13 +195,13 @@ describe('LabelTemplatesPage', () => {
     const nameInput = within(dialog).getByPlaceholderText('请输入模板名称')
     fireEvent.change(nameInput, { target: { value: '主机自用模板' } })
     fireEvent.click(within(dialog).getByRole('button', { name: /克\s*隆/ }))
-    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith(1, { name: '主机自用模板' }))
+    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith('lt-1', { name: '主机自用模板' }))
   })
 
   it('deletes custom template after modal confirm', async () => {
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [templateItem(2, '支付自定义模板')], total: 1, page: 1, page_size: 50 },
+      data: { list: [templateItem('lt-2', '支付自定义模板')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('支付自定义模板')
@@ -236,14 +209,31 @@ describe('LabelTemplatesPage', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/确认删除模板「支付自定义模板」/)).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: /删\s*除/ }))
-    await waitFor(() => expect(removeMock).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(removeMock).toHaveBeenCalledWith('lt-2'))
     await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows readable error when delete is blocked by M01 references (v3 409)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [templateItem('lt-2', '支付自定义模板')], total: 1, page: 1, page_size: 50 },
+    })
+    // v3：模板被 M01 映射 / Job 引用时后端返回 409 conflict，页面需透出可读文案而不是静默失败
+    removeMock.mockRejectedValue(new Error('label template "lt-2" is referenced by 2 M01 record(s)'))
+    renderPage()
+    await screen.findByText('支付自定义模板')
+    fireEvent.click(screen.getByRole('button', { name: /删\s*除/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /删\s*除/ }))
+    expect(await screen.findByText(/referenced by 2 M01 record/)).toBeInTheDocument()
+    // 删除失败不刷新列表
+    expect(listMock).toHaveBeenCalledTimes(1)
   })
 
   it('disables delete for default template with tooltip hint', async () => {
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [templateItem(1, '主机默认模板', { is_default: true })], total: 1, page: 1, page_size: 50 },
+      data: { list: [templateItem('lt-1', '主机默认模板', { is_default: true })], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('主机默认模板')

@@ -1,8 +1,14 @@
 /**
- * 标签模板平台 API（/api/v2/platform/label-templates/...）
+ * 标签模板平台 API（/api/v3/platform/label-templates/...）
  *
- * 复用 `apiClient`，按 Module_07 §6.3/§6.6.3 与 03_API_Standard 的
- * `/api/v2/platform/*` 平台能力契约提供类型化调用，返回 `ApiResponse<T>`。
+ * 对齐 v3 契约（docs/05-execution-records/rewrite/v2.0/modules/module-07/
+ * api-contract-snapshot-v3.md §4.1）：
+ * - 模板 ID 为 string；列表信封 `{list,total,page,page_size}`；
+ * - 模板对象无 description / deleted_at，`mappings` 内嵌在模板里；
+ * - v3 没有 mapping 子端点 / clone 端点 / 关联实例端点：
+ *   映射增删改一律「GET 模板 → 改 mappings 数组 → PUT 整模板」（映射无 id，用下标定位）；
+ *   clone 由「GET 原模板 → POST 新模板」实现；
+ *   v3 模板由 M01 Job / 默认映射引用、不绑定资源实例，故不再提供 `resources` 方法。
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
@@ -13,10 +19,12 @@ import type {
   LabelTemplateUpdateInput,
   Mapping,
   MappingInput,
-  TemplateInstanceItem,
 } from '../types/label'
 
-/** 模板列表查询参数（PRD §6.6.3：resource_category / is_default / keyword / page / page_size） */
+/** v3 标签模板资源根路径 */
+const BASE_PATH = '/api/v3/platform/label-templates'
+
+/** 模板列表查询参数（v3 §4.1：resource_category / is_default / keyword / page / page_size） */
 export interface LabelTemplateListParams extends Record<string, string | number | boolean | undefined> {
   resource_category?: string
   is_default?: boolean
@@ -25,83 +33,130 @@ export interface LabelTemplateListParams extends Record<string, string | number 
   page_size?: number
 }
 
-/** 关联实例查询参数（GET :template_id/resources，page/page_size 默认 10，PRD §3.2/§11.1） */
-export interface TemplateInstanceListParams extends Record<string, string | number | boolean | undefined> {
-  page?: number
-  page_size?: number
+/** 模板详情路径 */
+function templatePath(templateId: string): string {
+  return `${BASE_PATH}/${encodeURIComponent(templateId)}`
 }
 
 /**
- * 关联实例分页响应（GET :template_id/resources）。
- * 注意：契约返回字段为 `items` 而非标准信封 `list`（PRD §6.6.3 / T07-17），
- * 故不复用 `Paginated<T>`，单独声明以对齐后端契约。
+ * 映射输入 → v3 请求体中的映射对象。
+ * 显式补齐 `transform` / `enabled`，避免未选转换规则时字段缺失。
  */
-export interface TemplateInstancePage {
-  items: TemplateInstanceItem[]
-  total: number
-  page: number
-  page_size: number
+function toMappingPayload(input: MappingInput): Mapping {
+  return {
+    source_field: input.source_field,
+    source_type: input.source_type,
+    target_label: input.target_label,
+    enabled: input.enabled ?? true,
+    transform: input.transform ?? '',
+  }
 }
 
-/** 删除映射响应（PRD §6.6.3：返回 `{ mapping_id }`） */
-export interface MappingRemoveResult {
-  mapping_id: number
+/**
+ * 以「整模板 PUT」写回映射（v3 无 mapping 子端点）。
+ * `resource_category` 不可变且传了会 400，故请求体只带 name / is_default / mappings。
+ * 返回更新后的映射数组，保持调用方（MappingDrawer 等）既有签名。
+ */
+async function writeMappings(template: LabelTemplate, mappings: Mapping[]): Promise<ApiResponse<Mapping[]>> {
+  const payload = mappings.map(toMappingPayload)
+  const res = await apiClient.put<LabelTemplate>(templatePath(template.id), {
+    body: {
+      name: template.name,
+      is_default: template.is_default,
+      mappings: payload,
+    },
+  })
+  return { ...res, data: res.data?.mappings ?? payload }
+}
+
+/** 读取模板（映射增删改的前置步骤：v3 只能整模板替换） */
+async function loadTemplate(templateId: string): Promise<LabelTemplate> {
+  const res = await apiClient.get<LabelTemplate>(templatePath(templateId))
+  return res.data
+}
+
+/** 映射下标越界时的可读错误（模板可能已被他人改过，提示刷新） */
+function mappingIndexOutOfRange(index: number): Error {
+  return new Error(`映射下标 ${index} 越界：模板映射可能已被修改，请刷新后重试`)
 }
 
 /** 标签模板管理 */
 export const labelTemplateApi = {
   list(params?: LabelTemplateListParams): Promise<ApiResponse<Paginated<LabelTemplateListItem>>> {
-    return apiClient.get<Paginated<LabelTemplateListItem>>('/api/v2/platform/label-templates', { params })
+    return apiClient.get<Paginated<LabelTemplateListItem>>(BASE_PATH, { params })
+  },
+  get(templateId: string): Promise<ApiResponse<LabelTemplate>> {
+    return apiClient.get<LabelTemplate>(templatePath(templateId))
   },
   create(input: LabelTemplateCreateInput): Promise<ApiResponse<LabelTemplate>> {
-    return apiClient.post<LabelTemplate>('/api/v2/platform/label-templates', { body: input })
+    return apiClient.post<LabelTemplate>(BASE_PATH, { body: input })
   },
-  update(templateId: number, input: LabelTemplateUpdateInput): Promise<ApiResponse<LabelTemplate>> {
-    return apiClient.put<LabelTemplate>(`/api/v2/platform/label-templates/${encodeURIComponent(templateId)}`, {
-      body: input,
+  /**
+   * 全量更新（v3 PUT）。后端按请求体重建模板：未传 mappings 会清空映射，
+   * 仅改名称/默认标记时请先 get 再带上原有 mappings（或使用映射专用方法）。
+   */
+  update(templateId: string, input: LabelTemplateUpdateInput): Promise<ApiResponse<LabelTemplate>> {
+    const body: Record<string, unknown> = {}
+    if (input.name !== undefined) body.name = input.name
+    if (input.is_default !== undefined) body.is_default = input.is_default
+    if (input.mappings !== undefined) body.mappings = input.mappings.map(toMappingPayload)
+    // 不提交 resource_category：v3 创建后不可变，PUT 携带会返回 400
+    return apiClient.put<LabelTemplate>(templatePath(templateId), { body })
+  },
+  remove(templateId: string): Promise<ApiResponse<{ id: string }>> {
+    // 被 M01 映射 / Job 引用时后端返回 409，错误由调用方透出（不吞错）
+    return apiClient.delete<{ id: string }>(templatePath(templateId))
+  },
+  /**
+   * 克隆模板：v3 无 clone 端点，由「GET 原模板 → POST 新模板」实现。
+   * 新模板名称默认 `${原名} 副本`，可通过 name 覆盖；新模板恒为非默认（is_default=false）。
+   */
+  async clone(templateId: string, input?: { name?: string }): Promise<ApiResponse<LabelTemplate>> {
+    const source = await loadTemplate(templateId)
+    const name = input?.name?.trim() || `${source.name} 副本`
+    return apiClient.post<LabelTemplate>(BASE_PATH, {
+      body: {
+        name,
+        resource_category: source.resource_category,
+        is_default: false,
+        mappings: source.mappings.map(toMappingPayload),
+      },
     })
   },
-  remove(templateId: number): Promise<ApiResponse<null>> {
-    return apiClient.delete<null>(`/api/v2/platform/label-templates/${encodeURIComponent(templateId)}`)
+  /** 追加一条映射（GET 模板 → 追加 → PUT 整模板） */
+  async addMapping(templateId: string, input: MappingInput): Promise<ApiResponse<Mapping[]>> {
+    const template = await loadTemplate(templateId)
+    return writeMappings(template, [...template.mappings, toMappingPayload(input)])
   },
-  clone(templateId: number, input?: { name?: string }): Promise<ApiResponse<LabelTemplate>> {
-    return apiClient.post<LabelTemplate>(
-      `/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/clone`,
-      { body: input ?? {} },
-    )
+  /** 整组替换映射（GET 模板 → 替换 mappings → PUT 整模板） */
+  async replaceMappings(templateId: string, mappings: MappingInput[]): Promise<ApiResponse<Mapping[]>> {
+    const template = await loadTemplate(templateId)
+    return writeMappings(template, mappings.map(toMappingPayload))
   },
-  resources(
-    templateId: number,
-    params?: TemplateInstanceListParams,
-  ): Promise<ApiResponse<TemplateInstancePage>> {
-    return apiClient.get<TemplateInstancePage>(
-      `/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/resources`,
-      { params },
-    )
-  },
-  addMapping(templateId: number, input: MappingInput): Promise<ApiResponse<Mapping[]>> {
-    return apiClient.post<Mapping[]>(`/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/mappings`, {
-      body: input,
-    })
-  },
-  replaceMappings(templateId: number, mappings: MappingInput[]): Promise<ApiResponse<Mapping[]>> {
-    return apiClient.put<Mapping[]>(`/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/mappings`, {
-      body: { mappings },
-    })
-  },
-  updateMapping(
-    templateId: number,
-    mappingId: number,
+  /** 按下标更新一条映射（v3 映射无 id） */
+  async updateMapping(
+    templateId: string,
+    mappingIndex: number,
     input: Partial<MappingInput>,
   ): Promise<ApiResponse<Mapping[]>> {
-    return apiClient.put<Mapping[]>(
-      `/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/mappings/${encodeURIComponent(mappingId)}`,
-      { body: input },
+    const template = await loadTemplate(templateId)
+    if (mappingIndex < 0 || mappingIndex >= template.mappings.length) {
+      throw mappingIndexOutOfRange(mappingIndex)
+    }
+    const mappings = template.mappings.map((mapping, index) =>
+      index === mappingIndex ? toMappingPayload({ ...mapping, ...input }) : toMappingPayload(mapping),
     )
+    return writeMappings(template, mappings)
   },
-  removeMapping(templateId: number, mappingId: number): Promise<ApiResponse<MappingRemoveResult>> {
-    return apiClient.delete<MappingRemoveResult>(
-      `/api/v2/platform/label-templates/${encodeURIComponent(templateId)}/mappings/${encodeURIComponent(mappingId)}`,
+  /** 按下标删除一条映射（v3 映射无 id） */
+  async removeMapping(templateId: string, mappingIndex: number): Promise<ApiResponse<Mapping[]>> {
+    const template = await loadTemplate(templateId)
+    if (mappingIndex < 0 || mappingIndex >= template.mappings.length) {
+      throw mappingIndexOutOfRange(mappingIndex)
+    }
+    return writeMappings(
+      template,
+      template.mappings.filter((_, index) => index !== mappingIndex),
     )
   },
 }

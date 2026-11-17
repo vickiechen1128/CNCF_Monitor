@@ -151,10 +151,11 @@ export function CollectorTemplatesTab() {
     return m
   }, [templates])
 
-  // 标签模板 id -> 模板对象，用于「标签模板」列与预览抽屉展示具体模板及映射明细
+  // 标签模板 id -> 模板对象，用于「标签模板」列与预览抽屉展示具体模板及映射明细。
+  // v3 模板 ID 为 string，映射侧的 label_template_id 也按字符串归一化后匹配。
   const labelTemplateById = useMemo(() => {
-    const m = new Map<number, LabelTemplateListItem>()
-    labelTemplates.forEach((t) => m.set(t.id, t))
+    const m = new Map<string, LabelTemplateListItem>()
+    labelTemplates.forEach((t) => m.set(String(t.id), t))
     return m
   }, [labelTemplates])
 
@@ -399,13 +400,13 @@ export function CollectorTemplatesTab() {
         ) : (
           <Space direction="vertical" size={4}>
             <Space size={4}>
-              {labelTemplateById.has(Number(row.mapping.label_template_id)) ? (
-                <Text strong>{labelTemplateById.get(Number(row.mapping.label_template_id))?.name}</Text>
+              {labelTemplateById.has(String(row.mapping.label_template_id)) ? (
+                <Text strong>{labelTemplateById.get(String(row.mapping.label_template_id))?.name}</Text>
               ) : (
                 <Text strong>{row.mapping.has_label_template ? (row.mapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
               )}
-              {labelTemplateById.has(Number(row.mapping.label_template_id)) &&
-                labelTemplateById.get(Number(row.mapping.label_template_id))?.is_default && <Tag color="blue">默认</Tag>}
+              {labelTemplateById.has(String(row.mapping.label_template_id)) &&
+                labelTemplateById.get(String(row.mapping.label_template_id))?.is_default && <Tag color="blue">默认</Tag>}
               {!row.mapping.has_label_template && <Tag color="orange">待配置</Tag>}
             </Space>
             <Space size={0}>
@@ -746,8 +747,8 @@ export function CollectorTemplatesTab() {
         width={420}
       >        {previewMapping ? (
           <Space direction="vertical" style={{ width: '100%' }}>
-            {labelTemplateById.has(Number(previewMapping.label_template_id)) ? (
-              <LabelTemplatePreview template={labelTemplateById.get(Number(previewMapping.label_template_id)) ?? null} />
+            {labelTemplateById.has(String(previewMapping.label_template_id)) ? (
+              <LabelTemplatePreview template={labelTemplateById.get(String(previewMapping.label_template_id)) ?? null} />
             ) : (
               <div>
                 <Text type="secondary">标签模板</Text>

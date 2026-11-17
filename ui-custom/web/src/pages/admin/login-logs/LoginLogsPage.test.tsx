@@ -23,7 +23,7 @@ const logRow = (id: string, username: string, success: boolean, extra: Partial<L
 
 function result(over: Record<string, unknown> = {}) {
   return {
-    data: { items: [] as LoginLogItem[], total: 0 },
+    data: { list: [] as LoginLogItem[], total: 0, page: 1, page_size: 20 },
     loading: false,
     error: null,
     filters: {},
@@ -64,11 +64,13 @@ describe('LoginLogsPage', () => {
     useLoginLogsMock.mockReturnValue(
       result({
         data: {
-          items: [
+          list: [
             logRow('1', 'admin', true, { ip: '10.0.0.1' }),
             logRow('2', 'ops01', false, { ip: '10.0.0.2' }),
           ],
           total: 2,
+          page: 1,
+          page_size: 20,
         },
       }),
     )
@@ -105,7 +107,7 @@ describe('LoginLogsPage', () => {
 
   it('paginates via shared pagination onChange', () => {
     useLoginLogsMock.mockReturnValue(
-      result({ data: { items: [logRow('1', 'admin', true)], total: 45 } }),
+      result({ data: { list: [logRow('1', 'admin', true)], total: 45, page: 1, page_size: 20 } }),
     )
     renderPage()
     const pager = screen.getByRole('listitem', { name: /下一页/ })

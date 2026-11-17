@@ -85,9 +85,9 @@ describe('CollectorTemplatesTab', () => {
       status: 'success',
       data: {
         list: [
-          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], instance_count: 0 },
-          { id: 8, name: 'MySQL 备选标签', resource_category: 'database', is_default: false, mappings: [], instance_count: 0 },
-          { id: 9, name: '主机标签', resource_category: 'host', is_default: false, mappings: [], instance_count: 0 },
+          { id: 'lt-db-1', name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [] },
+          { id: 'lt-db-2', name: 'MySQL 备选标签', resource_category: 'database', is_default: false, mappings: [] },
+          { id: 'lt-host-1', name: '主机标签', resource_category: 'host', is_default: false, mappings: [] },
         ],
         total: 3,
         page: 1,
@@ -469,7 +469,7 @@ describe('CollectorTemplatesTab', () => {
   it('opens label template drawer with 更换 mode and only label field (Q1b)', async () => {
     mappingListMock.mockResolvedValue({
       status: 'success',
-      data: { list: [mapping(1, 'mysql', 1, { has_label_template: true, label_template_id: '7' })], total: 1, page: 1, page_size: 20 },
+      data: { list: [mapping(1, 'mysql', 1, { has_label_template: true, label_template_id: 'lt-db-1' })], total: 1, page: 1, page_size: 20 },
     })
 
     render(
@@ -522,7 +522,7 @@ describe('CollectorTemplatesTab', () => {
     await waitFor(() => expect(mappingUpdateMock).toHaveBeenCalled())
     expect(mappingUpdateMock.mock.calls[0][0]).toBe(1)
     // 载荷仅包含 label_template_id，不含采集参数
-    expect(mappingUpdateMock.mock.calls[0][1]).toEqual({ label_template_id: '7' })
+    expect(mappingUpdateMock.mock.calls[0][1]).toEqual({ label_template_id: 'lt-db-1' })
   })
 
   // ---- F-30 分页 bug：referenced 基于全量 mapping（跨分页），其他页引用的模板不在本页误显示为「未被引用」 ----

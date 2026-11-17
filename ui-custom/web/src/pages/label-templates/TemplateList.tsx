@@ -22,7 +22,6 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { useSkin } from '../../skinContext'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceCategory } from '../../types/resource'
-import { INSTANCE_LEVEL_CUSTOM_CATEGORIES } from './labelTemplateConstants'
 
 const { Text } = Typography
 
@@ -44,17 +43,19 @@ interface TemplateListProps {
   reloadKey: number
   /** 空态「新建模板」引导回调（打开父页面新增抽屉） */
   onCreate: () => void
-  /** 当前选中模板 id（右栏详情联动高亮，T07-F8） */
-  selectedId?: number
+  /** 当前选中模板 id（右栏详情联动高亮，T07-F8；v3 模板 ID 为 string） */
+  selectedId?: string
   /** 点击模板卡片选中回调（携带完整模板，供右栏详情使用，T07-F8） */
   onSelect: (tpl: LabelTemplateListItem) => void
 }
 
 /**
  * 标签模板左栏列表（Module_07 §3.2/§11.1，L3 任务 T07-F7）。
- * 按资源类型展示模板卡片：名称 + 默认/自定义 Tag + 映射数（mappings.length）
- * + 关联实例数 badge（instance_count）；支持搜索（keyword）、默认/自定义筛选（is_default）、
- * 分页从简（pageSize 50）。操作：克隆（clone）/ 删除（Modal 二次确认，默认模板按钮置灰提示「默认模板禁止删除」）。
+ * 按资源类型展示模板卡片：名称 + 默认/自定义 Tag + 映射数（mappings.length）；
+ * 支持搜索（keyword）、默认/自定义筛选（is_default）、分页从简（pageSize 50，列表信封 total 来自 v3）。
+ * 操作：克隆（clone，v3 由「GET 原模板 → POST 新模板」实现）/ 删除（Modal 二次确认，默认模板按钮置灰提示
+ * 「默认模板禁止删除」；被 M01 引用时后端返回 409，错误文案直接透出）。
+ * v3 模板不绑定实例，故不再展示「关联实例」badge。
  * 覆盖加载骨架屏 / 空态「暂无标签模板」+新建引导 / 接口错误 Alert+重新加载。
  */
 export default function TemplateList({ activeType, reloadKey, onCreate, selectedId, onSelect }: TemplateListProps) {
@@ -281,16 +282,9 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
                       <Space size={12} wrap>
                         <span>
                           {/* 防御：后端在「模板从未写过映射」时曾返回 `mappings: null`，
-                              直接读 .length 会抛 TypeError 白屏（已在后端出口经
-                              NormalizeMappings 兜底，此处再兜一层）。 */}
+                              直接读 .length 会抛 TypeError 白屏（已在后端出口兜底，此处再兜一层）。 */}
                           <Badge count={tpl.mappings?.length ?? 0} showZero color="#185FA5" /> {tpl.mappings?.length ?? 0} 条映射
                         </span>
-                        {/* 双场景治理边界（PRD §3.3/§5.2/§6.2）：仅实例级自定义开放类别展示关联实例 badge（F-34） */}
-                        {INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(tpl.resource_category) && (
-                          <span>
-                            <Badge count={tpl.instance_count} showZero color="#0F6E56" /> 关联实例 {tpl.instance_count}
-                          </span>
-                        )}
                       </Space>
                     }
                   />

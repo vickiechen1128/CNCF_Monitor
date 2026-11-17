@@ -18,16 +18,18 @@ export interface Mapping {
   transform?: string
 }
 
-/** 标签模板（以 resource_category 锚定） */
+/**
+ * 标签模板（以 resource_category 锚定，v3 契约 api-contract-snapshot-v3 §4.1）。
+ * v3 模板 ID 为 string，mappings 内嵌在模板对象中；无 description / deleted_at 字段。
+ */
 export interface LabelTemplate {
-  id: number
+  id: string
   name: string
   resource_category: ResourceCategory
   is_default: boolean
   mappings: Mapping[]
   created_at: string
   updated_at: string
-  deleted_at?: string
 }
 
 /** 资源标签来源 */
@@ -46,40 +48,38 @@ export interface ResourceLabel {
 }
 
 /**
- * 新增/编辑映射输入（PRD §6.6.3 POST/PUT mappings）。
- * `source_type` 与 `LabelSourceType` 同源（resource_field / composite / prometheus_builtin / cmdb_field）；
- * `transform_rule` 可空，留空 = 原样透传（§5.11）。
+ * 新增/编辑映射输入（v3 §4.1：映射内嵌于模板，随整模板 PUT 提交，无独立 mapping 端点）。
+ * 字段与后端 `domain.LabelMapping` 对齐：`source_field` 必填，`transform` 留空 = 原样透传（§5.11）。
  */
 export interface MappingInput {
   target_label: string
   source_type: LabelSourceType
-  source_field?: string
-  transform_rule?: string
+  source_field: string
+  transform?: string
   enabled?: boolean
 }
 
-/** 创建标签模板输入（非默认，is_default=false）；mappings 可空（PRD §6.6.3） */
+/** 创建标签模板输入（v3 POST /label-templates；mappings 可空） */
 export interface LabelTemplateCreateInput {
   name: string
   resource_category: ResourceCategory
-  description?: string
+  is_default?: boolean
   mappings?: MappingInput[]
 }
 
-/** 更新标签模板输入：仅 name/description 可改；resource_category 创建后不可改，故 update 不含（PRD §6.3/§6.6.3） */
+/**
+ * 更新标签模板输入（v3 PUT /label-templates/:id，全量替换）。
+ * `resource_category` 创建后不可变（传了会 400），故类型上不暴露；
+ * 注意后端按请求体重建 mappings：调用方要么显式传 mappings，要么用 API 层的整模板写入方法。
+ */
 export interface LabelTemplateUpdateInput {
   name?: string
-  description?: string
+  is_default?: boolean
+  mappings?: MappingInput[]
 }
 
-/** 关联实例行（§3.2 关联实例展示；GET /label-templates/:template_id/resources 的 item） */
-export interface TemplateInstanceItem {
-  resource_id: string
-  instance_name: string
-  status: string
-}
-
-/** 模板列表项：LabelTemplate + 关联实例数（§3.2「关联实例 N 个」= 该 resource_category 下资源数） */
-export interface LabelTemplateListItem extends LabelTemplate {
-  instance_count: number
-}
+/**
+ * 模板列表项：v3 列表与详情返回同一对象投影（无关联实例数等附加字段）。
+ * 保留独立导出名，避免调用方（列表 / 预览 / 采集 Job 表单）大范围改导入。
+ */
+export type LabelTemplateListItem = LabelTemplate

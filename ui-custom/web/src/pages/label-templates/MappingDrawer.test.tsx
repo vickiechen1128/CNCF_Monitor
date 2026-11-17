@@ -24,7 +24,7 @@ function mapping(
 
 function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
   return {
-    id: 1,
+    id: 'lt-1',
     name: '主机模板',
     resource_category: 'host',
     is_default: false,
@@ -76,9 +76,9 @@ describe('MappingDrawer', () => {
     await user.click(screen.getByRole('button', { name: '统一保存' }))
 
     await waitFor(() =>
-      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
-        { target_label: 'app_code', source_type: 'resource_field', source_field: 'app_code', transform_rule: '', enabled: true },
-        { target_label: 'env', source_type: 'resource_field', source_field: 'env', transform_rule: '', enabled: true },
+      expect(replaceMappingsMock).toHaveBeenCalledWith('lt-1', [
+        { target_label: 'app_code', source_type: 'resource_field', source_field: 'app_code', transform: '', enabled: true },
+        { target_label: 'env', source_type: 'resource_field', source_field: 'env', transform: '', enabled: true },
       ]),
     )
     expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
@@ -99,8 +99,8 @@ describe('MappingDrawer', () => {
     await user.click(screen.getByRole('button', { name: '统一保存' }))
 
     await waitFor(() =>
-      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
-        { target_label: 'application', source_type: 'resource_field', source_field: 'app_code', transform_rule: '', enabled: true },
+      expect(replaceMappingsMock).toHaveBeenCalledWith('lt-1', [
+        { target_label: 'application', source_type: 'resource_field', source_field: 'app_code', transform: '', enabled: true },
       ]),
     )
     expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
@@ -159,8 +159,8 @@ describe('MappingDrawer', () => {
     expect(screen.getByRole('textbox', { name: '目标标签 1' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: '统一保存' }))
     await waitFor(() =>
-      expect(replaceMappingsMock).toHaveBeenCalledWith(1, [
-        { target_label: 'instance', source_type: 'composite', source_field: 'instance_ip:port', transform_rule: '', enabled: true },
+      expect(replaceMappingsMock).toHaveBeenCalledWith('lt-1', [
+        { target_label: 'instance', source_type: 'composite', source_field: 'instance_ip:port', transform: '', enabled: true },
       ]),
     )
   })

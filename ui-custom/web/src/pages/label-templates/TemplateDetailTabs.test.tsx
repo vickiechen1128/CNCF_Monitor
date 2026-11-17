@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import TemplateDetailTabs from './TemplateDetailTabs'
-import type { LabelSourceType, LabelTemplate, Mapping, TemplateInstanceItem } from '../../types/label'
+import type { LabelSourceType, LabelTemplate, Mapping } from '../../types/label'
 
-const resourcesMock = vi.fn()
 const replaceMappingsMock = vi.fn()
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: {
-    resources: (...args: unknown[]) => resourcesMock(...args),
     replaceMappings: (...args: unknown[]) => replaceMappingsMock(...args),
   },
 }))
@@ -24,7 +22,7 @@ function mapping(
 
 function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
   return {
-    id: 1,
+    id: 'lt-1',
     name: '主机模板',
     resource_category: 'host',
     is_default: false,
@@ -38,14 +36,6 @@ function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
   }
 }
 
-function instanceItem(resourceId: string, name: string, status: string): TemplateInstanceItem {
-  return { resource_id: resourceId, instance_name: name, status }
-}
-
-function instancePage(items: TemplateInstanceItem[], total?: number) {
-  return { status: 'success', data: { items, total: total ?? items.length, page: 1, page_size: 10 } }
-}
-
 function renderTabs(tpl: LabelTemplate | null, over: { referencingJobCount?: number } = {}) {
   const onMappingsChange = vi.fn()
   render(<TemplateDetailTabs template={tpl} onMappingsChange={onMappingsChange} {...over} />)
@@ -54,29 +44,21 @@ function renderTabs(tpl: LabelTemplate | null, over: { referencingJobCount?: num
 
 describe('TemplateDetailTabs', () => {
   beforeEach(() => {
-    resourcesMock.mockReset()
     replaceMappingsMock.mockReset()
-    resourcesMock.mockResolvedValue(instancePage([]))
   })
 
-  it('shows placeholder when no template selected and does not fetch instances', () => {
+  it('shows placeholder when no template selected', () => {
     renderTabs(null)
     expect(screen.getByText('请选择左侧模板查看详情')).toBeInTheDocument()
-    expect(resourcesMock).not.toHaveBeenCalled()
   })
 
-  it('loads instances on mount with template id and page/page_size=10 (application only)', async () => {
+  it('only renders 映射明细 / 被引用采集 Job tabs (v3 has no 关联实例 tab)', async () => {
     renderTabs(template({ resource_category: 'application' }))
-    await waitFor(() => expect(resourcesMock).toHaveBeenCalledWith(1, { page: 1, page_size: 10 }))
-  })
-
-  it('hides instances tab and does not fetch for static resource categories (host)', async () => {
-    renderTabs(template())
-    await waitFor(() => expect(resourcesMock).not.toHaveBeenCalled())
-    expect(screen.queryByRole('tab', { name: /关联实例/ })).not.toBeInTheDocument()
-    // 静态资源仍保留「映射明细 / 被引用采集 Job」两 Tab
-    expect(screen.getByRole('tab', { name: /映射明细/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /映射明细/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /被引用采集 Job/ })).toBeInTheDocument()
+    // v3 模板由 M01 Job / 映射引用、不绑定资源实例，关联实例 Tab 已移除
+    expect(screen.queryByRole('tab', { name: /关联实例/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('搜索实例名 / 资源 ID')).not.toBeInTheDocument()
   })
 
   it('groups mappings by source type in Tab1', async () => {
@@ -100,33 +82,6 @@ describe('TemplateDetailTabs', () => {
     expect(await screen.findByText('该模板暂无映射，点击「编辑」添加')).toBeInTheDocument()
   })
 
-  it('renders instance table and filters by keyword search', async () => {
-    resourcesMock.mockResolvedValue(
-      instancePage([instanceItem('r1', 'web-01', 'online'), instanceItem('r2', 'db-01', 'offline')]),
-    )
-    renderTabs(template({ resource_category: 'application' }))
-    fireEvent.click(await screen.findByRole('tab', { name: /关联实例/ }))
-    expect(await screen.findByText('web-01')).toBeInTheDocument()
-    expect(screen.getByText('db-01')).toBeInTheDocument()
-    const search = screen.getByPlaceholderText('搜索实例名 / 资源 ID')
-    fireEvent.change(search, { target: { value: 'db' } })
-    expect(screen.queryByText('web-01')).not.toBeInTheDocument()
-    expect(screen.getByText('db-01')).toBeInTheDocument()
-  })
-
-  it('filters instances by status and shows 无匹配实例 when none match', async () => {
-    resourcesMock.mockResolvedValue(
-      instancePage([instanceItem('r1', 'web-01', 'online'), instanceItem('r2', 'db-01', 'offline')]),
-    )
-    renderTabs(template({ resource_category: 'application' }))
-    fireEvent.click(await screen.findByRole('tab', { name: /关联实例/ }))
-    await screen.findByText('web-01')
-    // 状态筛选选「维护中」（数据无维护中实例 → 无匹配）
-    fireEvent.mouseDown(screen.getByText('全部状态'))
-    fireEvent.click(await screen.findByText('维护中'))
-    expect(await screen.findByText('无匹配实例')).toBeInTheDocument()
-  })
-
   it('shows jobs tab empty state with explanation text', async () => {
     renderTabs(template())
     fireEvent.click(await screen.findByRole('tab', { name: /被引用采集 Job/ }))
@@ -142,7 +97,7 @@ describe('TemplateDetailTabs', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑' }))
     expect(await screen.findByRole('dialog', { name: '编辑映射' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '统一保存' }))
-    await waitFor(() => expect(replaceMappingsMock).toHaveBeenCalledWith(1, expect.any(Array)))
+    await waitFor(() => expect(replaceMappingsMock).toHaveBeenCalledWith('lt-1', expect.any(Array)))
     expect(replaceMappingsMock).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('保存已生效')).toBeInTheDocument()
     const alertDesc = document.querySelector('.ant-alert-description')

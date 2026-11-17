@@ -140,7 +140,7 @@ export function TenantsPage() {
 
           <Table<Tenant>
             rowKey="id"
-            dataSource={data.items}
+            dataSource={data.list}
             loading={loading}
             columns={columns}
             scroll={TABLE_SCROLL_X}

@@ -4,7 +4,7 @@
  * 与 Module_07 §5.11/§5.12/§6.5、后端 models/label_rules.go 及原型
  * docs/prototypes/module-07/src/mocks/module-07.ts 对齐：
  * - 保护 label 清单以后端 `PROTECTED_PROMETHEUS_LABELS`（7 项）为权威；
- * - 来源类型 / 转换规则选项、各资源类别字段来源选项供右栏三 Tab 与映射抽屉共用，
+ * - 来源类型 / 转换规则选项、各资源类别字段来源选项供右栏双 Tab 与映射抽屉共用，
  *   避免两处散点硬编码。
  */
 import type { LabelSourceType } from '../../types/label'
@@ -19,31 +19,6 @@ export const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   generic_target: '其他监控目标',
   interface_service: '接口服务',
 }
-
-/**
- * 允许实例级自定义的资源类别（PRD §3.3/§5.2/§6.2 双场景治理边界）：
- * 仅业务类型资源（application / interface_service）开放 user 来源实例级标签；
- * host / database / middleware / generic_target 实例级标签只读（治理在 CMDB 侧），
- * 无实例级自定义能力。
- * 驱动「关联实例」Tab 与左栏关联实例 badge 的展示——仅本集合内类别展示
- * （未来微服务 / 业务属性类型开放实例级能力时加入本集合即可）。
- */
-export const INSTANCE_LEVEL_CUSTOM_CATEGORIES: ResourceCategory[] = ['application', 'interface_service']
-
-/** 实例状态展示名（对齐原型 STATUS_MAP；孤儿为后续版本预留） */
-export const INSTANCE_STATUS_MAP: Record<string, string> = {
-  online: '在线',
-  offline: '离线',
-  maintenance: '维护中',
-}
-
-/** 关联实例状态筛选选项 */
-export const INSTANCE_STATUS_OPTIONS = [
-  { value: 'all', label: '全部状态' },
-  { value: 'online', label: '在线' },
-  { value: 'offline', label: '离线' },
-  { value: 'maintenance', label: '维护中' },
-]
 
 /** 映射来源类型展示名（对齐原型 SOURCE_TYPE_LABEL） */
 export const SOURCE_TYPE_LABEL: Record<LabelSourceType, string> = {
@@ -73,25 +48,13 @@ export const MAPPING_SOURCE_TYPE_OPTIONS: { value: LabelSourceType; label: strin
 ]
 
 /**
- * 「字典翻译」转换规则（transform=dict）支持的来源字段，与后端
- * `models.IsDictTranslatableSourceField` 对齐：
- * 应用编码 → 应用名、业务编码 → 业务名、平台编码 → 平台名、
- * 网域 id → 网域名、环境枚举 → 原样代码（OPS/PRD/UAT，当前恒等映射）。
+ * 转换规则选项（v3 契约白名单：空=原样透传 / lower / upper / prefix / replace）。
+ * 注意：v2 的 dict（字典翻译）不在 v3 `LabelTemplate.Validate` 白名单内，选中会被
+ * 后端 400 拒绝，故置灰；prefix / replace 需参数，P1 仍置灰。
  */
-export const DICT_TRANSLATABLE_FIELDS = [
-  'app_code',
-  'app_name',
-  'biz_code',
-  'platform_code',
-  'network_domain_id',
-  'env',
-]
-
-/** 转换规则选项（§5.11：空=原样透传 / lower / upper；prefix / replace 需参数，P1 置灰）
- *  dict=字典翻译，仅对 DICT_TRANSLATABLE_FIELDS 中引用字典 / 固定枚举的字段开放。 */
 export const TRANSFORM_OPTIONS: { value: string; label: string; disabled?: boolean }[] = [
   { value: '', label: '无（原样透传）' },
-  { value: 'dict', label: '字典翻译（显示名）' },
+  { value: 'dict', label: '字典翻译（v3 暂不支持）', disabled: true },
   { value: 'lower', label: 'lower（转小写）' },
   { value: 'upper', label: 'upper（转大写）' },
   { value: 'prefix', label: 'prefix（加前缀，后续开放）', disabled: true },

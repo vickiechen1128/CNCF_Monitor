@@ -12,7 +12,6 @@ import type { LabelSourceType, LabelTemplate, Mapping, MappingInput } from '../.
 import {
   CMDB_FIELD_OPTIONS,
   COMPOSITE_OPTIONS,
-  DICT_TRANSLATABLE_FIELDS,
   MAPPING_SOURCE_TYPE_OPTIONS,
   PROMETHEUS_BUILTIN_OPTIONS,
   PROTECTED_PROMETHEUS_LABELS,
@@ -87,7 +86,7 @@ function MappingDrawerEditor({ open, template, onClose, onSaved }: MappingDrawer
       source_type: value,
       source_field: '',
       target_label: value === 'composite' ? 'instance' : '',
-      transform: value !== 'resource_field' && current.transform === 'dict' ? '' : current.transform,
+      transform: current.transform,
     }))
     clearError(row.key, 'source_field')
     clearError(row.key, 'target_label')
@@ -99,8 +98,7 @@ function MappingDrawerEditor({ open, template, onClose, onSaved }: MappingDrawer
       source_field: value,
       target_label:
         !current.target_label || current.target_label === current.source_field ? value : current.target_label,
-      transform:
-        current.transform === 'dict' && !DICT_TRANSLATABLE_FIELDS.includes(value) ? '' : current.transform,
+      transform: current.transform,
     }))
     clearError(row.key, 'source_field')
     clearError(row.key, 'target_label')
@@ -140,13 +138,9 @@ function MappingDrawerEditor({ open, template, onClose, onSaved }: MappingDrawer
     }))
   }
 
-  const transformOptions = (row: EditableMapping) => {
-    const dictSupported =
-      row.source_type === 'resource_field' && DICT_TRANSLATABLE_FIELDS.includes(row.source_field)
-    return TRANSFORM_OPTIONS.filter(
-      (option) => option.value !== 'dict' || dictSupported || row.transform === 'dict',
-    )
-  }
+  // v3 后端的 transform 白名单不含 dict，字典翻译选项在常量里统一置灰；
+  // 这里不再按来源字段动态放开，避免用户选中后被后端 400 拒绝。
+  const transformOptions = (_row: EditableMapping) => TRANSFORM_OPTIONS
 
   const columns: TableProps<EditableMapping>['columns'] = [
     {
@@ -270,11 +264,12 @@ function MappingDrawerEditor({ open, template, onClose, onSaved }: MappingDrawer
 
   const handleSave = async () => {
     if (!template || !validate()) return
+    // v3：映射随整模板 PUT 提交（无 mapping 子端点），字段名为 transform（不是 v2 的 transform_rule）
     const input: MappingInput[] = rows.map((row) => ({
       target_label: row.target_label.trim(),
       source_type: row.source_type,
       source_field: row.source_field.trim(),
-      transform_rule: row.transform,
+      transform: row.transform,
       enabled: row.enabled,
     }))
     setSaving(true)

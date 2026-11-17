@@ -12,7 +12,16 @@ vi.mock('../../../api/admin', () => ({
   userApi: { resetPassword: (...a: unknown[]) => resetMock(...a) },
 }))
 
-const user: UserItem = { id: 'u1', username: 'ops01', display_name: '运维一号', status: 'active', last_login_at: '', created_at: '' }
+const user: UserItem = {
+  id: 'u1',
+  tenant_id: 'platform_admin',
+  username: 'ops01',
+  display_name: '运维一号',
+  role: 'user',
+  status: 'active',
+  last_login_at: null,
+  created_at: '',
+}
 
 describe('ResetPasswordModal', () => {
   setupAntdTest()

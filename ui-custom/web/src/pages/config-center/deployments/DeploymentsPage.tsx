@@ -1,433 +1,168 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Button,
   Card,
-  Collapse,
   ConfigProvider,
-  Descriptions,
-  Drawer,
   Empty,
-  Modal,
+  Input,
+  Select,
   Space,
-  Spin,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
-  message,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
 import type { ColumnsType } from 'antd/es/table'
-import { EyeOutlined, QuestionCircleOutlined, ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
-import { deploymentApi } from '../../../api/configCenter'
-import type { Channel, ConfigDeployment, ConfigVersion, DeploymentStatus, RollbackDiffItem, RollbackPreview } from '../../../types/config-center'
+import { EyeOutlined, ReloadOutlined } from '@ant-design/icons'
+import type { ConfigSnapshotHistoryRow } from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
-import { EllipsisText } from '../../../components/EllipsisText'
 import { MainLayout } from '../../../layouts/MainLayout'
-import { useDeployments, fetchAllDomains } from './useDeployments'
-import { fileTextByKey } from '../preview/configPreviewYaml'
+import { formatLocalTime } from '../configCenterConstants'
+import { shortChecksum } from '../../../utils/shortChecksum'
+import { SnapshotDetailDrawer } from '../preview/SnapshotDetailDrawer'
 import {
-  CURRENT_USER,
-  affectedFileColor,
-  affectedFileLabel,
-  channelColor,
-  channelLabel,
-  channelTip,
-  changeTargetLabel,
-  changeTypeColor,
-  changeTypeLabel,
-  deploymentStatusColor,
-  deploymentStatusLabel,
-  riskColor,
-  riskLabel,
-  formatLocalTime,
-} from '../configCenterConstants'
-import { useSkin } from '../../../skinContext'
-import type { SkinTokens } from '../../../skins'
+  SNAPSHOT_GENERATOR_LABEL,
+  SNAPSHOT_STATUS_COLOR,
+  SNAPSHOT_STATUS_LABEL,
+} from '../preview/snapshotHelpers'
+import { useSnapshotHistory } from './useSnapshotHistory'
 
 const { Text } = Typography
 
+type SnapshotStatusFilter = 'all' | 'passed' | 'failed'
+
 /**
- * 下发记录页（Module_09 契约 §5 / PRD §3.5 / §9.1 回滚中心）。
- * 部署 ID / 网域 / 下发通道 / 配置版本 / 来源变更单号 / 状态(failed 带错误 Tooltip) / 开始时间 / 操作。
- * 操作：详情 + 回滚（success/rolled_back 可点，rolled_back 可再次作为回滚目标，PRD §8；pending/running/failed 禁用）+ 重试（仅 local 且 failed；决策 40-2 agent_pull 不展示）。
- * 详情抽屉提供「查看版本配置」：展开时懒拉取该下发对应 ConfigVersion 完整产物，按文件分 Tab 只读展示（PRD §3.5）。
- * 深链定位：?change_no 收窄到该变更单发布记录、?network_domain 再收窄到该网域（对接 config-preview「查看发布记录」）。
- * 状态矩阵：加载 / 空态 / 接口错误 / 权限不足。
+ * 快照历史页（原「下发记录」页，Module_09 v3 契约 §4）。
+ *
+ * v3 没有全局快照列表：聚合全部已纳管网域的快照后在本页展示，支持网域 / 校验状态 /
+ * 关键字（版本或校验值）筛选，前端分页 20 条/页；点行或「详情」打开只读详情抽屉。
+ * 无回滚 / 重试 / 下发动作；单域拉取失败不影响其他域，页头提示失败域。
  */
-/** 回滚可点击的下发状态（PRD §8：success/rolled_back 均为有效回滚目标） */
-const ROLLBACKABLE: DeploymentStatus[] = ['success', 'rolled_back']
-
-/** 「查看版本配置」文件 Tab 顺序（与配置预览页口径一致；alertmanager.yml 仅产物含时展示，决策 60） */
-const VERSION_FILE_TABS = ['prometheus.yml', 'targets', 'rules.yml', 'blackbox.yml', 'alertmanager.yml'] as const
-const VERSION_FILE_LABEL: Record<string, string> = { targets: 'targets/*.json' }
-
-/** 版本配置代码块样式（等宽 + 横向滚动，遵循前端规范 §9 长文本规范，与配置预览页一致；走皮肤 token） */
-function codeBlockStyle(tokens: SkinTokens): CSSProperties {
-  return {
-    margin: 0,
-    maxHeight: 480,
-    overflow: 'auto',
-    background: tokens.colorBgBase,
-    padding: 12,
-    borderRadius: 8,
-    fontSize: 13,
-  }
-}
-
 export function DeploymentsPage() {
-  const { tokens } = useSkin()
-  const { data, loading, error, permissionDenied, onPageSizeChange, reload, locChangeNo, locDomain } =
-    useDeployments()
-  const [domains, setDomains] = useState<{ id: string; name: string }[]>([])
-  const [domainError, setDomainError] = useState(false)
-  const [detail, setDetail] = useState<ConfigDeployment | null>(null)
+  const {
+    rows,
+    loading,
+    error,
+    permissionDenied,
+    partialErrors,
+    domains,
+    domainsLoading,
+    domainError,
+    reload,
+  } = useSnapshotHistory()
+
+  const [domainFilter, setDomainFilter] = useState<string | undefined>(undefined)
+  const [statusFilter, setStatusFilter] = useState<SnapshotStatusFilter>('all')
+  const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [detail, setDetail] = useState<ConfigSnapshotHistoryRow | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
-  // 「查看版本配置」懒加载状态（按当前详情记录缓存，切换记录时重置）
-  const [versionCfg, setVersionCfg] = useState<{ loading: boolean; error: string | null; data: ConfigVersion | null }>({
-    loading: false,
-    error: null,
-    data: null,
-  })
-  // 回滚确认弹窗：决策 63 P0 要求展示目标版本 vs 当前生效版本的源数据操作差异清单。
-  const [rollbackModal, setRollbackModal] = useState<{
-    open: boolean
-    record: ConfigDeployment | null
-    preview: RollbackPreview | null
-    loading: boolean
-    error: string | null
-  }>({ open: false, record: null, preview: null, loading: false, error: null })
 
-  useEffect(() => {
-    fetchAllDomains()
-      .then((list) => setDomains(list.map((d) => ({ id: d.id, name: d.name }))))
-      .catch(() => setDomainError(true))
-  }, [])
+  const filteredRows = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (domainFilter && row.network_domain_id !== domainFilter) return false
+      if (statusFilter !== 'all' && row.validation_status !== statusFilter) return false
+      if (normalizedKeyword) {
+        const versionMatched = row.version.toLowerCase().includes(normalizedKeyword)
+        const checksumMatched = (row.checksum ?? '').toLowerCase().includes(normalizedKeyword)
+        if (!versionMatched && !checksumMatched) return false
+      }
+      return true
+    })
+  }, [rows, domainFilter, statusFilter, keyword])
 
-  const domainMap = useMemo(() => new Map(domains.map((d) => [d.id, d.name])), [domains])
+  const maxPage = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const currentPage = Math.min(page, maxPage)
 
-  const openDetail = (record: ConfigDeployment) => {
+  const openDetail = (record: ConfigSnapshotHistoryRow) => {
     setDetail(record)
-    setVersionCfg({ loading: false, error: null, data: null })
     setDetailOpen(true)
   }
 
-  /** 「查看版本配置」展开时懒拉取该次下发的 ConfigVersion 完整产物（PRD §3.5；force=错误重试） */
-  const loadVersionConfig = (force = false) => {
-    if (!detail || versionCfg.loading || (!force && versionCfg.data)) return
-    setVersionCfg({ loading: true, error: null, data: null })
-    deploymentApi
-      .getConfigVersion(detail.config_version_id)
-      .then((res) => setVersionCfg({ loading: false, error: null, data: res.data }))
-      .catch((e) =>
-        setVersionCfg({
-          loading: false,
-          error: e instanceof Error ? e.message : '版本配置加载失败',
-          data: null,
-        }),
-      )
-  }
-
-  /** {决策 42-3} 重试：仅服务 local 通道（agent_pull 发布失败归平台侧自动重试，本页不展示重试按钮） */
-  const handleRetry = (record: ConfigDeployment) => {
-    Modal.confirm({
-      title: '重试下发',
-      content: (
-        <>
-          确定对配置版本 <Text code>{record.config_version_id}</Text>（来源变更单 {record.source_change_no}）重新下发吗？
-          <div style={{ marginTop: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              local 通道重试：重新写中心配置目录并 reload，立即生效
-            </Text>
-          </div>
-        </>
-      ),
-      okText: '重试',
-      onOk: async () => {
-        setActionLoading(true)
-        try {
-          const res = await deploymentApi.retry(record.id, CURRENT_USER)
-          message.success(`重试成功：${res.data.config_version_id} 已重新下发并生效（操作人：${CURRENT_USER}）`)
-          reload()
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '重试失败，请稍后重试')
-        } finally {
-          setActionLoading(false)
-        }
-      },
-    })
-  }
-
-  /** 加载回滚预览（决策 63 P0）：目标版本 vs 当前生效版本的源数据操作差异清单。 */
-  const loadRollbackPreview = async (record: ConfigDeployment) => {
-    setRollbackModal((m) => ({ ...m, loading: true, error: null, preview: null }))
-    try {
-      const res = await deploymentApi.rollbackPreview(record.config_version_id)
-      setRollbackModal((m) => ({ ...m, preview: res.data, loading: false }))
-    } catch (e) {
-      setRollbackModal((m) => ({
-        ...m,
-        loading: false,
-        error: e instanceof Error ? e.message : '差异清单加载失败',
-      }))
-    }
-  }
-
-  /** 打开回滚确认弹窗并拉取差异预览。 */
-  const openRollbackModal = (record: ConfigDeployment) => {
-    setRollbackModal({ open: true, record, preview: null, loading: true, error: null })
-    void loadRollbackPreview(record)
-  }
-
-  /** 关闭回滚确认弹窗。 */
-  const closeRollbackModal = () => {
-    setRollbackModal({ open: false, record: null, preview: null, loading: false, error: null })
-  }
-
-  /** 执行回滚（PRD §3.5/§8：回滚动作生成 rolled_back 新记录，被回滚记录不变）；
-   * local 同步 reload 生效；agent_pull 异步（待 Edge Sync Agent 心跳拉取，约 30s）。 */
-  const executeRollback = async () => {
-    const record = rollbackModal.record
-    if (!record) return
-    const isAgentPull = record.channel === 'agent_pull'
-    setActionLoading(true)
-    try {
-      const res = await deploymentApi.rollback(record.config_version_id, CURRENT_USER)
-      message.success(
-        isAgentPull
-          ? `已回滚：所选版本 ${res.data.config_version_id} 待 Edge Sync Agent 拉取生效（约 30s）`
-          : '已回滚到所选版本，配置已 reload 生效',
-      )
-      closeRollbackModal()
-      reload()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '回滚失败，请稍后重试')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  /** 渲染回滚差异清单（决策 63 P0）。 */
-  const renderRollbackDiff = () => {
-    const { preview, loading, error } = rollbackModal
-    if (loading) {
-      return (
-        <div style={{ textAlign: 'center', padding: 24 }}>
-          <Spin size="small" /> <Text type="secondary">正在加载回滚差异清单…</Text>
-        </div>
-      )
-    }
-    if (error) {
-      return (
-        <Alert
-          type="warning"
-          showIcon
-          message="差异清单加载失败"
-          description={error}
-          action={<Button size="small" onClick={() => rollbackModal.record && loadRollbackPreview(rollbackModal.record)}>重试</Button>}
-        />
-      )
-    }
-    if (!preview || preview.diff_items.length === 0) {
-      return <Alert type="info" showIcon message="未检测到源数据操作差异" description="目标版本与当前生效版本在源数据层面无差异，或差异推导信息不可用。" />
-    }
-    return (
-      <Table
-        size="small"
-        rowKey={(item) => `${item.side}-${item.type}-${item.target}-${item.description}`}
-        pagination={false}
-        dataSource={preview.diff_items}
-        columns={[
-          {
-            title: '范围',
-            dataIndex: 'side',
-            key: 'side',
-            width: 90,
-            render: (side: RollbackDiffItem['side']) => {
-              const map = {
-                target: { label: '目标版本', color: 'blue' },
-                current: { label: '当前版本', color: 'default' },
-                both: { label: '两侧共有', color: 'purple' },
-              } as const
-              return <Tag color={map[side].color}>{map[side].label}</Tag>
-            },
-          },
-          {
-            title: '类型',
-            dataIndex: 'type',
-            key: 'type',
-            width: 70,
-            render: (type: RollbackDiffItem['type']) => <Tag color={changeTypeColor[type]}>{changeTypeLabel[type]}</Tag>,
-          },
-          {
-            title: '对象',
-            dataIndex: 'target',
-            key: 'target',
-            width: 100,
-            render: (target: RollbackDiffItem['target']) => changeTargetLabel[target],
-          },
-          {
-            title: '说明',
-            dataIndex: 'description',
-            key: 'description',
-            ellipsis: { showTitle: true },
-          },
-          {
-            title: '风险',
-            dataIndex: 'risk',
-            key: 'risk',
-            width: 80,
-            render: (risk: RollbackDiffItem['risk']) => <Tag color={riskColor[risk]}>{riskLabel[risk]}</Tag>,
-          },
-          {
-            title: '影响文件',
-            dataIndex: 'affected_files',
-            key: 'affected_files',
-            width: 140,
-            render: (files: RollbackDiffItem['affected_files']) => (
-              <Space size={4} wrap>
-                {files.map((f) => (
-                  <Tag key={f} color={affectedFileColor[f]} style={{ fontSize: 12 }}>
-                    {affectedFileLabel[f]}
-                  </Tag>
-                ))}
-              </Space>
-            ),
-          },
-        ]}
-      />
-    )
-  }
-
-  /** 详情抽屉「查看版本配置」区块内容：加载 / 错误（可重试）/ 按文件分 Tab 只读展示 */
-  const renderVersionConfig = () => {
-    if (versionCfg.loading) {
-      return (
-        <div style={{ textAlign: 'center', padding: 24 }}>
-          <Spin size="small" /> <Text type="secondary">版本配置加载中…</Text>
-        </div>
-      )
-    }
-    if (versionCfg.error) {
-      return (
-        <Alert
-          type="error"
-          showIcon
-          message="版本配置加载失败"
-          description={versionCfg.error}
-          action={<Button size="small" onClick={() => loadVersionConfig(true)}>重试</Button>}
-        />
-      )
-    }
-    const v = versionCfg.data
-    if (!v) return null
-    // alertmanager.yml 仅产物含时展示（决策 60），与配置预览页同口径
-    const tabs = VERSION_FILE_TABS.filter((key) => key !== 'alertmanager.yml' || Boolean(v.alertmanager_yml))
-    return (
-      <Tabs
-        type="card"
-        size="small"
-        items={tabs.map((key) => ({
-          key,
-          label: VERSION_FILE_LABEL[key] ?? key,
-          children: <pre style={codeBlockStyle(tokens)}>{fileTextByKey(v, key) ?? '（当前无此产物）'}</pre>,
-        }))}
-      />
-    )
-  }
-
-  const columns: ColumnsType<ConfigDeployment> = [
-    {
-      title: '部署 ID',
-      dataIndex: 'id',
-      key: 'id',
-      fixed: 'left',
-      width: 180,
-      render: (id: string) => (
-        <EllipsisText code maxWidth={160}>
-          {id}
-        </EllipsisText>
-      ),
-    },
+  const columns: ColumnsType<ConfigSnapshotHistoryRow> = [
     {
       title: '网域',
-      dataIndex: 'network_domain_id',
-      key: 'network_domain_id',
-      render: (id: string) => <Text>{domainMap.get(id) ?? id}</Text>,
-    },
-    {
-      title: '下发通道',
-      dataIndex: 'channel',
-      key: 'channel',
-      width: 110,
-      render: (channel: Channel) => (
-        <Tooltip title={channelTip[channel]}>
-          <Tag color={channelColor[channel]}>{channelLabel[channel]}</Tag>
+      dataIndex: 'network_domain_name',
+      key: 'network_domain_name',
+      width: 160,
+      render: (name: string, record: ConfigSnapshotHistoryRow) => (
+        <Tooltip title={record.network_domain_id}>
+          <Text>{name || record.network_domain_id}</Text>
         </Tooltip>
       ),
     },
     {
-      title: '配置版本',
-      dataIndex: 'config_version_id',
-      key: 'config_version_id',
-      render: (id: string) => <Tag>{id}</Tag>,
+      title: '版本',
+      dataIndex: 'version',
+      key: 'version',
+      width: 180,
+      render: (version: string) => <Text code>{version}</Text>,
     },
     {
-      title: '来源变更单号',
-      dataIndex: 'source_change_no',
-      key: 'source_change_no',
-      render: (no: string) => <Text code>{no}</Text>,
+      title: '校验状态',
+      dataIndex: 'validation_status',
+      key: 'validation_status',
+      width: 100,
+      render: (status: ConfigSnapshotHistoryRow['validation_status']) => (
+        <Tag color={SNAPSHOT_STATUS_COLOR[status]}>{SNAPSHOT_STATUS_LABEL[status]}</Tag>
+      ),
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
+      title: '当前版本',
+      dataIndex: 'is_current',
+      key: 'is_current',
       width: 110,
-      render: (status: DeploymentStatus, record: ConfigDeployment) => {
-        const tag = <Tag color={deploymentStatusColor[status]}>{deploymentStatusLabel[status]}</Tag>
-        return status === 'failed' && record.error_message ? (
-          <Tooltip title={record.error_message}>{tag}</Tooltip>
-        ) : (
-          tag
-        )
-      },
+      render: (isCurrent: boolean) =>
+        isCurrent ? <Tag color="success">当前生效</Tag> : <Text type="secondary">-</Text>,
     },
     {
-      title: '开始时间',
-      dataIndex: 'triggered_at',
-      key: 'triggered_at',
-      width: 170,
-      // 时间展示对齐 M08 口径（formatLocalTime）：RFC3339 原串含 T/Z/纳秒，不可读
-      render: (v: string) => <Text type="secondary">{formatLocalTime(v)}</Text>,
+      title: '生成来源',
+      dataIndex: 'generated_by',
+      key: 'generated_by',
+      width: 150,
+      render: (generatedBy: string) => (
+        <Text>{SNAPSHOT_GENERATOR_LABEL[generatedBy] ?? generatedBy ?? '-'}</Text>
+      ),
+    },
+    {
+      title: '校验值',
+      dataIndex: 'checksum',
+      key: 'checksum',
+      width: 180,
+      render: (checksum: string) => (
+        <Tooltip title={checksum || '-'}>
+          <Text code>{shortChecksum(checksum)}</Text>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '生成时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+      render: (createdAt: string) => <Text type="secondary">{formatLocalTime(createdAt)}</Text>,
     },
     {
       title: '操作',
-      key: 'action',
+      key: 'actions',
       fixed: 'right',
-      width: 200,
-      render: (_: unknown, record: ConfigDeployment) => (
-        <Space>
-          <Tooltip title="查看详情">
-            <Button size="small" aria-label="查看详情" icon={<EyeOutlined />} onClick={() => openDetail(record)} />
-          </Tooltip>
-          {/* 决策 40-2：重试仅 local 且 failed；agent_pull 发布失败归平台侧自动重试 */}
-          {record.status === 'failed' && record.channel === 'local' && (
-            <Button size="small" type="primary" ghost icon={<ReloadOutlined />} onClick={() => handleRetry(record)}>
-              重试
-            </Button>
-          )}
-          <Button
-            size="small"
-            icon={<RollbackOutlined />}
-            disabled={!ROLLBACKABLE.includes(record.status)}
-            onClick={() => openRollbackModal(record)}
-          >
-            回滚
-          </Button>
-        </Space>
+      width: 90,
+      render: (_: unknown, record: ConfigSnapshotHistoryRow) => (
+        <Button
+          size="small"
+          type="link"
+          icon={<EyeOutlined />}
+          onClick={(event) => {
+            event.stopPropagation()
+            openDetail(record)
+          }}
+        >
+          详情
+        </Button>
       ),
     },
   ]
@@ -435,200 +170,151 @@ export function DeploymentsPage() {
   return (
     <MainLayout>
       <ConfigProvider locale={config}>
-        {locChangeNo && (
-        <Alert
-          type="info"
-          showIcon
-          message={`当前定位：变更单 ${locChangeNo}${locDomain ? ` · 网域 ${domainMap.get(locDomain) ?? locDomain}` : ''} 的发布记录`}
-          description="从「配置变更确认」页跳转而来。列表已按该变更单过滤；如需查看全部记录，请清除定位条件。"
-          closable
-          style={{ marginBottom: 16 }}
-        />
-      )}
-      {permissionDenied && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="权限不足"
-          description="当前账号无查看下发记录的权限，请联系管理员开通。"
-        />
-      )}
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="下发记录加载失败"
-          description={error}
-          action={<Button size="small" onClick={reload}>重试</Button>}
-        />
-      )}
-      {domainError && (
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="网域信息加载失败" description="部分网域名可能无法显示。" />
-      )}
-      <Card
-        title={
-          <Space size={4}>
-            配置发布与回滚记录
-            <Tooltip title="每次发布、回滚及重试都会自动留痕，用于排查「最后一次生效时间/结果」；出问题时可按历史版本一键回滚。">
-              <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-            </Tooltip>
-          </Space>
-        }
-      >
-        <Table<ConfigDeployment>
-          rowKey="id"
-          size="small"
-          scroll={TABLE_SCROLL_X}
-          loading={loading}
-          dataSource={data.items}
-          pagination={{
-            ...TABLE_PAGINATION,
-            current: data.items.length ? undefined : 1,
-            total: data.total,
-            onChange: onPageSizeChange,
-          }}
-          locale={{
-            emptyText: loading ? '加载中…' : <Empty description="暂无下发记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
-          }}
-          columns={columns}
-        />
-      </Card>
-
-      <Drawer
-        title={detail ? `下发记录详情：${detail.id}` : '下发记录详情'}
-        width={560}
-        open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        extra={
-          detail && (
-            <Space>
-              {detail.status === 'failed' && detail.channel === 'local' && (
-                <Button type="primary" ghost icon={<ReloadOutlined />} loading={actionLoading} onClick={() => handleRetry(detail)}>
-                  重试
-                </Button>
-              )}
-              <Button
-                icon={<RollbackOutlined />}
-                loading={actionLoading}
-                disabled={!ROLLBACKABLE.includes(detail.status)}
-                onClick={() => openRollbackModal(detail)}
-              >
-                回滚
-              </Button>
-            </Space>
-          )
-        }
-      >
-        {detail && (
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="部署 ID">
-              <Text code>{detail.id}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="网域">
-              {domainMap.get(detail.network_domain_id) ?? detail.network_domain_id}（{detail.network_domain_id}）
-            </Descriptions.Item>
-            <Descriptions.Item label="下发通道">
-              <Tag color={channelColor[detail.channel]}>{channelLabel[detail.channel]}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="配置版本">
-              <Text code>{detail.config_version_id}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="来源变更单号">
-              <Text code>{detail.source_change_no}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="含 blackbox.yml">
-              {detail.includes_blackbox ? <Tag color="cyan">是</Tag> : '否'}
-            </Descriptions.Item>
-            <Descriptions.Item label="状态">
-              <Tag color={deploymentStatusColor[detail.status]}>{deploymentStatusLabel[detail.status]}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="错误信息">{detail.error_message || '-'}</Descriptions.Item>
-            <Descriptions.Item label="操作人">{detail.triggered_by}</Descriptions.Item>
-            <Descriptions.Item label="开始时间">{formatLocalTime(detail.triggered_at)}</Descriptions.Item>
-            <Descriptions.Item label="结束时间">{formatLocalTime(detail.completed_at)}</Descriptions.Item>
-          </Descriptions>
-        )}
-        {detail && (
-          <Collapse
-            style={{ marginTop: 16 }}
-            onChange={(keys) => {
-              if (keys.length > 0) loadVersionConfig()
-            }}
-            items={[
-              {
-                key: 'version-config',
-                label: `查看版本配置（${detail.config_version_id}）`,
-                children: renderVersionConfig(),
-              },
-            ]}
-          />
-        )}
-      </Drawer>
-
-      <Modal
-        title="回滚配置"
-        open={rollbackModal.open}
-        onCancel={closeRollbackModal}
-        onOk={executeRollback}
-        okText="确认回滚"
-        okButtonProps={{ danger: true, loading: actionLoading }}
-        cancelText="取消"
-        width={720}
-        destroyOnClose
-      >
-        {rollbackModal.record && (
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <div>
-              确定将网域{' '}
-              <Text strong>
-                {domainMap.get(rollbackModal.record.network_domain_id) ?? rollbackModal.record.network_domain_id}
-              </Text>{' '}
-              回滚到所选版本 <Text code>{rollbackModal.record.config_version_id}</Text>（来源变更单{' '}
-              <Text code>{rollbackModal.record.source_change_no}</Text>）吗？
-            </div>
-            {rollbackModal.preview?.current_version && (
+        {permissionDenied ? (
+          <Card>
+            <Empty description="当前账号无此页面查看权限" />
+          </Card>
+        ) : (
+          <>
+            {error && (
               <Alert
-                type="info"
+                type="error"
                 showIcon
-                message="当前生效版本"
-                description={
-                  <>
-                    <Text code>{rollbackModal.preview.current_version.id}</Text>（来源变更单{' '}
-                    <Text code>{rollbackModal.preview.current_version.change_no}</Text>）
-                  </>
+                style={{ marginBottom: 16 }}
+                message="快照历史加载失败"
+                description={error}
+                action={
+                  <Button size="small" onClick={reload}>
+                    重试
+                  </Button>
                 }
               />
             )}
-            <div>
-              <Text strong>源数据操作差异清单</Text>
-              <div style={{ marginTop: 8 }}>{renderRollbackDiff()}</div>
-            </div>
-            <Alert
-              type="warning"
-              showIcon
-              message="回滚不恢复 M01/M08 中的启停状态"
-              description="回滚仅恢复配置产物（采集器/告警器在跑什么）。若此前在采集 Job、告警规则或 Alertmanager 配置中做过启停/挂载等人为操作，回滚后不会自动改回，如需一致请前往对应模块核对。"
-            />
-            {rollbackModal.record.channel === 'agent_pull' ? (
+            {domainError && (
               <Alert
-                type="info"
+                type="warning"
                 showIcon
-                message="agent_pull 通道回滚（异步生效）"
-                description="确认后重新发布所选版本配置包，待 Edge Sync Agent 下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。"
-              />
-            ) : (
-              <Alert
-                type="info"
-                showIcon
-                message="local 通道回滚（同步生效）"
-                description="确认后重新下发所选版本，中心写盘并 reload，立即生效。"
+                style={{ marginBottom: 16 }}
+                message="网域列表加载失败"
+                description="无法获取已纳管网域，快照历史可能不完整。"
               />
             )}
-          </Space>
+            {partialErrors.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={`部分网域快照加载失败（${partialErrors.length} 个）`}
+                description={
+                  <Space direction="vertical" size={2}>
+                    {partialErrors.map((failure) => (
+                      <span key={failure.domain_id}>
+                        {failure.network_domain_name}（{failure.domain_id}）：{failure.message}
+                      </span>
+                    ))}
+                  </Space>
+                }
+              />
+            )}
+
+            <Card
+              title="快照历史"
+              extra={
+                <Tooltip title="重新加载全部网域的快照">
+                  <Button icon={<ReloadOutlined />} onClick={reload}>
+                    刷新
+                  </Button>
+                </Tooltip>
+              }
+            >
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="快照由系统在配置变更后自动生成，按生成时间倒序展示；本页只读，不提供下发或回滚动作。"
+              />
+
+              <Space wrap style={{ marginBottom: 16 }}>
+                <Select
+                  allowClear
+                  placeholder="全部网域"
+                  style={{ minWidth: 200 }}
+                  loading={domainsLoading}
+                  value={domainFilter}
+                  onChange={(value: string | undefined) => {
+                    setDomainFilter(value)
+                    setPage(1)
+                  }}
+                  options={domains.map((d) => ({ value: d.id, label: d.name }))}
+                />
+                <Select<SnapshotStatusFilter>
+                  style={{ width: 150 }}
+                  value={statusFilter}
+                  onChange={(value) => {
+                    setStatusFilter(value)
+                    setPage(1)
+                  }}
+                  options={[
+                    { value: 'all', label: '全部校验状态' },
+                    { value: 'passed', label: '成功' },
+                    { value: 'failed', label: '失败' },
+                  ]}
+                />
+                <Input
+                  allowClear
+                  placeholder="搜索版本或校验值"
+                  style={{ width: 240 }}
+                  value={keyword}
+                  onChange={(event) => {
+                    setKeyword(event.target.value)
+                    setPage(1)
+                  }}
+                />
+              </Space>
+
+              <Table<ConfigSnapshotHistoryRow>
+                rowKey={(record) => `${record.network_domain_id}-${record.id}`}
+                size="small"
+                scroll={TABLE_SCROLL_X}
+                loading={loading}
+                dataSource={filteredRows}
+                columns={columns}
+                pagination={{
+                  ...TABLE_PAGINATION,
+                  current: currentPage,
+                  pageSize,
+                  total: filteredRows.length,
+                  onChange: (nextPage, nextPageSize) => {
+                    setPage(nextPage)
+                    setPageSize(nextPageSize)
+                  },
+                }}
+                onRow={(record) => ({
+                  onClick: () => openDetail(record),
+                  style: { cursor: 'pointer' },
+                })}
+                locale={{
+                  emptyText: loading ? (
+                    '加载中…'
+                  ) : domainError ? (
+                    <Empty description="网域列表加载失败，请稍后重试" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : rows.length > 0 ? (
+                    <Empty description="没有匹配的快照记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Empty description="暂无配置快照" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ),
+                }}
+              />
+            </Card>
+          </>
         )}
-      </Modal>
+
+        <SnapshotDetailDrawer
+          open={detailOpen}
+          snapshot={detail}
+          domainName={detail?.network_domain_name}
+          onClose={() => setDetailOpen(false)}
+        />
       </ConfigProvider>
     </MainLayout>
   )

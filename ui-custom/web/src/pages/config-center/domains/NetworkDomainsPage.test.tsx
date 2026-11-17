@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { NetworkDomainsPage } from './NetworkDomainsPage'
@@ -142,8 +142,10 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     renderPage()
     // 列头文案（Tooltip+Space 包裹会产生多处文本节点，用 findAllByText）
     expect((await screen.findAllByText('采集节点在线')).length).toBeGreaterThanOrEqual(1)
-    // 列头 Tooltip 存在（问号图标触发器）
-    expect(screen.getByRole('img', { name: 'question-circle' })).toBeInTheDocument()
+    // 列头 Tooltip 存在（问号图标触发器）；限定在「采集节点在线」列头内，
+    // 避免与 MainLayout 导航「使用引导」的同名图标冲突（全局 getByRole 会二义）。
+    const statusHeader = screen.getByRole('columnheader', { name: /采集节点在线/ })
+    expect(within(statusHeader).getByRole('img', { name: 'question-circle' })).toBeInTheDocument()
     // agent_pull + monitored_status → 状态 Tag（在线）+ 最后心跳相对时间
     expect(screen.getByText('在线')).toBeInTheDocument()
     expect(screen.getAllByText(/· .*(刚刚|分钟前|小时前|天前)/).length).toBeGreaterThanOrEqual(1)

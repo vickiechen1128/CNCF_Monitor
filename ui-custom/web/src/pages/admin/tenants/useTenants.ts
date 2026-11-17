@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { tenantAdminApi } from '../../../api/admin'
-import type { ItemsResult } from '../../../types/admin'
 import type { Tenant } from '../../../types/domain'
+import type { Paginated } from '../../../types/api'
 
 /** 租户列表筛选条件（契约 §3：status 可选） */
 export interface TenantFilters {
   status?: string
 }
 
-const EMPTY: ItemsResult<Tenant> = { items: [], total: 0 }
+const EMPTY: Paginated<Tenant> = { list: [], total: 0, page: 1, page_size: 20 }
 
 export interface UseTenantsResult {
-  data: ItemsResult<Tenant>
+  data: Paginated<Tenant>
   loading: boolean
   error: string | null
   filters: TenantFilters
@@ -21,10 +21,10 @@ export interface UseTenantsResult {
 
 /**
  * 租户列表数据 Hook：加载 / 按状态筛选 / 错误 / 重载。
- * 契约 §3：GET /tenants 返回 {items, total}（MVP 仅 platform_admin）。
+ * 契约 §3：GET /tenants 返回 v3 分页信封 {list, total, page, page_size}（MVP 仅 platform_admin）。
  */
 export function useTenants(): UseTenantsResult {
-  const [data, setData] = useState<ItemsResult<Tenant>>(EMPTY)
+  const [data, setData] = useState<Paginated<Tenant>>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFiltersState] = useState<TenantFilters>({})

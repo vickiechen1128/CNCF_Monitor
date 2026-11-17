@@ -91,12 +91,12 @@ beforeEach(() => {
     status: 'success',
     data: {
       list: [
-        { id: 101, name: '主机默认模板', resource_category: 'host', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        { id: 102, name: '数据库默认模板', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        { id: 103, name: '中间件默认模板', resource_category: 'middleware', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        { id: 104, name: '应用默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        { id: 105, name: '其他监控目标默认模板', resource_category: 'generic_target', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        { id: 106, name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-host-default', name: '主机默认模板', resource_category: 'host', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-db-default', name: '数据库默认模板', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-mw-default', name: '中间件默认模板', resource_category: 'middleware', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-app-default', name: '应用默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-gt-default', name: '其他监控目标默认模板', resource_category: 'generic_target', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        { id: 'lt-if-default', name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
       ],
       total: 6,
       page: 1,
@@ -274,9 +274,9 @@ describe('ScrapeJobFormDrawer', () => {
       status: 'success',
       data: {
         list: [
-          { id: 11, name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
-          { id: 12, name: '接口服务自定义模板', resource_category: 'interface_service', is_default: false, mappings: [], created_at: '', updated_at: '' },
-          { id: 21, name: '应用服务默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-if-1', name: '接口服务默认模板', resource_category: 'interface_service', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-if-2', name: '接口服务自定义模板', resource_category: 'interface_service', is_default: false, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-app-1', name: '应用服务默认模板', resource_category: 'application', is_default: true, mappings: [], created_at: '', updated_at: '' },
         ],
         total: 3,
         page: 1,
@@ -304,7 +304,7 @@ describe('ScrapeJobFormDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
-    expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('12')
+    expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('lt-if-2')
   })
 
   it('standard：不使用标签模板时提交空模板 ID 与资源类别', async () => {
@@ -313,7 +313,7 @@ describe('ScrapeJobFormDrawer', () => {
       status: 'success',
       data: {
         list: [
-          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-db-mysql', name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
         ],
         total: 1,
         page: 1,
@@ -464,7 +464,7 @@ describe('ScrapeJobFormDrawer', () => {
       status: 'success',
       data: {
         list: [
-          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-db-mysql', name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
           { id: 8, name: 'Linux 标签', resource_category: 'host', is_default: false, mappings: [], created_at: '', updated_at: '' },
         ],
         total: 2,
@@ -556,7 +556,7 @@ describe('ScrapeJobFormDrawer', () => {
       status: 'success',
       data: {
         list: [
-          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 'lt-db-mysql', name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
         ],
         total: 1,
         page: 1,
@@ -588,7 +588,7 @@ describe('ScrapeJobFormDrawer', () => {
       scheme: 'https',
       auth_type: 'none',
       tls_skip_verify: false,
-      label_template_id: '7',
+      label_template_id: 'lt-db-mysql',
     })
     // 采集参数（SCRAPE_PARAM_FIELDS）由 record 回显，而非被默认映射（99s）覆盖
     expect(await screen.findByDisplayValue('15s')).toBeInTheDocument()

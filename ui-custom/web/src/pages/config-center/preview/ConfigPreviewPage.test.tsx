@@ -1,418 +1,295 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
+import { setupAntdTest, mockAntdMessage } from '../../../test/antdTestUtils'
 import { ConfigPreviewPage } from './ConfigPreviewPage'
-import type { ConfigDraft } from '../../../types/config-center'
+import { ApiError } from '../../../api/client'
+import type { ConfigSnapshot, NetworkDomain } from '../../../types/config-center'
+import { shortChecksum } from '../../../utils/shortChecksum'
 
-// 决策 67-3：「前往修改」按来源分流跳转，此处捕获 navigate 目标断言路由
-const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }))
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>()
-  return { ...actual, useNavigate: () => navigateSpy }
+const { userState } = vi.hoisted(() => ({ userState: { role: 'admin' as string | undefined } }))
+
+vi.mock('../../../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/client')>()
+  return {
+    ...actual,
+    getStoredUser: () =>
+      userState.role
+        ? {
+            id: 'u1',
+            username: 'admin',
+            display_name: '系统管理员',
+            tenant_id: 'platform_admin',
+            role: userState.role,
+          }
+        : null,
+  }
 })
 
-const useConfigDraftsMock = vi.fn()
-const fetchMonitoredDomainsMock = vi.fn()
-const draftApiMock = {
-  list: vi.fn(),
-  get: vi.fn(),
-  confirm: vi.fn(),
-  discard: vi.fn(),
-  revalidate: vi.fn(),
-  discardImpact: vi.fn(),
-}
-const deploymentApiMock = {
-  getConfigVersion: vi.fn(),
-}
-const reloadMock = vi.fn()
-const setDomainIdMock = vi.fn()
-const setStatusMock = vi.fn()
+const useConfigSnapshotsMock = vi.fn()
+vi.mock('./useConfigSnapshots', () => ({
+  useConfigSnapshots: (...args: unknown[]) => useConfigSnapshotsMock(...args),
+  fetchMonitoredDomains: vi.fn(),
+}))
 
-vi.mock('./useConfigDrafts', () => ({
-  useConfigDrafts: (...a: unknown[]) => useConfigDraftsMock(...a),
-  fetchMonitoredDomains: (...a: unknown[]) => fetchMonitoredDomainsMock(...a),
-  ALL_DOMAINS_ID: '__all__',
-}))
+const snapshotGetMock = vi.fn()
+const snapshotContentMock = vi.fn()
 vi.mock('../../../api/configCenter', () => ({
-  configDraftApi: {
-    list: (...a: unknown[]) => draftApiMock.list(...a),
-    get: (...a: unknown[]) => draftApiMock.get(...a),
-    confirm: (...a: unknown[]) => draftApiMock.confirm(...a),
-    discard: (...a: unknown[]) => draftApiMock.discard(...a),
-    revalidate: (...a: unknown[]) => draftApiMock.revalidate(...a),
-    discardImpact: (...a: unknown[]) => draftApiMock.discardImpact(...a),
-  },
-  deploymentApi: {
-    getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
+  configSnapshotApi: {
+    list: vi.fn(),
+    get: (...args: unknown[]) => snapshotGetMock(...args),
+    content: (...args: unknown[]) => snapshotContentMock(...args),
   },
 }))
+
+const triggerBlobDownloadMock = vi.fn()
+vi.mock('../../../utils/triggerBlobDownload', () => ({
+  triggerBlobDownload: (...args: unknown[]) => triggerBlobDownloadMock(...args),
+}))
+
 vi.mock('antd/locale/zh_CN', () => ({ default: {} }))
 
-const draftRow = (over: Partial<ConfigDraft> = {}): ConfigDraft => ({
-  change_no: 'CHG-20260823-001',
-  network_domain_id: 'default',
-  network_domain_name: '默认域',
-  channel: 'local',
-  status: 'pending',
-  summary: '新增采集目标 app-biz-01',
-  risk: 'low',
-  affected_files: ['targets'],
+const reloadMock = vi.fn()
+const setDomainIdMock = vi.fn()
+
+const domain = (over: Partial<NetworkDomain> = {}): NetworkDomain =>
+  ({
+    id: 'mc-demo',
+    name: '演示域',
+    channel: 'agent_pull',
+    is_monitored: true,
+    domain_type: 'edge',
+    tenant_id: '',
+    ...over,
+  }) as NetworkDomain
+
+const snapshot = (over: Partial<ConfigSnapshot> = {}): ConfigSnapshot => ({
+  id: 42,
+  network_domain_id: 'mc-demo',
+  version: '20261111-0a1b',
+  checksum: 'sha256:deadbeef0123456789abcdef',
   validation_status: 'passed',
-  created_at: '2026-08-23T10:00:00Z',
-  source_version: '',
-  change_items: [
-    { id: 'c1', type: 'add', target: 'target_instance', description: '新增采集目标', affected_files: ['targets'], risk: 'low' },
-  ],
+  validation_cause: 'none',
+  validation_details: {},
+  is_current: true,
+  generated_by: 'system',
+  created_at: '2026-11-11T10:00:00Z',
   ...over,
 })
 
 function result(over: Record<string, unknown> = {}) {
   return {
-    data: { items: [] as ConfigDraft[], total: 0 },
+    snapshots: [] as ConfigSnapshot[],
+    total: 0,
     loading: false,
     error: null,
     permissionDenied: false,
-    domainId: undefined,
-    status: 'pending',
+    domains: [domain()],
+    domainsLoading: false,
+    domainError: false,
+    domainId: 'mc-demo',
     setDomainId: setDomainIdMock,
-    setStatus: setStatusMock,
-    page: 1,
-    pageSize: 20,
-    onPageSizeChange: vi.fn(),
     reload: reloadMock,
     ...over,
   }
 }
 
-function renderPage(initialEntries: string[] = ['/']) {
+function renderPage() {
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
+    <MemoryRouter>
       <ConfigPreviewPage />
     </MemoryRouter>,
   )
 }
 
-describe('ConfigPreviewPage（配置变更确认）', () => {
+describe('ConfigPreviewPage（配置快照）', () => {
   setupAntdTest()
 
   beforeEach(() => {
-    useConfigDraftsMock.mockReset()
-    draftApiMock.list.mockReset()
-    draftApiMock.get.mockReset()
-    draftApiMock.confirm.mockReset()
-    draftApiMock.discard.mockReset()
-    draftApiMock.revalidate.mockReset()
-    draftApiMock.discardImpact.mockReset()
-    deploymentApiMock.getConfigVersion.mockReset()
+    useConfigSnapshotsMock.mockReset()
+    snapshotGetMock.mockReset()
+    snapshotContentMock.mockReset()
+    triggerBlobDownloadMock.mockReset()
     reloadMock.mockReset()
     setDomainIdMock.mockReset()
-    setStatusMock.mockReset()
-    navigateSpy.mockReset()
-    fetchMonitoredDomainsMock.mockReset()
-    fetchMonitoredDomainsMock.mockResolvedValue([
-      { id: 'default', name: '默认域', channel: 'local', is_monitored: true },
-    ])
+    userState.role = 'admin'
   })
 
   it('加载中提示', () => {
-    useConfigDraftsMock.mockReturnValue(result({ loading: true }))
-    fetchMonitoredDomainsMock.mockResolvedValue([])
+    useConfigSnapshotsMock.mockReturnValue(result({ loading: true }))
     renderPage()
-    expect(screen.getByText('配置变更确认')).toBeInTheDocument()
+    expect(screen.getAllByText('配置快照').length).toBeGreaterThan(0)
     expect(screen.getByText(/加载中/)).toBeInTheDocument()
   })
 
-  it('渲染变更列表：变更单号 + 变更摘要 + 状态 + 风险/确认人生成时间', async () => {
-    useConfigDraftsMock.mockReturnValue(
-      result({ data: { items: [draftRow()], total: 1 } }),
+  it('渲染快照列表：版本 / 校验状态 / 当前版本 / 生成来源 / 校验值 / 生成时间', async () => {
+    useConfigSnapshotsMock.mockReturnValue(
+      result({
+        snapshots: [
+          snapshot(),
+          snapshot({
+            id: 41,
+            version: '20261110-x9y8',
+            checksum: 'sha256:00112233445566778899aabb',
+            validation_status: 'failed',
+            is_current: false,
+            generated_by: 'alertmanager',
+            created_at: '2026-11-10T09:30:00Z',
+          }),
+        ],
+        total: 2,
+      }),
     )
     renderPage()
-    expect(await screen.findByText('CHG-20260823-001')).toBeInTheDocument()
-    expect(screen.getByText(/新增采集目标 app-biz-01/)).toBeInTheDocument()
-    expect(screen.getAllByText('待确认')[0]).toBeInTheDocument()
-    expect(screen.getByText('低风险')).toBeInTheDocument()
+
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+    expect(screen.getByText('成功')).toBeInTheDocument()
+    expect(screen.getByText('失败')).toBeInTheDocument()
+    expect(screen.getByText('当前生效')).toBeInTheDocument()
+    expect(screen.getByText('系统自动生成')).toBeInTheDocument()
+    expect(screen.getByText('告警配置同步')).toBeInTheDocument()
+    expect(screen.getByText(shortChecksum(snapshot().checksum))).toBeInTheDocument()
   })
 
-  it('空态：无待确认变更', async () => {
-    useConfigDraftsMock.mockReturnValue(result())
+  it('空态：该网域暂无配置快照', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result())
     renderPage()
-    expect(await screen.findByText(/当前网域暂无配置变更/)).toBeInTheDocument()
+    expect(await screen.findByText('该网域暂无配置快照')).toBeInTheDocument()
+  })
+
+  it('空态：暂无已纳管网域', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result({ domains: [], domainId: undefined }))
+    renderPage()
+    expect(await screen.findByText(/暂无已纳管网域/)).toBeInTheDocument()
+  })
+
+  it('接口错误：Alert + 重新加载触发 reload', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result({ error: 'boom' }))
+    renderPage()
+    expect(await screen.findByText('快照列表加载失败，请稍后重试')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
+    expect(reloadMock).toHaveBeenCalled()
+  })
+
+  it('网域列表失败：展示提示并可重新加载', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result({ domainError: true, domains: [], domainId: undefined }))
+    renderPage()
+    expect(await screen.findByText('网域列表加载失败')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
+    expect(reloadMock).toHaveBeenCalled()
   })
 
   it('权限不足：显示权限不足空态', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ permissionDenied: true }))
+    useConfigSnapshotsMock.mockReturnValue(result({ permissionDenied: true }))
     renderPage()
     expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
-  it('接口错误：Alert + 重新加载触发 reload', async () => {
-    const res = result({ error: 'boom' })
-    useConfigDraftsMock.mockReturnValue(res)
-    renderPage()
-    expect(await screen.findByText('配置变更列表加载失败，请稍后重试')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
-    expect(res.reload).toHaveBeenCalled()
-  })
-
-  it('点击「详情」打开抽屉并加载详情', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ change_items: [] }) })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    expect(draftApiMock.get).toHaveBeenCalledWith('CHG-20260823-001')
-    expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
-  })
-
-  // 决策 69-③（决策 60 补充块）：M08 版本历史「M09 变更单」列跳入的 ?change_no= 深链，
-  // 落地即自动展开该变更单详情抽屉（无需在列表中找到该行）。
-  it('决策 69-③：?change_no= 深链落地即打开该变更单详情', async () => {
-    useConfigDraftsMock.mockReturnValue(result())
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ change_items: [] }) })
-    renderPage(['/config-preview?change_no=CHG-20260823-001'])
-    expect(draftApiMock.get).toHaveBeenCalledWith('CHG-20260823-001')
-    expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
-    // 深链只驱动「打开哪一单」，不改列表筛选状态（不触碰决策 60 的 M08/M09 职责边界）
-    expect(setStatusMock).not.toHaveBeenCalled()
-    expect(setDomainIdMock).not.toHaveBeenCalled()
-  })
-
-  it('确认发布：Modal 二次确认后调用 confirm 并 reload', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /确认发布/ }))
-    expect(modal.confirm).toHaveBeenCalled()
-    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
-    await onOk()
-    expect(draftApiMock.confirm).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
-  })
-
-  it('校验失败的草稿禁止确认并展示重新校验', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ validation_status: 'failed' }) })
-    draftApiMock.revalidate.mockResolvedValue({ status: 'success', data: { validation_status: 'passed' } })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
-    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(await screen.findByRole('button', { name: /重新校验/ }))
-    await waitFor(() => expect(draftApiMock.revalidate).toHaveBeenCalledWith('CHG-20260823-001'))
-  })
-
-  it('废弃变更：Modal 二次确认后调用 discard 并 reload', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
-    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
-    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
-    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
-    expect(modal.confirm).toHaveBeenCalled()
-    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
-    await onOk()
-    expect(draftApiMock.discard).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
-  })
-
-  // dev-feedback #44（2026-10-13 废弃联动）：含告警收敛配置（alertmanager.yml）的变更单，
-  // 废弃二次确认须同步告知告警配置侧终态——修复前只讲 ScrapeJob 影响，用户不知道
-  // 「已挂载未确认的 alertmanager.yml 将保持待确认」（id=18 遗留问题被误判为脏数据）。
-  it('含告警配置的变更单废弃：影响说明追加 alertmanager 终态与恢复路径', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    const amDraft = draftRow({
-      affected_files: ['alertmanager'],
-      change_items: [
-        { id: 'c1', type: 'update', target: 'alertmanager_config', description: '变更告警收敛配置 alertmanager.yml', affected_files: ['alertmanager'], risk: 'high' },
-      ],
-    })
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: amDraft })
-    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
-    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
-    expect(modal.confirm).toHaveBeenCalled()
-    const content = modal.confirm.mock.calls[0][0].content as React.ReactElement
-    render(content)
-    expect(screen.getByText(/已挂载但未确认下发的 alertmanager\.yml 将标记为「已废弃」/)).toBeInTheDocument()
-    expect(screen.getByText(/如需生效请重新挂载/)).toBeInTheDocument()
-  })
-
-  it('不含告警配置的变更单废弃：影响说明不出现 alertmanager 终态条目', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
-    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 1, modified_kept: 0, deleted_restored: 0, missing: 0 } })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
-    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
-    const content = modal.confirm.mock.calls[0][0].content as React.ReactElement
-    render(content)
-    expect(screen.queryByText(/alertmanager\.yml 将标记为「已废弃」/)).toBeNull()
-    expect(screen.getByText(/1 个新建未生效 Job 将回退为草稿/)).toBeInTheDocument()
-  })
-
-  it('校验失败态草稿仍可废弃：使用相同 change_no 调用 discardImpact + discard', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ validation_status: 'failed' }) })
-    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
-    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded', validation_status: 'failed' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
-    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
-    expect(modal.confirm).toHaveBeenCalled()
-    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
-    await onOk()
-    expect(draftApiMock.discard).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
-  })
-
-  it('MEDIUM-2 版本对比 Tab：有 source_version 时拉取源版本产物并做真实 diff', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' })], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
-      status: 'success',
-      data: draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' }),
-    })
-    deploymentApiMock.getConfigVersion.mockResolvedValue({
-      status: 'success',
-      data: { id: 'cv-1', network_domain_id: 'default', prometheus_yml: 'a: 2' },
-    })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-1'))
-    fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
-    // 源版本 prometheus.yml 为 'a: 2'，草稿为 'a: 1' → 出现 removed 'a: 2' 与 added 'a: 1'
-    expect(await screen.findByText(/- a: 2/)).toBeInTheDocument()
-    expect(screen.getByText(/\+ a: 1/)).toBeInTheDocument()
-    // 不再把空旧文本标成 spurious removed（diff 仅真实差异行）
-    expect(screen.queryByText('无历史版本可对比')).not.toBeInTheDocument()
-  })
-
-  it('MEDIUM-2 版本对比 Tab：无法拉取源版本产物时明确降级文案而非全量新增', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' })], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
-      status: 'success',
-      data: draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' }),
-    })
-    deploymentApiMock.getConfigVersion.mockRejectedValue(new Error('fetch failed'))
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-1'))
-    fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
-    expect(await screen.findByText('无历史版本可对比')).toBeInTheDocument()
-    expect(screen.getByText(/无法拉取源版本/)).toBeInTheDocument()
-  })
-
-  // 决策 44-2：旧单被新 pending 取代后，详情页提示「已被新变更单取代」。
-  it('已被取代的变更单详情页展示 superseded_by 提示', async () => {
-    const superseded = draftRow({
-      status: 'discarded',
-      metadata: {
-        source_data_version: 'v1',
-        trigger_summary: 'watcher',
-        checksum: 'abc',
-        generator_version: 'g1',
-        superseded_by_change_no: 'CHG-20260823-002',
-      },
-    })
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [superseded], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({ status: 'success', data: superseded })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    expect(await screen.findByText(/该变更单已被新变更单 CHG-20260823-002 取代/)).toBeInTheDocument()
-    expect(screen.getByText(/本单已自动废弃/)).toBeInTheDocument()
-  })
-
-  // 决策 45-1 / 45-3 修订：pending 且 platform_fault（如 promtool 不可用）——待校验禁确认，
-  // 但展示「重新校验」手动自愈出口（后端自动重试未落地，环境就绪后需手动重校），保留「废弃」。
-  it('pending+platform_fault 禁确认、展示重新校验、保留废弃', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
-      status: 'success',
-      data: draftRow({
-        validation_status: 'pending',
-        validation_cause: 'platform_fault',
-        validation_message: 'promtool 不可调用，待运维环境就绪后重校',
-      }),
-    })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
-    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /废弃变更/ })).toBeInTheDocument()
-    expect(await screen.findByText(/promtool 不可调用/)).toBeInTheDocument()
-  })
-
-  // 决策 45-1/45-3/45-4：failed + user_config ——展示「重新校验 + 前往修改 + 废弃」。
-  it('failed+user_config 展示重新校验与前往修改引导', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
-      status: 'success',
-      data: draftRow({
-        validation_status: 'failed',
-        validation_cause: 'user_config',
-        validation_message: 'targets 文件 a.json 非法: 禁止覆盖内置标签 "job"',
-        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
-      }),
-    })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
-    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /前往修改/ })).toBeInTheDocument()
-    // 结构化细节定位展示（全角冒号分隔 file 与 message）
-    expect(await screen.findByText(/a\.json\s*：\s*禁止覆盖内置标签/)).toBeInTheDocument()
-  })
-
-  // 决策 67-3：校验明细来源为「规则 job 引用」（source=rule）时，「前往修改」跳
-  // Module_01 规则编辑页（/rules），而非硬编码的采集 Job 页。
-  it('决策 67-3：source=rule 的「前往修改」跳 /rules', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
-      status: 'success',
-      data: draftRow({
-        validation_status: 'failed',
-        validation_cause: 'user_config',
-        validation_message: 'rules.yml 规则 job 引用校验未通过',
-        validation_details: [
-          { file: 'rules.yml', message: '规则 "HostDown" 引用的 job "miss" 不存在', source: 'rule' },
+  it('点击详情：按 v3 路径拉取详情，展示校验归因与 JSON 美化明细', async () => {
+    useConfigSnapshotsMock.mockReturnValue(
+      result({
+        snapshots: [
+          snapshot({
+            validation_status: 'failed',
+            validation_cause: 'user_config',
+            is_current: false,
+          }),
         ],
+        total: 1,
       }),
-    })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
-    expect(navigateSpy).toHaveBeenCalledWith('/rules')
-  })
-
-  // 决策 67-3：来源为采集 Job / targets（含旧数据缺省 source）时跳 /scrape-jobs。
-  it('决策 67-3：source=targets 与缺省旧数据均跳 /scrape-jobs', async () => {
-    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
-    draftApiMock.get.mockResolvedValue({
+    )
+    snapshotGetMock.mockResolvedValue({
       status: 'success',
-      data: draftRow({
+      data: snapshot({
         validation_status: 'failed',
         validation_cause: 'user_config',
-        validation_message: 'targets 文件 a.json 非法',
-        // 无 source：模拟决策 67-3 之前的旧数据，应按 scrape_job 回落
-        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
+        validation_details: { errors: [{ file: 'a.json', message: '禁止覆盖内置标签' }] },
+        is_current: false,
       }),
     })
     renderPage()
+
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
-    expect(navigateSpy).toHaveBeenCalledWith('/scrape-jobs')
+    expect(snapshotGetMock).toHaveBeenCalledWith('mc-demo', 42)
+    expect(await screen.findByText('快照详情：20261111-0a1b')).toBeInTheDocument()
+    expect(screen.getByText('用户配置问题')).toBeInTheDocument()
+    expect(await screen.findByText(/"message": "禁止覆盖内置标签"/)).toBeInTheDocument()
+  })
+
+  it('校验通过且明细为空对象：展示无明细空态', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock.mockResolvedValue({ status: 'success', data: snapshot() })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(await screen.findByText('校验通过，无明细')).toBeInTheDocument()
+  })
+
+  it('admin 下载快照内容：调用 content 并触发文件下载', async () => {
+    const antdMessage = mockAntdMessage()
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock.mockResolvedValue({ status: 'success', data: snapshot() })
+    snapshotContentMock.mockResolvedValue('prometheus_yml: |\n  scrape_interval: 15s\n')
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置内容/ }))
+
+    await waitFor(() => expect(snapshotContentMock).toHaveBeenCalledWith('mc-demo', 42))
+    expect(triggerBlobDownloadMock).toHaveBeenCalledWith(expect.any(Blob), '20261111-0a1b.json')
+    expect(antdMessage.success).toHaveBeenCalledWith('配置内容已开始下载')
+  })
+
+  it('非 admin 不展示内容下载按钮', async () => {
+    userState.role = 'user'
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock.mockResolvedValue({ status: 'success', data: snapshot() })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(await screen.findByText('快照详情：20261111-0a1b')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /下载配置内容/ })).not.toBeInTheDocument()
+  })
+
+  it('内容下载 403：提示需管理员权限，不触发下载', async () => {
+    const antdMessage = mockAntdMessage()
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock.mockResolvedValue({ status: 'success', data: snapshot() })
+    snapshotContentMock.mockRejectedValue(new ApiError('forbidden', 403, 'forbidden'))
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置内容/ }))
+
+    await waitFor(() => expect(antdMessage.error).toHaveBeenCalledWith('当前账号无下载配置内容的权限，请联系管理员开通'))
+    expect(triggerBlobDownloadMock).not.toHaveBeenCalled()
+  })
+
+  it('内容下载 401：提示登录过期，不触发下载', async () => {
+    const antdMessage = mockAntdMessage()
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock.mockResolvedValue({ status: 'success', data: snapshot() })
+    snapshotContentMock.mockRejectedValue(new ApiError('unauthorized', 401, 'unauthorized'))
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置内容/ }))
+
+    await waitFor(() => expect(antdMessage.error).toHaveBeenCalledWith('登录已过期，请重新登录后再下载'))
+    expect(triggerBlobDownloadMock).not.toHaveBeenCalled()
+  })
+
+  it('详情加载失败：展示错误 Alert 并可重试', async () => {
+    useConfigSnapshotsMock.mockReturnValue(result({ snapshots: [snapshot()], total: 1 }))
+    snapshotGetMock
+      .mockRejectedValueOnce(new Error('网络异常'))
+      .mockResolvedValueOnce({ status: 'success', data: snapshot({ version: 'retried-version' }) })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(await screen.findByText('快照详情加载失败')).toBeInTheDocument()
+    expect(screen.getByText('网络异常')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重试/ }))
+    await waitFor(() => expect(snapshotGetMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('快照详情：retried-version')).toBeInTheDocument()
   })
 })

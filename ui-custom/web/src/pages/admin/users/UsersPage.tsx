@@ -157,7 +157,7 @@ export function UsersPage() {
       dataIndex: 'last_login_at',
       key: 'last_login_at',
       width: 170,
-      render: (v: string) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—'),
+      render: (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—'),
     },
     {
       title: '创建时间',
@@ -259,7 +259,7 @@ export function UsersPage() {
 
           <Table<UserItem>
             rowKey="id"
-            dataSource={data.items}
+            dataSource={data.list}
             loading={loading}
             columns={columns}
             scroll={TABLE_SCROLL_X}

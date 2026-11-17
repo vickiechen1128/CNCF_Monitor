@@ -42,7 +42,7 @@ const tenantRow = (extra: Partial<Tenant> = {}): Tenant => ({
 
 function result(over: Record<string, unknown> = {}) {
   return {
-    data: { items: [] as Tenant[], total: 0 },
+    data: { list: [] as Tenant[], total: 0, page: 1, page_size: 20 },
     loading: false,
     error: null,
     filters: {},
@@ -79,7 +79,7 @@ describe('TenantsPage', () => {
   })
 
   it('renders tenant rows on success', async () => {
-    useTenantsMock.mockReturnValue(result({ data: { items: [tenantRow()], total: 1 } }))
+    useTenantsMock.mockReturnValue(result({ data: { list: [tenantRow()], total: 1, page: 1, page_size: 20 } }))
     renderPage()
     expect(await screen.findByText('系统平台租户')).toBeInTheDocument()
     expect(screen.getByText('platform_admin')).toBeInTheDocument()
@@ -100,7 +100,7 @@ describe('TenantsPage', () => {
   })
 
   it('has NO 新建租户 and NO 禁用 entry (view/edit only, MVP)', async () => {
-    useTenantsMock.mockReturnValue(result({ data: { items: [tenantRow()], total: 1 } }))
+    useTenantsMock.mockReturnValue(result({ data: { list: [tenantRow()], total: 1, page: 1, page_size: 20 } }))
     renderPage()
     expect(await screen.findByText('系统平台租户')).toBeInTheDocument()
     // 无新建入口

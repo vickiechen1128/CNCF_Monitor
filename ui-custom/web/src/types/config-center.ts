@@ -1,10 +1,11 @@
 /**
  * Module_09 网域与边缘配置中心 类型定义（config-center）。
- * 权威契约：docs/05-execution-records/module-09/api-contract-snapshot.md（第一权威）。
+ * 权威契约：docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md（第一权威）。
+ * v3 变更即自动同步，配置只读历史为「配置快照」；草稿 / 配置版本 / 下发记录类型已删除。
  * 字段名使用 snake_case 对齐后端 JSON；禁止反向以 platform/models/*.go 为实现依据。
  */
 
-/** M09 分页信封：本模块接口统一返回 `{ items, total }`（非 M06 的 `list`）。 */
+/** 页面归一化分页信封：网域列表把 v3 `{list,total}` 归一为 `{items,total}` 后供既有组件消费。 */
 export interface PaginatedItems<T> {
   items: T[]
   total: number
@@ -137,31 +138,17 @@ export interface ResetTokenResult {
   reset_at?: string
 }
 
-/** 草稿状态 */
+/**
+ * 草稿状态 / 下发前校验状态 / 风险等级 / 变更维度等 v2 枚举。
+ *
+ * v3 已删除草稿与下发机制（配置变更即自动同步），页面不再消费这些类型；
+ * 但 `configCenterConstants.ts` 仍导出对应展示映射，保留类型以维持该公共常量的编译，
+ * 待常量模块随 v3 一并收敛后删除。
+ */
 export type DraftStatus = 'pending' | 'confirmed' | 'discarded'
 
 /** 下发前校验状态 */
 export type DraftValidationStatus = 'passed' | 'failed' | 'pending' | 'rejected'
-
-/** 校验失败归因（决策 45-3） */
-export type DraftValidationCause = 'user_config' | 'platform_fault'
-
-/**
- * 校验问题来源（决策 67-3）：驱动「前往修改」按来源分流。
- * - rule：规则 job 引用问题 → Module_01 规则编辑页（/rules）；
- * - scrape_job / targets：采集 Job、prometheus.yml 外部校验、targets 实例 → /scrape-jobs。
- * 缺省（旧数据）按 scrape_job 回落。
- */
-export type ValidationSource = 'rule' | 'scrape_job' | 'targets'
-
-/** 结构化校验失败定位（对齐原型 validation_details） */
-export interface ValidationDetail {
-  file?: string
-  line?: number
-  message: string
-  /** 问题来源，驱动「前往修改」分流跳转（决策 67-3） */
-  source?: ValidationSource
-}
 
 /** 风险等级 */
 export type Risk = 'low' | 'high'
@@ -182,125 +169,44 @@ export type ChangeType = 'add' | 'update' | 'delete'
 /** 影响的配置文件（决策 60 追加 alertmanager） */
 export type AffectedFile = 'prometheus' | 'targets' | 'rules' | 'blackbox' | 'alertmanager'
 
-/** 结构化变更清单项 */
-export interface ConfigChangeItem {
-  id: string
-  type: ChangeType
-  target: ChangeTarget
-  description: string
-  affected_files: AffectedFile[]
-  risk: Risk
-}
-
-/** 技术信息（折叠展示，仅排障） */
-export interface ConfigDraftMetadata {
-  source_data_version: string
-  trigger_summary: string
-  checksum: string
-  generator_version: string
-  superseded_by_change_no?: string
-}
-
-/**
- * 配置草稿（变更单）。
- * 列表返回 DraftListItem；详情（GET /config-drafts/{change_no}）含产物与 change_items/metadata。
- */
-export interface ConfigDraft {
-  change_no: string
-  network_domain_id: string
-  network_domain_name?: string
-  channel: Channel
-  status: DraftStatus
-  summary: string
-  risk: Risk
-  affected_files: AffectedFile[]
-  validation_status: DraftValidationStatus
-  /** 校验失败/待校验的具体原因（PRD §3.5.1，重校验失败亦透传） */
-  validation_message?: string
-  /** 校验失败归因（user_config 用户配置可修复 / platform_fault 平台故障自动重试，决策 45-3） */
-  validation_cause?: DraftValidationCause
-  /** 结构化校验失败定位（对齐原型 validation_details） */
-  validation_details?: ValidationDetail[]
-  confirmed_by?: string
-  confirmed_at?: string
-  created_at: string
-  /** 基于哪个 ConfigVersion（版本对比 Tab） */
-  source_version?: string
-  prometheus_yml?: string
-  rules_yml?: string
-  blackbox_yml?: string
-  /** 告警配置产物（决策 60：仅管理域 default 变更单含 alertmanager.yml 时返回，多文件预览 Tab 用） */
-  alertmanager_yml?: string
-  targets_files?: Record<string, string>
-  metadata?: ConfigDraftMetadata
-  change_items?: ConfigChangeItem[]
-}
-
-/** 配置版本（确认后生成，含产物供 diff） */
-export interface ConfigVersion {
-  id: string
-  network_domain_id: string
-  draft_id?: string
-  change_no?: string
-  prometheus_yml?: string
-  rules_yml?: string
-  blackbox_yml?: string
-  alertmanager_yml?: string
-  targets_files?: Record<string, string>
-  created_at?: string
-}
-
-/** 下发记录状态 */
+/** 下发记录状态（v2 遗留；configCenterConstants 仍导出展示映射，v3 页面不再消费） */
 export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'rolled_back'
 
-/** 废弃配置草稿对源数据的影响统计（决策 43-7） */
-export interface DiscardImpact {
-  new_reverted: number
-  modified_kept: number
-  deleted_restored: number
-  missing: number
-}
+/** 配置快照校验状态（v3 契约 §4.1） */
+export type SnapshotValidationStatus = 'passed' | 'failed'
 
-/** 下发记录（ConfigDeployment） */
-export interface ConfigDeployment {
-  id: string
+/** 配置快照校验失败归因（v3 契约 §4.1；passed 快照为 none） */
+export type SnapshotValidationCause = 'user_config' | 'platform_fault' | 'none'
+
+/**
+ * 配置快照（v3 契约 §4.1）：v3 配置变更即自动同步，快照是自动生成的历史记录。
+ * 只读；不提供确认 / 重校 / 废弃 / 回滚动作。
+ */
+export interface ConfigSnapshot {
+  id: number
   network_domain_id: string
-  config_version_id: string
-  source_change_no: string
-  channel: Channel
-  status: DeploymentStatus
-  validation_status: DraftValidationStatus
-  includes_blackbox?: boolean
-  /** failed 时后端返回错误信息（前端 Tooltip） */
-  error_message?: string
-  triggered_by: string
-  /** 开始时间 */
-  triggered_at: string
-  completed_at?: string
+  version: string
+  checksum: string
+  validation_status: SnapshotValidationStatus
+  validation_cause: SnapshotValidationCause
+  /** 校验明细（后端 json.RawMessage，通常为对象，可能为空对象 {}） */
+  validation_details: unknown
+  /** 是否为该网域当前生效版本（每域仅一个 true） */
+  is_current: boolean
+  /** 生成来源，如 system / alertmanager */
+  generated_by: string
+  created_at: string
 }
 
-/** 版本轻量引用（回滚预览用） */
-export interface VersionRef {
-  id: string
-  change_no: string
+/** 单网域快照列表信封（v3 契约 §4.2，最新在前） */
+export interface ConfigSnapshotListResponse {
+  list: ConfigSnapshot[]
+  total: number
 }
 
-/** 回滚预览单条源数据操作差异 */
-export interface RollbackDiffItem {
-  side: 'target' | 'current' | 'both'
-  type: ChangeType
-  target: ChangeTarget
-  description: string
-  affected_files: AffectedFile[]
-  risk: Risk
-}
-
-/** 回滚确认前差异预览（决策 63 P0） */
-export interface RollbackPreview {
-  target_version: VersionRef
-  current_version?: VersionRef
-  diff_items: RollbackDiffItem[]
-  warning: string
+/** 快照历史页聚合行：v3 无全局快照列表，跨网域合并后附带网域名 */
+export interface ConfigSnapshotHistoryRow extends ConfigSnapshot {
+  network_domain_name: string
 }
 
 /**

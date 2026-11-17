@@ -10,6 +10,7 @@ export function isVacantDomain(d: NetworkDomain): boolean {
   // 运行态存在即非空域（normal/partial/offline 均表明已纳管监控；unknown 表示无节点数据）
   if (d.monitored_status && d.monitored_status !== 'unknown') return false
   if (d.agent_version) return false
-  if (d.channel === 'agent_pull' || d.token) return false
+  // 令牌字段在响应中始终脱敏（M06/M09），有掩码即代表曾下发过接入令牌。
+  if (d.channel === 'agent_pull' || d.token_masked) return false
   return true
 }

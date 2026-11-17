@@ -65,7 +65,16 @@ describe('UserFormModal', () => {
   })
 
   it('edit mode: hides username input and submits only display_name via update API', async () => {
-    renderEdit({ id: 'u1', username: 'ops01', display_name: '旧名', status: 'active', last_login_at: '', created_at: '' })
+    renderEdit({
+      id: 'u1',
+      tenant_id: 'platform_admin',
+      username: 'ops01',
+      display_name: '旧名',
+      role: 'user',
+      status: 'active',
+      last_login_at: null,
+      created_at: '',
+    })
     // 用户名只读展示，不可编辑
     expect(screen.queryByLabelText('用户名')).toBeNull()
     expect(screen.getByRole('textbox', { name: '' })).toBeTruthy()

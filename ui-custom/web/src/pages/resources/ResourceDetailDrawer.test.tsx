@@ -131,12 +131,11 @@ function hostRecord(): ResourceListItem {
 /** application 默认标签模板（含 app 映射，供冲突提示用例） */
 function defaultTemplate(extra: Partial<LabelTemplateListItem> = {}): LabelTemplateListItem {
   return {
-    id: 5,
+    id: 'lt-5',
     name: '应用默认模板',
     resource_category: 'application',
     is_default: true,
     mappings: [{ source_field: 'service_name', source_type: 'resource_field', target_label: 'app', enabled: true }],
-    instance_count: 3,
     created_at: '2026-08-21T00:00:00Z',
     updated_at: '2026-08-21T00:00:00Z',
     ...extra,

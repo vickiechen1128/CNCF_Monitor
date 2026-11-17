@@ -33,8 +33,8 @@ const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'a
  * 标签模板管理页（Module_07 §3.2/§11.1，L3 任务 T07-F7）。
  * 顶部五类资源 Tab + 「新增模板」（Drawer）承载左栏列表数据刷新；
  * 左栏 TemplateList 实现搜索 / 默认·自定义筛选 / 克隆 / 删除（T07-F7），点击卡片选中并联动右栏高亮；
- * 右栏模板详情三 Tab（映射明细 / 关联实例 / 被引用 Job）由 TemplateDetailTabs 实现（T07-F8），
- * 映射变更后回写选中模板并通知左栏刷新映射数 badge。
+ * 右栏模板详情双 Tab（映射明细 / 被引用 Job）由 TemplateDetailTabs 实现（T07-F8）；v3 模板不绑定
+ * 资源实例，故无「关联实例」Tab。映射变更后回写选中模板并通知左栏刷新映射数 badge。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function LabelTemplatesPage() {
@@ -43,7 +43,7 @@ export function LabelTemplatesPage() {
   const [saving, setSaving] = useState(false)
   /** 新增成功后自增，通知左栏列表重新加载（克隆/删除在列表内自行刷新） */
   const [reloadKey, setReloadKey] = useState(0)
-  /** 右栏当前选中模板（点击左栏卡片联动；含完整 mappings，供详情三 Tab 使用） */
+  /** 右栏当前选中模板（点击左栏卡片联动；含完整 mappings，供详情双 Tab 使用） */
   const [selectedTemplate, setSelectedTemplate] = useState<LabelTemplate | null>(null)
   const [form] = Form.useForm()
 

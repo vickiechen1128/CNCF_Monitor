@@ -29,23 +29,37 @@ vi.mock('../../../api/client', () => ({
     role: userStore.role,
   }),
 }))
+// 测试在根路由 / 下渲染，MainLayout 会拉取首页自定义大屏面板；
+// 本页只关心用户列表，mock 掉避免依赖未 mock 的 apiClient。
+// 用普通函数而非 vi.fn：setupAntdTest 的 afterEach 会 restoreAllMocks 清空实现。
+vi.mock('../../../api/dashboardPanels', () => ({
+  dashboardPanelApi: {
+    list: () =>
+      Promise.resolve({
+        status: 'success',
+        data: { list: [], total: 0, page: 1, page_size: 100 },
+      }),
+  },
+}))
 vi.mock('./useUsers', () => ({ useUsers: (...a: unknown[]) => useUsersMock(...a) }))
 vi.mock('./UserFormModal', () => ({ UserFormModal: () => null }))
 vi.mock('./ResetPasswordModal', () => ({ ResetPasswordModal: () => null }))
 
 const userRow = (id: string, username: string, extra: Partial<UserItem> = {}): UserItem => ({
   id,
+  tenant_id: 'platform_admin',
   username,
   display_name: username,
+  role: 'user',
   status: 'active',
-  last_login_at: '',
+  last_login_at: null,
   created_at: '2026-08-21T00:00:00Z',
   ...extra,
 })
 
 function result(over: Record<string, unknown> = {}) {
   return {
-    data: { items: [] as UserItem[], total: 0 },
+    data: { list: [] as UserItem[], total: 0, page: 1, page_size: 20 },
     loading: false,
     error: null,
     reload: reloadMock,
@@ -85,7 +99,7 @@ describe('UsersPage', () => {
 
   it('renders user rows on success', async () => {
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u1', 'ops01', { display_name: '运维一号' })], total: 1 } }),
+      result({ data: { list: [userRow('u1', 'ops01', { display_name: '运维一号' })], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     expect(await screen.findByText('ops01')).toBeInTheDocument()
@@ -110,7 +124,7 @@ describe('UsersPage', () => {
   it('disables user only after double-确认 Modal.confirm', async () => {
     const modal = mockAntdModal()
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u1', 'ops01')], total: 1 } }),
+      result({ data: { list: [userRow('u1', 'ops01')], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /禁用/ }))
@@ -125,7 +139,7 @@ describe('UsersPage', () => {
 
   it('does not allow disabling current logged-in user', async () => {
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u-current', 'admin')], total: 1 } }),
+      result({ data: { list: [userRow('u-current', 'admin')], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     const disableBtn = await screen.findByRole('button', { name: /禁用/ })
@@ -135,7 +149,7 @@ describe('UsersPage', () => {
   it('enables a disabled user directly without confirm', async () => {
     const modal = mockAntdModal()
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u1', 'ops01', { status: 'disabled' })], total: 1 } }),
+      result({ data: { list: [userRow('u1', 'ops01', { status: 'disabled' })], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /启用/ }))
@@ -146,7 +160,7 @@ describe('UsersPage', () => {
   it('deletes an ordinary user only after 确认 Modal.confirm', async () => {
     const modal = mockAntdModal()
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u2', 'ops02', { role: 'user' })], total: 1 } }),
+      result({ data: { list: [userRow('u2', 'ops02', { role: 'user' })], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /删除/ }))
@@ -161,7 +175,7 @@ describe('UsersPage', () => {
   it('hides management actions and 新建用户 for ordinary user（只读）', async () => {
     userStore.role = 'user'
     useUsersMock.mockReturnValue(
-      result({ data: { items: [userRow('u1', 'ops01', { display_name: '运维一号' })], total: 1 } }),
+      result({ data: { list: [userRow('u1', 'ops01', { display_name: '运维一号' })], total: 1, page: 1, page_size: 20 } }),
     )
     renderPage()
     expect(await screen.findByText('ops01')).toBeInTheDocument()

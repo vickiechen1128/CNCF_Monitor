@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { loginLogApi } from '../../../api/admin'
-import type { ItemsResult, LoginLogItem } from '../../../types/admin'
+import type { LoginLogItem } from '../../../types/admin'
+import type { Paginated } from '../../../types/api'
 
 /** 登录日志筛选条件（契约 §2：username / success 可选） */
 export interface LoginLogFilters {
@@ -8,10 +9,10 @@ export interface LoginLogFilters {
   success?: '' | 'true' | 'false'
 }
 
-const EMPTY: ItemsResult<LoginLogItem> = { items: [], total: 0 }
+const EMPTY: Paginated<LoginLogItem> = { list: [], total: 0, page: 1, page_size: 20 }
 
 export interface UseLoginLogsResult {
-  data: ItemsResult<LoginLogItem>
+  data: Paginated<LoginLogItem>
   loading: boolean
   error: string | null
   filters: LoginLogFilters
@@ -28,7 +29,7 @@ export interface UseLoginLogsResult {
  * 契约 §2：接口按时间倒序返回，前端不做二次排序；分页/筛选变更重置到第 1 页。
  */
 export function useLoginLogs(): UseLoginLogsResult {
-  const [data, setData] = useState<ItemsResult<LoginLogItem>>(EMPTY)
+  const [data, setData] = useState<Paginated<LoginLogItem>>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFiltersState] = useState<LoginLogFilters>({})

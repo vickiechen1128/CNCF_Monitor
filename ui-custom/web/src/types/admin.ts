@@ -1,6 +1,7 @@
 /**
- * 平台管理领域类型（对齐 module-06 Track B 增量契约快照 §2 用户 / §2 登录日志 / §3 租户）。
- * 参考 docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md。
+ * 平台管理领域类型（对齐 M06 v3 契约：用户 / 登录日志 / 租户）。
+ * 字段以 platform/modules/m06/dto/{user,login_log,tenant}.go 为准。
+ * 列表统一使用 v3 分页信封 `{list, total, page, page_size}`（见 types/api 的 Paginated）。
  */
 import type { Tenant } from './domain'
 
@@ -10,12 +11,15 @@ export type UserStatus = 'active' | 'disabled'
 /** 用户（任何接口字段不含 password_hash，契约 §2） */
 export interface UserItem {
   id: string
+  /** 所属租户（v3 UserResponse 恒返回） */
+  tenant_id: string
   username: string
   display_name: string
-  /** 角色：admin / user（决策 44 两级角色；后端恒返回，标记可选兼容旧 mock） */
-  role?: string
+  /** 角色：admin / user（决策 44 两级角色；v3 恒返回） */
+  role: string
   status: UserStatus
-  last_login_at: string
+  /** 最近登录时间；从未登录时后端返回 null */
+  last_login_at: string | null
   created_at: string
 }
 
@@ -24,7 +28,8 @@ export interface LoginLogItem {
   id: string
   username: string
   success: boolean
-  ip: string
+  /** 来源 IP（v3 `ip,omitempty`：可能缺省，渲染时按空值处理） */
+  ip?: string
   created_at: string
 }
 
@@ -36,7 +41,10 @@ export interface UserCreateInput {
   role: string
 }
 
-/** PUT /users/:id 编辑用户输入（username 创建后不可变；role 可选变更） */
+/**
+ * PUT /users/:id 编辑用户输入。
+ * v3 严格解码只接受 display_name / role；username、tenant_id、status、id 等不可变字段禁止夹带。
+ */
 export interface UserUpdateInput {
   display_name: string
   role?: string
@@ -47,17 +55,14 @@ export interface ResetPasswordInput {
   new_password: string
 }
 
-/** PUT /tenants/:id 编辑租户输入（仅展示名与行政字段） */
+/**
+ * PUT /tenants/:id 编辑租户输入（仅展示名与行政字段）。
+ * v3 严格解码只接受 name / multi_site_enabled；id、status、is_platform_admin 等禁止夹带。
+ */
 export interface TenantEditInput {
   name: string
   multi_site_enabled: boolean
 }
 
-/** 契约 §2/§3 的 {items, total} 分页信封（区别于 Paginated 的 {list,page,page_size} 旧信封） */
-export interface ItemsResult<T> {
-  items: T[]
-  total: number
-}
-
-/** 类型重导出：租户编辑页复用既有 Tenant 定义 */
+/** 类型重导出：租户编辑页复用既有 Tenant 定义（字段与 M06 v3 TenantResponse 对齐） */
 export type { Tenant }

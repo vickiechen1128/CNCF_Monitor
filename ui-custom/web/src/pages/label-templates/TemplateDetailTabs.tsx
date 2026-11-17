@@ -1,47 +1,25 @@
 /**
- * 标签模板右栏详情三 Tab（T07-F8，Module_07 §3.2 / §11.1）。
+ * 标签模板右栏详情双 Tab（T07-F8，Module_07 §3.2 / §11.1；v3 契约 §4.1）。
  *
  * Tab1 映射明细：按来源类型分组展示（composite / resource_field / 其他），
- *   「编辑」打开 MappingDrawer 批量增删改并统一保存；默认模板只读保护。
- * Tab2 关联实例：labelTemplateApi.resources 服务端分页（pageSize=10）+ 关键字搜索 + 状态筛选
- *   （MVP 阶段后端仅支持 page/page_size，搜索与状态筛选在前端对当前页过滤，见 §3.2 分页策略）；
- *   Tab 顶部隐式关联说明（§3.2）；空态「该类型下暂无实例」。
- * Tab3 被引用 Job：数据源为 Module_01 只读接口（GET /api/v1/scrape-jobs?label_template_id=，
+ *   「编辑」打开 MappingDrawer 批量增删改并统一保存（v3 走「GET 模板 → PUT 整模板」）；默认模板只读保护。
+ * Tab2 被引用 Job：数据源为 Module_01 只读接口（GET /api/v1/scrape-jobs?label_template_id=，
  *   §3.2 / §6.6.3）未实现，本阶段展示空态占位 + 说明文案，接 M01 后替换为表格渲染。
+ *
+ * v3 语义下模板不绑定资源实例（由 M01 Job / 默认映射引用），故移除 v2 的「关联实例」Tab。
  *
  * 映射保存后展示「保存后影响反馈」Alert（§3.2 / §11.2）：
  * 「本模板被 N 个采集 Job 引用，将按新映射重新生成标签；MVP 重新生成并立即生效；
- * 无版本回滚能力，修改立即生效」+「查看引用 Job」跳转 Tab3。
+ * 无版本回滚能力，修改立即生效」+「查看引用 Job」跳转 Tab2。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Divider,
-  Empty,
-  Input,
-  Select,
-  Skeleton,
-  Space,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
-} from 'antd'
+import { useMemo, useState } from 'react'
+import { Alert, Badge, Button, Card, Divider, Empty, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { EditOutlined, ReloadOutlined } from '@ant-design/icons'
-import { labelTemplateApi } from '../../api/labelTemplates'
+import { EditOutlined } from '@ant-design/icons'
 import { EllipsisText } from '../../components/EllipsisText'
-import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
-import type { LabelTemplate, Mapping, TemplateInstanceItem } from '../../types/label'
+import type { LabelTemplate, Mapping } from '../../types/label'
 import {
-  INSTANCE_LEVEL_CUSTOM_CATEGORIES,
-  INSTANCE_STATUS_MAP,
-  INSTANCE_STATUS_OPTIONS,
   RESOURCE_TYPE_MAP,
   SOURCE_TYPE_COLOR,
   SOURCE_TYPE_LABEL,
@@ -51,11 +29,8 @@ import MappingDrawer from './MappingDrawer'
 
 const { Text } = Typography
 
-/** 关联实例列表分页 pageSize（§11.1：pageSize=10） */
-const INSTANCE_PAGE_SIZE = 10
-
-/** 右栏 Tab key */
-type DetailTabKey = 'mappings' | 'instances' | 'jobs'
+/** 右栏 Tab key（v3 无「关联实例」Tab） */
+type DetailTabKey = 'mappings' | 'jobs'
 
 interface TemplateDetailTabsProps {
   /** 左栏选中的模板；null 时展示「请选择左侧模板查看详情」 */
@@ -73,8 +48,8 @@ interface GroupedMapping {
 }
 
 /**
- * 标签模板右栏详情三 Tab（T07-F8）。
- * 无选中模板时展示引导占位；选中后按模板 id 加载关联实例并支持映射增删改。
+ * 标签模板右栏详情双 Tab（T07-F8）。
+ * 无选中模板时展示引导占位；选中后支持映射增删改（整模板保存）。
  */
 export default function TemplateDetailTabs({
   template,
@@ -83,59 +58,19 @@ export default function TemplateDetailTabs({
 }: TemplateDetailTabsProps) {
   const templateId = template?.id ?? null
 
-  // 双场景治理边界（PRD §3.3/§5.2/§6.2）：仅允许实例级自定义的类别（application）展示「关联实例」，
-  // 静态资源实例级标签只读、无实例级能力，隐藏该 Tab（F-34）。
-  const canShowInstances = template != null && INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(template.resource_category)
-
   // 右栏 Tab / 映射抽屉 / 影响反馈 Alert
   const [detailTab, setDetailTab] = useState<DetailTabKey>('mappings')
   const [mappingDrawerOpen, setMappingDrawerOpen] = useState(false)
   const [impactVisible, setImpactVisible] = useState(false)
 
-  // 关联实例（服务端分页 + 前端搜索/状态过滤）
-  const [instances, setInstances] = useState<TemplateInstanceItem[]>([])
-  const [instanceTotal, setInstanceTotal] = useState(0)
-  const [instancesLoading, setInstancesLoading] = useState(false)
-  const [instancesError, setInstancesError] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
-  const [instanceSearch, setInstanceSearch] = useState('')
-  const [instanceStatus, setInstanceStatus] = useState('all')
-
   // 模板切换时重置右栏本地状态（渲染期间调整派生状态，React 官方推荐模式，避免 effect 双请求）
-  const [prevTemplateId, setPrevTemplateId] = useState<number | null>(templateId)
+  const [prevTemplateId, setPrevTemplateId] = useState<string | null>(templateId)
   if (prevTemplateId !== templateId) {
     setPrevTemplateId(templateId)
     setDetailTab('mappings')
     setMappingDrawerOpen(false)
     setImpactVisible(false)
-    setPage(1)
-    setInstanceSearch('')
-    setInstanceStatus('all')
-    setInstancesError(null)
   }
-
-  const loadInstances = useCallback(async (id: number, p: number) => {
-    setInstancesLoading(true)
-    setInstancesError(null)
-    try {
-      const res = await labelTemplateApi.resources(id, { page: p, page_size: INSTANCE_PAGE_SIZE })
-      setInstances(res.data.items)
-      setInstanceTotal(res.data.total)
-    } catch (e) {
-      setInstancesError(e instanceof Error ? e.message : '加载失败，请稍后重试')
-      setInstances([])
-      setInstanceTotal(0)
-    } finally {
-      setInstancesLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (templateId == null || !canShowInstances) return
-    // 数据请求回调内在异步完成后才 setState；沿用本模块既有抓取 effect 模式
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadInstances(templateId, page)
-  }, [templateId, page, loadInstances, canShowInstances])
 
   // ---------- 映射分组（Tab1） ----------
   const mappingGroups = useMemo<{ key: string; label: string; items: GroupedMapping[] }[]>(() => {
@@ -153,19 +88,6 @@ export default function TemplateDetailTabs({
       { key: 'others', label: `其他（${others.length}）`, items: others },
     ].filter((g) => g.items.length > 0)
   }, [template])
-
-  // 前端过滤后的关联实例（MVP：对当前服务端页过滤，§3.2 分页策略）
-  const displayedInstances = useMemo(() => {
-    const kw = instanceSearch.trim().toLowerCase()
-    return instances.filter((it) => {
-      if (instanceStatus !== 'all' && it.status !== instanceStatus) return false
-      if (!kw) return true
-      return (
-        (it.instance_name ?? '').toLowerCase().includes(kw) ||
-        (it.resource_id ?? '').toLowerCase().includes(kw)
-      )
-    })
-  }, [instances, instanceSearch, instanceStatus])
 
   // 整组映射统一保存成功后：刷新映射并展示影响反馈。
   const handleMappingsSaved = (mappings: Mapping[]) => {
@@ -210,40 +132,6 @@ export default function TemplateDetailTabs({
       key: 'enabled',
       render: (_, row) =>
         row.mapping.enabled ? <Badge status="success" text="启用" /> : <Badge status="default" text="禁用" />,
-    },
-  ]
-
-  const instanceColumns: TableProps<TemplateInstanceItem>['columns'] = [
-    {
-      title: '实例名',
-      dataIndex: 'instance_name',
-      key: 'instance_name',
-      render: (v: string, r) => (
-        <Text strong style={{ fontSize: 12 }}>
-          {v || r.resource_id}
-        </Text>
-      ),
-    },
-    {
-      title: '资源 ID',
-      dataIndex: 'resource_id',
-      key: 'resource_id',
-      render: (v: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {v}
-        </Text>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (v: string) => (
-        <Badge
-          status={v === 'online' ? 'success' : v === 'maintenance' ? 'warning' : 'default'}
-          text={INSTANCE_STATUS_MAP[v] ?? v}
-        />
-      ),
     },
   ]
 
@@ -363,90 +251,6 @@ export default function TemplateDetailTabs({
               </Space>
             ),
           },
-          ...(canShowInstances
-            ? [
-                {
-                  key: 'instances',
-                  label: `关联实例（${instanceTotal}）`,
-                  children: (
-                    <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                      <Text style={{ fontSize: 13 }}>
-                        本模板适用于「{RESOURCE_TYPE_MAP[template.resource_category]}」类型，该类型下所有{' '}
-                        <Text strong>{instanceTotal}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
-                        如需查看具体实例清单，请浏览下方列表。
-                      </Text>
-                      <FilterBar>
-                        <FilterItem label="搜索" width={360}>
-                          <Input.Search
-                            placeholder="搜索实例名 / 资源 ID"
-                            allowClear
-                            value={instanceSearch}
-                            onChange={(e) => {
-                              setInstanceSearch(e.target.value)
-                              setPage(1)
-                            }}
-                            style={{ width: 300 }}
-                          />
-                        </FilterItem>
-                        <FilterItem label="状态" width={240}>
-                          <Select
-                            placeholder="按状态筛选"
-                            allowClear
-                            style={{ width: 180 }}
-                            value={instanceStatus}
-                            onChange={(v) => {
-                              setInstanceStatus(v ?? 'all')
-                              setPage(1)
-                            }}
-                            options={INSTANCE_STATUS_OPTIONS}
-                          />
-                        </FilterItem>
-                      </FilterBar>
-                      {instancesError ? (
-                        <Alert
-                          type="error"
-                          showIcon
-                          message="关联实例加载失败，请稍后重试"
-                          description={instancesError}
-                          action={
-                            <Button
-                              size="small"
-                              icon={<ReloadOutlined />}
-                              onClick={() => {
-                                if (templateId != null) void loadInstances(templateId, page)
-                              }}
-                            >
-                              重新加载
-                            </Button>
-                          }
-                        />
-                      ) : instancesLoading && instances.length === 0 ? (
-                        <Skeleton active paragraph={{ rows: 4 }} />
-                      ) : instanceTotal === 0 ? (
-                        <Empty description="该类型下暂无实例" />
-                      ) : (
-                        <Table
-                          rowKey="resource_id"
-                          size="small"
-                          dataSource={displayedInstances}
-                          columns={instanceColumns}
-                          loading={instancesLoading}
-                          pagination={{
-                            current: page,
-                            pageSize: INSTANCE_PAGE_SIZE,
-                            total: instanceTotal,
-                            showSizeChanger: false,
-                            onChange: (p) => setPage(p),
-                          }}
-                          locale={{ emptyText: '无匹配实例' }}
-                          scroll={TABLE_SCROLL_X}
-                        />
-                      )}
-                    </Space>
-                  ),
-                },
-              ]
-            : []),
           {
             key: 'jobs',
             label: `被引用采集 Job（${referencingJobCount}）`,

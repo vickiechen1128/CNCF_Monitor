@@ -1,63 +1,82 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
+import { setupAntdTest, selectAntdOption } from '../../../test/antdTestUtils'
 import { DeploymentsPage } from './DeploymentsPage'
-import type { ConfigDeployment } from '../../../types/config-center'
+import type { ConfigSnapshotHistoryRow, NetworkDomain } from '../../../types/config-center'
+import { shortChecksum } from '../../../utils/shortChecksum'
 
-const useDeploymentsMock = vi.fn()
-const fetchAllDomainsMock = vi.fn()
-const deploymentApiMock = {
-  list: vi.fn(),
-  retry: vi.fn(),
-  rollback: vi.fn(),
-  rollbackPreview: vi.fn(),
-  getConfigVersion: vi.fn(),
-}
-const reloadMock = vi.fn()
-
-vi.mock('./useDeployments', () => ({
-  useDeployments: (...a: unknown[]) => useDeploymentsMock(...a),
-  fetchAllDomains: (...a: unknown[]) => fetchAllDomainsMock(...a),
+const useSnapshotHistoryMock = vi.fn()
+vi.mock('./useSnapshotHistory', () => ({
+  useSnapshotHistory: (...args: unknown[]) => useSnapshotHistoryMock(...args),
 }))
+
+vi.mock('../../../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/client')>()
+  return {
+    ...actual,
+    getStoredUser: () => ({
+      id: 'u1',
+      username: 'admin',
+      display_name: '系统管理员',
+      tenant_id: 'platform_admin',
+      role: 'admin',
+    }),
+  }
+})
+
+const snapshotGetMock = vi.fn()
+const snapshotContentMock = vi.fn()
 vi.mock('../../../api/configCenter', () => ({
-  deploymentApi: {
-    list: (...a: unknown[]) => deploymentApiMock.list(...a),
-    retry: (...a: unknown[]) => deploymentApiMock.retry(...a),
-    rollback: (...a: unknown[]) => deploymentApiMock.rollback(...a),
-    rollbackPreview: (...a: unknown[]) => deploymentApiMock.rollbackPreview(...a),
-    getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
+  configSnapshotApi: {
+    list: vi.fn(),
+    get: (...args: unknown[]) => snapshotGetMock(...args),
+    content: (...args: unknown[]) => snapshotContentMock(...args),
   },
 }))
+
+vi.mock('../../../utils/triggerBlobDownload', () => ({ triggerBlobDownload: vi.fn() }))
 vi.mock('antd/locale/zh_CN', () => ({ default: {} }))
 
-const deploymentRow = (over: Partial<ConfigDeployment> = {}): ConfigDeployment => ({
-  id: 'deploy-001',
-  network_domain_id: 'default',
-  config_version_id: 'cv-20260823-001',
-  source_change_no: 'CHG-20260823-001',
-  channel: 'local',
-  status: 'success',
+const reloadMock = vi.fn()
+
+const domain = (id: string, name: string): NetworkDomain =>
+  ({
+    id,
+    name,
+    channel: 'agent_pull',
+    is_monitored: true,
+    domain_type: 'edge',
+    tenant_id: '',
+  }) as NetworkDomain
+
+const row = (over: Partial<ConfigSnapshotHistoryRow> = {}): ConfigSnapshotHistoryRow => ({
+  id: 42,
+  network_domain_id: 'mc-demo',
+  network_domain_name: '演示域',
+  version: '20261111-0a1b',
+  checksum: 'sha256:deadbeef0123456789abcdef',
   validation_status: 'passed',
-  includes_blackbox: false,
-  triggered_by: '张伟（运维）',
-  triggered_at: '2026-08-23T10:00:00Z',
-  completed_at: '2026-08-23T10:00:05Z',
+  validation_cause: 'none',
+  validation_details: {},
+  is_current: true,
+  generated_by: 'system',
+  created_at: '2026-11-11T10:00:00Z',
   ...over,
 })
 
 function result(over: Record<string, unknown> = {}) {
   return {
-    data: { items: [] as ConfigDeployment[], total: 0 },
+    rows: [] as ConfigSnapshotHistoryRow[],
     loading: false,
     error: null,
     permissionDenied: false,
-    page: 1,
-    pageSize: 20,
-    onPageSizeChange: vi.fn(),
+    partialErrors: [],
+    domains: [domain('mc-demo', '演示域')],
+    domainsLoading: false,
+    domainError: false,
     reload: reloadMock,
-    locChangeNo: undefined,
-    locDomain: undefined,
     ...over,
   }
 }
@@ -70,256 +89,225 @@ function renderPage() {
   )
 }
 
-describe('DeploymentsPage（下发记录）', () => {
+describe('DeploymentsPage（快照历史）', () => {
   setupAntdTest()
 
   beforeEach(() => {
-    useDeploymentsMock.mockReset()
-    deploymentApiMock.list.mockReset()
-    deploymentApiMock.retry.mockReset()
-    deploymentApiMock.rollback.mockReset()
-    deploymentApiMock.rollbackPreview.mockReset()
-    deploymentApiMock.getConfigVersion.mockReset()
+    useSnapshotHistoryMock.mockReset()
+    snapshotGetMock.mockReset()
+    snapshotContentMock.mockReset()
     reloadMock.mockReset()
-    fetchAllDomainsMock.mockReset()
-    fetchAllDomainsMock.mockResolvedValue([{ id: 'default', name: '默认域' }])
   })
 
   it('加载中提示', () => {
-    useDeploymentsMock.mockReturnValue(result({ loading: true }))
-    fetchAllDomainsMock.mockResolvedValue([])
+    useSnapshotHistoryMock.mockReturnValue(result({ loading: true }))
     renderPage()
-    expect(screen.getByText('配置发布与回滚记录')).toBeInTheDocument()
-    expect(screen.getByText(/加载中/)).toBeInTheDocument()
+    expect(screen.getAllByText('快照历史').length).toBeGreaterThan(0)
+    expect(screen.getByText('加载中…')).toBeInTheDocument()
   })
 
-  it('渲染下发列表：部署 ID + 网域 + 通道 + 版本 + 来源变更单号 + 状态', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    renderPage()
-    expect(await screen.findByText('deploy-001')).toBeInTheDocument()
-    expect(screen.getByText('默认域')).toBeInTheDocument()
-    expect(screen.getByText('local')).toBeInTheDocument()
-    expect(screen.getByText('cv-20260823-001')).toBeInTheDocument()
-    expect(screen.getByText('CHG-20260823-001')).toBeInTheDocument()
-    expect(screen.getByText('成功')).toBeInTheDocument()
-  })
-
-  it('failed 记录带错误 Tooltip：local 展示「重试」按钮，agent_pull 不展示', async () => {
-    useDeploymentsMock.mockReturnValue(
+  it('渲染聚合快照：网域 / 版本 / 校验状态 / 当前版本 / 生成来源 / 校验值', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
       result({
-        data: {
-          items: [
-            deploymentRow({ id: 'deploy-local', status: 'failed', channel: 'local', error_message: '写盘失败' }),
-            deploymentRow({ id: 'deploy-agent', status: 'failed', channel: 'agent_pull', error_message: '平台故障' }),
-          ],
-          total: 2,
-        },
+        rows: [
+          row(),
+          row({
+            id: 41,
+            network_domain_id: 'mc-edge',
+            network_domain_name: '边缘域',
+            version: '20261110-x9y8',
+            checksum: 'sha256:00112233445566778899aabb',
+            validation_status: 'failed',
+            is_current: false,
+            generated_by: 'alertmanager',
+          }),
+        ],
+        domains: [domain('mc-demo', '演示域'), domain('mc-edge', '边缘域')],
       }),
     )
     renderPage()
-    expect(await screen.findByText('deploy-local')).toBeInTheDocument()
-    // local failed 行有「重试」按钮；agent_pull 行没有
-    expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
-    const deployAgentRow = screen.getByText('deploy-agent').closest('tr')
-    expect(deployAgentRow).not.toBeNull()
+
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+    expect(screen.getAllByText('演示域').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('边缘域').length).toBeGreaterThan(0)
+    expect(screen.getByText('成功')).toBeInTheDocument()
+    expect(screen.getByText('失败')).toBeInTheDocument()
+    expect(screen.getByText('当前生效')).toBeInTheDocument()
+    expect(screen.getByText('告警配置同步')).toBeInTheDocument()
+    expect(screen.getByText(shortChecksum('sha256:deadbeef0123456789abcdef'))).toBeInTheDocument()
   })
 
-  it('空态：暂无下发记录', async () => {
-    useDeploymentsMock.mockReturnValue(result())
+  it('空态：暂无配置快照', async () => {
+    useSnapshotHistoryMock.mockReturnValue(result())
     renderPage()
-    expect(await screen.findByText('暂无下发记录')).toBeInTheDocument()
+    expect(await screen.findByText('暂无配置快照')).toBeInTheDocument()
   })
 
-  it('接口错误展示错误 Alert，重试触发 reload', async () => {
-    useDeploymentsMock.mockReturnValue(result({ error: '接口异常' }))
+  it('按网域筛选：仅保留所选网域的行', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
+      result({
+        rows: [
+          row(),
+          row({
+            id: 41,
+            network_domain_id: 'mc-edge',
+            network_domain_name: '边缘域',
+            version: '20261110-x9y8',
+            created_at: '2026-11-10T10:00:00Z',
+          }),
+        ],
+        domains: [domain('mc-demo', '演示域'), domain('mc-edge', '边缘域')],
+      }),
+    )
+    const user = userEvent.setup()
     renderPage()
-    expect(await screen.findByText('下发记录加载失败')).toBeInTheDocument()
-    // antd Button 会在两个汉字间插入空格（「重 试」），比对时忽略空白
-    const retryBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '重试')
-    expect(retryBtn).toBeDefined()
-    fireEvent.click(retryBtn as HTMLElement)
+    expect(await screen.findByText('20261110-x9y8')).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('combobox')[0])
+    await selectAntdOption(
+      '边缘域',
+      document.querySelector('.ant-select-dropdown') as HTMLElement,
+    )
+
+    await waitFor(() => expect(screen.queryByText('20261111-0a1b')).not.toBeInTheDocument())
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+  })
+
+  it('按校验状态筛选：仅保留失败快照', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
+      result({
+        rows: [
+          row(),
+          row({
+            id: 41,
+            version: '20261110-x9y8',
+            validation_status: 'failed',
+            is_current: false,
+            created_at: '2026-11-10T10:00:00Z',
+          }),
+        ],
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('combobox')[1])
+    await selectAntdOption(
+      '失败',
+      document.querySelector('.ant-select-dropdown') as HTMLElement,
+    )
+
+    await waitFor(() => expect(screen.queryByText('20261111-0a1b')).not.toBeInTheDocument())
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+  })
+
+  it('关键字筛选：命中版本或校验值，未命中展示无匹配提示', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
+      result({
+        rows: [
+          row(),
+          row({
+            id: 41,
+            version: '20261110-x9y8',
+            checksum: 'sha256:00112233445566778899aabb',
+            created_at: '2026-11-10T10:00:00Z',
+          }),
+        ],
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+
+    const input = screen.getByPlaceholderText('搜索版本或校验值')
+    fireEvent.change(input, { target: { value: 'x9y8' } })
+    await waitFor(() => expect(screen.queryByText('20261111-0a1b')).not.toBeInTheDocument())
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: '00112233' } })
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'no-such-snapshot' } })
+    expect(await screen.findByText('没有匹配的快照记录')).toBeInTheDocument()
+  })
+
+  it('部分网域失败：提示条列出失败域，其余行正常展示', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
+      result({
+        rows: [row()],
+        domains: [domain('mc-demo', '演示域'), domain('mc-fail', '故障域')],
+        partialErrors: [
+          { domain_id: 'mc-fail', network_domain_name: '故障域', message: '请求超时' },
+        ],
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('部分网域快照加载失败（1 个）')).toBeInTheDocument()
+    expect(screen.getByText(/故障域（mc-fail）：请求超时/)).toBeInTheDocument()
+    expect(screen.getByText('20261111-0a1b')).toBeInTheDocument()
+  })
+
+  it('接口错误：Alert + 重试触发 reload', async () => {
+    useSnapshotHistoryMock.mockReturnValue(result({ error: '接口异常' }))
+    renderPage()
+    expect(await screen.findByText('快照历史加载失败')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }))
     expect(reloadMock).toHaveBeenCalled()
   })
 
-  it('权限不足展示警告 Alert', async () => {
-    useDeploymentsMock.mockReturnValue(result({ permissionDenied: true }))
+  it('权限不足：显示权限不足空态', async () => {
+    useSnapshotHistoryMock.mockReturnValue(result({ permissionDenied: true }))
     renderPage()
-    expect(await screen.findByText('权限不足')).toBeInTheDocument()
+    expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
-  it('定位参数：change_no + network_domain 展示定位 Alert', async () => {
-    useDeploymentsMock.mockReturnValue(result({ locChangeNo: 'CHG-20260823-001', locDomain: 'default' }))
-    renderPage()
-    expect(await screen.findByText(/当前定位：变更单 CHG-20260823-001/)).toBeInTheDocument()
-    expect(screen.getByText(/列表已按该变更单过滤/)).toBeInTheDocument()
-  })
-
-  it('详情抽屉：点击详情展示 Deployment Descriptions 字段', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /查看详情/ }))
-    expect(await screen.findByText('下发记录详情：deploy-001')).toBeInTheDocument()
-    expect(screen.getByText('操作人')).toBeInTheDocument()
-  })
-
-  it('回滚：受控 Modal 展示差异预览，确认后调用 rollback 并 reload', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    deploymentApiMock.rollbackPreview.mockResolvedValue({
-      status: 'success',
-      data: {
-        target_version: { id: 'cv-20260823-001', change_no: 'CHG-20260823-001' },
-        current_version: { id: 'cv-20260823-000', change_no: 'CHG-20260823-000' },
-        diff_items: [
-          {
-            side: 'target',
-            type: 'add',
-            target: 'scrape_job',
-            description: '新增采集 Job node-exporter',
-            affected_files: ['prometheus', 'targets'],
-            risk: 'low',
-          },
-        ],
-        warning: '回滚不恢复 M01/M08 中的启停状态',
-      },
-    })
-    deploymentApiMock.rollback.mockResolvedValue({ status: 'success', data: deploymentRow() })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
-    expect(await screen.findByText('回滚配置')).toBeInTheDocument()
-    // 差异预览加载后展示清单内容
-    expect(await screen.findByText('新增采集 Job node-exporter')).toBeInTheDocument()
-    expect(screen.getByText('回滚不恢复 M01/M08 中的启停状态')).toBeInTheDocument()
-    // 点击确认回滚
-    const okBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '确认回滚')
-    expect(okBtn).toBeDefined()
-    fireEvent.click(okBtn as HTMLElement)
-    await waitFor(() => expect(deploymentApiMock.rollback).toHaveBeenCalledWith('cv-20260823-001', expect.any(String)))
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
-  })
-
-  it('回滚确认弹窗文案指向所选版本（PRD §3.5：不出现「上一可用版本」误导表述）', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    deploymentApiMock.rollbackPreview.mockResolvedValue({
-      status: 'success',
-      data: {
-        target_version: { id: 'cv-20260823-001', change_no: 'CHG-20260823-001' },
-        current_version: null,
-        diff_items: [],
-        warning: '回滚不恢复 M01/M08 中的启停状态',
-      },
-    })
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
-    expect(await screen.findByText('回滚配置')).toBeInTheDocument()
-    expect(document.body.textContent).toContain('回滚到所选版本')
-    expect(document.body.textContent).toContain('cv-20260823-001')
-    expect(document.body.textContent).toContain('CHG-20260823-001')
-    expect(document.body.textContent).not.toContain('上一可用配置版本')
-  })
-
-  it('rolled_back 记录渲染「已回滚」标签且回滚按钮可点（PRD §8：可再次作为回滚目标）', async () => {
-    useDeploymentsMock.mockReturnValue(
-      result({
-        data: {
-          items: [
-            deploymentRow({ id: 'deploy-rb', status: 'rolled_back' }),
-            deploymentRow({ id: 'deploy-ok', status: 'success' }),
-          ],
-          total: 2,
-        },
+  it('前端分页：20 条/页，可翻到第二页', async () => {
+    const rows = Array.from({ length: 21 }, (_, index) =>
+      row({
+        id: 100 + index,
+        version: `version-${String(index + 1).padStart(2, '0')}`,
+        checksum: `sha256:${String(index).padStart(8, '0')}abcdefgh`,
+        created_at: `2026-11-${String(21 - index).padStart(2, '0')}T10:00:00Z`,
       }),
     )
+    useSnapshotHistoryMock.mockReturnValue(result({ rows }))
     renderPage()
-    expect(await screen.findByText('已回滚')).toBeInTheDocument()
-    // rolled_back 行回滚按钮可用
-    const rbRow = screen.getByText('deploy-rb').closest('tr') as HTMLElement
-    const rbBtn = Array.from(rbRow.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
-    expect(rbBtn).toBeDefined()
-    expect(rbBtn).not.toBeDisabled()
-    // success 行同样可点；failed/pending 禁用
-    const okRow = screen.getByText('deploy-ok').closest('tr') as HTMLElement
-    const okBtn = Array.from(okRow.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
-    expect(okBtn).not.toBeDisabled()
+
+    expect(await screen.findByText('version-01')).toBeInTheDocument()
+    expect(screen.queryByText('version-21')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('2'))
+    expect(await screen.findByText('version-21')).toBeInTheDocument()
+    expect(screen.queryByText('version-01')).not.toBeInTheDocument()
   })
 
-  it('failed / pending 记录回滚按钮保持禁用', async () => {
-    useDeploymentsMock.mockReturnValue(
-      result({
-        data: {
-          items: [
-            deploymentRow({ id: 'deploy-failed', status: 'failed', error_message: '写盘失败' }),
-            deploymentRow({ id: 'deploy-pending', status: 'pending' }),
-          ],
-          total: 2,
-        },
-      }),
+  it('详情抽屉：可查看失败快照的校验归因与明细', async () => {
+    useSnapshotHistoryMock.mockReturnValue(
+      result({ rows: [row({ validation_status: 'failed', validation_cause: 'platform_fault' })] }),
     )
-    renderPage()
-    expect(await screen.findByText('deploy-failed')).toBeInTheDocument()
-    for (const id of ['deploy-failed', 'deploy-pending']) {
-      const row = screen.getByText(id).closest('tr') as HTMLElement
-      const btn = Array.from(row.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
-      expect(btn).toBeDisabled()
-    }
-  })
-
-  it('详情抽屉「查看版本配置」：展开时懒加载并按文件分 Tab 只读展示', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    deploymentApiMock.getConfigVersion.mockResolvedValue({
+    snapshotGetMock.mockResolvedValue({
       status: 'success',
-      data: {
-        id: 'cv-20260823-001',
-        network_domain_id: 'default',
-        prometheus_yml: 'global:\n  scrape_interval: 15s\n',
-        rules_yml: 'groups: []\n',
-        targets_files: { 'node-exporter.json': '[{"targets":["1.2.3.4:9100"]}]' },
-      },
+      data: row({
+        validation_status: 'failed',
+        validation_cause: 'platform_fault',
+        validation_details: { message: 'promtool 不可调用' },
+      }),
     })
     renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /查看详情/ }))
-    expect(await screen.findByText('下发记录详情：deploy-001')).toBeInTheDocument()
-    // 展开前不调用（懒加载）
-    expect(deploymentApiMock.getConfigVersion).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByText(/查看版本配置/))
-    await waitFor(() =>
-      expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-20260823-001'),
-    )
-    expect(await screen.findByText(/scrape_interval: 15s/)).toBeInTheDocument()
-    expect(screen.getByText('rules.yml')).toBeInTheDocument()
-    expect(screen.getByText('targets/*.json')).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(snapshotGetMock).toHaveBeenCalledWith('mc-demo', 42)
+    expect(await screen.findByText('快照详情：20261111-0a1b')).toBeInTheDocument()
+    expect(screen.getByText('平台故障')).toBeInTheDocument()
+    expect(await screen.findByText(/"message": "promtool 不可调用"/)).toBeInTheDocument()
   })
 
-  it('详情抽屉「查看版本配置」加载失败展示错误态，可重试', async () => {
-    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    deploymentApiMock.getConfigVersion
-      .mockRejectedValueOnce(new Error('网络异常'))
-      .mockResolvedValueOnce({
-        status: 'success',
-        data: { id: 'cv-20260823-001', network_domain_id: 'default', prometheus_yml: 'global: {}\n' },
-      })
+  it('只读页面：无回滚 / 重试 / 下发动作', async () => {
+    useSnapshotHistoryMock.mockReturnValue(result({ rows: [row()] }))
     renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /查看详情/ }))
-    fireEvent.click(await screen.findByText(/查看版本配置/))
-    expect(await screen.findByText('版本配置加载失败')).toBeInTheDocument()
-    expect(screen.getByText('网络异常')).toBeInTheDocument()
-    // 错误态重试（抽屉内唯一的「重试」按钮）
-    const retryBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '重试')
-    fireEvent.click(retryBtn as HTMLElement)
-    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText(/global: \{\}/)).toBeInTheDocument()
-  })
-
-  it('重试：local failed 行 Modal 二次确认后调用 retry 并 reload', async () => {
-    useDeploymentsMock.mockReturnValue(
-      result({ data: { items: [deploymentRow({ status: 'failed', channel: 'local', error_message: '写盘失败' })], total: 1 } }),
-    )
-    deploymentApiMock.retry.mockResolvedValue({ status: 'success', data: deploymentRow({ status: 'success' }) })
-    const modal = mockAntdModal()
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /重试/ }))
-    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
-    await onOk()
-    expect(deploymentApiMock.retry).toHaveBeenCalledWith('deploy-001', expect.any(String))
-    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /回滚/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /下发/ })).not.toBeInTheDocument()
   })
 })

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { labelTemplateApi } from './labelTemplates'
+import type { LabelTemplate, Mapping } from '../types/label'
 
-describe('labelTemplateApi', () => {
+const BASE = '/api/v3/platform/label-templates'
+
+describe('labelTemplateApi (v3)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -10,50 +13,73 @@ describe('labelTemplateApi', () => {
     vi.unstubAllGlobals()
   })
 
-  function mockFetch(body: unknown, init: ResponseInit = {}) {
-    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-        ...init,
-      }),
-    )
+  function fetchMock() {
+    return globalThis.fetch as ReturnType<typeof vi.fn>
   }
 
-  function lastFetchCall() {
-    return (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+  function jsonResponse(body: unknown, init: ResponseInit = {}) {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    })
   }
 
-  function lastUrlInstance(): URL {
-    return new URL(String(lastFetchCall()[0]))
+  /** 按顺序压入多次请求响应（v3 映射写操作 = GET 模板 + PUT 整模板） */
+  function mockFetchSequence(...bodies: unknown[]) {
+    bodies.forEach((body) => fetchMock().mockResolvedValueOnce(jsonResponse(body)))
+    return fetchMock()
   }
 
-  function lastInitBody(): unknown {
-    const text = String(lastFetchCall()[1]?.body ?? '')
+  function success<T>(data: T) {
+    return { status: 'success', data }
+  }
+
+  function nthFetchCall(index: number) {
+    return fetchMock().mock.calls[index]
+  }
+
+  function nthUrl(index: number): URL {
+    return new URL(String(nthFetchCall(index)[0]))
+  }
+
+  function nthInitBody(index: number): unknown {
+    const text = String(nthFetchCall(index)[1]?.body ?? '')
     return text ? JSON.parse(text) : undefined
   }
 
-  it('list hits /api/v2/platform/label-templates and sends all filter params', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        list: [
-          {
-            id: 1,
-            name: '主机默认模板',
-            resource_category: 'host',
-            is_default: true,
-            mappings: [],
-            instance_count: 3,
-            created_at: '2026-08-21T00:00:00Z',
-            updated_at: '2026-08-21T00:00:00Z',
-          },
-        ],
+  function mapping(over: Partial<Mapping> = {}): Mapping {
+    return {
+      source_field: 'app_code',
+      source_type: 'resource_field',
+      target_label: 'app',
+      enabled: true,
+      ...over,
+    }
+  }
+
+  function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
+    return {
+      id: 'lt-1',
+      name: '主机默认模板',
+      resource_category: 'host',
+      is_default: false,
+      mappings: [],
+      created_at: '2026-11-16T10:00:00Z',
+      updated_at: '2026-11-16T10:00:00Z',
+      ...over,
+    }
+  }
+
+  it('list hits /api/v3/platform/label-templates and sends all filter params', async () => {
+    mockFetchSequence(
+      success({
+        list: [template({ id: 'lt-host-1', name: '主机默认模板', is_default: true })],
         total: 1,
         page: 1,
         page_size: 50,
-      },
-    })
+      }),
+    )
 
     const res = await labelTemplateApi.list({
       resource_category: 'host',
@@ -63,203 +89,237 @@ describe('labelTemplateApi', () => {
       page_size: 50,
     })
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates')
-    expect(lastFetchCall()[1]?.method).toBe('GET')
+    const url = nthUrl(0)
+    expect(url.pathname).toBe(BASE)
+    expect(nthFetchCall(0)[1]?.method).toBe('GET')
     expect(url.searchParams.get('resource_category')).toBe('host')
     expect(url.searchParams.get('is_default')).toBe('true')
     expect(url.searchParams.get('keyword')).toBe('主机')
     expect(url.searchParams.get('page')).toBe('1')
     expect(url.searchParams.get('page_size')).toBe('50')
+    // v3 信封带 total；模板对象无 instance_count / description / deleted_at
     expect(res.data.total).toBe(1)
-    expect(res.data.list[0].instance_count).toBe(3)
+    expect(res.data.page).toBe(1)
+    expect(res.data.page_size).toBe(50)
+    expect(res.data.list[0].id).toBe('lt-host-1')
     expect(res.data.list[0].is_default).toBe(true)
+    expect(res.data.list[0]).not.toHaveProperty('instance_count')
   })
 
-  it('create POSTs body with name/resource_category/description/mappings', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        id: 10,
-        name: '新模板',
-        resource_category: 'application',
-        is_default: false,
-        mappings: [],
-        created_at: '2026-08-21T00:00:00Z',
-        updated_at: '2026-08-21T00:00:00Z',
-      },
-    })
+  it('get GETs /:template_id with string id', async () => {
+    mockFetchSequence(success(template({ id: 'lt-9' })))
+
+    const res = await labelTemplateApi.get('lt-9')
+
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-9`)
+    expect(nthFetchCall(0)[1]?.method).toBe('GET')
+    expect(res.data.id).toBe('lt-9')
+  })
+
+  it('create POSTs body with name/resource_category/mappings (no description)', async () => {
+    mockFetchSequence(success(template({ id: 'lt-10', name: '新模板', resource_category: 'application' })))
 
     const res = await labelTemplateApi.create({
       name: '新模板',
       resource_category: 'application',
-      description: '应用服务模板',
       mappings: [
         {
           target_label: 'app',
           source_type: 'resource_field',
           source_field: 'app_code',
-          transform_rule: 'lower',
+          transform: 'lower',
         },
       ],
     })
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({
+    expect(nthUrl(0).pathname).toBe(BASE)
+    expect(nthFetchCall(0)[1]?.method).toBe('POST')
+    expect(nthInitBody(0)).toEqual({
       name: '新模板',
       resource_category: 'application',
-      description: '应用服务模板',
       mappings: [
         {
           target_label: 'app',
           source_type: 'resource_field',
           source_field: 'app_code',
-          transform_rule: 'lower',
+          transform: 'lower',
         },
       ],
     })
-    expect(res.data.id).toBe(10)
-    expect(res.data.is_default).toBe(false)
+    expect(nthInitBody(0)).not.toHaveProperty('description')
+    expect(res.data.id).toBe('lt-10')
   })
 
-  it('update PUTs /:template_id with name/description only (no resource_category)', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        id: 10,
-        name: '改名后',
-        resource_category: 'host',
-        is_default: false,
-        mappings: [],
-        created_at: '2026-08-21T00:00:00Z',
-        updated_at: '2026-08-22T00:00:00Z',
-      },
-    })
+  it('update PUTs /:template_id without resource_category (immutable in v3)', async () => {
+    mockFetchSequence(success(template({ id: 'lt-10', name: '改名后' })))
 
-    await labelTemplateApi.update(10, { name: '改名后', description: '新描述' })
+    await labelTemplateApi.update('lt-10', { name: '改名后' })
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10')
-    expect(lastFetchCall()[1]?.method).toBe('PUT')
-    const body = lastInitBody() as Record<string, unknown>
-    expect(body).toEqual({ name: '改名后', description: '新描述' })
+    const url = nthUrl(0)
+    expect(url.pathname).toBe(`${BASE}/lt-10`)
+    expect(nthFetchCall(0)[1]?.method).toBe('PUT')
+    const body = nthInitBody(0) as Record<string, unknown>
+    expect(body).toEqual({ name: '改名后' })
     expect(body).not.toHaveProperty('resource_category')
   })
 
   it('remove DELETEs /:template_id', async () => {
-    mockFetch({ status: 'success', data: null })
+    mockFetchSequence(success({ id: 'lt-10' }))
 
-    await labelTemplateApi.remove(10)
+    const res = await labelTemplateApi.remove('lt-10')
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10')
-    expect(lastFetchCall()[1]?.method).toBe('DELETE')
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-10`)
+    expect(nthFetchCall(0)[1]?.method).toBe('DELETE')
+    expect(res.data.id).toBe('lt-10')
   })
 
-  it('clone POSTs /:template_id/clone with optional name', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        id: 11,
-        name: '主机模板副本',
-        resource_category: 'host',
-        is_default: false,
-        mappings: [],
-        created_at: '2026-08-22T00:00:00Z',
-        updated_at: '2026-08-22T00:00:00Z',
-      },
+  it('remove surfaces backend 409 (template referenced by M01) instead of swallowing it', async () => {
+    fetchMock().mockResolvedValueOnce(
+      jsonResponse(
+        { status: 'error', errorType: 'conflict', error: 'label template "lt-1" is referenced by 2 M01 record(s)' },
+        { status: 409 },
+      ),
+    )
+
+    await expect(labelTemplateApi.remove('lt-1')).rejects.toThrow(/referenced by 2 M01 record/)
+  })
+
+  it('clone GETs the original then POSTs a new template named "<原名> 副本"', async () => {
+    mockFetchSequence(
+      success(
+        template({
+          id: 'lt-1',
+          name: '主机模板',
+          resource_category: 'host',
+          is_default: true,
+          mappings: [mapping({ transform: 'lower' })],
+        }),
+      ),
+      success(template({ id: 'lt-2', name: '主机模板 副本' })),
+    )
+
+    const res = await labelTemplateApi.clone('lt-1')
+
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(0)[1]?.method).toBe('GET')
+    expect(nthUrl(1).pathname).toBe(BASE)
+    expect(nthFetchCall(1)[1]?.method).toBe('POST')
+    expect(nthInitBody(1)).toEqual({
+      name: '主机模板 副本',
+      resource_category: 'host',
+      is_default: false,
+      mappings: [mapping({ transform: 'lower' })],
+    })
+    expect(res.data.id).toBe('lt-2')
+  })
+
+  it('clone honours an explicit name override', async () => {
+    mockFetchSequence(success(template({ name: '源模板' })), success(template({ id: 'lt-3', name: '自用模板' })))
+
+    await labelTemplateApi.clone('lt-1', { name: '自用模板' })
+
+    expect((nthInitBody(1) as Record<string, unknown>).name).toBe('自用模板')
+  })
+
+  it('addMapping GETs the template then PUTs the whole template with the appended mapping', async () => {
+    mockFetchSequence(
+      success(template({ mappings: [mapping({ source_field: 'env', target_label: 'env' })] })),
+      success(
+        template({
+          mappings: [mapping({ source_field: 'env', target_label: 'env' }), mapping({ transform: 'lower' })],
+        }),
+      ),
+    )
+
+    const res = await labelTemplateApi.addMapping('lt-1', {
+      target_label: 'app',
+      source_type: 'resource_field',
+      source_field: 'app_code',
+      transform: 'lower',
     })
 
-    const res = await labelTemplateApi.clone(10, { name: '主机模板副本' })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10/clone')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({ name: '主机模板副本' })
-    expect(res.data.id).toBe(11)
-    expect(res.data.is_default).toBe(false)
-  })
-
-  it('resources GETs /:template_id/resources and parses pagination (items envelope)', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        items: [
-          { resource_id: 'res-1', instance_name: 'web-01', status: 'online' },
-          { resource_id: 'res-2', instance_name: 'web-02', status: 'maintenance' },
-        ],
-        total: 12,
-        page: 2,
-        page_size: 10,
-      },
-    })
-
-    const res = await labelTemplateApi.resources(10, { page: 2, page_size: 10 })
-
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10/resources')
-    expect(lastFetchCall()[1]?.method).toBe('GET')
-    expect(url.searchParams.get('page')).toBe('2')
-    expect(url.searchParams.get('page_size')).toBe('10')
-    expect(res.data.items).toHaveLength(2)
-    expect(res.data.items[0].instance_name).toBe('web-01')
-    expect(res.data.total).toBe(12)
-    expect(res.data.page).toBe(2)
-  })
-
-  it('addMapping POSTs /:template_id/mappings with mapping body', async () => {
-    mockFetch({
-      status: 'success',
-      data: [
-        {
-          source_field: 'app_code',
-          source_type: 'resource_field',
-          target_label: 'app',
-          enabled: true,
-        },
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(0)[1]?.method).toBe('GET')
+    expect(nthUrl(1).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(1)[1]?.method).toBe('PUT')
+    expect(nthInitBody(1)).toEqual({
+      name: '主机默认模板',
+      is_default: false,
+      mappings: [
+        mapping({ source_field: 'env', target_label: 'env', transform: '' }),
+        mapping({ transform: 'lower' }),
       ],
     })
+    expect(res.data).toHaveLength(2)
+  })
 
-    const res = await labelTemplateApi.addMapping(10, {
-      target_label: 'app',
-      source_type: 'resource_field',
-      source_field: 'app_code',
-      transform_rule: 'lower',
-    })
+  it('replaceMappings GETs the template then PUTs the whole template (no mapping sub-endpoint)', async () => {
+    mockFetchSequence(
+      success(template({ name: '应用模板', resource_category: 'application' })),
+      success(template({ name: '应用模板', resource_category: 'application', mappings: [mapping()] })),
+    )
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10/mappings')
-    expect(lastFetchCall()[1]?.method).toBe('POST')
-    expect(lastInitBody()).toEqual({
-      target_label: 'app',
-      source_type: 'resource_field',
-      source_field: 'app_code',
-      transform_rule: 'lower',
+    const res = await labelTemplateApi.replaceMappings('lt-1', [
+      { target_label: 'app', source_type: 'resource_field', source_field: 'app_code', transform: '', enabled: true },
+    ])
+
+    // 只有两次请求：GET 模板 + PUT 整模板；不再调用 /mappings 子端点
+    expect(fetchMock()).toHaveBeenCalledTimes(2)
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthUrl(1).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(1)[1]?.method).toBe('PUT')
+    expect(nthInitBody(1)).toEqual({
+      name: '应用模板',
+      is_default: false,
+      mappings: [mapping({ transform: '' })],
     })
+    expect(nthInitBody(1)).not.toHaveProperty('resource_category')
     expect(res.data).toHaveLength(1)
   })
 
-  it('updateMapping PUTs /:template_id/mappings/:mapping_id', async () => {
-    mockFetch({ status: 'success', data: [] })
+  it('updateMapping replaces the mapping at the given index and PUTs the whole template', async () => {
+    mockFetchSequence(
+      success(
+        template({
+          mappings: [mapping({ source_field: 'app_code', target_label: 'app' }), mapping({ source_field: 'env', target_label: 'env' })],
+        }),
+      ),
+      success(template({ mappings: [mapping(), mapping({ source_field: 'env', target_label: 'env', transform: 'upper' })] })),
+    )
 
-    await labelTemplateApi.updateMapping(10, 3, { transform_rule: 'upper' })
+    await labelTemplateApi.updateMapping('lt-1', 1, { transform: 'upper' })
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10/mappings/3')
-    expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toEqual({ transform_rule: 'upper' })
+    expect(nthFetchCall(1)[1]?.method).toBe('PUT')
+    expect(nthInitBody(1)).toEqual({
+      name: '主机默认模板',
+      is_default: false,
+      mappings: [mapping({ transform: '' }), mapping({ source_field: 'env', target_label: 'env', transform: 'upper' })],
+    })
   })
 
-  it('removeMapping DELETEs /:template_id/mappings/:mapping_id', async () => {
-    mockFetch({ status: 'success', data: { mapping_id: 3 } })
+  it('removeMapping removes the mapping at the given index and PUTs the whole template', async () => {
+    mockFetchSequence(
+      success(
+        template({
+          mappings: [mapping({ source_field: 'env', target_label: 'env' }), mapping({ source_field: 'app_code', target_label: 'app' })],
+        }),
+      ),
+      success(template({ mappings: [mapping({ transform: '' })] })),
+    )
 
-    const res = await labelTemplateApi.removeMapping(10, 3)
+    const res = await labelTemplateApi.removeMapping('lt-1', 0)
 
-    const url = lastUrlInstance()
-    expect(url.pathname).toBe('/api/v2/platform/label-templates/10/mappings/3')
-    expect(lastFetchCall()[1]?.method).toBe('DELETE')
-    expect(res.data.mapping_id).toBe(3)
+    expect(nthFetchCall(1)[1]?.method).toBe('PUT')
+    expect((nthInitBody(1) as { mappings: Mapping[] }).mappings).toEqual([
+      mapping({ source_field: 'app_code', target_label: 'app', transform: '' }),
+    ])
+    expect(res.data).toHaveLength(1)
+  })
+
+  it('rejects out-of-range mapping index without issuing a write', async () => {
+    mockFetchSequence(success(template({ mappings: [mapping()] })))
+
+    await expect(labelTemplateApi.removeMapping('lt-1', 5)).rejects.toThrow(/越界/)
+    expect(fetchMock()).toHaveBeenCalledTimes(1)
   })
 })

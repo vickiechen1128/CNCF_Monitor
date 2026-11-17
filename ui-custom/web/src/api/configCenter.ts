@@ -1,34 +1,29 @@
 /**
  * Module_09 配置中心 API 客户端。
  *
- * 网域纳管走 v3 契约：docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md §2。
- * 配置草稿 / 版本 / 下发记录仍为旧线（v3 已删除 confirm/rollback，回收窗口内暂保留）。
+ * 网域纳管与配置快照均走 v3 契约：
+ * docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md §2 / §4。
+ * v3 已删除草稿 / 配置版本 / 下发记录（含 confirm、revalidate、discard、rollback）端点，
+ * 本模块不再暴露对应客户端方法。
  * 统一返回 `ApiResponse<T>`；错误类型按契约 errorType 由 `request` 抛出 `ApiError`。
  */
-import { apiClient } from './client'
+import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
-  ConfigDeployment,
-  ConfigDraft,
-  ConfigVersion,
-  DiscardImpact,
+  ConfigSnapshot,
+  ConfigSnapshotListResponse,
   MonitoredStatus,
   MonitorDomainResult,
   NetworkDomain,
   OnboardingDomain,
-  PaginatedItems,
   ResetTokenResult,
-  RollbackPreview,
   UnmonitorDomainResult,
 } from '../types/config-center'
 
-/** M09 列表查询参数（snake_case + 分页） */
+/** M09 网域列表查询参数（snake_case + 分页） */
 export interface ConfigListParams extends Record<string, string | number | boolean | undefined> {
   page?: number
   page_size?: number
-  network_domain_id?: string
-  status?: string
-  change_no?: string
   keyword?: string
 }
 
@@ -112,73 +107,51 @@ export const networkDomainMonitorApi = {
   toNetworkDomain,
 }
 
-/** 配置草稿（变更单） */
-export const configDraftApi = {
-  create(network_domain_id: string): Promise<ApiResponse<ConfigDraft>> {
-    return apiClient.post<ConfigDraft>('/api/v2/platform/config/drafts', { body: { network_domain_id } })
-  },
-  list(params?: ConfigListParams): Promise<ApiResponse<PaginatedItems<ConfigDraft>>> {
-    return apiClient.get<PaginatedItems<ConfigDraft>>('/api/v2/platform/config-drafts', { params })
-  },
-  get(change_no: string): Promise<ApiResponse<ConfigDraft>> {
-    return apiClient.get<ConfigDraft>(
-      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}`,
-    )
-  },
-  confirm(change_no: string, confirmed_by: string): Promise<ApiResponse<ConfigVersion>> {
-    return apiClient.post<ConfigVersion>(
-      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/confirm`,
-      { body: { confirmed_by } },
-    )
-  },
-  revalidate(change_no: string): Promise<ApiResponse<{ validation_status: string }>> {
-    return apiClient.post<{ validation_status: string }>(
-      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/revalidate`,
-    )
-  },
-  /** 废弃影响预览（决策 43-7）：真正废弃前展示对 ScrapeJob 源数据的分类影响。 */
-  discardImpact(change_no: string): Promise<ApiResponse<DiscardImpact>> {
-    return apiClient.get<DiscardImpact>(
-      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard-impact`,
-    )
-  },
-  discard(change_no: string, discarded_by?: string): Promise<ApiResponse<{ draft: ConfigDraft; impact: DiscardImpact }>> {
-    return apiClient.post<{ draft: ConfigDraft; impact: DiscardImpact }>(
-      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard`,
-      { body: discarded_by ? { discarded_by } : {} },
-    )
-  },
+/** 单网域快照集合路径（v3 契约 §4.2） */
+function snapshotsPath(domainId: string): string {
+  return `${DOMAINS_PATH}/${encodeURIComponent(domainId)}/config-snapshots`
 }
 
-/** 配置版本与下发记录（config-version / deployment service） */
-export const deploymentApi = {
-  getConfigVersions(params?: ConfigListParams): Promise<ApiResponse<PaginatedItems<ConfigVersion>>> {
-    return apiClient.get<PaginatedItems<ConfigVersion>>('/api/v2/platform/config-versions', { params })
+/** 快照详情路径 */
+function snapshotPath(domainId: string, snapshotId: number): string {
+  return `${snapshotsPath(domainId)}/${snapshotId}`
+}
+
+/** 将非信封响应的错误转换为 ApiError（快照内容为原始文本，不走统一 JSON 信封） */
+async function toRawApiError(res: Response): Promise<ApiError> {
+  const contentType = res.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    try {
+      const json = (await res.json()) as { error?: string; message?: string; errorType?: string }
+      return new ApiError(json.error || json.message || res.statusText, res.status, json.errorType)
+    } catch {
+      // 非 JSON 错误体，回退 statusText
+    }
+  }
+  return new ApiError(res.statusText, res.status)
+}
+
+/**
+ * 配置快照只读接口（v3 契约 §4.2）。
+ * 无确认 / 重校 / 废弃 / 回滚动作；快照由系统在配置变更后自动生成。
+ */
+export const configSnapshotApi = {
+  /** 该网域历史快照列表（最新在前，仅元数据） */
+  list(domainId: string): Promise<ApiResponse<ConfigSnapshotListResponse>> {
+    return apiClient.get<ConfigSnapshotListResponse>(snapshotsPath(domainId))
   },
-  getConfigVersion(id: string): Promise<ApiResponse<ConfigVersion>> {
-    return apiClient.get<ConfigVersion>(
-      `/api/v2/platform/config-versions/${encodeURIComponent(id)}`,
-    )
+  /** 快照详情（failed 快照含 validation_details） */
+  get(domainId: string, snapshotId: number): Promise<ApiResponse<ConfigSnapshot>> {
+    return apiClient.get<ConfigSnapshot>(snapshotPath(domainId, snapshotId))
   },
-  list(params?: ConfigListParams): Promise<ApiResponse<PaginatedItems<ConfigDeployment>>> {
-    return apiClient.get<PaginatedItems<ConfigDeployment>>('/api/v2/platform/deployments', { params })
-  },
-  retry(deployment_id: string, triggered_by: string): Promise<ApiResponse<ConfigDeployment>> {
-    return apiClient.post<ConfigDeployment>(
-      `/api/v2/platform/deployments/${encodeURIComponent(deployment_id)}/retry`,
-      { body: { triggered_by } },
-    )
-  },
-  rollback(config_version_id: string, triggered_by: string): Promise<ApiResponse<ConfigDeployment>> {
-    return apiClient.post<ConfigDeployment>(
-      `/api/v2/platform/deployments/${encodeURIComponent(config_version_id)}/rollback`,
-      { body: { triggered_by } },
-    )
-  },
-  /** 回滚预览（决策 63 P0）：回滚确认前展示目标版本与当前生效版本的源数据操作差异。 */
-  rollbackPreview(config_version_id: string): Promise<ApiResponse<RollbackPreview>> {
-    return apiClient.get<RollbackPreview>(
-      `/api/v2/platform/config-versions/${encodeURIComponent(config_version_id)}/rollback-preview`,
-    )
+  /**
+   * 快照内容下载（admin）：响应为原始配置文本，不是 `{status,data}` JSON 信封，
+   * 因此走 `rawRequest`（client.ts 的认证 fetch 变体）读取文本；401 由 client 统一跳登录，
+   * 403（非 admin）在这里转成 ApiError 供页面提示。
+   */
+  async content(domainId: string, snapshotId: number): Promise<string> {
+    const res = await rawRequest(`${snapshotPath(domainId, snapshotId)}/content`, { method: 'GET' })
+    if (!res.ok) throw await toRawApiError(res)
+    return res.text()
   },
 }
