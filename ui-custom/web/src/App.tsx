@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import HomePage from './pages/home/HomePage'
+import OnboardingPage from './pages/home/OnboardingPage'
 import DomainsPage from './pages/admin/domains/DomainsPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
@@ -46,6 +47,7 @@ const TargetStatusPage = lazy(() =>
 )
 const DashboardPanelsPage = lazy(() => import('./pages/admin/dashboard-panels/DashboardPanelsPage'))
 const DashboardPanelPage = lazy(() => import('./pages/dashboard/DashboardPanelPage'))
+const VisualizationPage = lazy(() => import('./pages/visualization/VisualizationPage'))
 
 // Module_08 告警收敛与通知管理路由，懒加载
 const AlertConfigPage = lazy(() =>
@@ -104,6 +106,10 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route element={<RequireAuth />}>
           <Route path="/" element={<HomePage />} />
+          {/* M05 SRS v1.1 FR-25：首页子菜单「使用引导」独立页 */}
+          <Route path="/onboarding" element={<OnboardingPage />} />
+          {/* M05 SRS v1.1 FR-11：一级导航第 2 位「可视化大屏」 */}
+          <Route path="/visualization" element={<VisualizationPage />} />
           <Route path="/admin/domains" element={<DomainsPage />} />
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/tenants" element={<TenantsPage />} />

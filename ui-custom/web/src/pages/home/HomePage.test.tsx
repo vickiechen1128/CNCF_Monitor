@@ -28,11 +28,11 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
-const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
+const DASHBOARD_PATH = '/api/v3/platform/dashboard/summary'
 /** M08 event 表当前未结告警（不分页，一次返回全部；与历史告警、首页四格同源） */
-const CURRENT_ALERTS_PATH = '/api/v2/platform/alertmanager/alert-events/current'
+const CURRENT_ALERTS_PATH = '/api/v3/platform/alertmanager/alert-events/current'
 /** M08 历史告警统计（首屏四格 + 当前未结计数） */
-const STATS_PATH = '/api/v2/platform/alertmanager/alert-events/stats'
+const STATS_PATH = '/api/v3/platform/alertmanager/alert-events/stats'
 
 /**
  * 已下线的 L0 五张 KPI 卡的 key（反馈 11 已整块删除该区块）。
@@ -88,9 +88,7 @@ const DASHBOARD_OK = {
     monitored_count: 96,
     scrape_job_count: 3,
     scrape_job_enabled_count: 2,
-    pending_draft_count: 3,
     domain_count: 2,
-    recent_deployments: [],
     by_category: [
       {
         resource_category: 'host',
@@ -252,9 +250,7 @@ const DASHBOARD_EMPTY = {
     monitored_count: 0,
     scrape_job_count: 0,
     scrape_job_enabled_count: 0,
-    pending_draft_count: 0,
     domain_count: 0,
-    recent_deployments: [],
     by_category: [],
     by_app: [],
     unclassified_resource_count: 0,
@@ -1319,9 +1315,7 @@ describe('HomePage', () => {
         status: 'success',
         data: {
           resource_count: 10,
-          pending_draft_count: 3,
           domain_count: 2,
-          recent_deployments: [],
         },
       },
     })
@@ -1855,12 +1849,17 @@ describe('HomePage', () => {
       'href',
       '/domain-onboarding',
     )
+    // M05 SRS v1.1：第二步改为「纳管网域并安装采集节点」，不再有人工「下发」步骤。
+    expect(within(onboarding).getByRole('link', { name: '纳管网域并安装节点' })).toHaveAttribute(
+      'href',
+      '/domain-onboarding',
+    )
+    expect(within(onboarding).queryByRole('link', { name: '下发' })).not.toBeInTheDocument()
     expect(within(onboarding).getByRole('link', { name: '导入资源' })).toHaveAttribute('href', '/resources')
     expect(within(onboarding).getByRole('link', { name: '建采集 Job' })).toHaveAttribute(
       'href',
       '/scrape-jobs',
     )
-    expect(within(onboarding).getByRole('link', { name: '下发' })).toHaveAttribute('href', '/config-preview')
     // 第 5 步：配置告警通知 → /alert-config
     expect(within(onboarding).getByRole('link', { name: '配置告警通知' })).toHaveAttribute(
       'href',
@@ -1954,7 +1953,7 @@ describe('HomePage', () => {
     expect(screen.getByTestId('latest-alert-region').style.display).toBe('flex')
   })
 
-  it('does not render visualization screen entry', async () => {
+  it('keeps the visualization shortcut out of home content until v0.3', async () => {
     setupHomeMock()
 
     renderPage()
@@ -1963,7 +1962,8 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    expect(screen.queryByText('可视化大屏')).not.toBeInTheDocument()
+    // 一级入口由 MainLayout 承载（本文件把 MainLayout mock 成容器，不在此断言）；
+    // 首页内容区不重复挂「进入可视化大屏」快捷入口——该入口属 M05 SRS v0.3。
     expect(screen.queryByText('进入可视化大屏')).not.toBeInTheDocument()
   })
 

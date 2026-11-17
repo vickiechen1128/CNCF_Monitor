@@ -24,7 +24,7 @@ describe('dashboardApi.getSummary', () => {
     return new URL(String(calls[0][0]))
   }
 
-  it('GETs /api/v2/platform/dashboard/summary', async () => {
+  it('GETs /api/v3/platform/dashboard/summary', async () => {
     mockFetch({
       status: 'success',
       data: {
@@ -32,15 +32,13 @@ describe('dashboardApi.getSummary', () => {
         monitored_count: 8,
         scrape_job_count: 5,
         scrape_job_enabled_count: 4,
-        pending_draft_count: 3,
         domain_count: 4,
-        recent_deployments: [],
       },
     })
 
     const res = await dashboardApi.getSummary()
 
-    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/dashboard/summary')
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/dashboard/summary')
     const method = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]?.method
     expect(method).toBe('GET')
     expect(res.status).toBe('success')
@@ -48,32 +46,5 @@ describe('dashboardApi.getSummary', () => {
     expect(res.data.monitored_count).toBe(8)
     expect(res.data.scrape_job_count).toBe(5)
     expect(res.data.scrape_job_enabled_count).toBe(4)
-    expect(res.data.recent_deployments).toEqual([])
-  })
-
-  it('parses recent deployments list', async () => {
-    mockFetch({
-      status: 'success',
-      data: {
-        resource_count: 1,
-        pending_draft_count: 0,
-        domain_count: 1,
-        recent_deployments: [
-          {
-            id: 'd1',
-            change_no: 'CHG-001',
-            network_domain_name: '政务网A区',
-            status: 'success',
-            triggered_at: '2026-08-24T10:00:00Z',
-          },
-        ],
-      },
-    })
-
-    const res = await dashboardApi.getSummary()
-
-    expect(res.data.recent_deployments).toHaveLength(1)
-    expect(res.data.recent_deployments[0].change_no).toBe('CHG-001')
-    expect(res.data.recent_deployments[0].network_domain_name).toBe('政务网A区')
   })
 })

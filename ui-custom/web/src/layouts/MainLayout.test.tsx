@@ -72,6 +72,7 @@ describe('MainLayout', () => {
     )
 
     expect(screen.getByText('概览 Dashboard')).toBeInTheDocument()
+    expect(screen.getByText('使用引导')).toBeInTheDocument()
     const selected = screen
       .getAllByRole('menuitem')
       .find((el) => (el.textContent || '').includes('概览 Dashboard'))
@@ -80,6 +81,26 @@ describe('MainLayout', () => {
     expect(screen.queryByText('v0.2')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('自定义大屏'))
     expect(await screen.findByText('暂无挂载面板')).toBeInTheDocument()
+    // M05 FR-09：管理员空态提供「去登记面板」引导，普通用户不展示（写操作 403）。
+    expect(screen.getByText('去登记面板')).toBeInTheDocument()
+  })
+
+  it('exposes 可视化大屏 as the second primary tab and highlights it on /visualization', () => {
+    render(
+      <MemoryRouter initialEntries={['/visualization']}>
+        <Routes>
+          <Route path="/visualization" element={<MainLayout>visualization-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const tabs = screen.getAllByRole('button').filter((el) => el.className.includes('app-module-tab'))
+    expect(tabs[0]).toHaveTextContent('首页')
+    expect(tabs[1]).toHaveTextContent('可视化大屏')
+    expect(tabs[1].className).toContain('active')
+    expect(screen.getByText('visualization-content')).toBeInTheDocument()
+    // 大屏页不设二级导航（整宽展示），避免无效侧栏占位。
+    expect(document.querySelector('.ant-layout-sider')).toBeNull()
   })
 
   it('builds custom dashboard menus from mounted panels and highlights the current panel', async () => {
@@ -259,8 +280,8 @@ describe('MainLayout', () => {
     expect(screen.queryByText('采集节点状态')).toBeNull()
     // 「配置下发」为激活折叠组（/deployments 配置面路由）时自动展开，子项可见
     expect(screen.getByText('配置下发')).toBeInTheDocument()
-    expect(await screen.findByText('配置变更确认')).toBeInTheDocument()
-    expect(screen.getByText('下发记录')).toBeInTheDocument()
+    expect(await screen.findByText('配置快照')).toBeInTheDocument()
+    expect(screen.getByText('快照历史')).toBeInTheDocument()
     expect(screen.getByText('deployments-content')).toBeInTheDocument()
   })
 
@@ -297,8 +318,8 @@ describe('MainLayout', () => {
     expect(await screen.findByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
     // 「配置下发」非激活：默认折叠，子项不显示
-    expect(screen.queryByText('配置变更确认')).toBeNull()
-    expect(screen.queryByText('下发记录')).toBeNull()
+    expect(screen.queryByText('配置快照')).toBeNull()
+    expect(screen.queryByText('快照历史')).toBeNull()
     expect(screen.getByText('onboarding-content')).toBeInTheDocument()
   })
 
@@ -352,7 +373,7 @@ describe('MainLayout', () => {
     })
   })
 
-  it('highlights 下发记录 sub-item when route is /deployments (M09)', async () => {
+  it('highlights 快照历史 sub-item when route is /deployments (M09)', async () => {
     render(
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
@@ -360,11 +381,11 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    // /deployments 属「配置下发」组：自动展开后子项渲染，且「下发记录」处于选中态
+    // /deployments 属「配置下发」组：自动展开后子项渲染，且「快照历史」处于选中态
     await waitFor(() => {
       const selected = screen
         .getAllByRole('menuitem')
-        .find((el) => (el.textContent || '').includes('下发记录'))
+        .find((el) => (el.textContent || '').includes('快照历史'))
       expect(selected).toBeDefined()
       expect(selected?.className ?? '').toContain('ant-menu-item-selected')
     })

@@ -88,6 +88,15 @@
   align-items: flex-end;
   gap: 4px;
   height: 100%;
+  /* 一级模块增至 7 个后，中等宽度桌面也可能溢出：允许导航自身横向滚动，
+     不挤压品牌与右上角账号区，也不换行撑高 sticky 顶栏。 */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-module-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .app-module-tab {
@@ -179,8 +188,72 @@
 
 .dashboard-panel-state {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 96px 0;
+}
+
+/* 共用 iframe 容器（DashboardFrame）：普通态由页面控制高度，全屏态铺满视口。 */
+.dashboard-frame-wrap {
+  position: relative;
+}
+
+.dashboard-frame-wrap:fullscreen {
+  height: 100vh;
+  background: #000;
+}
+
+.dashboard-frame-wrap:fullscreen .dashboard-panel-frame {
+  height: 100vh;
+}
+
+.dashboard-frame-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+}
+
+.dashboard-frame-wrap:fullscreen .dashboard-frame-loading {
+  background: #000;
+  color: #fff;
+}
+
+/* 全屏 / 退出全屏按钮：浮在 iframe 右上角，全屏后仍可点击退出。 */
+.dashboard-frame-fullscreen-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  opacity: 0.9;
+}
+
+/* 可视化大屏页（M05 FR-11 / FR-12）：工具栏 + 单面板 iframe。 */
+.visualization-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.visualization-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.visualization-frame-wrap .dashboard-panel-frame {
+  height: calc(100vh - 176px);
+}
+
+.visualization-empty {
+  padding: 48px 0;
 }
 
 /* 侧栏菜单项副标题（D-1b：「规则编辑 · 含告警规则、记录规则」）：
@@ -284,5 +357,10 @@
      必须 `!important`：antd 的 `styles.body` 把 padding 渲染成内联样式。 */
   .app-content .ant-card-body {
     padding: 12px !important;
+  }
+
+  /* 可视化大屏：手机端工具栏折行后 iframe 高度相应收缩，仍保证可投屏可操作。 */
+  .visualization-frame-wrap .dashboard-panel-frame {
+    height: calc(100vh - 220px);
   }
 }

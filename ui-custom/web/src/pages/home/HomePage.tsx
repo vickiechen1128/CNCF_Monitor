@@ -147,8 +147,6 @@ const DASHBOARD_MOCK: DashboardSummary = {
   monitored_count: 96,
   scrape_job_count: 0,
   scrape_job_enabled_count: 0,
-  pending_draft_count: 0,
-  recent_deployments: [],
   domain_count: 0,
   by_category: [
     {

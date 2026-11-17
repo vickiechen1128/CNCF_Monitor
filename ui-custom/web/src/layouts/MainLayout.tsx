@@ -21,6 +21,8 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PartitionOutlined,
+  PlusOutlined,
+  QuestionCircleOutlined,
   RadarChartOutlined,
   SendOutlined,
   StopOutlined,
@@ -61,7 +63,7 @@ interface MainLayoutProps {
  * D3（临时）：MVP 一级模块顶部栏顺序为「首页 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
  * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
- * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置变更确认 / 下发记录）；
+ * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置快照 / 快照历史）；
  * 既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
  */
 interface ModuleDef {
@@ -95,7 +97,15 @@ const MODULES: ModuleDef[] = [
     path: '/',
     subItems: [
       { key: '/', label: '概览 Dashboard', icon: <DashboardOutlined /> },
+      { key: '/onboarding', label: '使用引导', icon: <QuestionCircleOutlined /> },
     ],
+  },
+  {
+    // M05 SRS v1.1 FR-11 / FR-24：一级导航第 2 位「可视化大屏」。
+    // 页面内不设二级导航（大屏本身需要整宽），故不配置 subItems。
+    key: 'visualization',
+    label: '可视化大屏',
+    path: '/visualization',
   },
   {
     key: 'monitoring-object',
@@ -164,8 +174,8 @@ const MODULES: ModuleDef[] = [
         label: '配置下发',
         icon: <SendOutlined />,
         children: [
-          { key: '/config-preview', label: '配置变更确认', icon: <FileSearchOutlined /> },
-          { key: '/deployments', label: '下发记录', icon: <SendOutlined /> },
+          { key: '/config-preview', label: '配置快照', icon: <FileSearchOutlined /> },
+          { key: '/deployments', label: '快照历史', icon: <SendOutlined /> },
         ],
       },
     ],
@@ -214,7 +224,11 @@ const MODULES: ModuleDef[] = [
   },
 ]
 
-function homeSubItems(panels: DashboardPanel[], state: 'loading' | 'ready' | 'error'): MenuProps['items'] {
+function homeSubItems(
+  panels: DashboardPanel[],
+  state: 'loading' | 'ready' | 'error',
+  isAdmin: boolean,
+): MenuProps['items'] {
   let children: MenuProps['items'] = panels.map((panel) => ({
     key: `/dashboard/panels/${panel.id}`,
     label: panel.name,
@@ -223,6 +237,15 @@ function homeSubItems(panels: DashboardPanel[], state: 'loading' | 'ready' | 'er
   if (state === 'error') children = [{ key: 'panels-error', label: '面板加载失败', disabled: true }]
   if (state === 'ready' && panels.length === 0) {
     children = [{ key: 'panels-empty', label: '暂无挂载面板', disabled: true }]
+    // M05 FR-09：空态给管理员一个可点击的引导，而不是只留一行灰字。
+    // 普通用户不展示入口（写操作仅管理员，避免点了也 403）。
+    if (isAdmin) {
+      children.push({
+        key: '/admin/dashboard-panels',
+        label: '去登记面板',
+        icon: <PlusOutlined />,
+      })
+    }
   }
   return [
     ...(MODULES[0].subItems ?? []),
@@ -261,7 +284,8 @@ function findModuleByKey(key: string): ModuleDef {
 
 /**
  * 依据当前路由推断激活的一级模块。
- * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
+ * /visualization → 可视化大屏（M05 FR-11）；/admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
+ * /domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/blackbox-modules、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 首页。
  */
@@ -269,6 +293,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
   // /admin/* 全部归属「系统与平台管理」（M06）：按前缀收口而非逐个枚举路由，
   // 避免将来新增平台级页面（如本次的 /admin/appearance）时漏改此处而落到首页。
   if (locationPath.startsWith('/admin/')) return findModuleByKey('platform-admin')
+  // M05 可视化大屏（FR-11）：一级入口独占 /visualization，不与首页子菜单混用。
+  if (locationPath.startsWith('/visualization')) return findModuleByKey('visualization')
   if (
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
@@ -334,13 +360,17 @@ export function MainLayout({ children }: MainLayoutProps) {
   // 品牌位文案随「外观设置 · 产品名称」变化（用户 2026-09-18 补充，见 productNamePreference.ts）
   const { productName } = useProductName()
   const active = resolveActiveModule(location.pathname)
+  // 当前登录账号（顶栏展示 + 首页自定义大屏空态引导的权限判断共用）。
+  const authUser = getStoredUser()
+  const isAdmin = authUser?.role === 'admin'
   const [panels, setPanels] = useState<DashboardPanel[]>([])
   const [panelMenuState, setPanelMenuState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     if (active.key !== 'home') return
     let cancelled = false
-    dashboardPanelApi.list()
+    // 首页「自定义大屏」子菜单需要全部面板；管理页自身按 20/页分页。
+    dashboardPanelApi.list({ page: 1, page_size: 100 })
       .then((res) => {
         if (cancelled) return
         setPanels(res.data.list)
@@ -353,7 +383,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   }, [active.key])
 
   const activeSubItems = active.key === 'home'
-    ? homeSubItems(panels, panelMenuState)
+    ? homeSubItems(panels, panelMenuState, isAdmin)
     : active.subItems
   const leafKeys = collectLeafKeys(activeSubItems)
   const selectedSubKey = leafKeys.some((k) => location.pathname.startsWith(k))
@@ -403,7 +433,6 @@ export function MainLayout({ children }: MainLayoutProps) {
   }
 
   // 顶部栏右上角：统一展示当前登录账号的角色与账号信息（数据来自 login /auth/me 返回的 AuthUser）。
-  const authUser = getStoredUser()
   const roleLabel = authUser?.role === 'admin' ? '管理员' : authUser?.role === 'user' ? '普通用户' : ''
 
   // 账号下拉菜单：登出先尽力销毁服务端会话，再清本地凭据并回登录页。
