@@ -45,8 +45,8 @@ interface FormValues {
   /** 是否启用签名/加签；仅飞书 / 钉钉有效 */
   signing_enabled?: boolean
   secret?: string
-  /** 绑定的通知模板 ID；undefined = 使用平台内置默认模板 */
-  default_template_id?: number
+  /** 绑定的通知模板 ID（UUID 字符串）；undefined = 由后端回落到内置模板 */
+  default_template_id?: string
 }
 
 /** webhook 地址合法性：仅接受 http/https，与后端校验口径一致 */
@@ -94,7 +94,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
   const templateOptions = [...typeTemplates]
     .sort((a, b) => Number(b.is_builtin) - Number(a.is_builtin))
     .map((t) => ({
-      value: Number(t.id),
+      value: t.id,
       label: t.is_builtin ? `${t.name}（平台内置默认）` : t.name,
     }))
 
@@ -111,7 +111,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
         // 飞书有内置模板：未选择时自动选中，既满足「模板必填」也保留零配置体验。
         if (form.getFieldValue('type') === 'feishu' && !form.getFieldValue('default_template_id')) {
           const builtin = items.find((t) => t.is_builtin && t.channel_type === 'feishu')
-          if (builtin) form.setFieldValue('default_template_id', Number(builtin.id))
+          if (builtin) form.setFieldValue('default_template_id', builtin.id)
         }
       } catch {
         if (!cancelled) setTemplates([])
@@ -168,7 +168,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           payload.secret = ''
         }
         // 自定义 Webhook 显式解绑模板；IM 类型始终提交所选模板（必填）。
-        payload.default_template_id = usesTemplate ? (values.default_template_id ?? 0) : 0
+        if (usesTemplate && values.default_template_id) payload.default_template_id = values.default_template_id
         await onUpdate(record.id, payload)
         message.success('通知渠道已更新')
       } else {
@@ -240,7 +240,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
               // 飞书有内置模板：切到飞书时自动选中，满足模板必填。
               if (v === 'feishu') {
                 const builtin = templates.find((t) => t.is_builtin && t.channel_type === 'feishu')
-                if (builtin) form.setFieldValue('default_template_id', Number(builtin.id))
+                if (builtin) form.setFieldValue('default_template_id', builtin.id)
               }
               // 渠道类型变化后，目标地址与密钥对应的机器人类型都变了：清空地址，
               // 关闭签名并清空旧密钥，由用户按新类型重新填写。

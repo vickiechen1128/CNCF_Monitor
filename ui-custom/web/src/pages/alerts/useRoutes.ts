@@ -427,12 +427,15 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
         base_checksum: baseChecksum,
         route_tree: tree,
       })
-      const changeNo = res.data?.change_no
+      const applied = res.data?.applied
+      const reloadStatus = res.data?.reload_status
       setSaveResult({
         ok: true,
-        message: changeNo
-          ? `已提交并生成变更单 ${changeNo}。改动不会自动生效——请前往「配置变更确认」人工确认，确认后才会写入并 reload Alertmanager。`
-          : '已提交，等待你在「配置变更确认」中确认下发。改动不会自动生效。',
+        message: applied
+          ? '已保存并生效：amtool 校验通过，Alertmanager 已 reload 且健康检查通过。'
+          : reloadStatus
+            ? `已保存，但 reload 状态为 ${reloadStatus}；请到「告警配置」页查看 reload 记录。`
+            : '已保存。',
       })
       onSaved?.()
       return true

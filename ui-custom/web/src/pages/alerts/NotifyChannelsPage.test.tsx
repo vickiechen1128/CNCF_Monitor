@@ -129,7 +129,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
 
   it('列表只展示通用字段：名称 / 类型 / 被引用次数 / 创建时间', async () => {
     useNotifyChannelsMock.mockReturnValue(
-      result({ channels: [channelRow({ route_reference_count: 2, default_template_id: 9 })] }),
+      result({ channels: [channelRow({ route_reference_count: 2, default_template_id: 'tpl-9' })] }),
     )
     renderPage()
     expect(await screen.findByText('SRE 飞书群')).toBeInTheDocument()
@@ -193,7 +193,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         name: '数据库团队群',
         type: 'feishu',
         webhook_url: 'https://open.feishu.cn/open-apis/bot/v2/hook/abc',
-        default_template_id: 1,
+        default_template_id: '1',
       }),
     )
   })
@@ -250,7 +250,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     const [id, payload] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('1')
-    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', default_template_id: 1 })
+    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', default_template_id: '1' })
     expect(payload).not.toHaveProperty('enabled')
     expect(payload).not.toHaveProperty('webhook_url')
     expect(payload).not.toHaveProperty('secret')
@@ -310,7 +310,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
         name: '数据库团队群',
         type: 'feishu',
         webhook_url: 'https://open.feishu.cn/hook/x',
-        default_template_id: 9,
+        default_template_id: '9',
       }),
     )
   })

@@ -63,7 +63,8 @@ beforeEach(() => {
     status: 'success',
     data: {
       version: { id: 'v1', content: '', checksum: 'abc', status: 'applied' },
-      change_no: 'CHG-20261022-001',
+      applied: true,
+      reload_status: 'succeeded',
     },
   })
   listMock.mockResolvedValue(channels([]))
@@ -112,7 +113,7 @@ describe('useRouteEditor — 保存只提交结构化路由树', () => {
     expect(payload.route_tree[1].matchers).toHaveLength(1)
     expect(payload.content).toBeUndefined()
     expect(onSaved).toHaveBeenCalled()
-    expect(result.current.saveResult?.message).toContain('CHG-20261022-001')
+    expect(result.current.saveResult?.message).toContain('已保存并生效')
   })
 
   it('base_checksum 冲突（409）时保存失败并展示后端文案', async () => {

@@ -343,8 +343,8 @@ export interface NotifyChannel {
   receiver_name?: string
   /** 当前生效 / 待确认路由树中引用该渠道 receiver 的节点数；0 = 未被路由使用 */
   route_reference_count?: number
-  /** 绑定的通知模板 ID（缺省 = 使用平台内置默认模板）；渠道 ↔ 模板一等绑定（dev-feedback #30） */
-  default_template_id?: number
+  /** 绑定的通知模板 ID（v3 为模板 UUID 字符串；缺省 = 未绑定） */
+  default_template_id?: string
   /** RFC3339 */
   created_at: string
 }
@@ -376,8 +376,8 @@ export interface CreateNotifyChannelPayload {
   type: NotifyChannelType
   webhook_url: string
   secret?: string
-  /** 绑定的通知模板 ID（可选；不传 = 使用平台内置默认模板） */
-  default_template_id?: number
+  /** 绑定的通知模板 ID（v3 为模板 UUID 字符串；不传则后端按类型回落到内置模板） */
+  default_template_id?: string
 }
 
 /**
@@ -390,7 +390,8 @@ export interface UpdateNotifyChannelPayload {
   type?: NotifyChannelType
   webhook_url?: string
   secret?: string
-  default_template_id?: number
+  /** 不传 = 保留原绑定；传模板 UUID = 改为该模板（webhook 类型恒为未绑定） */
+  default_template_id?: string
 }
 
 /** 新建 / 编辑通知模板请求体（content 为 Alertmanager 标准 Go template） */
@@ -527,8 +528,16 @@ export interface SaveRoutesPayload {
 /** 路由保存成功响应 data */
 export interface SaveRoutesResult {
   version: AlertmanagerConfigVersion
-  /** 本次生成的 pending 变更单号（无则缺省） */
+  /** 本次生成的 pending 变更单号（v3 无变更单语义，恒缺省） */
   change_no?: string
+  /** v3：是否已即时 apply 成功（amtool 校验 + reload + 健康检查） */
+  applied?: boolean
+  /** v3：最近一次 reload 结果（succeeded / failed / rolled_back） */
+  reload_status?: string
+  /** v3：本次保存未覆盖的配置段（route_changed / inhibit_rules_changed） */
+  pending_sections?: string[]
+  /** v3：生效配置是否已写入 M09 只读快照 */
+  snapshot_synced?: boolean
 }
 
 export interface InhibitionRule {
