@@ -177,12 +177,10 @@ describe('ScrapeJobListPage', () => {
     expect(await screen.findByText('job-1')).toBeInTheDocument()
     // MainLayout 导航外壳已包覆：顶栏品牌标题可见
     expect(screen.getByText('MetricCenter')).toBeInTheDocument()
-    // 生效状态列（用户视角生命周期）与变更进度列（M09 管线视角）分列呈现：job-1 pending → 待生效/待确认，job-2 deployed → 已生效/已下发
-    expect(screen.getAllByText('待生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('待确认').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('已下发').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('已停用')).toBeInTheDocument()
+    // v3：列表展示「启用状态 + 同步状态」，不再有变更进度列。
+    // 未提供 sync 的启用 Job 默认显示「待同步」；停用 Job 显示「已停用」。
+    expect(screen.getAllByText('待同步').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('已停用').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已覆盖 1 项').length).toBeGreaterThanOrEqual(1)
     // 「网域A」同时出现在筛选下拉选项与表格网域列
     expect(screen.getAllByText('网域A').length).toBeGreaterThanOrEqual(1)
@@ -331,8 +329,8 @@ describe('ScrapeJobListPage', () => {
     expect(screen.getByTestId('job-form-drawer')).toBeInTheDocument()
   })
 
-  // 决策 44-1：change_status=pending 的 job 已挂起待确认变更单，编辑/启停/删除均禁用。
-  it('disables edit/toggle/delete for pending job, keeps them enabled otherwise', async () => {
+  // v3 无变更单：legacy change_status 不再锁定任何操作。
+  it('keeps edit/toggle/delete enabled regardless of legacy change_status', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: {
@@ -353,13 +351,9 @@ describe('ScrapeJobListPage', () => {
     const deleteButtons = screen.getAllByRole('button', { name: /删\s*除/ })
     const toggleButtons = screen.getAllByRole('button', { name: '停用' })
 
-    // 第一行（pending）全部禁用；第二行（deployed）可用。
-    expect(editButtons[0]).toBeDisabled()
-    expect(deleteButtons[0]).toBeDisabled()
-    expect(toggleButtons[0]).toBeDisabled()
-    expect(editButtons[1]).not.toBeDisabled()
-    expect(deleteButtons[1]).not.toBeDisabled()
-    expect(toggleButtons[1]).not.toBeDisabled()
+    for (const button of [...editButtons, ...deleteButtons, ...toggleButtons]) {
+      expect(button).not.toBeDisabled()
+    }
   })
 
   // M01 PRD（破坏性操作二次确认）：停用需 Popconfirm 确认并提示监控中断影响，

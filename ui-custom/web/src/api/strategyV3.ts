@@ -310,15 +310,6 @@ export const probeModuleApiV3 = {
   get(id: string): Promise<ApiResponse<ProbeModuleV3>> {
     return apiClient.get<ProbeModuleV3>(`/api/v3/platform/blackbox-modules/${id}`)
   },
-  create(input: ProbeModuleInputV3): Promise<ApiResponse<ProbeModuleV3>> {
-    return apiClient.post<ProbeModuleV3>('/api/v3/platform/blackbox-modules', { body: input })
-  },
-  update(id: string, input: ProbeModuleInputV3): Promise<ApiResponse<ProbeModuleV3>> {
-    return apiClient.put<ProbeModuleV3>(`/api/v3/platform/blackbox-modules/${id}`, { body: input })
-  },
-  remove(id: string): Promise<ApiResponse<{ id: string }>> {
-    return apiClient.delete<{ id: string }>(`/api/v3/platform/blackbox-modules/${id}`)
-  },
 }
 
 /** Re-exported for pages that render sync badges. */

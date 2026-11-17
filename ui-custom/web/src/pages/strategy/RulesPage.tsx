@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  Badge,
   Button,
   Card,
   Drawer,
@@ -11,11 +10,12 @@ import {
   Select,
   Space,
   Table,
+  Tag,
   Tooltip,
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { monitoringRuleApi } from '../../api/monitoringRules'
@@ -25,8 +25,9 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, EFFECTIVE_STATUS_TOOLTIP, CHANGE_PROGRESS_TOOLTIP } from './strategyConstants'
-import { aggregateJobStatus } from './jobStatus'
+import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import SyncStatusTag from './SyncStatusTag'
+import { aggregateJobSyncStatus } from './syncStatus'
 import { RuleMountDrawer } from './RuleMountDrawer'
 import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
@@ -48,13 +49,6 @@ function formatTime(iso?: string): string {
 }
 
 /** 变更进度（M09 管线追踪视角，与采集 Job 列同词表，避免与「生效状态」撞车） */
-const CHANGE_PROGRESS_MAP: Record<string, string> = {
-  none: '无变更',
-  pending: '待确认',
-  confirmed: '已确认待下发',
-  deployed: '已下发',
-}
-
 interface RulesState {
   list: MonitoringRule[]
   total: number
@@ -204,41 +198,20 @@ export function RulesPage() {
         render: (v: string) => <Text type="secondary">{formatTime(v)}</Text>,
       },
       {
-        // 相对「变更进度」靠前：先回答用户「当前是否已真正生效」，再看挂在 M09 管线哪一环（与采集 Job 列表对齐）。
-        title: (
-          <Tooltip title={EFFECTIVE_STATUS_TOOLTIP}>
-            <Space size={4}>
-              生效状态
-              <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-            </Space>
-          </Tooltip>
+        title: '启用状态',
+        key: 'enabled',
+        width: 100,
+        render: (_: unknown, r: MonitoringRule) => (
+          <Tag color={r.enabled ? 'green' : 'default'}>{r.enabled ? '已启用' : '已停用'}</Tag>
         ),
-        key: 'status',
-        width: 120,
-        render: (_: unknown, r: MonitoringRule) => {
-          const s = aggregateJobStatus(r)
-          return (
-            <Badge
-              status={s.badgeStatus}
-              text={<Text type={s.disabled ? 'secondary' : undefined}>{s.label}</Text>}
-            />
-          )
-        },
       },
       {
-        // 角标指引：确认不必逐条规则进行，可待所有监控配置调好后一次性到 M09 批量确认（与采集 Job 列表对齐）。
-        title: (
-          <Tooltip title={CHANGE_PROGRESS_TOOLTIP}>
-            <Space size={4}>
-              变更进度
-              <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-            </Space>
-          </Tooltip>
+        title: '同步状态',
+        key: 'sync',
+        width: 120,
+        render: (_: unknown, r: MonitoringRule) => (
+          <SyncStatusTag sync={r.sync} draftStatus={r.draft_status} enabled={r.enabled} />
         ),
-        dataIndex: 'change_status',
-        key: 'change_progress',
-        width: 110,
-        render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
       },
       {
         title: '操作',
@@ -246,14 +219,10 @@ export function RulesPage() {
         fixed: 'right',
         width: 200,
         render: (_: unknown, r: MonitoringRule) => {
-          // 决策 F-25：change_status=pending 的规则已挂起变更单，禁止编辑，避免变更单内容与源数据脱节
-          // （与采集 Job F-19 / 决策 44-1 锁定语义一致）；停用规则可编辑，编辑不改变启停状态。
-          const isPending = r.change_status === 'pending'
-          const pendingTip = '该规则存在待确认变更单，请先前往配置变更确认页处理'
           return (
             <Space size={0}>
-              <Tooltip title={isPending ? pendingTip : undefined}>
-                <Button type="link" size="small" disabled={isPending} onClick={() => openEdit(r)}>
+              <Tooltip>
+                <Button type="link" size="small" onClick={() => openEdit(r)}>
                   编辑
                 </Button>
               </Tooltip>
@@ -444,9 +413,9 @@ export function RulesPage() {
                   : '-'}
               </Text>
               <Text strong style={{ marginLeft: 16 }}>
-                生效状态：
+                同步状态：
               </Text>
-              <Text>{aggregateJobStatus(detail).label}</Text>
+              <Text>{aggregateJobSyncStatus(detail).label}</Text>
             </Space>
             <Typography.Title level={5}>rules.yml 内容</Typography.Title>
             <pre

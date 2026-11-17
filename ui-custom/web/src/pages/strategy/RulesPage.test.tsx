@@ -78,10 +78,9 @@ describe('RulesPage', () => {
     expect(screen.getAllByText('MySQL').length).toBeGreaterThanOrEqual(1)
     // 两条 `- alert:` → 规则条数 2
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('待确认').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('待生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('停用').length).toBeGreaterThanOrEqual(1)
+    // v3：列表展示「启用状态 + 同步状态」，不再有变更进度列。
+    expect(screen.getAllByText('待同步').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('已停用').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows empty state 暂无规则', async () => {
@@ -119,7 +118,7 @@ describe('RulesPage', () => {
     expect(screen.getByTestId('rule-mount-drawer')).toBeInTheDocument()
   })
 
-  it('edit button is disabled for pending rules and opens drawer in edit mode otherwise', async () => {
+  it('opens the edit drawer regardless of legacy change_status', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: {
@@ -142,9 +141,9 @@ describe('RulesPage', () => {
 
     expect(await screen.findByText('rule-1')).toBeInTheDocument()
 
-    // 三行按序渲染：rule-1(pending) 编辑禁用；rule-2(已生效) 与 rule-3(停用) 可编辑
+    // v3 无变更单：所有行均可编辑
     const editButtons = screen.getAllByText('编辑').map((el) => el.closest('button'))
-    expect(editButtons[0]).toBeDisabled()
+    expect(editButtons[0]).not.toBeDisabled()
     expect(editButtons[1]).toBeEnabled()
     expect(editButtons[2]).toBeEnabled()
 

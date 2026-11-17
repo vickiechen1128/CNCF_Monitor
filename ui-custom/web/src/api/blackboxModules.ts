@@ -54,21 +54,4 @@ export const blackboxModuleApi = {
       },
     }
   },
-  async create(name: string, content: string): Promise<ApiResponse<BlackboxModule>> {
-    const res = await probeModuleApiV3.create({ name, content })
-    return { ...res, data: toView(res.data) }
-  },
-  async update(id: string | number, input: BlackboxModuleInput): Promise<ApiResponse<BlackboxModule>> {
-    const current = await probeModuleApiV3.get(String(id))
-    const res = await probeModuleApiV3.update(String(id), {
-      name: current.data.name,
-      content: input.content,
-      enabled: input.enabled,
-    })
-    return { ...res, data: toView(res.data) }
-  },
-  async remove(id: string | number): Promise<ApiResponse<{ deleted: boolean }>> {
-    await probeModuleApiV3.remove(String(id))
-    return { status: 'success', data: { deleted: true } }
-  },
 }
