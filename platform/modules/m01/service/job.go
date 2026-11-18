@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 )
 
 // ResourceReader is the M07 read port used for candidates and validation.
 type ResourceReader interface {
 	ListCandidates(ctx context.Context, query domain.CandidateQuery) ([]domain.ResourceRef, int64, error)
+	QueryCandidates(ctx context.Context, query domain.CandidateQuery) (domain.CandidatePage, error)
 	GetMany(ctx context.Context, resourceIDs []string) (map[string]domain.ResourceRef, error)
 }
 
@@ -28,6 +30,8 @@ type JobView struct {
 	ExporterName      string
 	DomainName        string
 	LabelTemplateName string
+	// GroupName is the monitoring-intent name when the job belongs to a group.
+	GroupName string
 }
 
 // CandidateView is one candidate plus derived selection state.
@@ -43,7 +47,11 @@ type CandidateView struct {
 type JobInstanceView struct {
 	Ref           domain.ResourceRef
 	TargetAddress string
-	Installation  *domain.Installation
+	// Port / PortSource are the effective scrape port and the layer that
+	// produced it (instance > mapping > template > business/default).
+	Port         int
+	PortSource   string
+	Installation *domain.Installation
 }
 
 // PreviewTarget is one rendered target group.
@@ -68,6 +76,8 @@ type JobService struct {
 	resources     ResourceReader
 	domains       DomainReader
 	labels        LabelTemplateResolver
+	// groupNames is optional: when wired, job views resolve the group display name.
+	groupNames repository.JobGroupRepository
 }
 
 // NewJobService constructs the service.
@@ -88,6 +98,12 @@ func NewJobService(
 		jobs: jobs, exporters: exporters, mappings: mappings, probes: probes,
 		installations: installations, resources: resources, domains: domains, labels: labels,
 	}
+}
+
+// SetJobGroupResolver wires the job-group repository so job views can resolve
+// the monitoring-intent name (`job_group_name`). Optional: unset keeps it empty.
+func (s *JobService) SetJobGroupResolver(groups repository.JobGroupRepository) {
+	s.groupNames = groups
 }
 
 // List returns a page of jobs with display names.
@@ -167,6 +183,11 @@ func (s *JobService) Update(ctx context.Context, id string, input *domain.Job, e
 	} else {
 		input.Enabled = *enabled
 	}
+	// 组内子 Job 的公共参数由组统一维护（SRS JG v1.0 §11）：这里先拦住越权修改，
+	// 再到 prepare 里做常规校验。
+	if err := enforceGroupChildEditScope(input, existing); err != nil {
+		return nil, err
+	}
 	if err := s.prepare(ctx, input, existing); err != nil {
 		return nil, err
 	}
@@ -183,10 +204,197 @@ func (s *JobService) Update(ctx context.Context, id string, input *domain.Job, e
 
 // Delete soft-deletes a job.
 func (s *JobService) Delete(ctx context.Context, id string) error {
+	existing, err := s.jobs.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	// 组内子 Job 只能通过组编辑（清空该域实例）或删组来移除，避免组视图与实际
+	// 子 Job 失配（SRS JG v1.0 FR-JG-06）。
+	if existing.JobGroupID != "" {
+		return domain.NewValidationError("job_group_id",
+			"this job belongs to a job group; remove the domain in the group or delete the group instead")
+	}
 	return s.jobs.SoftDelete(ctx, id)
 }
 
-// ListCandidates returns M07 resources eligible for a job.
+// CandidateFilterField describes one filterable field for the condition builder
+// (SRS JG v1.1 FR-JG-11). The schema is server-owned: adding a field must not
+// require frontend changes.
+type CandidateFilterField struct {
+	Key     string
+	Label   string
+	Type    string
+	Ops     []string
+	Options []CandidateFilterOption
+	Source  string
+	Default []string
+}
+
+// CandidateFilterOption is one static enum choice.
+type CandidateFilterOption struct {
+	Value string
+	Label string
+}
+
+// CandidateFilterSchema returns the filterable fields for the candidate builder.
+func CandidateFilterSchema() []CandidateFilterField {
+	return []CandidateFilterField{
+		{Key: "network_domain_id", Label: "网域", Type: "multi_enum", Ops: []string{"in"}, Source: "network_domains"},
+		{Key: "status", Label: "运行状态", Type: "multi_enum", Ops: []string{"in"}, Default: []string{"online", "offline"},
+			Options: []CandidateFilterOption{
+				{Value: "online", Label: "运行中"},
+				{Value: "offline", Label: "已停止"},
+				{Value: "maintenance", Label: "维护中"},
+			}},
+		{Key: "app_code", Label: "应用", Type: "multi_enum", Ops: []string{"in"}, Source: "application_dicts"},
+		{Key: "biz_code", Label: "业务", Type: "multi_enum", Ops: []string{"in"}, Source: "business_domains"},
+		{Key: "platform_code", Label: "平台", Type: "multi_enum", Ops: []string{"in"}, Source: "platform_dicts"},
+		{Key: "env", Label: "环境", Type: "multi_enum", Ops: []string{"in"},
+			Options: []CandidateFilterOption{
+				{Value: "OPS", Label: "OPS"},
+				{Value: "PRD", Label: "PRD"},
+				{Value: "UAT", Label: "UAT"},
+			}},
+		{Key: "cluster", Label: "集群", Type: "text", Ops: []string{"eq", "contains"}},
+		{Key: "owner", Label: "负责人", Type: "text", Ops: []string{"contains"}},
+	}
+}
+
+// CandidateQueryResult is the composable-filter response: page views plus the
+// per-domain counts (save-time preview) and, for select-all, the matching ids.
+type CandidateQueryResult struct {
+	Views     []CandidateView
+	Total     int64
+	Domains   []domain.DomainHit
+	IDs       []string
+	Truncated bool
+}
+
+// QueryCandidates runs the composable-filter candidate query (SRS JG v1.1 §5.3).
+func (s *JobService) QueryCandidates(ctx context.Context, query domain.CandidateQuery) (CandidateQueryResult, error) {
+	out := CandidateQueryResult{}
+	if err := normalizeCandidateFilters(&query); err != nil {
+		return out, err
+	}
+	page, err := s.resources.QueryCandidates(ctx, query)
+	if err != nil {
+		return out, err
+	}
+	out.Total = page.Total
+	out.IDs = page.IDs
+	out.Truncated = page.Truncated
+	for _, hit := range page.DomainHits {
+		if s.domains != nil {
+			if ref, ok, err := s.domains.Get(ctx, hit.NetworkDomainID); err == nil && ok {
+				hit.NetworkDomainName = ref.Name
+			}
+		}
+		out.Domains = append(out.Domains, hit)
+	}
+	if query.IDsOnly {
+		return out, nil
+	}
+	mapping, exporter, err := s.catalogForCandidate(ctx, query.MonitorType)
+	if err != nil {
+		return out, err
+	}
+	out.Views = make([]CandidateView, 0, len(page.Refs))
+	for _, ref := range page.Refs {
+		out.Views = append(out.Views, CandidateView{
+			Ref:           ref,
+			MonitorType:   query.MonitorType,
+			TargetAddress: targetAddress(ref, mapping, exporter),
+			Selectable:    ref.Selectable(),
+			DisabledReason: func() string {
+				if ref.Selectable() {
+					return ""
+				}
+				return "offline"
+			}(),
+		})
+	}
+	return out, nil
+}
+
+// normalizeCandidateFilters validates and merges the user-supplied conditions:
+// unknown fields / operators are rejected, repeated `in` conditions intersect
+// (AND semantics), and enum values are checked against the known sets.
+func normalizeCandidateFilters(query *domain.CandidateQuery) error {
+	if len(query.Filters) == 0 {
+		return nil
+	}
+	merged := make(map[string]*domain.CandidateFilter, len(query.Filters))
+	order := make([]string, 0, len(query.Filters))
+	for _, filter := range query.Filters {
+		if err := references.ValidateCandidateFilter(filter); err != nil {
+			return err
+		}
+		if err := validateCandidateFilterValues(filter); err != nil {
+			return err
+		}
+		key := filter.Field + "|" + string(filter.Op)
+		existing, ok := merged[key]
+		if !ok {
+			copied := domain.CandidateFilter{
+				Field: filter.Field, Op: filter.Op,
+				Values: append([]string(nil), filter.Values...),
+			}
+			merged[key] = &copied
+			order = append(order, key)
+			continue
+		}
+		// 同字段同操作符按 AND 合并（in 取交集）；交集为空 → 无条件可选。
+		existing.Values = intersectStrings(existing.Values, filter.Values)
+	}
+	query.Filters = make([]domain.CandidateFilter, 0, len(order))
+	for _, key := range order {
+		query.Filters = append(query.Filters, *merged[key])
+	}
+	return nil
+}
+
+func validateCandidateFilterValues(filter domain.CandidateFilter) error {
+	switch filter.Field {
+	case "status":
+		for _, value := range filter.Values {
+			switch value {
+			case "online", "offline", "maintenance":
+				continue
+			default:
+				return domain.NewValidationErrorf("filters", "invalid status %q", value)
+			}
+		}
+	case "env":
+		for _, value := range filter.Values {
+			switch value {
+			case "OPS", "PRD", "UAT":
+				continue
+			default:
+				return domain.NewValidationErrorf("filters", "invalid env %q", value)
+			}
+		}
+	}
+	return nil
+}
+
+func intersectStrings(left, right []string) []string {
+	if len(left) == 0 || len(right) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		set[value] = struct{}{}
+	}
+	out := make([]string, 0, len(left))
+	for _, value := range left {
+		if _, ok := set[value]; ok {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+// ListCandidates keeps the legacy single-domain entry for the old GET endpoint.
 func (s *JobService) ListCandidates(ctx context.Context, query domain.CandidateQuery) ([]CandidateView, int64, error) {
 	if strings.TrimSpace(query.NetworkDomainID) == "" {
 		return nil, 0, domain.NewValidationError("network_domain_id", "is required")
@@ -247,9 +455,19 @@ func (s *JobService) ListInstances(ctx context.Context, jobID string) ([]JobInst
 		if !ok {
 			continue
 		}
+		mappingPort, exporterPort := 0, 0
+		if mapping != nil {
+			mappingPort = mapping.DefaultPort
+		}
+		if exporter != nil {
+			exporterPort = exporter.DefaultPort
+		}
+		port, source := domain.ResolvePortWithSource(ref, mappingPort, exporterPort)
 		views = append(views, JobInstanceView{
 			Ref:           ref,
 			TargetAddress: targetAddressForJob(ref, job, mapping, exporter),
+			Port:          port,
+			PortSource:    source,
 			Installation:  noteByResource[id],
 		})
 	}
@@ -489,6 +707,12 @@ func (s *JobService) requireDomain(ctx context.Context, domainID string) (domain
 		return domain.DomainRef{}, domain.NewValidationErrorf("network_domain_id",
 			"network domain %q is not an onboarded collection domain; onboard it in M09 first", domainID)
 	}
+	// 域共享授权：非平台管理员只能使用「登记归属自己」或「被显式授权」的网域
+	// （fail-closed，SRS JG v1.2 FR-JG-13）。
+	if actor, ok := ActorFrom(ctx); ok && !actor.IsPlatformAdmin && !ref.AuthorizedFor(actor.TenantID) {
+		return domain.DomainRef{}, domain.NewValidationErrorf("network_domain_id",
+			"network domain %q is not authorized for this tenant", domainID)
+	}
 	return ref, nil
 }
 
@@ -530,6 +754,10 @@ func (s *JobService) validateInstances(ctx context.Context, job *domain.Job, exi
 		if ref.NetworkDomainID != job.NetworkDomainID {
 			return domain.NewValidationErrorf("selected_instance_ids",
 				"resource %q belongs to network domain %q", id, ref.NetworkDomainID)
+		}
+		if actor, ok := ActorFrom(ctx); ok && !actor.IsPlatformAdmin && ref.TenantID != "" && ref.TenantID != actor.TenantID {
+			return domain.NewValidationErrorf("selected_instance_ids",
+				"resource %q belongs to another tenant", id)
 		}
 		if ref.Status != "online" && !(existing != nil && contains(existing.SelectedInstanceIDs, id)) {
 			return domain.NewValidationErrorf("selected_instance_ids", "resource %q is offline", id)
@@ -641,6 +869,16 @@ func (s *JobService) view(ctx context.Context, job *domain.Job) (*JobView, error
 			view.LabelTemplateName = ref.Name
 		}
 	}
+	if job.JobGroupID != "" && s.groupNames != nil {
+		if group, err := s.groupNames.Get(ctx, job.JobGroupID); err == nil {
+			view.GroupName = group.Name
+		} else {
+			var nf *domain.NotFoundError
+			if !errors.As(err, &nf) {
+				return nil, err
+			}
+		}
+	}
 	return view, nil
 }
 
@@ -712,4 +950,56 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// enforceGroupChildEditScope keeps the job group the single maintenance entry.
+// A child job may only change its instance selection (SRS JG v1.0 §11): every
+// common parameter, credential and the enabled state belong to the group.
+// Empty input fields mean "not provided" and are treated as unchanged, matching
+// the other immutable-field checks in Update.
+func enforceGroupChildEditScope(input, existing *domain.Job) error {
+	if existing.JobGroupID == "" {
+		return nil
+	}
+	checks := []struct {
+		field   string
+		current string
+		next    string
+	}{
+		{"job_name", existing.JobName, strings.TrimSpace(input.JobName)},
+		{"monitor_type", existing.MonitorType, strings.TrimSpace(input.MonitorType)},
+		{"resource_category", string(existing.ResourceCategory), string(input.ResourceCategory)},
+		{"exporter_template_id", existing.ExporterTemplateID, strings.TrimSpace(input.ExporterTemplateID)},
+		{"scrape_interval", existing.ScrapeInterval, strings.TrimSpace(input.ScrapeInterval)},
+		{"scrape_timeout", existing.ScrapeTimeout, strings.TrimSpace(input.ScrapeTimeout)},
+		{"metrics_path", existing.MetricsPath, strings.TrimSpace(input.MetricsPath)},
+		{"scheme", string(existing.Scheme), string(input.Scheme)},
+		{"auth_type", string(existing.AuthType), string(input.AuthType)},
+		{"username", existing.Username, strings.TrimSpace(input.Username)},
+		{"label_template_id", existing.LabelTemplateID, strings.TrimSpace(input.LabelTemplateID)},
+		{"blackbox_module", existing.BlackboxModule, strings.TrimSpace(input.BlackboxModule)},
+		{"draft_status", string(existing.DraftStatus), string(input.DraftStatus)},
+	}
+	for _, check := range checks {
+		if check.next == "" {
+			continue
+		}
+		if check.next != check.current {
+			return domain.NewValidationError(check.field,
+				"is managed by the job group; edit the group instead")
+		}
+	}
+	if input.PasswordCipher != "" || input.TokenCipher != "" {
+		return domain.NewValidationError("auth_type",
+			"credentials are managed by the job group; edit the group instead")
+	}
+	if input.TLSSkipVerify != existing.TLSSkipVerify {
+		return domain.NewValidationError("tls_skip_verify",
+			"is managed by the job group; edit the group instead")
+	}
+	if input.Enabled != existing.Enabled {
+		return domain.NewValidationError("enabled",
+			"is managed by the job group; disable the group instead")
+	}
+	return nil
 }

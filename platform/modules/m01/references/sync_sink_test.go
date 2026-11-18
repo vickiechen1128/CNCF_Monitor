@@ -2,11 +2,15 @@ package references
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestSyncSinkRecordsDomainOutcomes(t *testing.T) {
@@ -86,4 +90,60 @@ func TestSyncSinkRecordsRuleOutcomes(t *testing.T) {
 	assert.Equal(t, "synced", row.Status)
 	assert.Equal(t, "v2", row.Version)
 	assert.NotNil(t, row.Synced)
+}
+
+// syncCountingLogger counts UPDATE statements on m01_scrape_jobs, so the batch
+// writeback can be asserted without depending on exact SQL formatting.
+type syncCountingLogger struct {
+	mu      sync.Mutex
+	updates int
+}
+
+func (l *syncCountingLogger) LogMode(logger.LogLevel) logger.Interface { return l }
+func (l *syncCountingLogger) Info(context.Context, string, ...any)     {}
+func (l *syncCountingLogger) Warn(context.Context, string, ...any)     {}
+func (l *syncCountingLogger) Error(context.Context, string, ...any)    {}
+func (l *syncCountingLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error) {
+	sql, _ := fc()
+	if !strings.Contains(sql, "m01_scrape_jobs") || !strings.Contains(sql, "UPDATE") {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.updates++
+}
+
+func (l *syncCountingLogger) updateCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.updates
+}
+
+// 一次同步回写 5 个 Job（3 成功 + 2 同一失败原因）：应只有 2 条 UPDATE
+// （成功组 1 条 + 该错误消息 1 条），而不是逐 Job 的 5 条。
+func TestSyncSinkBatchesUpdatesPerMessage(t *testing.T) {
+	gormDB := openReferencesDB(t)
+	counter := &syncCountingLogger{}
+	sink := NewSyncSink(gormDB.Session(&gorm.Session{Logger: counter}))
+	ctx := context.Background()
+
+	specs := []struct{ id, name string }{
+		{"job-1", "node-1"}, {"job-2", "node-2"}, {"job-3", "node-3"},
+		{"job-4", "node-4"}, {"job-5", "node-5"},
+	}
+	for _, spec := range specs {
+		require.NoError(t, gormDB.Exec(`INSERT INTO m01_scrape_jobs
+			(id,job_name,resource_category,network_domain_id,sync_status,updated_at)
+			VALUES (?,?,'host','mc-demo','pending','2026-01-01 00:00:00')`, spec.id, spec.name).Error)
+	}
+
+	generatedAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, sink.RecordDomainSync(ctx, "mc-demo", "v1", generatedAt, map[string]string{
+		"node-1": "",
+		"node-2": "",
+		"node-3": "",
+		"node-4": "no resolvable targets",
+		"node-5": "no resolvable targets",
+	}))
+	assert.Equal(t, 2, counter.updateCount(), "one UPDATE per outcome group instead of one per job")
 }

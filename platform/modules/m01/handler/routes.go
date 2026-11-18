@@ -12,7 +12,7 @@ import "github.com/gin-gonic/gin"
 //
 // Pending: /monitoring-rules (B5), /metric-library, /business-metrics and
 // /blackbox-modules (B6).
-func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler) {
 	exporterGroup := platform.Group("/exporter-templates")
 	{
 		exporterGroup.GET("", exporters.List)
@@ -37,6 +37,10 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroup.POST("", jobs.Create)
 		// Static routes must be registered before the :id parameter route.
 		jobGroup.GET("/instance-candidates", jobs.Candidates)
+		// 组合筛选（SRS JG v1.1 §5.3）：静态路由必须排在 :id 之前。
+		jobGroup.GET("/instance-candidates/filter-schema", jobs.CandidateFilterSchema)
+		jobGroup.POST("/instance-candidates/query", jobs.QueryCandidates)
+		jobGroup.POST("/instance-candidates/query/ids", jobs.QueryCandidateIDs)
 		jobGroup.GET("/:id", jobs.Get)
 		jobGroup.PUT("/:id", jobs.Update)
 		jobGroup.DELETE("/:id", jobs.Delete)
@@ -44,6 +48,19 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroup.POST("/:id/instances/:resource_id/confirm", jobs.ConfirmInstallation)
 		jobGroup.DELETE("/:id/instances/:resource_id/confirm", jobs.DeleteInstallation)
 		jobGroup.POST("/:id/preview-targets", jobs.Preview)
+	}
+
+	// Job groups (SRS JG v1.0): one monitoring intent fanned out to one child
+	// job per network domain. Dispatch stays per-domain, M09 is unchanged.
+	jobGroupGroup := platform.Group("/job-groups")
+	{
+		jobGroupGroup.GET("", jobGroups.List)
+		jobGroupGroup.POST("", jobGroups.Create)
+		// 静态路由必须在 :id 之前：存量单域任务编辑为跨域时晋升为任务
+		jobGroupGroup.POST("/from-job", jobGroups.Adopt)
+		jobGroupGroup.GET("/:id", jobGroups.Get)
+		jobGroupGroup.PUT("/:id", jobGroups.Update)
+		jobGroupGroup.DELETE("/:id", jobGroups.Delete)
 	}
 
 	metricGroup := platform.Group("/metric-library")

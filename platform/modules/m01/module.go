@@ -31,6 +31,8 @@ type Repositories struct {
 	BusinessMetrics repository.BusinessMetricRepository
 	Installations   repository.InstallationRepository
 	ProbeModules    repository.ProbeModuleRepository
+	// JobGroups persists monitoring intents (SRS JG v1.0).
+	JobGroups repository.JobGroupRepository
 }
 
 // Options carries M01 background-loop tuning.
@@ -49,6 +51,8 @@ type Module struct {
 	metrics        *handler.MetricHandler
 	business       *handler.BusinessMetricHandler
 	probes         *handler.ProbeModuleHandler
+	jobGroups      *service.JobGroupService
+	jobGroupAPI    *handler.JobGroupHandler
 	labelTemplates service.LabelTemplateResolver
 	labelUsage     *references.LabelTemplateUsageChecker
 	syncSink       *references.SyncSink
@@ -69,6 +73,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		BusinessMetrics: repository.NewBusinessMetricRepository(db),
 		Installations:   repository.NewInstallationRepository(db),
 		ProbeModules:    repository.NewProbeModuleRepository(db),
+		JobGroups:       repository.NewJobGroupRepository(db),
 	}
 	// D-3 resolved: M07 now owns m07_label_templates; M01 reads it read-only.
 	labelReader := references.NewLabelTemplateReader(db)
@@ -80,11 +85,18 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		repos.Jobs, repos.Exporters, repos.Mappings, repos.ProbeModules, repos.Installations,
 		references.NewResourceReader(db), references.NewDomainReader(db), labelReader,
 	)
+	// 任务组名解析：Job 列表需要暴露 job_group_id / job_group_name（合并任务列表的前置）
+	jobSvc.SetJobGroupResolver(repos.JobGroups)
 	ruleSvc := service.NewRuleService(repos.Rules, repos.Jobs, repos.Exporters, service.NewPromtoolChecker())
 	metricSvc := service.NewMetricService(repos.Metrics)
 	businessSvc := service.NewBusinessMetricService(repos.BusinessMetrics)
 	probeSvc := service.NewProbeModuleService(repos.ProbeModules, repos.Jobs)
-	reconcileSvc := service.NewReconcileService(repos.Jobs, references.NewResourceReader(db), opts.ReconcileInterval)
+	jobGroupSvc := service.NewJobGroupService(
+		repos.JobGroups, jobSvc, references.NewResourceReader(db), references.NewDomainReader(db),
+	)
+	reconcileSvc := service.NewReconcileService(
+		repos.Jobs, references.NewResourceReader(db), references.NewDomainReader(db), opts.ReconcileInterval,
+	)
 
 	return &Module{
 		repos:          repos,
@@ -95,6 +107,8 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		metrics:        handler.NewMetricHandler(metricSvc),
 		business:       handler.NewBusinessMetricHandler(businessSvc),
 		probes:         handler.NewProbeModuleHandler(probeSvc),
+		jobGroups:      jobGroupSvc,
+		jobGroupAPI:    handler.NewJobGroupHandler(jobGroupSvc),
 		labelTemplates: labelReader,
 		labelUsage:     labelUsage,
 		syncSink:       syncSink,
@@ -108,12 +122,16 @@ func (m *Module) Name() string { return "m01" }
 // RegisterRoutes mounts M01 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules, m.metrics, m.business, m.probes)
+	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules, m.metrics, m.business, m.probes, m.jobGroupAPI)
 	return nil
 }
 
 // Repositories exposes the persistence adapters for later services and tests.
 func (m *Module) Repositories() Repositories { return m.repos }
+
+// JobGroupService exposes the job-group use cases (HTTP wiring lands with the
+// job-group handler; the service is already wired for tests and callers).
+func (m *Module) JobGroupService() *service.JobGroupService { return m.jobGroups }
 
 // LabelTemplateResolver exposes the read-only label template port for job
 // creation later (B3).

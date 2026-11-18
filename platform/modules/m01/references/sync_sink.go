@@ -40,6 +40,9 @@ func (s *SyncSink) RecordDomainSync(ctx context.Context, domainID, version strin
 		Find(&rows).Error; err != nil {
 		return fmt.Errorf("load jobs for sync writeback: %w", err)
 	}
+	// 按「错误消息」分组批量更新：同一次同步里绝大多数 Job 共用同一条消息
+	// （空消息 = 成功），原实现逐 Job UPDATE，域内 Job 一多就是 N 次写放大。
+	grouped := make(map[string][]string, 2)
 	for _, row := range rows {
 		errMsg, ok := outcomes[row.JobName]
 		if !ok {
@@ -48,6 +51,9 @@ func (s *SyncSink) RecordDomainSync(ctx context.Context, domainID, version strin
 		if row.UpdatedAt.After(generatedAt) {
 			continue // a newer user edit keeps its pending state
 		}
+		grouped[errMsg] = append(grouped[errMsg], row.ID)
+	}
+	for errMsg, ids := range grouped {
 		updates := map[string]any{
 			"sync_status": statusFor(errMsg),
 			"sync_error":  errMsg,
@@ -58,9 +64,9 @@ func (s *SyncSink) RecordDomainSync(ctx context.Context, domainID, version strin
 		}
 		if err := s.db.WithContext(ctx).
 			Model(&syncJobRecord{}).
-			Where("id = ?", row.ID).
+			Where("id IN ?", ids).
 			Updates(updates).Error; err != nil {
-			return fmt.Errorf("record sync result for job %q: %w", row.JobName, err)
+			return fmt.Errorf("record sync result for domain %q: %w", domainID, err)
 		}
 	}
 	return nil

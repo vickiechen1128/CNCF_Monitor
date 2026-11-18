@@ -22,8 +22,8 @@ func openReferencesDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status)
-			VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+			VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -63,6 +63,11 @@ func TestLabelTemplateUsageChecker(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, gormDB.Exec(`INSERT INTO m01_exporter_templates(id,name) VALUES ('exp-1','node-exporter')`).Error)
+	// label_template_id is a real FK to m07_label_templates(id).
+	for _, id := range []string{"lt-1", "lt-2"} {
+		require.NoError(t, gormDB.Exec(
+			`INSERT INTO m07_label_templates(id,name,resource_category) VALUES (?, ?, 'host')`, id, "label-"+id).Error)
+	}
 	require.NoError(t, gormDB.Exec(`INSERT INTO m01_ci_type_exporter_mappings(
 		id,monitor_type,exporter_template_id,label_template_id
 	) VALUES ('map-1','host_linux','exp-1','lt-1')`).Error)

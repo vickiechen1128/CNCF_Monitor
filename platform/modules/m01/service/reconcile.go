@@ -18,15 +18,17 @@ const DefaultReconcileInterval = 60 * time.Second
 type ReconcileService struct {
 	jobs      repository.JobRepository
 	resources ResourceReader
+	domains   DomainReader
 	interval  time.Duration
 }
 
-// NewReconcileService constructs the service.
-func NewReconcileService(jobs repository.JobRepository, resources ResourceReader, interval time.Duration) *ReconcileService {
+// NewReconcileService constructs the service. A nil domains reader disables the
+// "domain unavailable" pass (group child jobs only).
+func NewReconcileService(jobs repository.JobRepository, resources ResourceReader, domains DomainReader, interval time.Duration) *ReconcileService {
 	if interval <= 0 {
 		interval = DefaultReconcileInterval
 	}
-	return &ReconcileService{jobs: jobs, resources: resources, interval: interval}
+	return &ReconcileService{jobs: jobs, resources: resources, domains: domains, interval: interval}
 }
 
 // Run reconciles immediately and then on every interval until ctx is done.
@@ -91,6 +93,28 @@ func (s *ReconcileService) ReconcileOnce(ctx context.Context) (int, error) {
 			return changed, err
 		}
 		changed++
+	}
+	// SRS JG v1.0 FR-JG-07：域被禁用 / 退纳管 → 组内子 Job 自动停用并留在库里
+	// （不删除，便于域恢复后人工重新启用）。单域 Job 维持既有行为不变。
+	if s.domains != nil {
+		for _, job := range jobs {
+			if job.JobGroupID == "" || !job.Enabled {
+				continue
+			}
+			ref, ok, err := s.domains.Get(ctx, job.NetworkDomainID)
+			if err != nil {
+				return changed, err
+			}
+			if ok && ref.Eligible() {
+				continue
+			}
+			job.Enabled = false
+			job.Sync = domain.SyncState{Status: domain.SyncDraft}
+			if err := s.jobs.Update(ctx, job); err != nil {
+				return changed, err
+			}
+			changed++
+		}
 	}
 	return changed, nil
 }

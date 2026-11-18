@@ -12,6 +12,13 @@ import (
 // JobFilter filters scrape job listings.
 type JobFilter struct {
 	NetworkDomainID string
+	// Ungrouped limits the result to jobs without a monitoring-intent group
+	// (job_group_id IS NULL); used by the merged task list's "未分组" section.
+	Ungrouped bool
+	// GroupedOnly is the symmetric filter (job_group_id IS NOT NULL): callers
+	// that count "grouped execution jobs" must not accidentally include
+	// standalone jobs（口径显式化）。
+	GroupedOnly     bool
 	MonitorType     string
 	JobType         domain.JobType
 	Enabled         *bool
@@ -82,6 +89,12 @@ func (r *GORMJobRepository) List(ctx context.Context, filter JobFilter) ([]*doma
 		q := r.db.WithContext(ctx).Model(&jobRecord{})
 		if filter.NetworkDomainID != "" {
 			q = q.Where("network_domain_id = ?", filter.NetworkDomainID)
+		}
+		if filter.Ungrouped {
+			q = q.Where("job_group_id IS NULL")
+		}
+		if filter.GroupedOnly {
+			q = q.Where("job_group_id IS NOT NULL")
 		}
 		if filter.MonitorType != "" {
 			q = q.Where("monitor_type = ?", filter.MonitorType)

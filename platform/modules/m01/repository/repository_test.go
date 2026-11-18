@@ -3,17 +3,13 @@ package repository
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
-	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 )
 
 func assertNotFound(t *testing.T, err error) {
@@ -24,18 +20,12 @@ func assertNotFound(t *testing.T, err error) {
 
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m01_repository.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on&_busy_timeout=5000"), &gorm.Config{
-		Logger: logger.Discard,
-	})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status)
-			VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+			VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -166,6 +156,9 @@ func TestMappingRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count)
 
+	// label_template_id is now a real FK to m07_label_templates(id).
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO m07_label_templates(id,name,resource_category) VALUES ('lt-1','节点标签模板','host')`).Error)
 	found.LabelTemplateID = "lt-1"
 	require.NoError(t, mappings.Update(ctx, found))
 	reloaded, err := mappings.Get(ctx, found.ID)
@@ -420,4 +413,126 @@ func TestProbeModuleRepository(t *testing.T) {
 	require.NoError(t, repo.SoftDelete(ctx, module.ID))
 	_, err = repo.Get(ctx, module.ID)
 	assertNotFound(t, err)
+}
+
+// 00012: job_name 唯一性由全局收敛为「同域唯一」——同组跨域复用同一 job_name 合法，
+// 同域重名仍被拒。这是「一张意图 + N 条子 Job」方案能落地的数据前提。
+func TestJobNameUniquePerDomain(t *testing.T) {
+	gormDB := openTestDB(t)
+	repo := NewJobRepository(gormDB)
+	ctx := context.Background()
+
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+		VALUES ('mc-other','第二采集域','edge','platform_admin','enabled')`).Error)
+
+	inDemo := newJob("mysql")
+	require.NoError(t, repo.Create(ctx, inDemo))
+
+	inOther := newJob("mysql")
+	inOther.NetworkDomainID = "mc-other"
+	require.NoError(t, repo.Create(ctx, inOther), "same job_name in another domain must be allowed")
+
+	duplicate := newJob("mysql")
+	var conflict *domain.ConflictError
+	require.ErrorAs(t, repo.Create(ctx, duplicate), &conflict, "same job_name in the same domain must conflict")
+
+	// 删除后同名可重建（部分唯一索引用 deleted_at IS NULL 过滤）
+	require.NoError(t, repo.SoftDelete(ctx, inDemo.ID))
+	require.NoError(t, repo.Create(ctx, newJob("mysql")))
+}
+
+// 00012: 子 Job 的 job_group_id 必须可往返，且旧数据（NULL）读出来是空串。
+func TestJobGroupIDRoundTrip(t *testing.T) {
+	gormDB := openTestDB(t)
+	groups := NewJobGroupRepository(gormDB)
+	jobs := NewJobRepository(gormDB)
+	ctx := context.Background()
+
+	group := &domain.JobGroup{
+		Name:             "主机基础采集",
+		JobType:          domain.JobTypeStandard,
+		ResourceCategory: domain.CategoryHost,
+		MonitorType:      "host_linux",
+		ScrapeInterval:   "15s",
+		ScrapeTimeout:    "10s",
+		MetricsPath:      "/metrics",
+		Scheme:           domain.SchemeHTTP,
+		AuthType:         domain.AuthNone,
+		MappingOverrides: []domain.MappingOverride{{Field: "scrape_interval", Value: "15s"}},
+		Status:           domain.JobGroupStatusEnabled,
+		CreatedBy:        "admin",
+	}
+	require.NoError(t, groups.Create(ctx, group))
+	assert.NotEmpty(t, group.ID)
+
+	job := newJob("host-base")
+	job.JobGroupID = group.ID
+	require.NoError(t, jobs.Create(ctx, job))
+
+	got, err := jobs.Get(ctx, job.ID)
+	require.NoError(t, err)
+	assert.Equal(t, group.ID, got.JobGroupID)
+
+	legacy := newJob("legacy-job")
+	require.NoError(t, jobs.Create(ctx, legacy))
+	gotLegacy, err := jobs.Get(ctx, legacy.ID)
+	require.NoError(t, err)
+	assert.Empty(t, gotLegacy.JobGroupID)
+}
+
+func TestJobGroupRepository(t *testing.T) {
+	gormDB := openTestDB(t)
+	repo := NewJobGroupRepository(gormDB)
+	ctx := context.Background()
+
+	group := &domain.JobGroup{
+		Name:             "数据库基础采集",
+		JobType:          domain.JobTypeStandard,
+		ResourceCategory: domain.CategoryDatabase,
+		MonitorType:      "mysql",
+		ScrapeInterval:   "30s",
+		ScrapeTimeout:    "10s",
+		MetricsPath:      "/metrics",
+		Scheme:           domain.SchemeHTTP,
+		AuthType:         domain.AuthNone,
+		Status:           domain.JobGroupStatusEnabled,
+		CreatedBy:        "admin",
+	}
+	require.NoError(t, repo.Create(ctx, group))
+
+	got, err := repo.Get(ctx, group.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "数据库基础采集", got.Name)
+	assert.Equal(t, domain.JobGroupStatusEnabled, got.Status)
+	assert.Equal(t, "30s", got.ScrapeInterval)
+
+	count, err := repo.CountByName(ctx, "数据库基础采集")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	var conflict *domain.ConflictError
+	require.ErrorAs(t, repo.Create(ctx, &domain.JobGroup{
+		Name: "数据库基础采集", ResourceCategory: domain.CategoryDatabase, Status: domain.JobGroupStatusEnabled,
+	}), &conflict, "group name is globally unique")
+
+	list, total, err := repo.List(ctx, JobGroupFilter{Keyword: "数据库"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, list, 1)
+
+	got.Status = domain.JobGroupStatusDisabled
+	got.ScrapeInterval = "60s"
+	require.NoError(t, repo.Update(ctx, got))
+	reloaded, err := repo.Get(ctx, got.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.JobGroupStatusDisabled, reloaded.Status)
+	assert.Equal(t, "60s", reloaded.ScrapeInterval)
+
+	require.NoError(t, repo.SoftDelete(ctx, got.ID))
+	_, err = repo.Get(ctx, got.ID)
+	assertNotFound(t, err)
+	// 软删后同名可重新登记
+	require.NoError(t, repo.Create(ctx, &domain.JobGroup{
+		Name: "数据库基础采集", ResourceCategory: domain.CategoryDatabase, Status: domain.JobGroupStatusEnabled,
+	}))
 }

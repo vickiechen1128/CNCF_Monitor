@@ -190,3 +190,48 @@ func HostFromURL(raw string) string {
 	}
 	return parsed.Hostname()
 }
+
+// 端口来源枚举（与 platform/configcenter/portchain 对齐；额外补充 host 的
+// 系统默认兜底 9100，避免把"默认端口"显示成未解析）。
+const (
+	PortSourceInstance   = "instance"
+	PortSourceMapping    = "mapping"
+	PortSourceTemplate   = "template"
+	PortSourceBusiness   = "business"
+	PortSourceDefault    = "default"
+	PortSourceUnresolved = "unresolved"
+)
+
+// ResolvePortWithSource mirrors ResolvePort and additionally reports which layer
+// produced the effective port, so the UI can tell the user where to change it.
+func ResolvePortWithSource(ref ResourceRef, mappingPort, exporterPort int) (int, string) {
+	switch ref.Category {
+	case CategoryHost:
+		if ref.ScrapePort > 0 {
+			return ref.ScrapePort, PortSourceInstance
+		}
+		if mappingPort > 0 {
+			return mappingPort, PortSourceMapping
+		}
+		if exporterPort > 0 {
+			return exporterPort, PortSourceTemplate
+		}
+		return 9100, PortSourceDefault
+	case CategoryDatabase, CategoryMiddleware:
+		if ref.ScrapePort > 0 {
+			return ref.ScrapePort, PortSourceInstance
+		}
+		if mappingPort > 0 {
+			return mappingPort, PortSourceMapping
+		}
+		if ref.Port > 0 {
+			return ref.Port, PortSourceBusiness
+		}
+		return 0, PortSourceUnresolved
+	default:
+		if ref.Port > 0 {
+			return ref.Port, PortSourceDefault
+		}
+		return 0, PortSourceUnresolved
+	}
+}

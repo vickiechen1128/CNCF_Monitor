@@ -63,10 +63,12 @@ func FromInstallation(item *domain.Installation) *InstallationResponse {
 
 // JobInstanceResponse is one selected instance with its target estimate.
 type JobInstanceResponse struct {
-	ResourceID    string                `json:"resource_id"`
-	DisplayName   string                `json:"display_name"`
-	InstanceIP    string                `json:"instance_ip"`
-	Port          int                   `json:"port"`
+	ResourceID  string `json:"resource_id"`
+	DisplayName string `json:"display_name"`
+	InstanceIP  string `json:"instance_ip"`
+	Port        int    `json:"port"`
+	// PortSource: instance / mapping / template / business / default / unresolved
+	PortSource    string                `json:"port_source"`
 	Status        string                `json:"status"`
 	TargetAddress string                `json:"target_address"`
 	Installation  *InstallationResponse `json:"installation"`

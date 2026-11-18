@@ -98,6 +98,21 @@ func (d DraftStatus) Valid() bool {
 	return d == DraftStatusDraft || d == DraftStatusReady
 }
 
+// JobGroupStatus is the administrative state of a job group (SRS JG v1.0).
+// Disabling a group disables every child job; the child jobs stay for audit.
+type JobGroupStatus string
+
+// Job group state values.
+const (
+	JobGroupStatusEnabled  JobGroupStatus = "enabled"
+	JobGroupStatusDisabled JobGroupStatus = "disabled"
+)
+
+// Valid reports whether the group state is known.
+func (s JobGroupStatus) Valid() bool {
+	return s == JobGroupStatusEnabled || s == JobGroupStatusDisabled
+}
+
 // SyncStatus is the M09 synchronisation state owned by M01 (D-2).
 type SyncStatus string
 

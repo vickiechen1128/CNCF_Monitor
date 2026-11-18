@@ -2,7 +2,9 @@ package references
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -32,10 +34,13 @@ func (r *GORMDomainReader) Get(ctx context.Context, id string) (domain.DomainRef
 		Status             string `gorm:"column:status"`
 		DomainType         string `gorm:"column:domain_type"`
 		RegistrationStatus string `gorm:"column:registration_status"`
+		TenantID           string `gorm:"column:tenant_id"`
+		AuthorizedTenants  string `gorm:"column:authorized_tenant_ids"`
 	}
 	err := r.db.WithContext(ctx).
 		Table("network_domains AS d").
 		Select(`d.id AS id, d.name AS name, d.status AS status, d.domain_type AS domain_type,
+			d.tenant_id AS tenant_id, d.authorized_tenant_ids AS authorized_tenant_ids,
 			COALESCE(a.registration_status, '') AS registration_status`).
 		Joins("LEFT JOIN network_domain_access a ON a.domain_id = d.id").
 		Where("d.id = ? AND d.deleted_at IS NULL", id).
@@ -48,10 +53,25 @@ func (r *GORMDomainReader) Get(ctx context.Context, id string) (domain.DomainRef
 		return domain.DomainRef{}, false, nil
 	}
 	return domain.DomainRef{
-		ID:                 row.ID,
-		Name:               row.Name,
-		Status:             row.Status,
-		DomainType:         row.DomainType,
-		RegistrationStatus: row.RegistrationStatus,
+		ID:                  row.ID,
+		Name:                row.Name,
+		Status:              row.Status,
+		DomainType:          row.DomainType,
+		RegistrationStatus:  row.RegistrationStatus,
+		TenantID:            row.TenantID,
+		AuthorizedTenantIDs: parseTenantList(row.AuthorizedTenants),
 	}, true, nil
+}
+
+// parseTenantList decodes the M06 JSON text column; malformed / empty values are
+// treated as "no extra tenants" instead of failing the domain lookup.
+func parseTenantList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return nil
+	}
+	return ids
 }

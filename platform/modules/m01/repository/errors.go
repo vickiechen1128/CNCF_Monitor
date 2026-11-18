@@ -32,3 +32,19 @@ func isNotFound(err error) bool {
 func notFound(entity, id string) error {
 	return &domain.NotFoundError{Entity: entity, ID: id}
 }
+
+// nilIfEmpty maps an empty string to a SQL NULL (used for nullable FK columns).
+func nilIfEmpty(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+// derefString reverses nilIfEmpty.
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}

@@ -91,7 +91,7 @@ type mappingRecord struct {
 	Scheme             string         `gorm:"column:scheme;not null"`
 	ScrapeInterval     string         `gorm:"column:scrape_interval;not null"`
 	ScrapeTimeout      string         `gorm:"column:scrape_timeout;not null"`
-	LabelTemplateID    string         `gorm:"column:label_template_id;not null"`
+	LabelTemplateID    *string        `gorm:"column:label_template_id"`
 	IsBuiltin          bool           `gorm:"column:is_builtin;not null"`
 	CreatedAt          time.Time      `gorm:"column:created_at"`
 	UpdatedAt          time.Time      `gorm:"column:updated_at"`
@@ -111,7 +111,7 @@ func (r mappingRecord) toDomain() *domain.Mapping {
 		Scheme:             domain.Scheme(r.Scheme),
 		ScrapeInterval:     r.ScrapeInterval,
 		ScrapeTimeout:      r.ScrapeTimeout,
-		LabelTemplateID:    r.LabelTemplateID,
+		LabelTemplateID:    derefString(r.LabelTemplateID),
 		IsBuiltin:          r.IsBuiltin,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
@@ -129,7 +129,7 @@ func mappingFromDomain(m *domain.Mapping) mappingRecord {
 		Scheme:             string(m.Scheme),
 		ScrapeInterval:     m.ScrapeInterval,
 		ScrapeTimeout:      m.ScrapeTimeout,
-		LabelTemplateID:    m.LabelTemplateID,
+		LabelTemplateID:    nilIfEmpty(m.LabelTemplateID),
 		IsBuiltin:          m.IsBuiltin,
 		CreatedAt:          m.CreatedAt,
 		UpdatedAt:          m.UpdatedAt,
@@ -143,7 +143,7 @@ type jobRecord struct {
 	JobType               string                   `gorm:"column:job_type;not null"`
 	ResourceCategory      string                   `gorm:"column:resource_category;not null"`
 	MonitorType           string                   `gorm:"column:monitor_type;not null"`
-	ExporterTemplateID    string                   `gorm:"column:exporter_template_id;not null"`
+	ExporterTemplateID    *string                  `gorm:"column:exporter_template_id"`
 	NetworkDomainID       string                   `gorm:"column:network_domain_id;not null"`
 	InstanceSelectionMode string                   `gorm:"column:instance_selection_mode;not null"`
 	SelectedInstanceIDs   []string                 `gorm:"column:selected_instance_ids;serializer:json;not null"`
@@ -157,19 +157,22 @@ type jobRecord struct {
 	TokenCipher           string                   `gorm:"column:token_cipher;not null"`
 	TLSSkipVerify         bool                     `gorm:"column:tls_skip_verify;not null"`
 	CAFile                string                   `gorm:"column:ca_file;not null"`
-	LabelTemplateID       string                   `gorm:"column:label_template_id;not null"`
-	BlackboxModule        string                   `gorm:"column:blackbox_module;not null"`
+	LabelTemplateID       *string                  `gorm:"column:label_template_id"`
+	BlackboxModule        *string                  `gorm:"column:blackbox_module"`
 	TargetField           string                   `gorm:"column:target_field;not null"`
 	MappingOverrides      []domain.MappingOverride `gorm:"column:mapping_overrides;serializer:json;not null"`
 	DraftStatus           string                   `gorm:"column:draft_status;not null"`
 	Enabled               bool                     `gorm:"column:enabled;not null"`
-	SyncStatus            string                   `gorm:"column:sync_status;not null"`
-	SyncVersion           string                   `gorm:"column:sync_version;not null"`
-	SyncError             string                   `gorm:"column:sync_error;not null"`
-	SyncedAt              *time.Time               `gorm:"column:synced_at"`
-	CreatedAt             time.Time                `gorm:"column:created_at"`
-	UpdatedAt             time.Time                `gorm:"column:updated_at"`
-	DeletedAt             gorm.DeletedAt           `gorm:"column:deleted_at;index"`
+	// Nullable: a legacy standalone job has no group, and an empty string would
+	// violate the FK to m01_job_groups.
+	JobGroupID  *string        `gorm:"column:job_group_id"`
+	SyncStatus  string         `gorm:"column:sync_status;not null"`
+	SyncVersion string         `gorm:"column:sync_version;not null"`
+	SyncError   string         `gorm:"column:sync_error;not null"`
+	SyncedAt    *time.Time     `gorm:"column:synced_at"`
+	CreatedAt   time.Time      `gorm:"column:created_at"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"column:deleted_at;index"`
 }
 
 func (jobRecord) TableName() string { return "m01_scrape_jobs" }
@@ -181,7 +184,7 @@ func (r jobRecord) toDomain() *domain.Job {
 		JobType:               domain.JobType(r.JobType),
 		ResourceCategory:      domain.ResourceCategory(r.ResourceCategory),
 		MonitorType:           r.MonitorType,
-		ExporterTemplateID:    r.ExporterTemplateID,
+		ExporterTemplateID:    derefString(r.ExporterTemplateID),
 		NetworkDomainID:       r.NetworkDomainID,
 		InstanceSelectionMode: domain.InstanceSelectionMode(r.InstanceSelectionMode),
 		SelectedInstanceIDs:   nonNilStrings(r.SelectedInstanceIDs),
@@ -195,12 +198,13 @@ func (r jobRecord) toDomain() *domain.Job {
 		TokenCipher:           r.TokenCipher,
 		TLSSkipVerify:         r.TLSSkipVerify,
 		CAFile:                r.CAFile,
-		LabelTemplateID:       r.LabelTemplateID,
-		BlackboxModule:        r.BlackboxModule,
+		LabelTemplateID:       derefString(r.LabelTemplateID),
+		BlackboxModule:        derefString(r.BlackboxModule),
 		TargetField:           r.TargetField,
 		MappingOverrides:      nonNilOverrides(r.MappingOverrides),
 		DraftStatus:           domain.DraftStatus(r.DraftStatus),
 		Enabled:               r.Enabled,
+		JobGroupID:            derefString(r.JobGroupID),
 		Sync: domain.SyncState{
 			Status:   domain.SyncStatus(r.SyncStatus),
 			Version:  r.SyncVersion,
@@ -219,7 +223,7 @@ func jobFromDomain(j *domain.Job) jobRecord {
 		JobType:               string(j.JobType),
 		ResourceCategory:      string(j.ResourceCategory),
 		MonitorType:           j.MonitorType,
-		ExporterTemplateID:    j.ExporterTemplateID,
+		ExporterTemplateID:    nilIfEmpty(j.ExporterTemplateID),
 		NetworkDomainID:       j.NetworkDomainID,
 		InstanceSelectionMode: string(j.InstanceSelectionMode),
 		SelectedInstanceIDs:   nonNilStrings(j.SelectedInstanceIDs),
@@ -233,12 +237,13 @@ func jobFromDomain(j *domain.Job) jobRecord {
 		TokenCipher:           j.TokenCipher,
 		TLSSkipVerify:         j.TLSSkipVerify,
 		CAFile:                j.CAFile,
-		LabelTemplateID:       j.LabelTemplateID,
-		BlackboxModule:        j.BlackboxModule,
+		LabelTemplateID:       nilIfEmpty(j.LabelTemplateID),
+		BlackboxModule:        nilIfEmpty(j.BlackboxModule),
 		TargetField:           j.TargetField,
 		MappingOverrides:      nonNilOverrides(j.MappingOverrides),
 		DraftStatus:           string(j.DraftStatus),
 		Enabled:               j.Enabled,
+		JobGroupID:            nilIfEmpty(j.JobGroupID),
 		SyncStatus:            string(j.Sync.Status),
 		SyncVersion:           j.Sync.Version,
 		SyncError:             j.Sync.Error,
@@ -260,7 +265,7 @@ type ruleRecord struct {
 	Labels             map[string]string `gorm:"column:labels;serializer:json;not null"`
 	Annotations        map[string]string `gorm:"column:annotations;serializer:json;not null"`
 	MonitorType        string            `gorm:"column:monitor_type;not null"`
-	ExporterTemplateID string            `gorm:"column:exporter_template_id;not null"`
+	ExporterTemplateID *string           `gorm:"column:exporter_template_id"`
 	Scope              string            `gorm:"column:scope;not null"`
 	Enabled            bool              `gorm:"column:enabled;not null"`
 	DraftStatus        string            `gorm:"column:draft_status;not null"`
@@ -289,7 +294,7 @@ func (r ruleRecord) toDomain() *domain.Rule {
 		Labels:             nonNilMap(r.Labels),
 		Annotations:        nonNilMap(r.Annotations),
 		MonitorType:        r.MonitorType,
-		ExporterTemplateID: r.ExporterTemplateID,
+		ExporterTemplateID: derefString(r.ExporterTemplateID),
 		Scope:              domain.RuleScope(r.Scope),
 		Enabled:            r.Enabled,
 		DraftStatus:        domain.DraftStatus(r.DraftStatus),
@@ -318,7 +323,7 @@ func ruleFromDomain(r *domain.Rule) ruleRecord {
 		Labels:             nonNilMap(r.Labels),
 		Annotations:        nonNilMap(r.Annotations),
 		MonitorType:        r.MonitorType,
-		ExporterTemplateID: r.ExporterTemplateID,
+		ExporterTemplateID: nilIfEmpty(r.ExporterTemplateID),
 		Scope:              string(r.Scope),
 		Enabled:            r.Enabled,
 		DraftStatus:        string(r.DraftStatus),
@@ -343,7 +348,7 @@ type metricRecord struct {
 	Labels             []string              `gorm:"column:labels;serializer:json;not null"`
 	MonitorTypes       []domain.MetricAnchor `gorm:"column:monitor_types;serializer:json;not null"`
 	Category           string                `gorm:"column:category;not null"`
-	ExporterTemplateID string                `gorm:"column:exporter_template_id;not null"`
+	ExporterTemplateID *string               `gorm:"column:exporter_template_id"`
 	IsBuiltin          bool                  `gorm:"column:is_builtin;not null"`
 	Enabled            bool                  `gorm:"column:enabled;not null"`
 	CreatedAt          time.Time             `gorm:"column:created_at"`
@@ -363,7 +368,7 @@ func (r metricRecord) toDomain() *domain.Metric {
 		Labels:             nonNilStrings(r.Labels),
 		MonitorTypes:       nonNilAnchors(r.MonitorTypes),
 		Category:           r.Category,
-		ExporterTemplateID: r.ExporterTemplateID,
+		ExporterTemplateID: derefString(r.ExporterTemplateID),
 		IsBuiltin:          r.IsBuiltin,
 		Enabled:            r.Enabled,
 		CreatedAt:          r.CreatedAt,
@@ -381,7 +386,7 @@ func metricFromDomain(m *domain.Metric) metricRecord {
 		Labels:             nonNilStrings(m.Labels),
 		MonitorTypes:       nonNilAnchors(m.MonitorTypes),
 		Category:           m.Category,
-		ExporterTemplateID: m.ExporterTemplateID,
+		ExporterTemplateID: nilIfEmpty(m.ExporterTemplateID),
 		IsBuiltin:          m.IsBuiltin,
 		Enabled:            m.Enabled,
 		CreatedAt:          m.CreatedAt,

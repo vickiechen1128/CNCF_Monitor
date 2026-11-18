@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
@@ -28,6 +28,8 @@ func (h *JobHandler) List(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.JobFilter{
 		NetworkDomainID: strings.TrimSpace(c.Query("network_domain_id")),
+		Ungrouped:       strings.EqualFold(c.Query("ungrouped"), "true"),
+		GroupedOnly:     strings.EqualFold(c.Query("grouped"), "true"),
 		MonitorType:     strings.TrimSpace(c.Query("monitor_type")),
 		JobType:         domain.JobType(strings.TrimSpace(c.Query("job_type"))),
 		Enabled:         boolQuery(c, "enabled"),
@@ -44,7 +46,7 @@ func (h *JobHandler) List(c *gin.Context) {
 	}
 	list := make([]dto.JobResponse, 0, len(views))
 	for _, view := range views {
-		list = append(list, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName))
+		list = append(list, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName, view.GroupName))
 	}
 	response.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": pageSize})
 }
@@ -56,12 +58,12 @@ func (h *JobHandler) Create(c *gin.Context) {
 		response.BadRequest(c, err)
 		return
 	}
-	view, err := h.svc.Create(c.Request.Context(), req.ToDomain(), req.Enabled)
+	view, err := h.svc.Create(requestContext(c), req.ToDomain(), req.Enabled)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName))
+	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName, view.GroupName))
 }
 
 // Get handles GET /scrape-jobs/{id}.
@@ -76,7 +78,7 @@ func (h *JobHandler) Get(c *gin.Context) {
 		respondError(c, err)
 		return
 	}
-	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName))
+	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName, view.GroupName))
 }
 
 // Update handles PUT /scrape-jobs/{id}.
@@ -91,12 +93,12 @@ func (h *JobHandler) Update(c *gin.Context) {
 		response.BadRequest(c, err)
 		return
 	}
-	view, err := h.svc.Update(c.Request.Context(), id, req.ToDomain(), req.Enabled, req.SyncMappingDefaults)
+	view, err := h.svc.Update(requestContext(c), id, req.ToDomain(), req.Enabled, req.SyncMappingDefaults)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName))
+	response.OK(c, dto.FromJob(view.Job, view.ExporterName, view.DomainName, view.LabelTemplateName, view.GroupName))
 }
 
 // Delete handles DELETE /scrape-jobs/{id}.
@@ -124,7 +126,7 @@ func (h *JobHandler) Candidates(c *gin.Context) {
 		Page:            page,
 		PageSize:        pageSize,
 	}
-	views, total, err := h.svc.ListCandidates(c.Request.Context(), query)
+	views, total, err := h.svc.ListCandidates(requestContext(c), query)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -154,7 +156,8 @@ func (h *JobHandler) Instances(c *gin.Context) {
 			ResourceID:    view.Ref.ID,
 			DisplayName:   view.Ref.DisplayName,
 			InstanceIP:    view.Ref.InstanceIP,
-			Port:          view.Ref.Port,
+			Port:          view.Port,
+			PortSource:    view.PortSource,
 			Status:        view.Ref.Status,
 			TargetAddress: view.TargetAddress,
 			Installation:  dto.FromInstallation(view.Installation),

@@ -85,15 +85,19 @@ type SyncResponse struct {
 
 // JobResponse is the v3 scrape job projection.
 type JobResponse struct {
-	ID                    string                   `json:"id"`
-	JobName               string                   `json:"job_name"`
-	JobType               string                   `json:"job_type"`
-	ResourceCategory      string                   `json:"resource_category"`
-	MonitorType           string                   `json:"monitor_type"`
-	ExporterTemplateID    string                   `json:"exporter_template_id"`
-	ExporterTemplateName  string                   `json:"exporter_template_name"`
-	NetworkDomainID       string                   `json:"network_domain_id"`
-	NetworkDomainName     string                   `json:"network_domain_name"`
+	ID                   string `json:"id"`
+	JobName              string `json:"job_name"`
+	JobType              string `json:"job_type"`
+	ResourceCategory     string `json:"resource_category"`
+	MonitorType          string `json:"monitor_type"`
+	ExporterTemplateID   string `json:"exporter_template_id"`
+	ExporterTemplateName string `json:"exporter_template_name"`
+	NetworkDomainID      string `json:"network_domain_id"`
+	NetworkDomainName    string `json:"network_domain_name"`
+	// JobGroupID / JobGroupName identify the monitoring intent a job belongs to
+	// (empty for legacy standalone jobs). Needed by the merged task list.
+	JobGroupID            string                   `json:"job_group_id,omitempty"`
+	JobGroupName          string                   `json:"job_group_name,omitempty"`
 	InstanceSelectionMode string                   `json:"instance_selection_mode"`
 	SelectedInstanceIDs   []string                 `json:"selected_instance_ids"`
 	SelectedInstanceCount int                      `json:"selected_instance_count"`
@@ -119,7 +123,7 @@ type JobResponse struct {
 }
 
 // FromJob maps a domain job plus resolved names to the v3 projection.
-func FromJob(job *domain.Job, exporterName, domainName, labelName string) JobResponse {
+func FromJob(job *domain.Job, exporterName, domainName, labelName, groupName string) JobResponse {
 	overrides := job.MappingOverrides
 	if overrides == nil {
 		overrides = []domain.MappingOverride{}
@@ -134,6 +138,8 @@ func FromJob(job *domain.Job, exporterName, domainName, labelName string) JobRes
 		ExporterTemplateName:  exporterName,
 		NetworkDomainID:       job.NetworkDomainID,
 		NetworkDomainName:     domainName,
+		JobGroupID:            job.JobGroupID,
+		JobGroupName:          groupName,
 		InstanceSelectionMode: string(job.InstanceSelectionMode),
 		SelectedInstanceIDs:   job.SelectedInstanceIDs,
 		SelectedInstanceCount: len(job.SelectedInstanceIDs),

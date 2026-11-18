@@ -87,8 +87,44 @@ type Job struct {
 	DraftStatus           DraftStatus
 	Enabled               bool
 	Sync                  SyncState
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	// JobGroupID links a per-domain child job to its monitoring intent
+	// (m01_job_groups). Empty for legacy standalone jobs (SRS JG v1.0).
+	JobGroupID string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// JobGroup is one monitoring intent: a set of common scrape parameters plus the
+// child jobs it fans out to, one per network domain (SRS JG v1.0 §3).
+//
+// The group is the maintenance/display unit only; every child job keeps the
+// single-domain invariants M09 relies on. Group-level sync status is derived
+// from the children and is never persisted.
+type JobGroup struct {
+	ID                 string
+	Name               string
+	JobType            JobType
+	ResourceCategory   ResourceCategory
+	MonitorType        string
+	ExporterTemplateID string
+	ScrapeInterval     string
+	ScrapeTimeout      string
+	MetricsPath        string
+	Scheme             Scheme
+	AuthType           AuthType
+	Username           string
+	PasswordCipher     string
+	TokenCipher        string
+	TLSSkipVerify      bool
+	CAFile             string
+	LabelTemplateID    string
+	BlackboxModule     string
+	TargetField        string
+	MappingOverrides   []MappingOverride
+	Status             JobGroupStatus
+	CreatedBy          string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // Rule is a monitoring rule (alerting / recording). Rules are platform-global

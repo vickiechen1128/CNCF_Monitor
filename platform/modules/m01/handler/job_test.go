@@ -109,8 +109,8 @@ func TestJobValidatesOfflineAndDomain(t *testing.T) {
 			VALUES ('res-off','host','platform_admin','mc-demo','PRD','offline','manual',0,'host|mc-demo|10.0.0.9')`,
 		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type)
 			VALUES ('res-off','web-off','10.0.0.9','linux')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status)
-			VALUES ('dom-no-access','未纳管域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+			VALUES ('dom-no-access','未纳管域','edge','platform_admin','enabled')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}

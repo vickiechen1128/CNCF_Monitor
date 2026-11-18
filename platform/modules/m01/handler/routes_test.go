@@ -33,8 +33,8 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status)
-			VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+			VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
 		`INSERT INTO network_domain_access(domain_id,token_hash,registration_status)
 			VALUES ('mc-demo','hash','monitored')`,
 	} {
@@ -54,10 +54,15 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		jobs, exporters, mappings, probes, installations,
 		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB), labelReader,
 	)
+	jobSvc.SetJobGroupResolver(repository.NewJobGroupRepository(gormDB))
 	ruleSvc := service.NewRuleService(rules, jobs, exporters, nil)
 	metricSvc := service.NewMetricService(repository.NewMetricRepository(gormDB))
 	businessSvc := service.NewBusinessMetricService(repository.NewBusinessMetricRepository(gormDB))
 	probeSvc := service.NewProbeModuleService(probes, jobs)
+	jobGroupSvc := service.NewJobGroupService(
+		repository.NewJobGroupRepository(gormDB), jobSvc,
+		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB),
+	)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -69,6 +74,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewMetricHandler(metricSvc),
 		NewBusinessMetricHandler(businessSvc),
 		NewProbeModuleHandler(probeSvc),
+		NewJobGroupHandler(jobGroupSvc),
 	)
 	return router, gormDB
 }
