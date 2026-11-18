@@ -69,8 +69,10 @@ func (r *GORMSourceReader) cachedPorts(ctx context.Context) (map[string]int, map
 type jobSourceRow struct {
 	JobName             string `gorm:"column:job_name"`
 	JobType             string `gorm:"column:job_type"`
+	ResourceCategory    string `gorm:"column:resource_category"`
 	MonitorType         string `gorm:"column:monitor_type"`
 	ExporterTemplateID  string `gorm:"column:exporter_template_id"`
+	LabelTemplateID     string `gorm:"column:label_template_id"`
 	BlackboxModule      string `gorm:"column:blackbox_module"`
 	MetricsPath         string `gorm:"column:metrics_path"`
 	Scheme              string `gorm:"column:scheme"`
@@ -102,8 +104,9 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 	var rows []jobSourceRow
 	if err := r.db.WithContext(ctx).
 		Table("m01_scrape_jobs").
-		Select(`job_name, job_type, monitor_type, exporter_template_id, blackbox_module,
-			metrics_path, scheme, scrape_interval, scrape_timeout, selected_instance_ids`).
+		Select(`job_name, job_type, resource_category, monitor_type, exporter_template_id,
+			label_template_id, blackbox_module, metrics_path, scheme, scrape_interval,
+			scrape_timeout, selected_instance_ids`).
 		Where("network_domain_id = ? AND deleted_at IS NULL AND draft_status = ? AND enabled = ?",
 			domainID, "ready", true).
 		Order("job_name ASC").
@@ -140,6 +143,14 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 	if err != nil {
 		return configgen.Source{}, err
 	}
+	templates, err := r.loadLabelTemplates(ctx)
+	if err != nil {
+		return configgen.Source{}, err
+	}
+	primaryPlatforms, err := r.loadPrimaryPlatforms(ctx, refs)
+	if err != nil {
+		return configgen.Source{}, err
+	}
 
 	jobs := make([]configgen.Job, 0, len(rows))
 	for i, row := range rows {
@@ -152,6 +163,7 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 			Timeout:        row.ScrapeTimeout,
 			BlackboxModule: row.BlackboxModule,
 		}
+		tpl, hasTemplate := templates.resolve(row.LabelTemplateID, row.ResourceCategory)
 		for _, id := range selected {
 			ref, ok := refs[id]
 			if !ok {
@@ -170,9 +182,19 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 			if instance == "" {
 				continue
 			}
+			// 决策 110 ③：资源行 platform_code 留空时按所属应用 is_primary
+			// 平台兜底。仅影响模板展开视图，不回写资源投影。
+			view := ref
+			if view.PlatformCode == "" && view.AppCode != "" {
+				view.PlatformCode = primaryPlatforms[view.AppCode]
+			}
+			templateLabels := map[string]string{}
+			if hasTemplate {
+				templateLabels = expandTemplateLabels(tpl, view, instance, row.JobName)
+			}
 			job.Targets = append(job.Targets, configgen.Target{
 				Instance: instance,
-				Labels:   map[string]string{"resource_id": ref.ID},
+				Labels:   mergeTargetLabels(systemTargetLabels(ref), templateLabels),
 			})
 		}
 		jobs = append(jobs, job)
@@ -229,6 +251,9 @@ func (r *GORMSourceReader) Fingerprint(ctx context.Context, domainID string) (ti
 		{"m01_scrape_jobs", "deleted_at", "network_domain_id = ?", []any{domainID}},
 		{"m01_probe_modules", "updated_at", "1 = 1", nil},
 		{"m01_probe_modules", "deleted_at", "deleted_at IS NOT NULL", nil},
+		// 标签模板是平台级配置：任一模板变更都应让所有域在下一 tick 重新生成。
+		{"m07_label_templates", "updated_at", "deleted_at IS NULL", nil},
+		{"m07_label_templates", "deleted_at", "deleted_at IS NOT NULL", nil},
 	}
 	var newest time.Time
 	for _, q := range queries {
@@ -288,4 +313,40 @@ func (r *GORMSourceReader) loadPorts(ctx context.Context) (map[string]int, map[s
 		exporterPorts[row.ID] = row.DefaultPort
 	}
 	return mappingPorts, exporterPorts, nil
+}
+
+// loadPrimaryPlatforms resolves the application primary platform for resources
+// whose own `platform_code` is empty (decision 110 ③). One IN query per
+// BuildSource, only for the apps actually selected by this domain's jobs.
+func (r *GORMSourceReader) loadPrimaryPlatforms(ctx context.Context, refs map[string]domain.ResourceRef) (map[string]string, error) {
+	out := make(map[string]string)
+	appCodes := make([]string, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref.PlatformCode != "" || ref.AppCode == "" {
+			continue
+		}
+		if _, ok := seen[ref.AppCode]; ok {
+			continue
+		}
+		seen[ref.AppCode] = struct{}{}
+		appCodes = append(appCodes, ref.AppCode)
+	}
+	if len(appCodes) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		AppCode      string `gorm:"column:app_code"`
+		PlatformCode string `gorm:"column:platform_code"`
+	}
+	if err := r.db.WithContext(ctx).Table("app_platform_rels").
+		Select("app_code, platform_code").
+		Where("app_code IN ? AND is_primary = ? AND deleted_at IS NULL", appCodes, true).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load primary platforms: %w", err)
+	}
+	for _, row := range rows {
+		out[row.AppCode] = row.PlatformCode
+	}
+	return out, nil
 }

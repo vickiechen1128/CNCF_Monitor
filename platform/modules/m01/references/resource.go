@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"gorm.io/gorm"
@@ -38,6 +39,34 @@ const resourceSelect = `r.resource_id AS resource_id,
 	r.network_domain_id AS network_domain_id,
 	r.status AS status,
 	r.scrape_port AS scrape_port,
+	COALESCE(r.biz_code, '') AS biz_code,
+	COALESCE(r.app_code, '') AS app_code,
+	COALESCE(r.platform_code, '') AS platform_code,
+	COALESCE(r.env, '') AS env,
+	COALESCE(r.cluster, '') AS cluster,
+	COALESCE(r.owner, '') AS owner,
+	COALESCE(h.hostname, '') AS hostname,
+	COALESCE(h.os_type, '') AS os_type,
+	COALESCE(h.os_version, '') AS os_version,
+	h.activated_at AS activated_at,
+	COALESCE(d.database_type, '') AS database_type,
+	COALESCE(d.version, '') AS database_version,
+	COALESCE(m.middleware_type, '') AS middleware_type,
+	COALESCE(m.version, '') AS middleware_version,
+	COALESCE(a.service_name, '') AS service_name,
+	COALESCE(a.health_check_url, '') AS health_check_url,
+	COALESCE(a.protocol, '') AS protocol,
+	COALESCE(a.owner1, '') AS owner1,
+	COALESCE(a.owner1_contact, '') AS owner1_contact,
+	COALESCE(a.owner2, '') AS owner2,
+	COALESCE(a.owner2_contact, '') AS owner2_contact,
+	COALESCE(a.ops_person, '') AS ops_person,
+	COALESCE(a.ops_person_contact, '') AS ops_person_contact,
+	a.go_live_at AS go_live_at,
+	COALESCE(g.target_name, '') AS target_name,
+	COALESCE(g.exporter_type, '') AS exporter_type,
+	COALESCE(i.api_name, '') AS api_name,
+	COALESCE(i.api_url, '') AS api_url,
 	COALESCE(h.instance_ip, d.instance_ip, m.instance_ip, g.instance_ip, '') AS instance_ip,
 	COALESCE(d.port, m.port, a.port, g.port, 0) AS port,
 	COALESCE(g.metrics_path, '') AS metrics_path,
@@ -63,30 +92,96 @@ type resourceRow struct {
 	NetworkDomainID  string `gorm:"column:network_domain_id"`
 	Status           string `gorm:"column:status"`
 	ScrapePort       int    `gorm:"column:scrape_port"`
-	InstanceIP       string `gorm:"column:instance_ip"`
-	Port             int    `gorm:"column:port"`
-	MetricsPath      string `gorm:"column:metrics_path"`
-	Scheme           string `gorm:"column:scheme"`
-	TargetURL        string `gorm:"column:target_url"`
-	Endpoint         string `gorm:"column:endpoint"`
-	DisplayName      string `gorm:"column:display_name"`
+	BizCode          string `gorm:"column:biz_code"`
+	AppCode          string `gorm:"column:app_code"`
+	PlatformCode     string `gorm:"column:platform_code"`
+	Env              string `gorm:"column:env"`
+	Cluster          string `gorm:"column:cluster"`
+	Owner            string `gorm:"column:owner"`
+	Hostname         string `gorm:"column:hostname"`
+	OSType           string `gorm:"column:os_type"`
+	OSVersion        string `gorm:"column:os_version"`
+	// ActivatedAt / GoLiveAt are nullable timestamps; both drivers scan into
+	// *time.Time, and RFC3339 formatting stays in Go for portability.
+	ActivatedAt       *time.Time `gorm:"column:activated_at"`
+	DatabaseType      string     `gorm:"column:database_type"`
+	DatabaseVersion   string     `gorm:"column:database_version"`
+	MiddlewareType    string     `gorm:"column:middleware_type"`
+	MiddlewareVersion string     `gorm:"column:middleware_version"`
+	ServiceName       string     `gorm:"column:service_name"`
+	HealthCheckURL    string     `gorm:"column:health_check_url"`
+	Protocol          string     `gorm:"column:protocol"`
+	Owner1            string     `gorm:"column:owner1"`
+	Owner1Contact     string     `gorm:"column:owner1_contact"`
+	Owner2            string     `gorm:"column:owner2"`
+	Owner2Contact     string     `gorm:"column:owner2_contact"`
+	OpsPerson         string     `gorm:"column:ops_person"`
+	OpsPersonContact  string     `gorm:"column:ops_person_contact"`
+	GoLiveAt          *time.Time `gorm:"column:go_live_at"`
+	TargetName        string     `gorm:"column:target_name"`
+	ExporterType      string     `gorm:"column:exporter_type"`
+	APIName           string     `gorm:"column:api_name"`
+	APIURL            string     `gorm:"column:api_url"`
+	InstanceIP        string     `gorm:"column:instance_ip"`
+	Port              int        `gorm:"column:port"`
+	MetricsPath       string     `gorm:"column:metrics_path"`
+	Scheme            string     `gorm:"column:scheme"`
+	TargetURL         string     `gorm:"column:target_url"`
+	Endpoint          string     `gorm:"column:endpoint"`
+	DisplayName       string     `gorm:"column:display_name"`
+}
+
+// formatResourceTime renders a nullable timestamp as RFC3339 (empty when unset).
+func formatResourceTime(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func (row resourceRow) toDomain() domain.ResourceRef {
 	return domain.ResourceRef{
-		ID:              row.ResourceID,
-		TenantID:        row.TenantID,
-		Category:        domain.ResourceCategory(row.ResourceCategory),
-		NetworkDomainID: row.NetworkDomainID,
-		Status:          row.Status,
-		DisplayName:     row.DisplayName,
-		InstanceIP:      row.InstanceIP,
-		Port:            row.Port,
-		ScrapePort:      row.ScrapePort,
-		MetricsPath:     row.MetricsPath,
-		Scheme:          row.Scheme,
-		TargetURL:       row.TargetURL,
-		Endpoint:        row.Endpoint,
+		ID:                row.ResourceID,
+		TenantID:          row.TenantID,
+		Category:          domain.ResourceCategory(row.ResourceCategory),
+		NetworkDomainID:   row.NetworkDomainID,
+		Status:            row.Status,
+		DisplayName:       row.DisplayName,
+		InstanceIP:        row.InstanceIP,
+		Port:              row.Port,
+		ScrapePort:        row.ScrapePort,
+		MetricsPath:       row.MetricsPath,
+		Scheme:            row.Scheme,
+		TargetURL:         row.TargetURL,
+		Endpoint:          row.Endpoint,
+		BizCode:           row.BizCode,
+		AppCode:           row.AppCode,
+		PlatformCode:      row.PlatformCode,
+		Env:               row.Env,
+		Cluster:           row.Cluster,
+		Owner:             row.Owner,
+		Hostname:          row.Hostname,
+		OSType:            row.OSType,
+		OSVersion:         row.OSVersion,
+		ActivatedAt:       formatResourceTime(row.ActivatedAt),
+		DatabaseType:      row.DatabaseType,
+		DatabaseVersion:   row.DatabaseVersion,
+		MiddlewareType:    row.MiddlewareType,
+		MiddlewareVersion: row.MiddlewareVersion,
+		ServiceName:       row.ServiceName,
+		HealthCheckURL:    row.HealthCheckURL,
+		Protocol:          row.Protocol,
+		Owner1:            row.Owner1,
+		Owner1Contact:     row.Owner1Contact,
+		Owner2:            row.Owner2,
+		Owner2Contact:     row.Owner2Contact,
+		OpsPerson:         row.OpsPerson,
+		OpsPersonContact:  row.OpsPersonContact,
+		GoLiveAt:          formatResourceTime(row.GoLiveAt),
+		TargetName:        row.TargetName,
+		ExporterType:      row.ExporterType,
+		APIName:           row.APIName,
+		APIURL:            row.APIURL,
 	}
 }
 

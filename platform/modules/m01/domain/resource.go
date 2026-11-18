@@ -2,6 +2,10 @@ package domain
 
 // ResourceRef is the read-only projection of an M07 v3 resource used by M01
 // for candidate listing, validation and target address resolution.
+//
+// The attribute fields (BizCode … APIURL) mirror the M07 resource tables so
+// M09 can expand label-template mappings without importing M07 domain models.
+// Times are RFC3339 strings; empty means unset.
 type ResourceRef struct {
 	ID              string
 	TenantID        string
@@ -16,6 +20,46 @@ type ResourceRef struct {
 	Scheme          string
 	TargetURL       string
 	Endpoint        string
+
+	// Shared resource fields (resources table).
+	BizCode      string
+	AppCode      string
+	PlatformCode string
+	Env          string
+	Cluster      string
+	Owner        string
+
+	// Host fields.
+	Hostname    string
+	OSType      string
+	OSVersion   string
+	ActivatedAt string
+
+	// Database / middleware fields.
+	DatabaseType      string
+	DatabaseVersion   string
+	MiddlewareType    string
+	MiddlewareVersion string
+
+	// Application fields.
+	ServiceName      string
+	HealthCheckURL   string
+	Protocol         string
+	Owner1           string
+	Owner1Contact    string
+	Owner2           string
+	Owner2Contact    string
+	OpsPerson        string
+	OpsPersonContact string
+	GoLiveAt         string
+
+	// Generic target fields.
+	TargetName   string
+	ExporterType string
+
+	// Interface service fields.
+	APIName string
+	APIURL  string
 }
 
 // Selectable reports whether the resource can be newly added to a job.
