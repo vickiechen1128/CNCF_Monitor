@@ -6,8 +6,10 @@
 //	go run ./platform/cmd/migrate -status    # show current status
 //	go run ./platform/cmd/migrate -down      # roll back one migration (dev only)
 //
-// The driver defaults to METRIC_CENTER_DB_DRIVER, then to sqlite. The DSN
-// defaults to METRIC_CENTER_DB_DSN, then to metric_center.db (SQLite only).
+// The driver defaults to METRIC_CENTER_DB_DRIVER, then to postgres (the
+// production default). The DSN defaults to METRIC_CENTER_DB_DSN, then to the
+// local PostgreSQL DSN defined by platform/db. The sqlite branch is kept only
+// for the unchanged test suite and is not linked into production builds.
 package main
 
 import (
@@ -22,8 +24,8 @@ func main() {
 	var (
 		status = flag.Bool("status", false, "show migration status")
 		down   = flag.Bool("down", false, "roll back one migration (development only)")
-		driver = flag.String("driver", "", "database driver: sqlite or postgres (default: METRIC_CENTER_DB_DRIVER or sqlite)")
-		dsn    = flag.String("dsn", "", "database DSN (default: METRIC_CENTER_DB_DSN or metric_center.db)")
+		driver = flag.String("driver", "", "database driver: postgres or sqlite (default: METRIC_CENTER_DB_DRIVER or postgres)")
+		dsn    = flag.String("dsn", "", "database DSN (default: METRIC_CENTER_DB_DSN or local PostgreSQL DSN)")
 	)
 	flag.Parse()
 

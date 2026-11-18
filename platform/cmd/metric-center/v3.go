@@ -15,7 +15,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
+	"github.com/metriccenter/metriccenter/platform/modules/m08/notify"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/foundation/httpx"
@@ -142,25 +142,24 @@ func mountV3Modules(ctx context.Context, platform, edge *gin.RouterGroup, m06Opt
 	// MonitoringRetirer can be injected into M06; registration order below
 	// keeps the meta list as system → m06 → m07 → m01 → m09 → auth.
 	m09Module, err := m09.NewModule(db.DB, m09.Options{
-		PromURL:         m06Opts.PromURL,
-		ConfigOutputDir: *configDir,
-		EdgePackagesDir: *edgePackageDir,
-		SyncSink:        m01Module.SyncResultSink(),
+		PromURL:          m06Opts.PromURL,
+		ConfigOutputDir:  *configDir,
+		AlertmanagerAddr: alertmanagerHost(),
+		EdgePackagesDir:  *edgePackageDir,
+		SyncSink:         m01Module.SyncResultSink(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("register m09 v3 module: %w", err)
 	}
 	// M08 alert convergence: owns alertmanager.yml generation, the internal
 	// reload submodule, notification channels/templates and the alert-event
-	// ledger. It consumes M09's snapshot sink (D31) and never fans config out.
+	// ledger. Its snapshot is the single authoritative history; M09's unified
+	// config-artifact view reads it read-only and never fans it out.
 	m08Module, err := m08.NewModule(db.DB, m08.Options{
 		AlertmanagerURL:     alertmanagerBaseURL(),
 		ConfigDir:           amConfigDir(),
 		ReloadURL:           amReloadURL(),
 		BridgeBaseURL:       bridgeBaseURL(),
-		CenterDomainID:      *alertmanagerCenterDomain,
-		Sink:                m09Module.AlertmanagerSnapshotSink(),
-		DomainReader:        m08refs.NewDomainReader(db.DB),
 		DomainAuthorizer:    m08refs.NewDomainAuthorizer(db.DB),
 		ResourceNamer:       m08refs.NewResourceNamer(db.DB),
 		AllowPrivateWebhook: strings.EqualFold(strings.TrimSpace(os.Getenv("METRIC_CENTER_ALLOW_PRIVATE_WEBHOOKS")), "true"),
@@ -272,6 +271,14 @@ func serveHTTP(ctx context.Context, handler http.Handler) {
 }
 
 // alertmanagerBaseURL parses --alertmanager.url (nil when unparsable).
+func alertmanagerHost() string {
+	parsed := alertmanagerBaseURL()
+	if parsed == nil {
+		return ""
+	}
+	return parsed.Host
+}
+
 func alertmanagerBaseURL() *url.URL {
 	parsed, err := parseURL(*alertmanagerURL)
 	if err != nil {

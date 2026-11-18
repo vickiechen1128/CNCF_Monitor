@@ -24,6 +24,11 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 )
 
+// businessDomainsTestPath points at the shared seed template under the v2
+// config tree. That single YAML is still consumed by v3 seed tests, so it is
+// not part of the removable legacy code surface.
+const businessDomainsTestPath = "../../legacy/config/business_domains.yaml"
+
 func TestResolveDatabaseMode(t *testing.T) {
 	t.Setenv("METRIC_CENTER_DB_MODE", "")
 
@@ -360,9 +365,12 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenantA).Error)
 	assert.Equal(t, []string{"mc-e2e"}, tenantA.NetworkDomainIDs)
 
-	// Give the domain a runtime token so deletion can be checked for cleanup.
-	require.NoError(t, gormDB.Model(&models.NetworkDomain{}).Where("id = ?", domainID).
-		Update("token", "agent-secret").Error)
+	// V3-only: runtime identity lives in network_domain_access (M09), not in a
+	// legacy column on network_domains. Seed an access row so the M09 onboarding
+	// view has the domain's monitored state.
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domain_access
+		(domain_id, token_hash, registration_status) VALUES (?, 'agent-secret-hash', 'monitored')`,
+		domainID).Error)
 
 	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/resources", adminToken,
 		`{"resource_category":"host","network_domain_id":"mc-e2e","env":"PRD","attributes":{"hostname":"web-e2e","instance_ip":"10.0.0.10","os_type":"linux"}}`)
@@ -400,8 +408,8 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 	var deleted models.NetworkDomain
 	require.NoError(t, gormDB.Unscoped().Where("id = ?", domainID).First(&deleted).Error)
 	assert.True(t, deleted.DeletedAt.Valid)
-	assert.Empty(t, deleted.Token, "deletion must clear the agent token")
-	assert.Equal(t, models.RegistrationStatusRetired, deleted.RegistrationStatus)
+	// Legacy onboarding state (token / registration_status) was dropped from
+	// network_domains in V3-only; M09 owns it in network_domain_access.
 
 	var orphanResources int64
 	require.NoError(t, gormDB.Raw(`SELECT count(*) FROM resources r

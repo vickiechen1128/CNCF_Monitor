@@ -1,22 +1,17 @@
 // metric-center 是 MetricCenter 控制面的主程序入口。
 //
-// MVP 阶段提供：
-//   - 健康检查接口（含数据库连通性）
-//   - 配置管理 API 占位
-//   - Prometheus Query API 代理
-//
-// 后续逐步接入 CMDB、标签模板、采集模板、配置下发等业务模块。
+// v2.0 rewrite 起生产二进制只提供 v3-only 入口：legacy v2 路由、后台任务与
+// SQLite 驱动均不参与编译。--database.mode 仅为兼容旧启动脚本保留，取值
+// 为空或 v3 时直接使用 v3 入口；其余取值记录警告后同样走 v3。
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
@@ -27,61 +22,33 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
-	"github.com/metriccenter/metriccenter/platform/admin/storagelog"
-	"github.com/metriccenter/metriccenter/platform/admin/tenant"
-	"github.com/metriccenter/metriccenter/platform/admin/user"
-	"github.com/metriccenter/metriccenter/platform/alertmanager"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/history"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
-	"github.com/metriccenter/metriccenter/platform/api/response"
-	"github.com/metriccenter/metriccenter/platform/config/label"
-	"github.com/metriccenter/metriccenter/platform/config/resource"
-	"github.com/metriccenter/metriccenter/platform/configcenter"
-	"github.com/metriccenter/metriccenter/platform/configcenter/change"
-	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
-	"github.com/metriccenter/metriccenter/platform/dashboard"
-	"github.com/metriccenter/metriccenter/platform/db"
-	"github.com/metriccenter/metriccenter/platform/db/seed"
-	"github.com/metriccenter/metriccenter/platform/edge"
-	"github.com/metriccenter/metriccenter/platform/foundation/httpx"
-	"github.com/metriccenter/metriccenter/platform/gateway/auth"
-	m01seed "github.com/metriccenter/metriccenter/platform/modules/m01/seed"
-	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
-	"github.com/metriccenter/metriccenter/platform/query"
-	"github.com/metriccenter/metriccenter/platform/strategy"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 )
 
 var (
 	listenAddr              = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
 	prometheusURL           = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
-	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
+	businessDomainsFile     = flag.String("business-domains.file", "platform/legacy/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
-	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
-	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
-	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（IANA 名称，如 Asia/Shanghai），可用环境变量 NOTIFY_RENDER_TIMEZONE 覆盖；为空默认东八区固定偏移（不依赖宿主机时区）")
-	notifyBridgeURL         = flag.String("notify.bridge-url", "", "通知渲染桥基础地址覆盖（默认由 --listen-address 推导）；跨网/边缘域部署时显式设为中心桥公网可达地址（如 http://center.example.com:8080），使接收人片段与 M09 物化的 receiver 指向正确跨网地址，可用环境变量 NOTIFY_BRIDGE_URL 覆盖")
-	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
-	alertmanagerCenterDomain = flag.String("alertmanager.center-domain-id", "", "M08 快照同步到 M09 时使用的中心网域 ID；为空时跳过同步并记 warn（D-M08-01）")
-	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
-	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
-	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
-	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 30*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
-	edgePackageDir          = flag.String("edge-packages.dir", "dist/edge-package", "边缘离线交付包目录（读 release_meta.json 并流式下发 tar.gz）；可用环境变量 EDGE_PACKAGE_DIR 覆盖")
-	databaseMode            = flag.String("database.mode", "", "数据库启动模式：legacy（默认，v2 schema + 增量 v3）或 v3（仅 v3 schema 与 v3 路由）；可用环境变量 METRIC_CENTER_DB_MODE 覆盖")
+	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（v3 入口未使用该参数，保留以兼容既有启动脚本）")
+	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（M08 静默代理 + AM 配置下发 reload 目标）")
+	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（v3 入口未使用该参数，保留以兼容既有启动脚本）")
+	notifyBridgeURL         = flag.String("notify.bridge-url", "", "通知渲染桥基础地址覆盖（默认由 --listen-address 推导）")
+	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录；为空时复用 config.dir")
+	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址；为空时默认 alertmanager.url 的 /-/reload")
+	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录；非空时由 metric-center 直接托管，UI 与 API 同源单端口")
+	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "兼容性保留（v3 入口未使用）")
+	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 30*time.Second, "兼容性保留（v3 入口未使用）")
+	edgePackageDir          = flag.String("edge-packages.dir", "dist/edge-package", "边缘离线交付包目录（环境变量 EDGE_PACKAGE_DIR 可覆盖）")
+	databaseMode            = flag.String("database.mode", "", "兼容性保留：仅支持 v3（留空亦为 v3）")
 )
 
 func main() {
 	flag.Parse()
 
-	// M09 变更检测自适应间隔：环境变量优先（单位秒），未配置时用 flag 默认值。
-	// 为兼容旧配置，CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也作为最大间隔。
+	// 保留旧脚本使用的环境变量覆盖口径（flag 与 v3 入口均引用这些变量）。
 	if v := os.Getenv("CONFIG_CHANGE_DETECT_INTERVAL_SECONDS"); v != "" {
 		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
 			*changeDetectMaxInterval = time.Duration(sec) * time.Second
@@ -100,14 +67,9 @@ func main() {
 	if *changeDetectMaxInterval < *changeDetectMinInterval {
 		*changeDetectMaxInterval = *changeDetectMinInterval
 	}
-
-	// Module 11 (T11-08)：边缘离线交付包目录，环境变量优先（非空则覆盖 flag 默认）。
 	if v := os.Getenv("EDGE_PACKAGE_DIR"); v != "" {
 		*edgePackageDir = v
 	}
-
-	// M08 PL-3 通知渲染桥：内网调用令牌 + 渲染时区，环境变量优先（env/env.sh 注入口径，
-	// 令牌随 alertmanager.yml 生成时写入 receiver URL）。
 	if v := os.Getenv("NOTIFY_RENDER_TIMEZONE"); v != "" {
 		*notifyRenderTimezone = v
 	}
@@ -115,320 +77,42 @@ func main() {
 		*notifyBridgeURL = v
 	}
 
-	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
+	// 兼容旧脚本的 --database.mode / METRIC_CENTER_DB_MODE：v3-only 二进制
+	// 不再提供 legacy 启动分支，任何非 v3 取值只记录警告。
+	if mode := strings.ToLower(strings.TrimSpace(*databaseMode)); mode != "" && mode != "v3" {
+		log.Printf("WARN: --database.mode=%q is no longer supported; running v3-only", mode)
+	}
+
+	// 优雅退出：取消 ctx 以停下后台 watcher 并 Shutdown HTTP 服务。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// v2.0 双模式启动：legacy（默认，旧 v2 功能面 + 增量 v3 schema）或 v3
-	// （仅 v3 schema 与 v3 模块，PostgreSQL 生产目标）。v3 模式不启动任何依赖
-	// 旧 AutoMigrate schema 的后台任务。
-	mode, err := resolveDatabaseMode(*databaseMode)
+	runV3(ctx)
+}
+
+// parseURL parses raw and validates that the URL uses an allowed scheme
+// (http or https) and has a non-empty host.
+func parseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
 	if err != nil {
-		log.Fatalf("invalid database mode: %v", err)
+		return nil, fmt.Errorf("parse url %q: %w", raw, err)
 	}
-	if mode == db.StartupModeV3 {
-		runV3(ctx)
-		return
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("parse url %q: scheme must be http or https", raw)
 	}
-
-	promURL, err := parseURL(*prometheusURL)
-	if err != nil {
-		log.Fatalf("invalid prometheus.url: %v", err)
+	if u.Host == "" {
+		return nil, fmt.Errorf("parse url %q: host must not be empty", raw)
 	}
-
-	if err := db.Init(); err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
-	}
-	// v2.0: v3 schema is additive alongside the legacy v2 AutoMigrate schema.
-	// SQLite is the dev/test path; PostgreSQL v3-only startup will be wired once
-	// M00/M06 reference tables are migrated.
-	if err := db.MigrateV3("sqlite", db.DSN()); err != nil {
-		log.Fatalf("failed to apply v3 migrations: %v", err)
-	}
-
-	// 决策 48：业务分组字典权威存储落 DB；business_domains.yaml 仅首次启动 seed
-	// （DB 空时导入 + infra 兜底条目），之后 DB 为唯一权威，热加载机制退役。
-	if err := seed.BusinessDomains(db.DB, *businessDomainsFile); err != nil {
-		log.Fatalf("failed to seed business domains: %v", err)
-	}
-	// v3 M01 built-in strategy data is seeded in both startup modes so the v3
-	// module is usable during the transition window as well.
-	if err := m01seed.Run(db.DB); err != nil {
-		log.Fatalf("failed to seed m01 data: %v", err)
-	}
-
-	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录
-	// 并 trigger reload；未配置 reload 地址时走 buildReloadFunc 如实报错（不伪成功）。
-	// 默认 noopApplier 仅服务于内存/测试环境（集成测试不调用 main，仍为 no-op）。
-	// 决策 60（T09-60-3）：alertmanager.yml 单独写中心 Alertmanager 配置目录（config.am-dir，
-	// 缺省复用 config.dir）并触发独立 AM reload（config.am-reload-url，缺省 alertmanager.url /-/reload）。
-	amReloadURL := *configAMReloadURL
-	if amReloadURL == "" {
-		amReloadURL = strings.TrimRight(*alertmanagerURL, "/") + "/-/reload"
-	}
-	amDir := *configAMDir
-	if amDir == "" {
-		amDir = *configDir
-	}
-	deployment.DefaultApplier = &deployment.DiskApplier{
-		Dir:      *configDir,
-		AMDir:    amDir,
-		Reload:   buildReloadFunc(*configReloadURL),
-		AMReload: buildReloadFunc(amReloadURL),
-	}
-
-	// 决策 68-2：中心求值器 prometheus.yml 的 alerting.alertmanagers 投递目标由
-	// --alertmanager.url 解析为 host:port 注入（禁止硬编码 127.0.0.1:9093），接线
-	// Prometheus → Alertmanager，使 M08 Tab1「Alertmanager 通知状态」可端到端验收；
-	// 解析为空时不生成 alerting 段（M09 生成期静默降级，不阻断其它产物）。
-	draft.AlertmanagerTarget = generator.AlertmanagerTargetFromURL(*alertmanagerURL)
-
-	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
-	change.Start(ctx, db.DB, *changeDetectMinInterval, *changeDetectMaxInterval)
-
-	// Module 11 (T11-07): 启动边缘节点离线探测器（默认阈值 3 周期 90s），随 ctx 优雅退出。
-	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
-	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
-
-	// 心跳历史默认保留 7 天（EDGE_HEARTBEAT_RETENTION_DAYS 可配），单网域限量清理；
-	// 不影响 edge_agents 最新状态与 edge_target_snapshots。
-	edge.StartHeartbeatRetention(ctx, db.DB)
-
-	// M08 历史告警对账（webhook 事件流的盲区修复）：以 Alertmanager 活跃告警实况对齐
-	// 静默/抑制状态、补插漏记、关闭已消失行；AM 不可达或刚重启时整轮/关行自动跳过。
-	if amProxy, proxyErr := alerts.NewProxy(*alertmanagerURL); proxyErr != nil {
-		log.Printf("WARN: alert history reconciler disabled: %v", proxyErr)
-	} else {
-		history.NewReconciler(db.DB, history.AMSource{Proxy: amProxy}).Start(ctx)
-	}
-
-	// M08 历史告警保留清理：默认保留 180 天终态记录（ALERT_EVENT_RETENTION_DAYS 可配），
-	// 未结行永不清理；与 AM 是否可用无关，始终启动。
-	history.StartRetention(ctx, db.DB)
-
-	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址默认由本服务监听地址推导，禁止硬编码；
-	// 跨网/边缘域部署时由 --notify.bridge-url（环境变量 NOTIFY_BRIDGE_URL）显式覆盖为中心
-	// 桥公网可达地址，使 UI 接收人片段与 M09 物化的 receiver 指向正确跨网地址而非 127.0.0.1。
-	// 令牌与桥端点同源（未配置时片段用占位符并置 token_configured=false）。
-	var bridgeBaseURL string
-	if *notifyBridgeURL != "" {
-		bridgeBaseURL = strings.TrimRight(*notifyBridgeURL, "/")
-		log.Printf(">>> notify bridge base url overridden by --notify.bridge-url: %s", bridgeBaseURL)
-	} else {
-		bridgeBaseURL, err = notify.DeriveBridgeBaseURL(*listenAddr)
-		if err != nil {
-			log.Fatalf("invalid listen-address: %v", err)
-		}
-	}
-	// L1（第一步止血）：显式打印生效桥地址，使"回落到 127.0.0.1"可见——
-	// 跨网/边缘域部署 MUST 由 NOTIFY_BRIDGE_URL 指向中心对外可达地址（见 dev-feedback #16/#28）。
-	log.Printf(">>> notify bridge base URL = %s", bridgeBaseURL)
-	if strings.Contains(bridgeBaseURL, "127.0.0.1") {
-		log.Printf("WARN: notify bridge base URL 回落到回环地址 127.0.0.1：跨网/边缘域部署下接收人片段与 M09 物化的通知 receiver 将指向不可达地址；请通过 NOTIFY_BRIDGE_URL（或 --notify.bridge-url）设为中心对外可达地址（如 http://center.example.com:8080）")
-	}
-
-	// 平台通知入口地址注入唯一生成规则：保存路由与 M09 生成使用同一个值，
-	// 产出的 alertmanager.yml receivers 完全一致。
-	generator.NotifyBridgeURL = bridgeBaseURL
-
-	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{
-		Location: loadRenderLocation(*notifyRenderTimezone),
-	})
-	if err != nil {
-		log.Fatalf("failed to setup router: %v", err)
-	}
-
-	log.Printf(">>> prometheus proxy target: %s", promURL.String())
-	serveHTTP(ctx, r)
+	return u, nil
 }
 
-// setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
-// bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（渲染时区）。
-func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error) {
-	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(httpx.RequestID())
-	r.Use(httpx.AccessLog(log.Default()))
-	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
-	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
-	// 仅为兼容开发态跨端口调试（前端 dev :5173 → 后端 :8080 的预检/跨源读），移除或收紧
-	// 会直接破坏本地联调。配合 Bearer 令牌 + 服务端会话（非 Cookie），浏览器跨源不会自动
-	// 携带凭据，实际 CSRF 触发面低。产品演进到 S2（nginx 反代）后必须收紧为来源白名单
-	// 或移除本中间件（见 security-review-round1.md LOW「CORS 全放开」）。
-	r.Use(cors.Default())
-
-	// D1：edge 协议 outbound-only（Agent 非平台用户），对全局用户 auth 豁免该前缀，
-	// 改由 edge group 内独立 edge-token 中间件鉴权（见 platform/edge）。
-	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v2/platform/edge/")
-	// D27：v3 edge 协议同样 token-only，豁免全局用户认证，由 m09 EdgeTokenMiddleware 鉴权。
-	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v3/edge/")
-	// M08 PL-3 通知渲染桥（POST /api/v1/webhooks/notify）调用方为中心 Alertmanager，
-	// 非平台用户，故豁免全局用户认证，改由 notify.BridgeHandler 自校验内网调用令牌。
-	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v1/webhooks/")
-
-	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
-	// /api/v1/health* 与 OPTIONS 预检放行，其余 /api/* 须携带有效 Bearer token）。
-	// 中间件仅认证、不授权（无角色/权限点校验）。
-	r.Use(auth.AuthMiddleware(auth.NewService(auth.NewRepository(db.DB))))
-
-	apiV1 := r.Group("/api/v1")
-	registerHealthRoutes(apiV1)
-	registerPrometheusProxyRoutes(apiV1, promURL)
-	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
-	query.RegisterRoutes(apiV1, db.DB, promURL)
-	// M08 PL-3 通知渲染桥（设计提案 §3.3.3/§3.3.8）：不挂认证态平台组，按 v1 路径装配
-	// （上方 PublicPathPrefixes 已豁免全局用户认证）；访问控制由部署层承担。
-	notify.RegisterBridgeRoutes(apiV1, db.DB, bridgeCfg)
-	// M08 历史告警留痕入口：Alertmanager 通过内置 webhook 推送每条告警变化。
-	// 与通知桥同处 /api/v1/webhooks/（全局用户认证已豁免），访问控制由部署层承担。
-	history.RegisterWebhookRoutes(apiV1, db.DB)
-
-	apiV2 := r.Group("/api/v2")
-	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
-		return nil, err
-	}
-
-	// v2.0 v3 API: mounted alongside legacy /api/v2 during the transition.
-	// M07 与 system 通过模块注册表装配，模块边界与 v3-only 启动保持一致。
-	apiV3 := r.Group("/api/v3")
-	if _, err := mountV3Modules(context.Background(), apiV3.Group("/platform"), apiV3.Group("/edge"), m06.Options{
-		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
-		PromURL: promURL,
-	}); err != nil {
-		return nil, err
-	}
-
-	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
-	if staticDir != "" {
-		if err := registerSPA(r, staticDir); err != nil {
-			return nil, err
-		}
-		log.Printf(">>> serving frontend static files from %s", staticDir)
-	}
-
-	return r, nil
-}
-
-func registerHealthRoutes(g *gin.RouterGroup) {
-	g.GET("/health", healthHandler)
-	g.GET("/health/db", healthDBHandler)
-	g.GET("/status", statusHandler)
-}
-
-func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
-	proxy := newPrometheusProxy(promURL)
-	h := prometheusProxyHandler(proxy)
-	for _, route := range []string{"/query", "/query_range", "/labels", "/label/:name/values", "/series"} {
-		g.Any(route, h)
-	}
-}
-
-func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
-	platform := g.Group("/platform")
-
-	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
-	// 读接口（zone-types/列表/详情）供 M07 普通用户消费，仅全局认证（au-02）；
-	// 写接口（POST/PUT/PATCH/DELETE）走下方 admin 组（挂 RequireAdmin，HIGH-1）。
-	networkdomain.RegisterReadRoutes(platform, db.DB)
-
-	// H-2：管理后台接口（/users*、/login-logs*、/tenants*）额外挂载 RequireAdmin
-	// 最小授权门，仅平台管理员可访问；/auth/* 及其它模块保持仅全局认证（au-02）。
-	admin := platform.Group("")
-	admin.Use(auth.RequireAdmin())
-
-	// Module 06 (HIGH-1, 决策 82)：网域写接口（登记/编辑/状态/删除）挂 RequireAdmin。
-	networkdomain.RegisterWriteRoutes(admin, db.DB)
-
-	// Module 06 (tu-03): user administration + login-log query.
-	user.RegisterRoutes(admin, db.DB)
-
-	// Module 06 (au-02): tenant administration + auth endpoints. 路由分别为
-	// /tenants* 与 /auth/*，与既有 user(/users*、/login-logs)、
-	// networkdomain(/network-domains*、/zone-types*) 无路径冲突；旧
-	// networkdomain 中的 /tenants 已移除。租户管理属管理后台，挂 RequireAdmin；
-	// 认证 endpoints（/auth/*）仍注册在 platform 根组（仅全局认证）。
-	tenant.RegisterRoutes(admin, db.DB)
-	auth.RegisterRoutes(platform, db.DB)
-
-	// Module 07 (T07-18 收口): business-domain dictionary (DB-backed, 决策 48),
-	// resource CRUD / Excel template & import / resource labels /
-	// import records / label-templates, all under /api/v2/platform/*.
-	businessStore := resource.NewBusinessDomainStore(db.DB)
-	appStore := resource.NewApplicationDictStore(db.DB)
-	cloudStore := resource.NewCloudDictStore(db.DB)
-	platformStore := resource.NewPlatformDictStore(db.DB)
-	appPlatformStore := resource.NewAppPlatformStore(db.DB)
-	resource.RegisterRoutes(platform, db.DB, businessStore, appStore, cloudStore, platformStore, appPlatformStore)
-	label.RegisterRoutes(platform, db.DB)
-
-	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job
-	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
-	strategy.RegisterRoutes(platform, db.DB)
-
-	// M01 规则编辑期只读探查（2026-10-13）：规则表达式可用标签清单 + 注解预览。
-	// 实现与 M02 查询代理同源（需实查中心 Prometheus），故注册在 query 包；
-	// 路径独立于 /monitoring-rules* 以避开 Gin 同层通配冲突（见 RegisterRuleInspectRoutes 注释）。
-	query.RegisterRuleInspectRoutes(platform, promURL)
-
-	// Module 09 (T09-07 收口): 网域与边缘配置中心——网域监控纳管、配置草稿、
-	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
-	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
-	configcenter.RegisterRoutes(platform, db.DB)
-
-	// Module 11 (T11-03 收口): edge 协议（心跳 + 配置包拉取），挂到
-	// /api/v2/platform/edge/*。全局用户 auth 已对该前缀豁免（D1，见 setupRouter），
-	// 本组由 edge.EdgeTokenMiddleware 独立鉴权。
-	edge.RegisterRoutes(platform.Group("/edge"), db.DB)
-
-	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
-	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
-	// T11-08：edge-packages 读 *edgePackageDir 下的 release_meta.json 并流式下发真实 tar.gz。
-	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir)
-
-	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
-	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
-	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
-		return fmt.Errorf("register alertmanager routes: %w", err)
-	}
-	// M08 历史告警查询 / 统计（与告警状态页、首页告警卡同源）。
-	history.RegisterManagementRoutes(platform, db.DB, history.Config{
-		Location: loadRenderLocation(*notifyRenderTimezone),
-	})
-
-	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
-	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。
-	// 反馈 10：注入采集健康 up 样本查询器，为「采集健康」面板提供 collection_health 聚合
-	// （反馈 12 起与监控对象页统一为两态）。
-	platform.GET("/dashboard/summary", dashboard.SummaryHandler(
-		db.DB,
-		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
-		dashboard.WithUpHealthQuerier(dashboard.NewPromUpHealthQuerier(promURL, nil)),
-	))
-	// Module 05：自定义大屏挂载配置，读接口需登录，新增仅管理员。
-	dashboard.RegisterPanelRoutes(platform, admin, db.DB)
-
-	// Module 06 (F-41): 存储与日志管理——TSDB 保留策略读写（写 config.dir 下
-	// prom-retention.env，重启 Prometheus 生效）+ 磁盘占用 / 日志轮转只读展示。
-	// 越权重启 Prometheus 刻意不做（决策 64 职责分离）。挂 admin 组（RequireAdmin）。
-	storagelog.RegisterRoutes(admin, storagelog.Options{
-		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
-		PromURL: promURL,
-	})
-	return nil
-}
-
-// registerSPA 在 Gin 上托管前端构建产物，实现 UI 与 API 同源（部署拓扑方案 A2，
-// 见 docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md）。
+// registerSPA 在 Gin 上托管前端构建产物，实现 UI 与 API 同源（部署拓扑方案 A2）。
 //
 // 路由优先级与行为：
 //   - 已注册的 /api/* 路由在 NoRoute 之前命中，不受影响；
-//   - 未命中的 /api/* 请求返回 404 JSON，**不**落入静态兜底——否则会把 API 404
-//     伪装成 200 + index.html，前端按 JSON 解析失败且掩盖真实问题。
-//     注意 auth.AuthMiddleware 先于本兜底执行，因此未携带 token 的 /api/* 请求
-//     会先拿到 401，404 分支对已认证请求生效。这是更安全的分层：匿名请求无法
-//     通过「404 vs 401」探测哪些 API 路径真实存在。
-//   - 存在对应文件的路径（如 /assets/index-*.js）直接返回文件（含目录穿越防护）；
-//   - 其余路径（含 / 与前端 history 子路由）fallback 到 index.html，交给前端路由。
+//   - 未命中的 /api/* 请求返回 404 JSON，**不**落入静态兜底；
+//   - 存在对应文件的路径直接返回文件（含目录穿越防护）；
+//   - 其余路径 fallback 到 index.html，交给前端路由。
 func registerSPA(r *gin.Engine, dir string) error {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -455,7 +139,6 @@ func registerSPA(r *gin.Engine, dir string) error {
 			response.NotFound(c, "api route not found: "+reqPath)
 			return
 		}
-		// path.Clean 归一化 .. 后再拼接，配合前缀校验阻断目录穿越。
 		target := filepath.Join(root, filepath.FromSlash(path.Clean(reqPath)))
 		if strings.HasPrefix(target, inside) {
 			if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
@@ -468,90 +151,8 @@ func registerSPA(r *gin.Engine, dir string) error {
 	return nil
 }
 
-func healthHandler(c *gin.Context) {
-	response.OK(c, gin.H{
-		"status":    "ok",
-		"service":   "metric-center",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func healthDBHandler(c *gin.Context) {
-	if err := db.Health(); err != nil {
-		response.InternalServerError(c, err)
-		return
-	}
-	response.OK(c, gin.H{
-		"status":    "ok",
-		"db_status": "connected",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func statusHandler(c *gin.Context) {
-	response.OK(c, gin.H{
-		"version": "0.1.0-mvp",
-		"mode":    "mvp",
-	})
-}
-
-func prometheusProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// TODO: 在转发前完成租户/用户认证与查询范围隔离。
-		log.Printf("prometheus proxy forward: method=%s path=%s", c.Request.Method, c.Request.URL.Path)
-		proxy.ServeHTTP(&safeResponseWriter{ResponseWriter: c.Writer}, c.Request)
-	}
-}
-
-func newPrometheusProxy(target *url.URL) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("prometheus proxy error: method=%s path=%s error=%v", r.Method, r.URL.Path, err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(response.Error(err))
-	}
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		log.Printf("prometheus proxy response: method=%s path=%s status=%d", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode)
-		return nil
-	}
-	return proxy
-}
-
-// parseURL parses raw and validates that the URL uses an allowed scheme
-// (http or https) and has a non-empty host.
-func parseURL(raw string) (*url.URL, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse url %q: %w", raw, err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("parse url %q: scheme must be http or https", raw)
-	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("parse url %q: host must not be empty", raw)
-	}
-	return u, nil
-}
-
-// loadRenderLocation 解析通知渲染显示时区：name 为空时用东八区固定偏移（不依赖
-// 宿主机时区/tzdata）；否则尝试 time.LoadLocation，失败时回退东八区并记录，避免
-// 宿主机缺 tzdata 导致启动失败。
-func loadRenderLocation(name string) *time.Location {
-	if name == "" {
-		return notify.DefaultRenderLocation
-	}
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		log.Printf(">>> invalid notify.render-timezone %q, fallback to UTC+8: %v", name, err)
-		return notify.DefaultRenderLocation
-	}
-	return loc
-}
-
-// buildReloadFunc 返回供 *DiskApplier 使用的 reload 回调：POST 到中心 Prometheus
-// reload 地址（/-/reload 以上游为准）。未配置 reloadURL 时如实返回错误而非静默
-// success——避免 HIGH-1 修复前“不 reload 却记 success”的伪成功。
+// buildReloadFunc 返回 reload 回调：POST 到中心 reload 地址。未配置时如实返回
+// 错误而非静默 success（保留供测试与既有脚本语义使用）。
 func buildReloadFunc(reloadURL string) func() error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	return func() error {
@@ -578,15 +179,4 @@ func buildReloadFunc(reloadURL string) func() error {
 		}
 		return nil
 	}
-}
-
-// safeResponseWriter wraps gin.ResponseWriter to provide a non-panicking
-// CloseNotify implementation for consumers that type-assert http.CloseNotifier.
-type safeResponseWriter struct {
-	gin.ResponseWriter
-}
-
-func (w *safeResponseWriter) CloseNotify() <-chan bool {
-	ch := make(chan bool, 1)
-	return ch
 }
