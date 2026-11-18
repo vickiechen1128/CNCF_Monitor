@@ -45,7 +45,7 @@ func TestCoreV3SeedIdempotent(t *testing.T) {
 
 	var businessDomainCount int64
 	require.NoError(t, gormDB.Model(&models.BusinessDomain{}).Count(&businessDomainCount).Error)
-	assert.Positive(t, businessDomainCount)
+	assert.Zero(t, businessDomainCount, "系统不预置任何业务字典（M07 SRS v2.0）")
 
 	var zoneTypeCount int64
 	require.NoError(t, gormDB.Model(&models.ZoneType{}).Count(&zoneTypeCount).Error)
@@ -75,16 +75,13 @@ func TestCoreV3ReconcilesTenantDomainAuthorizations(t *testing.T) {
 		Status: models.TenantStatusActive,
 	}).Error)
 
-	domain := &models.NetworkDomain{
-		ID:                  "mc-demo",
-		Name:                "演示采集域",
-		DomainType:          models.DomainTypeEdge,
-		TenantID:            models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID, "tenant-a"},
-		Channel:             models.ChannelTypeAgentPull,
-		Status:              models.DomainStatusEnabled,
-	}
-	require.NoError(t, gormDB.Create(domain).Error)
+	// V3-only: write the administrative columns directly. models.NetworkDomain
+	// still carries the dropped legacy fields, so GORM Create/Save would emit
+	// INSERTs referencing removed columns.
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, domain_type, tenant_id, authorized_tenant_ids, status)
+		VALUES ('mc-demo', '演示采集域', 'edge', 'platform_admin', ?, 'enabled')`,
+		`["platform_admin","tenant-a"]`).Error)
 
 	// Simulate a stale cache written by an older path.
 	require.NoError(t, gormDB.Model(&models.Tenant{}).Where("id = ?", "tenant-a").
@@ -102,21 +99,24 @@ func TestCoreV3ReconcilesTenantDomainAuthorizations(t *testing.T) {
 		"the registering owner is authorized implicitly")
 
 	// Removing the authorization from the domain clears the tenant cache.
-	domain.AuthorizedTenantIDs = []string{models.PlatformAdminTenantID}
-	require.NoError(t, gormDB.Save(domain).Error)
+	require.NoError(t, gormDB.Exec(
+		`UPDATE network_domains SET authorized_tenant_ids = ? WHERE id = 'mc-demo'`,
+		`["platform_admin"]`).Error)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
 	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenant).Error)
 	assert.Empty(t, tenant.NetworkDomainIDs, "removed authorization must not linger in the tenant cache")
 
 	// Re-grant, then soft-delete: the cache must be cleared again on boot.
-	domain.AuthorizedTenantIDs = []string{models.PlatformAdminTenantID, "tenant-a"}
-	require.NoError(t, gormDB.Save(domain).Error)
+	require.NoError(t, gormDB.Exec(
+		`UPDATE network_domains SET authorized_tenant_ids = ? WHERE id = 'mc-demo'`,
+		`["platform_admin","tenant-a"]`).Error)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
 	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenant).Error)
 	require.Equal(t, []string{"mc-demo"}, tenant.NetworkDomainIDs)
 
 	// Soft-deleted domains must disappear from the tenant cache on the next boot.
-	require.NoError(t, gormDB.Delete(domain).Error)
+	require.NoError(t, gormDB.Exec(
+		`UPDATE network_domains SET deleted_at = CURRENT_TIMESTAMP WHERE id = 'mc-demo'`).Error)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
 
 	require.NoError(t, gormDB.Where("id = ?", "tenant-a").First(&tenant).Error)

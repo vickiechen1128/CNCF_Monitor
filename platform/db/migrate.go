@@ -5,10 +5,11 @@
 // replayable on an empty database. New v2.0 schema changes live in
 // `migrations/v3/`.
 //
-// The runner is deliberately small and supports SQLite (dev/test) and
-// PostgreSQL (v3 production). It understands the `-- +goose Up` /
-// `-- +goose Down` markers used by the migration files, so the files stay
-// compatible with goose if the project adopts it later.
+// The runner is deliberately small and supports PostgreSQL (v3 production)
+// and SQLite (tests only; the driver is registered by test files, never by a
+// production build). It understands the `-- +goose Up` / `-- +goose Down`
+// markers used by the migration files, so the files stay compatible with goose
+// if the project adopts it later.
 //
 // Dialect-specific files use a `<version>_<name>.<dialect>.sql` suffix
 // (`.sqlite.sql` / `.postgres.sql`) and are only loaded for that driver. This
@@ -30,7 +31,6 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // V3MigrationsDir is the embedded directory containing v3 SQL migrations.
@@ -63,11 +63,45 @@ type MigrationStatus struct {
 }
 
 func sqliteDSNWithForeignKeys(dsn string) string {
+	// Idempotent: callers (e.g. tests) may already enable the pragma in the DSN.
+	// Appending a second "_foreign_keys" parameter is tolerated by the driver
+	// but makes the effective value depend on parameter order, so skip it.
+	if strings.Contains(dsn, "_foreign_keys") {
+		return dsn
+	}
 	separator := "?"
 	if strings.Contains(dsn, "?") {
 		separator = "&"
 	}
 	return dsn + separator + "_foreign_keys=on"
+}
+
+// postgresDSNSimpleProtocol forces pgx to use the simple query protocol.
+//
+// The migration runner applies each file's entire Up/Down section in a single
+// tx.Exec, and the SQL files contain multiple statements (plus DO $$ blocks).
+// pgx's default extended protocol cannot execute multiple commands in one
+// prepared statement and fails with a syntax error. simple_protocol sends the
+// whole script as one simple query, which PostgreSQL executes statement by
+// statement. This is scoped to migrations only; the runtime pool keeps the
+// faster prepared-statement mode.
+func postgresDSNSimpleProtocol(dsn string) string {
+	if strings.Contains(dsn, "default_query_exec_mode") {
+		return dsn
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "default_query_exec_mode=simple_protocol"
+}
+
+// sqlLiteral quotes a value for inline use in a migration-control statement.
+// Migration bookkeeping runs on the simple-protocol connection, which cannot
+// bind parameters; all values involved are locally derived (int version,
+// filename-based name, hex checksum, UTC timestamp).
+func sqlLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func openMigrationDB(driver, dsn string) (*sql.DB, error) {
@@ -86,7 +120,7 @@ func openMigrationDB(driver, dsn string) (*sql.DB, error) {
 		}
 		return sqlDB, nil
 	case "postgres":
-		sqlDB, err := sql.Open("pgx", dsn)
+		sqlDB, err := sql.Open("pgx", postgresDSNSimpleProtocol(dsn))
 		if err != nil {
 			return nil, fmt.Errorf("open postgres for migration: %w", err)
 		}
@@ -301,10 +335,11 @@ func MigrateV3(driver, dsn string) error {
 			_ = tx.Rollback()
 			return fmt.Errorf("apply migration %d (%s): %w", m.version, m.name, err)
 		}
-		if _, err := tx.Exec(
-			`INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
-			m.version, m.name, m.checksum, time.Now().UTC(),
-		); err != nil {
+		insert := fmt.Sprintf(
+			`INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (%d, %s, %s, %s)`,
+			m.version, sqlLiteral(m.name), sqlLiteral(m.checksum), sqlLiteral(time.Now().UTC().Format(time.RFC3339Nano)),
+		)
+		if _, err := tx.Exec(insert); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("record migration %d (%s): %w", m.version, m.name, err)
 		}
@@ -466,7 +501,7 @@ func rollbackMigration(sqlDB *sql.DB, m migration) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("rollback migration %d (%s): %w", m.version, m.name, err)
 	}
-	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE version = ?`, m.version); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf(`DELETE FROM schema_migrations WHERE version = %d`, m.version)); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("remove migration record %d: %w", m.version, err)
 	}

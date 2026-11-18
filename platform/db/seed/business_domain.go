@@ -19,21 +19,13 @@ type yamlBusinessDomain struct {
 	Enabled     bool   `yaml:"enabled"`
 }
 
-// infraFallback 是无业务归属设备的兜底条目（决策 48）：yaml 中缺失时由 seed 强制
-// 预置，保证设备类资源有可挂载的 biz，避免必填逼出假业务。
-var infraFallback = models.BusinessDomain{
-	Code:        models.InfraBizCode,
-	Name:        "公共基础设施",
-	Description: "公共基础设施兜底，无业务归属的设备类资源统一挂载",
-	Enabled:     true,
-}
-
-// BusinessDomains 首次启动数据种子（决策 48）：仅当 BusinessDomain 表为空时，
-// 从 business_domains.yaml 导入初始字典并强制预置 infra 兜底条目；之后 DB 为唯一
-// 权威，本函数在 DB 非空时直接返回，绝不覆盖（幂等）。
+// BusinessDomains 是可选的业务字典一次性导入入口。
 //
-// 容错：yaml 文件缺失/解析失败时降级为仅落 infra 兜底条目（log 告警但不阻断启动，
-// 与旧 yaml 热加载的降级语义一致），保证 infra 恒存在。
+// 自 M07 SRS v2.0 起系统**不预置任何业务字典**（`infra` 兜底条目已删除）：
+//   - 仅当 business_domains 表为空时读取 yaml 模板；
+//   - yaml 为空列表或文件不存在时什么也不做，不阻断启动；
+//   - DB 非空时直接返回，DB 是唯一权威，绝不覆盖；
+//   - 不强制补齐任何编码，导入内容完全由运维模板决定。
 func BusinessDomains(db *gorm.DB, path string) error {
 	if db == nil {
 		return fmt.Errorf("seed business domains: nil database connection")
@@ -44,21 +36,18 @@ func BusinessDomains(db *gorm.DB, path string) error {
 		return fmt.Errorf("seed business domains: count: %w", err)
 	}
 	if count > 0 {
-		return nil // DB 非空则不 seed（决策 48：之后不再覆盖）
+		return nil // DB 非空则不 seed
 	}
 
 	entries, err := readBusinessDomainsFile(path)
 	if err != nil {
-		log.Printf("seed business domains: %v; falling back to infra fallback only", err)
-		entries = nil
+		// 文件缺失或解析失败只记录告警：全新部署可以完全没有该文件，
+		// 业务字典由运维在页面自助登记。
+		log.Printf("seed business domains: %v (skipped)", err)
+		return nil
 	}
-	if !containsBizCode(entries, models.InfraBizCode) {
-		entries = append(entries, yamlBusinessDomain{
-			Code:        infraFallback.Code,
-			Name:        infraFallback.Name,
-			Description: infraFallback.Description,
-			Enabled:     infraFallback.Enabled,
-		})
+	if len(entries) == 0 {
+		return nil
 	}
 
 	for _, e := range entries {
@@ -87,14 +76,4 @@ func readBusinessDomainsFile(path string) ([]yamlBusinessDomain, error) {
 		return nil, fmt.Errorf("parse business domains file %s: %w", path, err)
 	}
 	return entries, nil
-}
-
-// containsBizCode 判断条目列表是否已含指定编码。
-func containsBizCode(entries []yamlBusinessDomain, code string) bool {
-	for _, e := range entries {
-		if e.Code == code {
-			return true
-		}
-	}
-	return false
 }

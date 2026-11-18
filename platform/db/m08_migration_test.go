@@ -19,7 +19,7 @@ func TestMigrateV3M08Alerting(t *testing.T) {
 	for _, table := range []string{
 		"m08_notify_templates",
 		"m08_notify_channels",
-		"m08_config_snapshots",
+		"config_snapshots",
 		"m08_reload_logs",
 		"m08_alert_events",
 		"m08_inhibition_rules",
@@ -44,12 +44,12 @@ func TestMigrateV3M08Alerting(t *testing.T) {
 		VALUES ('c2', '坏类型', 'sms', 'https://example.com/hook')`)
 	require.Error(t, err, "unknown channel type must be rejected")
 
-	// Exactly one current snapshot.
-	_, err = sqlDB.Exec(`INSERT INTO m08_config_snapshots(version, checksum, content, is_current)
-		VALUES ('v1', 'sum1', 'route: {}', TRUE)`)
+	// Exactly one current snapshot per (scope, scope_key) -- here alertmanager.
+	insertAMSnapshot := `INSERT INTO config_snapshots(scope, scope_key, version, checksum, content, is_current)
+		VALUES ('alertmanager', 'alertmanager', ?, ?, ?, ?)`
+	_, err = sqlDB.Exec(insertAMSnapshot, "v1", "sum1", "route: {}", true)
 	require.NoError(t, err)
-	_, err = sqlDB.Exec(`INSERT INTO m08_config_snapshots(version, checksum, content, is_current)
-		VALUES ('v2', 'sum2', 'route: {}', TRUE)`)
+	_, err = sqlDB.Exec(insertAMSnapshot, "v2", "sum2", "route: {}", true)
 	require.Error(t, err, "second current snapshot must fail")
 
 	// Occurrence key deduplicates alert events.
@@ -79,12 +79,17 @@ func TestMigrateV3M08Alerting(t *testing.T) {
 	_, err = sqlDB.Exec(`INSERT INTO m08_silence_audits(action, result) VALUES ('update', 'success')`)
 	require.Error(t, err, "unknown audit action must be rejected")
 
-	// Down drops 00010 (M05 dashboard) then 00009; earlier v3 tables stay.
+	// Down: skip migrations newer than 0012 (0014 legacy column drop is an
+	// intentional no-op, 0015 M01 nullable FKs), then drops 00010 (M05
+	// dashboard) then 00009; earlier v3 tables stay.
+	rollbackV3To(t, dsn, 12)
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 job groups migration")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 dictionary lifecycle migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
 	requireTableCount(t, sqlDB, "m05_dashboard_panels", 0)
-	requireTableCount(t, sqlDB, "m08_config_snapshots", 0)
+	// The merged table survives the 0009 rollback (0016 Down is a no-op).
+	requireTableCount(t, sqlDB, "config_snapshots", 1)
 	requireTableCount(t, sqlDB, "m08_alert_events", 0)
-	requireTableCount(t, sqlDB, "center_config_snapshots", 1)
 	requireTableCount(t, sqlDB, "m07_label_templates", 1)
 }

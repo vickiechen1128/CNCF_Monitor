@@ -27,9 +27,9 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	}
 
 	_, err = sqlDB.Exec(`INSERT INTO network_domains(
-			id,name,domain_type,tenant_id,authorized_tenant_ids,channel,status
+			id,name,domain_type,tenant_id,authorized_tenant_ids,status
 		) VALUES (
-			'dom-m01','策略域','edge','platform_admin','["platform_admin"]','agent_pull','enabled'
+			'dom-m01','策略域','edge','platform_admin','["platform_admin"]','enabled'
 		)`)
 	require.NoError(t, err)
 
@@ -111,17 +111,14 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	_, err = sqlDB.Exec(`INSERT INTO m01_probe_modules(id,name,content) VALUES ('probe-2','http_2xx','http_2xx: {}')`)
 	require.Error(t, err, "duplicate probe module name must fail")
 
-	// --- Down: roll back 00010 (M05 dashboard), 00009 (M08 alerting), 00008
-	// (center rules), 00007 (M07 label templates) then 00006 only; M06/M09
-	// tables stay ---
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 strategy migration")
+	// --- Down: roll back every migration above 00005 (all M01/M05/M07/M08/M09
+	// tables), using a version target so later no-op migrations (0014 legacy
+	// column drop, 0015 M01 nullable FKs) cannot leave stale M01 tables behind.
+	// M06/M09 core tables (<= 00005) stay. ---
+	require.NoError(t, MigrateV3DownTo("sqlite", dsn, 5))
 	for _, table := range tables {
 		requireTableCount(t, sqlDB, table, 0)
 	}
 	requireTableCount(t, sqlDB, "network_domains", 1)
-	requireTableCount(t, sqlDB, "domain_config_snapshots", 1)
+	requireTableCount(t, sqlDB, "config_snapshots", 1)
 }
