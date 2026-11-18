@@ -13,11 +13,27 @@
  * 无版本回滚能力，修改立即生效」+「查看引用 Job」跳转 Tab2。
  */
 import { useMemo, useState } from 'react'
-import { Alert, Badge, Button, Card, Divider, Empty, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Divider,
+  Empty,
+  Modal,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+  message,
+} from 'antd'
 import type { TableProps } from 'antd'
-import { EditOutlined } from '@ant-design/icons'
+import { EditOutlined, StarOutlined } from '@ant-design/icons'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
+import { labelTemplateApi } from '../../api/labelTemplates'
 import type { LabelTemplate, Mapping } from '../../types/label'
 import {
   RESOURCE_TYPE_MAP,
@@ -39,6 +55,8 @@ interface TemplateDetailTabsProps {
   referencingJobCount?: number
   /** 映射变更后回调（携带最新 mappings，供上级刷新左栏映射数 badge） */
   onMappingsChange: (mappings: Mapping[]) => void
+  /** 设为默认成功后的整模板回调（供上级回写选中模板并刷新左栏默认 Tag） */
+  onTemplateChange?: (template: LabelTemplate) => void
 }
 
 /** 分组映射行：映射本身 + 在模板全量 mappings 中的下标（用作只读表格行键） */
@@ -55,6 +73,7 @@ export default function TemplateDetailTabs({
   template,
   referencingJobCount = 0,
   onMappingsChange,
+  onTemplateChange,
 }: TemplateDetailTabsProps) {
   const templateId = template?.id ?? null
 
@@ -62,6 +81,9 @@ export default function TemplateDetailTabs({
   const [detailTab, setDetailTab] = useState<DetailTabKey>('mappings')
   const [mappingDrawerOpen, setMappingDrawerOpen] = useState(false)
   const [impactVisible, setImpactVisible] = useState(false)
+  // 设为默认二次确认（v2.56）
+  const [setDefaultOpen, setSetDefaultOpen] = useState(false)
+  const [settingDefault, setSettingDefault] = useState(false)
 
   // 模板切换时重置右栏本地状态（渲染期间调整派生状态，React 官方推荐模式，避免 effect 双请求）
   const [prevTemplateId, setPrevTemplateId] = useState<string | null>(templateId)
@@ -70,6 +92,7 @@ export default function TemplateDetailTabs({
     setDetailTab('mappings')
     setMappingDrawerOpen(false)
     setImpactVisible(false)
+    setSetDefaultOpen(false)
   }
 
   // ---------- 映射分组（Tab1） ----------
@@ -93,6 +116,22 @@ export default function TemplateDetailTabs({
   const handleMappingsSaved = (mappings: Mapping[]) => {
     setImpactVisible(true)
     onMappingsChange(mappings)
+  }
+
+  // 设为默认：后端同一类别默认互斥（旧默认自动取消），成功后回写整模板。
+  const handleSetDefault = async () => {
+    if (!template) return
+    setSettingDefault(true)
+    try {
+      const res = await labelTemplateApi.setDefault(template.id)
+      message.success('已设为默认模板')
+      setSetDefaultOpen(false)
+      onTemplateChange?.(res.data)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '设为默认失败，请稍后重试')
+    } finally {
+      setSettingDefault(false)
+    }
   }
 
   const mappingColumns: TableProps<GroupedMapping>['columns'] = [
@@ -156,26 +195,33 @@ export default function TemplateDetailTabs({
       }
       style={{ minHeight: 420 }}
       extra={
-        template.is_default ? (
-          <Tooltip title="默认模板只读保护，映射变更请基于默认模板克隆后操作">
-            {/* 禁用按钮 pointer-events:none 会吞掉鼠标事件，需外套 span 才能触发 Tooltip */}
-            <span>
-              <Button type="primary" icon={<EditOutlined />} aria-label="编辑" autoInsertSpace={false} disabled>
-                编辑
-              </Button>
-            </span>
-          </Tooltip>
-        ) : (
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            aria-label="编辑"
-            autoInsertSpace={false}
-            onClick={() => setMappingDrawerOpen(true)}
-          >
-            编辑
-          </Button>
-        )
+        <Space size={6}>
+          {!template.is_default && (
+            <Button icon={<StarOutlined />} onClick={() => setSetDefaultOpen(true)}>
+              设为默认
+            </Button>
+          )}
+          {template.is_default ? (
+            <Tooltip title="默认模板只读保护，映射变更请基于默认模板克隆后操作">
+              {/* 禁用按钮 pointer-events:none 会吞掉鼠标事件，需外套 span 才能触发 Tooltip */}
+              <span>
+                <Button type="primary" icon={<EditOutlined />} aria-label="编辑" autoInsertSpace={false} disabled>
+                  编辑
+                </Button>
+              </span>
+            </Tooltip>
+          ) : (
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              aria-label="编辑"
+              autoInsertSpace={false}
+              onClick={() => setMappingDrawerOpen(true)}
+            >
+              编辑
+            </Button>
+          )}
+        </Space>
       }
     >
       {impactVisible && (
@@ -282,6 +328,26 @@ export default function TemplateDetailTabs({
           onSaved={handleMappingsSaved}
         />
       )}
+
+      <Modal
+        title="设为默认模板"
+        open={setDefaultOpen}
+        onCancel={() => setSetDefaultOpen(false)}
+        onOk={handleSetDefault}
+        okText="设为默认"
+        cancelText="取消"
+        confirmLoading={settingDefault}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={8}>
+          <Text>
+            将「<Text strong>{template.name}</Text>」设为「{RESOURCE_TYPE_MAP[template.resource_category]}」的默认模板？
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            该资源类别原默认模板会自动取消默认。默认模板只读，后续映射调整请先克隆。
+          </Text>
+        </Space>
+      </Modal>
     </Card>
   )
 }

@@ -8,6 +8,7 @@ const listMock = vi.fn()
 const createMock = vi.fn()
 const cloneMock = vi.fn()
 const removeMock = vi.fn()
+const setDefaultMock = vi.fn()
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: {
@@ -15,6 +16,7 @@ vi.mock('../../api/labelTemplates', () => ({
     create: (...args: unknown[]) => createMock(...args),
     clone: (...args: unknown[]) => cloneMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
+    setDefault: (...args: unknown[]) => setDefaultMock(...args),
   },
 }))
 
@@ -50,6 +52,7 @@ describe('LabelTemplatesPage', () => {
     createMock.mockReset()
     cloneMock.mockReset()
     removeMock.mockReset()
+    setDefaultMock.mockReset()
     listMock.mockResolvedValue(emptyPage())
     createMock.mockResolvedValue({ status: 'success', data: templateItem('lt-10', '新模板') })
     cloneMock.mockResolvedValue({ status: 'success', data: templateItem('lt-11', '克隆') })
@@ -178,8 +181,45 @@ describe('LabelTemplatesPage', () => {
     const nameInput = await screen.findByPlaceholderText('如 主机默认模板')
     fireEvent.change(nameInput, { target: { value: '新模板' } })
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    await waitFor(() => expect(createMock).toHaveBeenCalledWith({ name: '新模板', resource_category: 'host' }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({ name: '新模板', resource_category: 'host', is_default: false }),
+    )
     // 创建成功后触发列表重新加载
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('creates a template as the category default when the switch is on (v2.56)', async () => {
+    renderPage()
+    await screen.findByText('暂无标签模板')
+    fireEvent.click(screen.getByRole('button', { name: /新增模板/ }))
+    const nameInput = await screen.findByPlaceholderText('如 主机默认模板')
+    fireEvent.change(nameInput, { target: { value: '主机默认模板' } })
+    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        name: '主机默认模板',
+        resource_category: 'host',
+        is_default: true,
+      }),
+    )
+  })
+
+  it('sets a custom template as default from the detail pane and refreshes the list (v2.56)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [templateItem('lt-2', '支付自定义模板')], total: 1, page: 1, page_size: 50 },
+    })
+    setDefaultMock.mockResolvedValue({
+      status: 'success',
+      data: templateItem('lt-2', '支付自定义模板', { is_default: true }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByText('支付自定义模板'))
+    fireEvent.click(await screen.findByRole('button', { name: /设为默认/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /设为默认/ }))
+    await waitFor(() => expect(setDefaultMock).toHaveBeenCalledWith('lt-2'))
     await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
   })
 

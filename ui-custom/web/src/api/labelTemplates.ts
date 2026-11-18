@@ -103,6 +103,22 @@ export const labelTemplateApi = {
     // 不提交 resource_category：v3 创建后不可变，PUT 携带会返回 400
     return apiClient.put<LabelTemplate>(templatePath(templateId), { body })
   },
+  /**
+   * 设为该资源类别的默认模板（v2.56）。
+   * v3 PUT 是全量替换：必须先 GET 原模板，再带 `name` + 完整 `mappings` 提交
+   * `is_default=true`；只传 `is_default` 会因 name 为空 / mappings 被清空而失败。
+   * 后端同一类别默认互斥，旧默认自动取消。
+   */
+  async setDefault(templateId: string): Promise<ApiResponse<LabelTemplate>> {
+    const source = await loadTemplate(templateId)
+    return apiClient.put<LabelTemplate>(templatePath(templateId), {
+      body: {
+        name: source.name,
+        is_default: true,
+        mappings: source.mappings.map(toMappingPayload),
+      },
+    })
+  },
   remove(templateId: string): Promise<ApiResponse<{ id: string }>> {
     // 被 M01 映射 / Job 引用时后端返回 409，错误由调用方透出（不吞错）
     return apiClient.delete<{ id: string }>(templatePath(templateId))

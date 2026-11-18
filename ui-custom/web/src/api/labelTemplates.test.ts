@@ -116,6 +116,29 @@ describe('labelTemplateApi (v3)', () => {
     expect(res.data.id).toBe('lt-9')
   })
 
+  it('setDefault GETs the template then PUTs the whole template with is_default=true (v2.56)', async () => {
+    mockFetchSequence(
+      success(template({ name: '主机模板', mappings: [mapping()] })),
+      success(template({ name: '主机模板', is_default: true, mappings: [mapping({ transform: '' })] })),
+    )
+
+    const res = await labelTemplateApi.setDefault('lt-1')
+
+    // v3 PUT 全量替换：先 GET 原模板，再带 name + 完整 mappings 提交；不能只传 is_default
+    expect(fetchMock()).toHaveBeenCalledTimes(2)
+    expect(nthUrl(0).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(0)[1]?.method).toBe('GET')
+    expect(nthUrl(1).pathname).toBe(`${BASE}/lt-1`)
+    expect(nthFetchCall(1)[1]?.method).toBe('PUT')
+    expect(nthInitBody(1)).toEqual({
+      name: '主机模板',
+      is_default: true,
+      mappings: [mapping({ transform: '' })],
+    })
+    expect(nthInitBody(1)).not.toHaveProperty('resource_category')
+    expect(res.data.is_default).toBe(true)
+  })
+
   it('create POSTs body with name/resource_category/mappings (no description)', async () => {
     mockFetchSequence(success(template({ id: 'lt-10', name: '新模板', resource_category: 'application' })))
 

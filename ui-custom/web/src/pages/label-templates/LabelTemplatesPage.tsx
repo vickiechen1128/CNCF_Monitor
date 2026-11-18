@@ -12,6 +12,7 @@ import {
   Row,
   Select,
   Space,
+  Switch,
   Tabs,
   Typography,
   message,
@@ -49,7 +50,7 @@ export function LabelTemplatesPage() {
 
   const openCreate = () => {
     form.resetFields()
-    form.setFieldsValue({ resource_category: activeType })
+    form.setFieldsValue({ resource_category: activeType, is_default: false })
     setCreateOpen(true)
   }
 
@@ -60,6 +61,7 @@ export function LabelTemplatesPage() {
       await labelTemplateApi.create({
         name: values.name as string,
         resource_category: values.resource_category as ResourceCategory,
+        is_default: Boolean(values.is_default),
       })
       message.success('模板已新增')
       setCreateOpen(false)
@@ -74,6 +76,12 @@ export function LabelTemplatesPage() {
   /** 映射变更（新增/编辑/删除）后回写选中模板，并通知左栏列表刷新映射数 badge */
   const handleMappingsChange = (mappings: Mapping[]) => {
     setSelectedTemplate((tpl) => (tpl ? { ...tpl, mappings } : tpl))
+    setReloadKey((k) => k + 1)
+  }
+
+  /** 模板主体变更（设为默认）后回写选中模板并刷新左栏（默认 Tag / 默认筛选归属会变化） */
+  const handleTemplateChange = (template: LabelTemplate) => {
+    setSelectedTemplate(template)
     setReloadKey((k) => k + 1)
   }
 
@@ -120,7 +128,11 @@ export function LabelTemplatesPage() {
               />
             </Col>
             <Col span={15}>
-              <TemplateDetailTabs template={selectedTemplate} onMappingsChange={handleMappingsChange} />
+              <TemplateDetailTabs
+                template={selectedTemplate}
+                onMappingsChange={handleMappingsChange}
+                onTemplateChange={handleTemplateChange}
+              />
             </Col>
           </Row>
         </Card>
@@ -166,8 +178,16 @@ export function LabelTemplatesPage() {
                 ))}
               </Select>
             </Form.Item>
+            <Form.Item
+              label="设为默认模板"
+              name="is_default"
+              valuePropName="checked"
+              extra="每个资源类别至多一个默认模板；设为默认后，该类别原默认模板自动取消默认。默认模板只读（映射变更需先克隆）。"
+            >
+              <Switch />
+            </Form.Item>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              新增模板默认为自定义模板（默认模板由系统预置，不可手动创建），映射列表为空，创建后可在右侧详情中新增映射。
+              系统不预置默认模板；新增模板默认为自定义，可勾选「设为默认」将其设为该资源类别的默认模板。映射列表为空，创建后可在右侧详情中新增映射。
             </Text>
           </Form>
         </Drawer>

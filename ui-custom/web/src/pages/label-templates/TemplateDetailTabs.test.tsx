@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import TemplateDetailTabs from './TemplateDetailTabs'
 import type { LabelSourceType, LabelTemplate, Mapping } from '../../types/label'
 
 const replaceMappingsMock = vi.fn()
+const setDefaultMock = vi.fn()
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: {
     replaceMappings: (...args: unknown[]) => replaceMappingsMock(...args),
+    setDefault: (...args: unknown[]) => setDefaultMock(...args),
   },
 }))
 
@@ -38,13 +40,22 @@ function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
 
 function renderTabs(tpl: LabelTemplate | null, over: { referencingJobCount?: number } = {}) {
   const onMappingsChange = vi.fn()
-  render(<TemplateDetailTabs template={tpl} onMappingsChange={onMappingsChange} {...over} />)
-  return { onMappingsChange }
+  const onTemplateChange = vi.fn()
+  render(
+    <TemplateDetailTabs
+      template={tpl}
+      onMappingsChange={onMappingsChange}
+      onTemplateChange={onTemplateChange}
+      {...over}
+    />,
+  )
+  return { onMappingsChange, onTemplateChange }
 }
 
 describe('TemplateDetailTabs', () => {
   beforeEach(() => {
     replaceMappingsMock.mockReset()
+    setDefaultMock.mockReset()
   })
 
   it('shows placeholder when no template selected', () => {
@@ -105,6 +116,25 @@ describe('TemplateDetailTabs', () => {
     expect(onMappingsChange).toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: /查看引用 Job/ }))
     expect(await screen.findByText('暂无采集 Job 引用本模板')).toBeInTheDocument()
+  })
+
+  it('sets a custom template as default after confirmation (v2.56)', async () => {
+    setDefaultMock.mockResolvedValue({ status: 'success', data: template({ is_default: true }) })
+    const { onTemplateChange } = renderTabs(template())
+
+    fireEvent.click(await screen.findByRole('button', { name: /设为默认/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/原默认模板会自动取消默认/)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: /设为默认/ }))
+
+    await waitFor(() => expect(setDefaultMock).toHaveBeenCalledWith('lt-1'))
+    await waitFor(() => expect(onTemplateChange).toHaveBeenCalledWith(expect.objectContaining({ is_default: true })))
+  })
+
+  it('hides the set-default action for a default template', async () => {
+    renderTabs(template({ is_default: true }))
+    expect(await screen.findByText('组合字段（1）')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /设为默认/ })).not.toBeInTheDocument()
   })
 
   it('default template is read-only with a disabled edit entry and tooltip', async () => {
