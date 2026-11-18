@@ -16,7 +16,12 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
 )
+
+// DefaultCenterSnapshotRetention keeps the newest N center artifacts plus the
+// current one (SRS v1.5 FR-13).
+const DefaultCenterSnapshotRetention = 5
 
 // CenterRulesService renders the platform-global rules.yml evaluated by the
 // center Prometheus (D35) and reports per-rule outcomes back to M01.
@@ -25,10 +30,14 @@ type CenterRulesService struct {
 	source    references.CenterRuleSource
 	sink      references.SyncResultSink
 	outputDir string
-	promURL   *url.URL
-	client    *http.Client
-	now       func() time.Time
-	validator Validator
+	store     *storage.ContentStore
+	// alertmanagerAddr is the center Alertmanager host:port embedded into the
+	// generated prometheus.yml alerting section for the recovery bundle.
+	alertmanagerAddr string
+	promURL          *url.URL
+	client           *http.Client
+	now              func() time.Time
+	validator        Validator
 }
 
 // NewCenterRulesService constructs the service.
@@ -44,6 +53,7 @@ func NewCenterRulesService(
 		source:    source,
 		sink:      sink,
 		outputDir: outputDir,
+		store:     storage.NewContentStore(outputDir),
 		promURL:   promURL,
 		client:    &http.Client{Timeout: 5 * time.Second},
 		now:       func() time.Time { return time.Now().UTC() },
@@ -52,6 +62,12 @@ func NewCenterRulesService(
 }
 
 // SetValidator overrides the artifact validator (tests inject a stub).
+// SetAlertmanagerAddr wires the center Alertmanager target into the generated
+// prometheus.yml (center recovery bundle). Empty keeps the alerting section out.
+func (s *CenterRulesService) SetAlertmanagerAddr(addr string) {
+	s.alertmanagerAddr = addr
+}
+
 func (s *CenterRulesService) SetValidator(validator Validator) {
 	if validator != nil {
 		s.validator = validator
@@ -76,7 +92,7 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 			Scope:       models.ScopeTypeCentral,
 		})
 	}
-	artifacts, err := configgen.GenerateCenterRules(modelsRules, version, now)
+	artifacts, err := configgen.GenerateCenterRules(modelsRules, version, now, s.alertmanagerAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +102,10 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 		return nil, err
 	}
 	if current != nil && current.Checksum == artifacts.Checksum {
+		// Upgrade path: rows created before content persistence have no payload.
+		// Backfill the current version so preview/export/recovery work without a
+		// spurious new snapshot.
+		_, _ = s.store.WriteArtifacts(repository.ArtifactTypeCenterKey, current.Version, artifacts)
 		return current, nil
 	}
 
@@ -99,7 +119,15 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 		CreatedAt:         now,
 	}
 	if record.ValidationStatus == "passed" {
-		if err := s.publish(ctx, artifacts.RulesYML); err != nil {
+		// Persist the full center artifact (prometheus.yml + rules.yml + targets)
+		// before publishing, so history preview/export and the recovery bundle can
+		// rebuild the exact version. A persistence failure must not publish a
+		// version that has no durable history.
+		if _, err := s.store.WriteArtifacts(repository.ArtifactTypeCenterKey, version, artifacts); err != nil {
+			record.ValidationStatus = "failed"
+			record.ValidationCause = "platform_fault"
+			record.ValidationDetails = mustJSON(map[string]any{"message": err.Error()})
+		} else if err := s.publish(ctx, artifacts.RulesYML); err != nil {
 			record.ValidationStatus = "failed"
 			record.ValidationCause = "platform_fault"
 			record.ValidationDetails = mustJSON(map[string]any{"message": err.Error()})
@@ -113,6 +141,7 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 		}
 		record.ID = id
 		s.recordOutcomes(ctx, rules, record, now)
+		s.prune(ctx)
 		return &record, nil
 	}
 
@@ -123,7 +152,21 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 	record.ID = id
 	record.IsCurrent = true
 	s.recordOutcomes(ctx, rules, record, now)
+	s.prune(ctx)
 	return &record, nil
+}
+
+// prune trims center history and removes the corresponding content files.
+// Pruning is best-effort: a failure never fails an already-published snapshot.
+func (s *CenterRulesService) prune(ctx context.Context) {
+	removed, err := s.repo.Prune(ctx, DefaultCenterSnapshotRetention)
+	if err != nil {
+		log.Printf("m09 center rules: prune: %v", err)
+		return
+	}
+	for _, version := range removed {
+		_ = s.store.Delete(repository.ArtifactTypeCenterKey, version)
+	}
 }
 
 // RunWatcher polls the M01 rule fingerprint and syncs when it changes. It runs

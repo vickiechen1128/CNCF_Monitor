@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
@@ -20,9 +21,16 @@ func itoa(v int64) string { return strconv.FormatInt(v, 10) }
 type fakeSource struct {
 	src         configgen.Source
 	fingerprint int64
+	// domains overrides EdgeDomainIDs (defaults to the single src domain).
+	domains []string
+	// buildHook runs at the start of BuildSource (concurrency instrumentation).
+	buildHook func(domainID string)
 }
 
 func (f *fakeSource) BuildSource(_ context.Context, domainID string) (configgen.Source, error) {
+	if f.buildHook != nil {
+		f.buildHook(domainID)
+	}
 	source := f.src
 	source.NetworkDomainID = domainID
 	return source, nil
@@ -33,6 +41,9 @@ func (f *fakeSource) Fingerprint(_ context.Context, _ string) (time.Time, error)
 }
 
 func (f *fakeSource) EdgeDomainIDs(_ context.Context) ([]string, error) {
+	if len(f.domains) > 0 {
+		return f.domains, nil
+	}
 	return []string{f.src.NetworkDomainID}, nil
 }
 
@@ -175,39 +186,6 @@ func TestSnapshotContentReadsStoredPayload(t *testing.T) {
 	assert.Nil(t, missing)
 }
 
-func TestSaveAlertmanagerSnapshotKeepsCurrentUntouched(t *testing.T) {
-	_, _, repo := newTestStack(t)
-	ctx := context.Background()
-	store := storage.NewContentStore(t.TempDir())
-	sources := &fakeSource{src: configgen.Source{Jobs: []configgen.Job{{
-		Name:    "node",
-		Targets: []configgen.Target{{Instance: "10.0.0.1:9100"}},
-	}}}}
-	svc := service.NewConfigSyncService(repo, sources, store, passed())
-	current, err := svc.SyncDomain(ctx, "mc-a")
-	require.NoError(t, err)
-
-	require.NoError(t, svc.SaveAlertmanagerSnapshot(ctx, "mc-a", "route:\n  receiver: default\n", "sha256:am", "m08"))
-	checksum, _, err := svc.CurrentContent(ctx, "mc-a")
-	require.NoError(t, err)
-	assert.Equal(t, current.Checksum, checksum, "M08 snapshot must not replace the scrape config")
-
-	items, err := svc.ListSnapshots(ctx, "mc-a", 50)
-	require.NoError(t, err)
-	require.Len(t, items, 2)
-	found := false
-	for _, item := range items {
-		if item.GeneratedBy == "m08" {
-			found = true
-			assert.False(t, item.IsCurrent)
-			assert.Regexp(t, regexp.MustCompile(`^am-\d{8}-[0-9a-f]{4}$`), item.Version)
-		}
-	}
-	assert.True(t, found)
-
-	assert.Error(t, svc.SaveAlertmanagerSnapshot(ctx, "mc-a", "  ", "x", "m08"), "empty content is rejected")
-}
-
 func TestRunWatcherInitialPassPublishesSnapshot(t *testing.T) {
 	_, _, repo := newTestStack(t)
 	store := storage.NewContentStore(t.TempDir())
@@ -293,4 +271,60 @@ func TestSyncDomainFailureWritesBackFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, sink.calls)
 	assert.Contains(t, sink.outcomes["node"], "user_config")
+}
+
+func TestRunWatcherSyncsDomainsConcurrentlyWithBound(t *testing.T) {
+	gormDB, _, repo := newTestStack(t)
+	store := storage.NewContentStore(t.TempDir())
+	domains := []string{"mc-a", "mc-b", "mc-c", "mc-d", "mc-e", "mc-f", "mc-g", "mc-h"}
+	for _, id := range []string{"mc-c", "mc-d", "mc-e", "mc-f", "mc-g", "mc-h"} {
+		createDomain(t, gormDB, id, models.DomainStatusEnabled)
+	}
+
+	started := make(chan string, len(domains))
+	release := make(chan struct{})
+	finished := make(chan string, len(domains))
+	sources := &fakeSource{
+		domains: domains,
+		buildHook: func(domainID string) {
+			started <- domainID
+			<-release
+			finished <- domainID
+		},
+	}
+	svc := service.NewConfigSyncService(repo, sources, store, passed())
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watcherDone := make(chan struct{})
+	go func() {
+		svc.RunWatcher(runCtx, time.Hour)
+		close(watcherDone)
+	}()
+
+	// 恰好 DefaultSyncWorkers 个域同时进入构建
+	for i := 0; i < service.DefaultSyncWorkers; i++ {
+		select {
+		case <-started:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("only %d/%d domains started concurrently", i, service.DefaultSyncWorkers)
+		}
+	}
+	// 上限：第 workers+1 个不得进入
+	select {
+	case <-started:
+		t.Fatalf("more than %d domains synced concurrently", service.DefaultSyncWorkers)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+	for i := 0; i < len(domains); i++ {
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out after %d/%d domains finished", i, len(domains))
+		}
+	}
+	cancel()
+	<-watcherDone
 }

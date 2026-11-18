@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -31,11 +32,38 @@ type SourceReader interface {
 type GORMSourceReader struct {
 	db        *gorm.DB
 	resources *m01refs.GORMResourceReader
+
+	// 端口映射是平台级低频配置，按 TTL 缓存：扇出 N 个域时不再每域重复查两张表。
+	portsMu       sync.Mutex
+	portsAt       time.Time
+	mappingPorts  map[string]int
+	exporterPorts map[string]int
 }
+
+// portsCacheTTL bounds how long the platform-level port mappings are reused.
+// 30s matches the config-sync watcher cadence, so an admin edit takes effect on
+// the next tick without querying the mapping tables for every domain.
+const portsCacheTTL = 30 * time.Second
 
 // NewGORMSourceReader constructs the reader.
 func NewGORMSourceReader(db *gorm.DB) *GORMSourceReader {
 	return &GORMSourceReader{db: db, resources: m01refs.NewResourceReader(db)}
+}
+
+// cachedPorts returns the default mapping ports and exporter port overrides,
+// reusing the previous result until portsCacheTTL elapses.
+func (r *GORMSourceReader) cachedPorts(ctx context.Context) (map[string]int, map[string]int, error) {
+	r.portsMu.Lock()
+	defer r.portsMu.Unlock()
+	if r.mappingPorts != nil && time.Since(r.portsAt) < portsCacheTTL {
+		return r.mappingPorts, r.exporterPorts, nil
+	}
+	mappingPorts, exporterPorts, err := r.loadPorts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	r.mappingPorts, r.exporterPorts, r.portsAt = mappingPorts, exporterPorts, time.Now()
+	return mappingPorts, exporterPorts, nil
 }
 
 type jobSourceRow struct {
@@ -83,23 +111,39 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 		return configgen.Source{}, fmt.Errorf("load m01 scrape jobs for %q: %w", domainID, err)
 	}
 
-	mappingPorts, exporterPorts, err := r.loadPorts(ctx)
-	if err != nil {
-		return configgen.Source{}, err
-	}
-
-	jobs := make([]configgen.Job, 0, len(rows))
-	for _, row := range rows {
+	// 先把所有 Job 的实例解码并取并集：原实现每个 Job 一次 GetMany（N+1），
+	// 域内 Job 一多就是几十条重复查询，改为一次 IN 查询。
+	selectedByJob := make([][]string, len(rows))
+	allIDs := make([]string, 0, len(rows)*4)
+	seen := make(map[string]struct{}, len(rows)*4)
+	for i, row := range rows {
 		var selected []string
 		if strings.TrimSpace(row.SelectedInstanceIDs) != "" {
 			if err := json.Unmarshal([]byte(row.SelectedInstanceIDs), &selected); err != nil {
 				return configgen.Source{}, fmt.Errorf("decode selected instances of job %q: %w", row.JobName, err)
 			}
 		}
-		refs, err := r.resources.GetMany(ctx, selected)
-		if err != nil {
-			return configgen.Source{}, err
+		selectedByJob[i] = selected
+		for _, id := range selected {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			allIDs = append(allIDs, id)
 		}
+	}
+	refs, err := r.resources.GetMany(ctx, allIDs)
+	if err != nil {
+		return configgen.Source{}, err
+	}
+	mappingPorts, exporterPorts, err := r.cachedPorts(ctx)
+	if err != nil {
+		return configgen.Source{}, err
+	}
+
+	jobs := make([]configgen.Job, 0, len(rows))
+	for i, row := range rows {
+		selected := selectedByJob[i]
 		job := configgen.Job{
 			Name:           row.JobName,
 			MetricsPath:    row.MetricsPath,
@@ -165,6 +209,13 @@ func (r *GORMSourceReader) loadProbeModules(ctx context.Context) ([]models.Black
 
 // Fingerprint returns the newest source change across M07 resources and M01
 // jobs (including soft deletions) plus global probe modules.
+//
+// Soft deletes MUST be covered explicitly: GORM only writes deleted_at (it does
+// not bump updated_at), so a filtered `updated_at` query cannot see them. Missing
+// that makes a deletion invisible to the watcher and the domain keeps scraping a
+// removed target until some unrelated change bumps the fingerprint. The rules
+// fingerprint (`m01_monitoring_rules`) already covers both columns; keep these
+// two in sync.
 func (r *GORMSourceReader) Fingerprint(ctx context.Context, domainID string) (time.Time, error) {
 	queries := []struct {
 		table  string
@@ -173,9 +224,11 @@ func (r *GORMSourceReader) Fingerprint(ctx context.Context, domainID string) (ti
 		args   []any
 	}{
 		{"resources", "updated_at", "network_domain_id = ? AND deleted_at IS NULL", []any{domainID}},
+		{"resources", "deleted_at", "network_domain_id = ? AND deleted_at IS NOT NULL", []any{domainID}},
 		{"m01_scrape_jobs", "updated_at", "network_domain_id = ? AND deleted_at IS NULL", []any{domainID}},
 		{"m01_scrape_jobs", "deleted_at", "network_domain_id = ?", []any{domainID}},
 		{"m01_probe_modules", "updated_at", "1 = 1", nil},
+		{"m01_probe_modules", "deleted_at", "deleted_at IS NOT NULL", nil},
 	}
 	var newest time.Time
 	for _, q := range queries {

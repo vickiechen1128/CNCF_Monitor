@@ -27,10 +27,20 @@ type CenterSnapshotRepository interface {
 	InsertAndActivate(ctx context.Context, rec CenterConfigSnapshot) (int64, error)
 	CurrentPassed(ctx context.Context) (*CenterConfigSnapshot, error)
 	List(ctx context.Context, limit int) ([]CenterConfigSnapshot, error)
+	Prune(ctx context.Context, keep int) ([]string, error)
 }
+
+// Center snapshots live in the 'center' scope of the unified config_snapshots
+// table (0016); version stays globally unique via scope_key='center'.
+const (
+	centerSnapshotScope    = "center"
+	centerSnapshotScopeKey = "center"
+)
 
 type centerSnapshotRecord struct {
 	ID                int64     `gorm:"column:id;primaryKey"`
+	Scope             string    `gorm:"column:scope"`
+	ScopeKey          string    `gorm:"column:scope_key"`
 	Version           string    `gorm:"column:version;not null"`
 	Checksum          string    `gorm:"column:checksum;not null"`
 	ValidationStatus  string    `gorm:"column:validation_status;not null"`
@@ -40,7 +50,7 @@ type centerSnapshotRecord struct {
 	CreatedAt         time.Time `gorm:"column:created_at"`
 }
 
-func (centerSnapshotRecord) TableName() string { return "center_config_snapshots" }
+func (centerSnapshotRecord) TableName() string { return "config_snapshots" }
 
 // GORMCenterSnapshotRepository is the GORM-backed implementation.
 type GORMCenterSnapshotRepository struct {
@@ -70,11 +80,13 @@ func (r *GORMCenterSnapshotRepository) InsertAndActivate(ctx context.Context, re
 			return fmt.Errorf("insert center snapshot %q: %w", rec.Version, err)
 		}
 		if err := tx.Model(&centerSnapshotRecord{}).
-			Where("is_current = ?", true).Update("is_current", false).Error; err != nil {
+			Where("scope = ? AND scope_key = ? AND is_current = ?", centerSnapshotScope, centerSnapshotScopeKey, true).
+			Update("is_current", false).Error; err != nil {
 			return fmt.Errorf("demote current center snapshot: %w", err)
 		}
 		if err := tx.Model(&centerSnapshotRecord{}).
-			Where("id = ?", row.ID).Update("is_current", true).Error; err != nil {
+			Where("id = ? AND scope = ? AND scope_key = ?", row.ID, centerSnapshotScope, centerSnapshotScopeKey).
+			Update("is_current", true).Error; err != nil {
 			return fmt.Errorf("activate center snapshot %d: %w", row.ID, err)
 		}
 		id = row.ID
@@ -90,7 +102,8 @@ func (r *GORMCenterSnapshotRepository) InsertAndActivate(ctx context.Context, re
 func (r *GORMCenterSnapshotRepository) CurrentPassed(ctx context.Context) (*CenterConfigSnapshot, error) {
 	var row centerSnapshotRecord
 	err := r.db.WithContext(ctx).
-		Where("is_current = ? AND validation_status = ?", true, "passed").
+		Where("scope = ? AND scope_key = ? AND is_current = ? AND validation_status = ?",
+			centerSnapshotScope, centerSnapshotScopeKey, true, "passed").
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -107,7 +120,9 @@ func (r *GORMCenterSnapshotRepository) List(ctx context.Context, limit int) ([]C
 		limit = 20
 	}
 	var rows []centerSnapshotRecord
-	if err := r.db.WithContext(ctx).Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ?", centerSnapshotScope, centerSnapshotScopeKey).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list center snapshots: %w", err)
 	}
 	out := make([]CenterConfigSnapshot, 0, len(rows))
@@ -115,6 +130,44 @@ func (r *GORMCenterSnapshotRepository) List(ctx context.Context, limit int) ([]C
 		out = append(out, *centerSnapshotToDomain(&rows[i]))
 	}
 	return out, nil
+}
+
+// Prune keeps the newest `keep` center snapshots (including the current one)
+// and deletes the rest, returning removed versions so callers can clean content.
+func (r *GORMCenterSnapshotRepository) Prune(ctx context.Context, keep int) ([]string, error) {
+	if keep < 1 {
+		keep = 1
+	}
+	var rows []centerSnapshotRecord
+	if err := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ?", centerSnapshotScope, centerSnapshotScopeKey).
+		Order("created_at DESC, id DESC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load center snapshots for prune: %w", err)
+	}
+	removed := make([]string, 0)
+	ids := make([]int64, 0)
+	kept := 0
+	for _, row := range rows {
+		if kept < keep {
+			kept++
+			continue
+		}
+		if row.IsCurrent {
+			continue
+		}
+		ids = append(ids, row.ID)
+		removed = append(removed, row.Version)
+	}
+	if len(ids) == 0 {
+		return removed, nil
+	}
+	if err := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ? AND id IN ?",
+			centerSnapshotScope, centerSnapshotScopeKey, ids).
+		Delete(&centerSnapshotRecord{}).Error; err != nil {
+		return nil, fmt.Errorf("prune center snapshots: %w", err)
+	}
+	return removed, nil
 }
 
 func centerSnapshotFromDomain(rec CenterConfigSnapshot) centerSnapshotRecord {
@@ -125,6 +178,8 @@ func centerSnapshotFromDomain(rec CenterConfigSnapshot) centerSnapshotRecord {
 	}
 	return centerSnapshotRecord{
 		ID:                rec.ID,
+		Scope:             centerSnapshotScope,
+		ScopeKey:          centerSnapshotScopeKey,
 		Version:           rec.Version,
 		Checksum:          rec.Checksum,
 		ValidationStatus:  rec.ValidationStatus,

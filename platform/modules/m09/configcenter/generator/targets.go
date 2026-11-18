@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/portchain"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/portchain"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )

@@ -6,12 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
-	"github.com/metriccenter/metriccenter/platform/modules/m09/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
@@ -20,6 +18,12 @@ import (
 // DefaultSnapshotRetention keeps the newest N snapshots per domain plus the
 // current one (contract §4: 3–5 read-only history).
 const DefaultSnapshotRetention = 5
+
+// DefaultSyncWorkers bounds how many domains are regenerated concurrently.
+// Each changed domain shells out to promtool / blackbox_exporter for validation,
+// so the cap keeps CPU and file handles predictable while still removing the
+// head-of-line blocking of a strictly sequential loop.
+const DefaultSyncWorkers = 4
 
 // Validator checks generated artifacts before they are published.
 type Validator interface {
@@ -43,12 +47,11 @@ type ConfigSyncService struct {
 
 	now       func() time.Time
 	retention int
+	workers   int
 
 	mu          sync.Mutex
 	domainLocks map[string]*sync.Mutex
 }
-
-var _ references.AlertmanagerSnapshotSink = (*ConfigSyncService)(nil)
 
 // NewConfigSyncService constructs the service. A nil validator falls back to
 // the shared promtool/blackbox checks.
@@ -68,6 +71,7 @@ func NewConfigSyncService(
 		validator:   validator,
 		now:         func() time.Time { return time.Now().UTC() },
 		retention:   DefaultSnapshotRetention,
+		workers:     DefaultSyncWorkers,
 		domainLocks: map[string]*sync.Mutex{},
 	}
 }
@@ -262,19 +266,47 @@ func (s *ConfigSyncService) watchOnce(ctx context.Context, last map[string]time.
 	if err != nil {
 		return
 	}
-	for _, domainID := range domains {
-		fingerprint, err := s.sources.Fingerprint(ctx, domainID)
-		if err != nil {
-			continue
-		}
-		if previous, ok := last[domainID]; ok && !fingerprint.After(previous) {
-			continue
-		}
-		if _, err := s.SyncDomain(ctx, domainID); err != nil {
-			continue
-		}
-		last[domainID] = fingerprint
+	workers := s.workers
+	if workers < 1 {
+		workers = 1
 	}
+	// 有界并发：一个全局变更（例如探测模块）会让所有域同时变脏，串行循环下
+	// 队尾域要等前面每个域都跑完生成 + 校验；并发后总时长由「域数 / workers」决定。
+	// last 由 mutex 保护，SyncDomain 自己按域加锁，跨域并发安全。
+	sem := make(chan struct{}, workers)
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+	for _, domainID := range domains {
+		wg.Add(1)
+		go func(domainID string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			fingerprint, err := s.sources.Fingerprint(ctx, domainID)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			previous, ok := last[domainID]
+			mu.Unlock()
+			if ok && !fingerprint.After(previous) {
+				return
+			}
+			if _, err := s.SyncDomain(ctx, domainID); err != nil {
+				return
+			}
+			mu.Lock()
+			last[domainID] = fingerprint
+			mu.Unlock()
+		}(domainID)
+	}
+	wg.Wait()
 }
 
 func (s *ConfigSyncService) domainLock(domainID string) *sync.Mutex {
@@ -304,32 +336,4 @@ func mustJSON(value any) string {
 		return "{}"
 	}
 	return string(raw)
-}
-
-// SaveAlertmanagerSnapshot implements references.AlertmanagerSnapshotSink: it
-// retains the M08-generated alertmanager.yml as read-only history. The snapshot
-// is never activated, so it cannot replace the current scrape config (D31).
-func (s *ConfigSyncService) SaveAlertmanagerSnapshot(ctx context.Context, domainID, content, checksum, generatedBy string) error {
-	if strings.TrimSpace(content) == "" {
-		return &domain.ValidationError{Field: "content", Message: "alertmanager.yml content is required"}
-	}
-	now := s.now()
-	buf := make([]byte, 2)
-	_, _ = rand.Read(buf)
-	version := "am-" + now.UTC().Format("20060102") + "-" + hex.EncodeToString(buf)
-	if _, err := s.store.WriteRaw(domainID, version, []byte(content)); err != nil {
-		return err
-	}
-	_, err := s.repo.InsertSnapshot(ctx, repository.ConfigSnapshot{
-		NetworkDomainID:   domainID,
-		Version:           version,
-		Checksum:          checksum,
-		ContentType:       "full",
-		ValidationStatus:  "passed",
-		ValidationCause:   "none",
-		ValidationDetails: "{}",
-		GeneratedBy:       generatedBy,
-		CreatedAt:         now,
-	})
-	return err
 }

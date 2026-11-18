@@ -257,7 +257,8 @@ func (r *GORMRepository) RetireDomainState(ctx context.Context, domainID string)
 		if err := tx.Exec(`DELETE FROM edge_target_snapshots WHERE network_domain_id = ?`, domainID).Error; err != nil {
 			return fmt.Errorf("clear target snapshots for %q: %w", domainID, err)
 		}
-		if err := tx.Exec(`DELETE FROM domain_config_snapshots WHERE network_domain_id = ?`, domainID).Error; err != nil {
+		if err := tx.Exec(`DELETE FROM config_snapshots WHERE scope = ? AND scope_key = ?`,
+			snapshotScopeDomain, domainID).Error; err != nil {
 			return fmt.Errorf("clear config snapshots for %q: %w", domainID, err)
 		}
 		return nil

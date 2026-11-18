@@ -1,5 +1,5 @@
 // Package storage persists M09 config snapshot content on the local filesystem.
-// Metadata lives in domain_config_snapshots; the artifact payload is written as
+// Metadata lives in config_snapshots (0016); the artifact payload is written as
 // a JSON document keyed by domain/version.
 package storage
 
@@ -29,8 +29,8 @@ func NewContentStore(root string) *ContentStore {
 	return &ContentStore{root: filepath.Join(root, "snapshots")}
 }
 
-// payload is the on-disk representation of a snapshot.
-type payload struct {
+// Payload is the on-disk representation of a config artifact snapshot.
+type Payload struct {
 	Version       string            `json:"version"`
 	Checksum      string            `json:"checksum"`
 	PrometheusYML string            `json:"prometheus_yml"`
@@ -52,7 +52,7 @@ func (s *ContentStore) WriteArtifacts(domainID, version string, artifacts *confi
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return "", fmt.Errorf("storage: create snapshot dir: %w", err)
 	}
-	raw, err := json.Marshal(payload{
+	raw, err := json.Marshal(Payload{
 		Version:       artifacts.Version,
 		Checksum:      artifacts.Checksum,
 		PrometheusYML: artifacts.PrometheusYML,
@@ -83,7 +83,30 @@ func (s *ContentStore) Read(domainID, version string) ([]byte, error) {
 	return raw, nil
 }
 
-// WriteRaw stores an arbitrary payload (e.g. the M08 alertmanager.yml snapshot).
+// ReadPayload decodes a stored artifact payload.
+func (s *ContentStore) ReadPayload(domainID, version string) (*Payload, error) {
+	raw, err := s.Read(domainID, version)
+	if err != nil {
+		return nil, err
+	}
+	var stored Payload
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil, fmt.Errorf("storage: decode snapshot payload: %w", err)
+	}
+	return &stored, nil
+}
+
+// Exists reports whether a stored snapshot payload exists.
+func (s *ContentStore) Exists(domainID, version string) bool {
+	path, err := s.path(domainID, version)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+// WriteRaw stores an arbitrary payload (e.g. a raw alertmanager.yml snapshot).
 func (s *ContentStore) WriteRaw(domainID, version string, payload []byte) (string, error) {
 	path, err := s.path(domainID, version)
 	if err != nil {
@@ -105,7 +128,7 @@ func (s *ContentStore) BuildZip(domainID, version string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var stored payload
+	var stored Payload
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return nil, fmt.Errorf("storage: decode snapshot payload: %w", err)
 	}

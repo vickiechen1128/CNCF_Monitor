@@ -82,16 +82,21 @@ func TestGenerateCenterRules(t *testing.T) {
 		DraftStatus: "ready",
 		Scope:       models.ScopeTypeCentral,
 	}}
-	artifacts, err := GenerateCenterRules(rules, "v1", time.Now())
+	artifacts, err := GenerateCenterRules(rules, "v1", time.Now(), "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, artifacts.Checksum)
 	assert.Contains(t, artifacts.RulesYML, "HostDown")
 	assert.Contains(t, artifacts.PrometheusYML, "rule_files")
 	assert.Contains(t, artifacts.PrometheusYML, "rules.yml")
 
-	empty, err := GenerateCenterRules(nil, "v2", time.Now())
+	empty, err := GenerateCenterRules(nil, "v2", time.Now(), "")
 	require.NoError(t, err)
 	assert.Empty(t, empty.RulesYML)
+
+	withAM, err := GenerateCenterRules(rules, "v3", time.Now(), "localhost:9093")
+	require.NoError(t, err)
+	assert.Contains(t, withAM.PrometheusYML, "alertmanagers")
+	assert.Contains(t, withAM.PrometheusYML, "localhost:9093")
 }
 
 func TestGenerateRendersEnabledBlackboxModules(t *testing.T) {

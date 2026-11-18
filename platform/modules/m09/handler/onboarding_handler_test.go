@@ -48,14 +48,10 @@ func newOnboardingRouterWithDB(t *testing.T, user *models.User) (*gin.Engine, *g
 		Status: models.TenantStatusActive,
 	}).Error)
 	for _, id := range []string{"mc-a", "mc-b"} {
-		require.NoError(t, gormDB.Create(&models.NetworkDomain{
-			ID: id, Name: "域 " + id, DomainType: models.DomainTypeEdge,
-			ZoneType: "beijing", CloudCode: "aliyun",
-			TenantID:            models.PlatformAdminTenantID,
-			AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-			Channel:             models.ChannelTypeAgentPull,
-			Status:              models.DomainStatusEnabled,
-		}).Error)
+		require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+			(id, name, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+			VALUES (?, ?, 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'enabled')`,
+			id, "域 "+id, `["platform_admin"]`).Error)
 	}
 
 	repo := repository.NewGORMRepository(gormDB)
@@ -157,14 +153,10 @@ func TestOnboardingListEnvelopeAndValidation(t *testing.T) {
 
 func TestOnboardingAdminViewExposesAdministrativeFields(t *testing.T) {
 	router, gormDB := newOnboardingRouterWithDB(t, adminUser())
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: "mc-disabled", Name: "停用域", Description: "停用域说明",
-		DomainType: models.DomainTypeEdge, ZoneType: "beijing", CloudCode: "aliyun",
-		TenantID:            models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID, "tenant-a"},
-		Channel:             models.ChannelTypeAgentPull,
-		Status:              models.DomainStatusDisabled,
-	}).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, description, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+		VALUES ('mc-disabled', '停用域', '停用域说明', 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'disabled')`,
+		`["platform_admin","tenant-a"]`).Error)
 
 	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/network-domains?view=admin")
 	require.Equal(t, http.StatusOK, code, out)

@@ -3,7 +3,10 @@ package references_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,8 +27,8 @@ func newSourceTestDB(t *testing.T) *gorm.DB {
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status,zone_type)
-			VALUES ('mc-a','域 mc-a','edge','platform_admin','agent_pull','enabled','beijing')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status,zone_type)
+			VALUES ('mc-a','域 mc-a','edge','platform_admin','enabled','beijing')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -140,4 +143,98 @@ func TestSourceReaderFingerprintAndDomains(t *testing.T) {
 	empty, err := reader.Fingerprint(context.Background(), "mc-b")
 	require.NoError(t, err)
 	assert.True(t, empty.IsZero())
+}
+
+// M07 v3 的资源删除只写 deleted_at、不碰 updated_at，也不回写 Job；若指纹不覆盖
+// deleted_at，删掉一个仍被 Job 引用的资源后本域不会重新生成配置（采集节点继续抓已删 target）。
+func TestSourceReaderFingerprintAdvancesOnResourceSoftDelete(t *testing.T) {
+	gormDB := newSourceTestDB(t)
+	reader := references.NewGORMSourceReader(gormDB)
+	ctx := context.Background()
+
+	before, err := reader.Fingerprint(ctx, "mc-a")
+	require.NoError(t, err)
+	require.False(t, before.IsZero())
+
+	deletedAt := before.Add(time.Hour).UTC()
+	require.NoError(t, gormDB.Exec(
+		`UPDATE resources SET deleted_at = ? WHERE resource_id = 'r-host'`, deletedAt).Error)
+
+	after, err := reader.Fingerprint(ctx, "mc-a")
+	require.NoError(t, err)
+	assert.True(t, after.After(before),
+		"resource soft delete must advance the fingerprint, otherwise the domain never re-syncs")
+	assert.True(t, after.Equal(deletedAt), "fingerprint should reflect the newest soft delete")
+}
+
+// 探测模块（blackbox module）是平台全局配置：删除同样只写 deleted_at，需纳入指纹，
+// 否则删除模块后各网域的 blackbox.yml 不会重新生成。
+func TestSourceReaderFingerprintAdvancesOnProbeModuleSoftDelete(t *testing.T) {
+	gormDB := newSourceTestDB(t)
+	reader := references.NewGORMSourceReader(gormDB)
+	ctx := context.Background()
+
+	updatedAt := time.Now().UTC().Add(-2 * time.Hour)
+	require.NoError(t, gormDB.Exec(`INSERT INTO m01_probe_modules(id,name,content,enabled,updated_at)
+		VALUES ('pm-http','http_2xx','prober: http',TRUE,?)`, updatedAt).Error)
+
+	before, err := reader.Fingerprint(ctx, "mc-a")
+	require.NoError(t, err)
+	require.False(t, before.IsZero())
+
+	deletedAt := before.Add(time.Hour).UTC()
+	require.NoError(t, gormDB.Exec(
+		`UPDATE m01_probe_modules SET deleted_at = ? WHERE id = 'pm-http'`, deletedAt).Error)
+
+	after, err := reader.Fingerprint(ctx, "mc-a")
+	require.NoError(t, err)
+	assert.True(t, after.After(before),
+		"probe module soft delete must advance the fingerprint")
+}
+
+// countingLogger 统计命中指定 SQL 片段的查询次数，用于验证扇出时没有查询放大。
+type countingLogger struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func (l *countingLogger) LogMode(logger.LogLevel) logger.Interface { return l }
+func (l *countingLogger) Info(context.Context, string, ...any)     {}
+func (l *countingLogger) Warn(context.Context, string, ...any)     {}
+func (l *countingLogger) Error(context.Context, string, ...any)    {}
+func (l *countingLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error) {
+	sql, _ := fc()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, marker := range []string{"resource_id IN", "m01_ci_type_exporter_mappings", "m01_exporter_templates"} {
+		if strings.Contains(sql, marker) {
+			l.counts[marker]++
+		}
+	}
+}
+
+func (l *countingLogger) count(marker string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.counts[marker]
+}
+
+// 域内 4 个 Job 共享资源：只在一次 IN 查询里取回；端口映射按 TTL 缓存，
+// 第二次构建同一域时不再重复查映射表（扇出 N 域时这是最容易被放大的部分）。
+func TestSourceReaderFansOutWithoutQueryAmplification(t *testing.T) {
+	gormDB := newSourceTestDB(t)
+	counter := &countingLogger{counts: map[string]int{}}
+	reader := references.NewGORMSourceReader(gormDB.Session(&gorm.Session{Logger: counter}))
+	ctx := context.Background()
+
+	_, err := reader.BuildSource(ctx, "mc-a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, counter.count("resource_id IN"), "resources are fetched once per domain, not once per job")
+	assert.Equal(t, 1, counter.count("m01_ci_type_exporter_mappings"))
+	assert.Equal(t, 1, counter.count("m01_exporter_templates"))
+
+	_, err = reader.BuildSource(ctx, "mc-a")
+	require.NoError(t, err)
+	assert.Equal(t, 1, counter.count("m01_ci_type_exporter_mappings"), "port mappings come from the TTL cache")
+	assert.Equal(t, 1, counter.count("m01_exporter_templates"))
 }

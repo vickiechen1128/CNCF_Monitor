@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"

@@ -221,6 +221,13 @@ func (s *OnboardingService) RetireDomain(ctx context.Context, domainID string) e
 	return s.repo.RetireDomainState(ctx, domainID)
 }
 
+// AllowedDomainIDs exposes the caller's authorized domain set for read models
+// that span multiple domains (config-artifact history). A nil slice means the
+// caller is unrestricted (platform admin); an empty slice means no domains.
+func (s *OnboardingService) AllowedDomainIDs(ctx context.Context, actor Actor) ([]string, error) {
+	return s.resolveAllowed(ctx, actor)
+}
+
 func (s *OnboardingService) resolveAllowed(ctx context.Context, actor Actor) ([]string, error) {
 	if actor.IsPlatformAdmin {
 		return nil, nil

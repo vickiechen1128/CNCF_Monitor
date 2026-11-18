@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
 )
 
@@ -209,7 +209,7 @@ func defaultIfEmpty(value, fallback string) string {
 
 // ValidationResult is the normalized outcome persisted on a snapshot. Status is
 // always passed/failed (pending is folded into failed + platform_fault so it
-// matches the domain_config_snapshots CHECK constraint).
+// matches the config_snapshots CHECK constraint).
 type ValidationResult struct {
 	Status  string
 	Cause   string
@@ -255,12 +255,19 @@ func Validate(artifacts *Artifacts) ValidationResult {
 
 // GenerateCenterRules renders the platform-global rules artifact evaluated by
 // the center Prometheus (D35). Edge packages never include rules.
-func GenerateCenterRules(rules []models.MonitoringRule, version string, generatedAt time.Time) (*Artifacts, error) {
+func GenerateCenterRules(rules []models.MonitoringRule, version string, generatedAt time.Time, alertmanagerAddr string) (*Artifacts, error) {
 	if strings.TrimSpace(version) == "" {
 		return nil, fmt.Errorf("configgen: version is required")
 	}
+	// The shared renderer only emits the alerting section when it also sees a
+	// mounted alertmanager artifact; center always owns an M08 config, so pass a
+	// non-empty marker when an address is configured (marker is not written).
+	alertmanagerMarker := ""
+	if strings.TrimSpace(alertmanagerAddr) != "" {
+		alertmanagerMarker = "# center alertmanager mounted"
+	}
 	rendered, err := generator.AssembleWithModules(
-		"center", "", "", nil, rules, "", "", true, nil,
+		"center", "", "", nil, rules, alertmanagerMarker, alertmanagerAddr, true, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("configgen: assemble center rules: %w", err)

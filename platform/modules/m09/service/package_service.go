@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/metriccenter/metriccenter/platform/edge"
 )
 
 // PackageComponent is one component version inside an offline package.
@@ -40,7 +38,7 @@ func NewPackageService(dir string) *PackageService {
 // List returns the published package list; an unpackaged directory yields an
 // empty list (200, not an error).
 func (s *PackageService) List(_ context.Context) ([]EdgePackage, error) {
-	artifacts, err := edge.ListPackages(s.dir)
+	artifacts, err := listPackages(s.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +51,8 @@ func (s *PackageService) List(_ context.Context) ([]EdgePackage, error) {
 
 // Latest returns the current package, or nil when nothing has been packaged.
 func (s *PackageService) Latest(_ context.Context) (*EdgePackage, error) {
-	artifact, err := edge.LatestPackage(s.dir)
-	if errors.Is(err, edge.ErrNoPackage) {
+	artifact, err := latestPackage(s.dir)
+	if errors.Is(err, errNoPackage) {
 		return nil, nil
 	}
 	if err != nil {
@@ -67,8 +65,8 @@ func (s *PackageService) Latest(_ context.Context) (*EdgePackage, error) {
 // Open returns the package metadata and an open file handle for streaming. A
 // file name that does not exactly match the manifest file yields (nil, nil, nil).
 func (s *PackageService) Open(_ context.Context, file string) (*EdgePackage, *os.File, error) {
-	artifact, err := edge.LatestPackage(s.dir)
-	if errors.Is(err, edge.ErrNoPackage) {
+	artifact, err := latestPackage(s.dir)
+	if errors.Is(err, errNoPackage) {
 		return nil, nil, nil
 	}
 	if err != nil {
@@ -77,7 +75,7 @@ func (s *PackageService) Open(_ context.Context, file string) (*EdgePackage, *os
 	if file == "" || file != artifact.File || filepath.Base(file) != artifact.File {
 		return nil, nil, nil
 	}
-	handle, err := edge.OpenPackageFile(s.dir, artifact)
+	handle, err := openPackageFile(s.dir, artifact)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,7 +83,7 @@ func (s *PackageService) Open(_ context.Context, file string) (*EdgePackage, *os
 	return &item, handle, nil
 }
 
-func (s *PackageService) toPackage(artifact edge.PackageArtifact) EdgePackage {
+func (s *PackageService) toPackage(artifact packageArtifact) EdgePackage {
 	released := time.Time{}
 	if info, err := os.Stat(filepath.Join(s.dir, artifact.File)); err == nil {
 		released = info.ModTime().UTC()

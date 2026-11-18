@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/portchain"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/portchain"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

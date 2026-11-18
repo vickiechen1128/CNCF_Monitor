@@ -237,9 +237,10 @@ func (r *GORMRepository) CurrentConfigMeta(ctx context.Context, domainID string)
 		Version  string `gorm:"column:version"`
 		Checksum string `gorm:"column:checksum"`
 	}
-	err := r.db.WithContext(ctx).Table("domain_config_snapshots").
+	err := r.db.WithContext(ctx).Table("config_snapshots").
 		Select("version, checksum").
-		Where("network_domain_id = ? AND is_current = ? AND validation_status = ?", domainID, true, "passed").
+		Where("scope = ? AND scope_key = ? AND is_current = ? AND validation_status = ?",
+			snapshotScopeDomain, domainID, true, "passed").
 		Limit(1).Scan(&row).Error
 	if err != nil {
 		return "", "", fmt.Errorf("load current config snapshot for %q: %w", domainID, err)

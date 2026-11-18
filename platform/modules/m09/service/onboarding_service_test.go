@@ -50,14 +50,12 @@ func newTestStack(t *testing.T) (*gorm.DB, *service.OnboardingService, *reposito
 
 func createDomain(t *testing.T, gormDB *gorm.DB, id string, status models.DomainStatus) {
 	t.Helper()
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: id, Name: "域 " + id, Description: "描述 " + id, DomainType: models.DomainTypeEdge,
-		ZoneType: "beijing", CloudCode: "aliyun",
-		TenantID:            models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-		Channel:             models.ChannelTypeAgentPull,
-		Status:              status,
-	}).Error)
+	// V3-only: write only the surviving administrative columns. models.NetworkDomain
+	// still declares the legacy onboarding columns dropped by migration 0014.
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, description, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+		VALUES (?, ?, ?, 'edge', 'beijing', 'aliyun', ?, ?, ?)`,
+		id, "域 "+id, "描述 "+id, models.PlatformAdminTenantID, `["platform_admin"]`, string(status)).Error)
 }
 
 func admin() service.Actor {
@@ -91,9 +89,10 @@ func TestMonitorIssuesTokenOnce(t *testing.T) {
 	assert.True(t, domain.TokenMatches(result.TokenPlain, access.TokenHash))
 	assert.NotNil(t, access.MonitoredAt)
 
-	var rawCount int64
-	require.NoError(t, gormDB.Model(&models.NetworkDomain{}).Where("token = ?", result.TokenPlain).Count(&rawCount).Error)
-	assert.Zero(t, rawCount, "legacy network_domains.token must not hold the v3 token")
+	var plainCount int64
+	require.NoError(t, gormDB.Raw(`SELECT COUNT(*) FROM network_domain_access WHERE token_hash = ?`,
+		result.TokenPlain).Scan(&plainCount).Error)
+	assert.Zero(t, plainCount, "only the hash may be stored (legacy network_domains.token no longer exists)")
 }
 
 func TestMonitorRejectsDuplicateAndDisabled(t *testing.T) {
@@ -232,8 +231,8 @@ func TestMonitoringRetirerCascades(t *testing.T) {
 	require.NoError(t, gormDB.Exec(`INSERT INTO edge_target_snapshots
 		(network_domain_id, job, instance, last_report_at) VALUES ('mc-a','node','10.0.0.1:9100',?)`,
 		time.Now().UTC()).Error)
-	require.NoError(t, gormDB.Exec(`INSERT INTO domain_config_snapshots
-		(network_domain_id, version, checksum, is_current) VALUES ('mc-a','v1','sha256:x',1)`).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO config_snapshots
+		(scope, scope_key, version, checksum, is_current) VALUES ('domain','mc-a','v1','sha256:x',1)`).Error)
 
 	assert.True(t, svc.Available())
 	impact, err := svc.Impact(ctx, "mc-a")
@@ -260,8 +259,8 @@ func TestMonitoringRetirerCascades(t *testing.T) {
 	var targets, snapshots int64
 	require.NoError(t, gormDB.Table("edge_target_snapshots").
 		Where("network_domain_id = ?", "mc-a").Count(&targets).Error)
-	require.NoError(t, gormDB.Table("domain_config_snapshots").
-		Where("network_domain_id = ?", "mc-a").Count(&snapshots).Error)
+	require.NoError(t, gormDB.Table("config_snapshots").
+		Where("scope = ? AND scope_key = ?", "domain", "mc-a").Count(&snapshots).Error)
 	assert.Zero(t, targets, "target snapshots are cleared")
 	assert.Zero(t, snapshots, "config snapshots are cleared")
 

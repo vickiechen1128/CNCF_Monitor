@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/jobref"
 )
 
 // ToolCheckStatus 是外部校验工具（promtool / blackbox_exporter / amtool）执行结果三态。

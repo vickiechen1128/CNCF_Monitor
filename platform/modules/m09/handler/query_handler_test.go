@@ -39,12 +39,10 @@ func newQueryRouter(t *testing.T, user *models.User, promURL string) *gin.Engine
 		ID: "tenant-a", Name: "租户 A", NetworkDomainIDs: []string{"mc-a"},
 		Status: models.TenantStatusActive,
 	}).Error)
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: "mc-a", Name: "域 mc-a", DomainType: models.DomainTypeEdge,
-		ZoneType: "beijing", CloudCode: "aliyun", TenantID: models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-		Channel:             models.ChannelTypeAgentPull, Status: models.DomainStatusEnabled,
-	}).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+		VALUES ('mc-a', '域 mc-a', 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'enabled')`,
+		`["platform_admin"]`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO edge_target_snapshots
 		(network_domain_id, job, instance, resource_id, health, last_report_at)
 		VALUES ('mc-a','node','10.0.0.1:9100','r-1','up',?)`, time.Now().UTC()).Error)

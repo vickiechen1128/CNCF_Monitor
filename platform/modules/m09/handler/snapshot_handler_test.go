@@ -73,14 +73,10 @@ func newSnapshotTestStack(t *testing.T, user *models.User) (*gin.Engine, *servic
 		Status: models.TenantStatusActive,
 	}).Error)
 	for _, id := range []string{"mc-a", "mc-b"} {
-		require.NoError(t, gormDB.Create(&models.NetworkDomain{
-			ID: id, Name: "域 " + id, DomainType: models.DomainTypeEdge,
-			ZoneType: "beijing", CloudCode: "aliyun",
-			TenantID:            models.PlatformAdminTenantID,
-			AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-			Channel:             models.ChannelTypeAgentPull,
-			Status:              models.DomainStatusEnabled,
-		}).Error)
+		require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+			(id, name, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+			VALUES (?, ?, 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'enabled')`,
+			id, "域 "+id, `["platform_admin"]`).Error)
 	}
 
 	repo := repository.NewGORMRepository(gormDB)

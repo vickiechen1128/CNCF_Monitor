@@ -14,6 +14,7 @@ type Handlers struct {
 	Edge       *EdgeHandler
 	Agents     *AgentHandler
 	Snapshots  *SnapshotHandler
+	Artifacts  *ArtifactHandler
 	Query      *QueryHandler
 	Packages   *PackageHandler
 	// EdgeAuth validates edge bearer tokens (nil falls back to reject-all).
@@ -46,6 +47,14 @@ func RegisterPlatformRoutes(platform *gin.RouterGroup, h Handlers) {
 	platform.GET("/network-domains/:id/config-snapshots", h.Snapshots.List)
 	platform.GET("/network-domains/:id/config-snapshots/:snapshot_id", h.Snapshots.Get)
 	admin.GET("/network-domains/:id/config-snapshots/:snapshot_id/content", h.Snapshots.Content)
+
+	// 统一配置产物历史（SRS v1.5 FR-13/13.1/13.2）：网域采集配置 + 中心规则 + 告警配置。
+	// 列表/详情登录可见；内容预览与导出仅 admin。无回滚/确认端点。
+	platform.GET("/config-artifacts", h.Artifacts.List)
+	admin.GET("/config-artifacts/recovery-bundle", h.Artifacts.RecoveryBundle)
+	platform.GET("/config-artifacts/:id", h.Artifacts.Get)
+	admin.GET("/config-artifacts/:id/content", h.Artifacts.Preview)
+	admin.GET("/config-artifacts/:id/export", h.Artifacts.Export)
 
 	// 离线包（契约 §5）
 	platform.GET("/edge-packages", h.Packages.List)

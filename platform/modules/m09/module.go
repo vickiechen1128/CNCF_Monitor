@@ -33,6 +33,9 @@ type Options struct {
 	// EdgePackagesDir is the offline package directory read for
 	// release_meta.json and tar.gz downloads (default dist/edge-package).
 	EdgePackagesDir string
+	// AlertmanagerAddr is the center Alertmanager host:port embedded into the
+	// center recovery prometheus.yml. Empty omits the alerting section.
+	AlertmanagerAddr string
 	// SyncSink receives per-job sync outcomes after a snapshot is generated.
 	// Injected by the v3 composition root (M01 owns the sync columns, D-2).
 	SyncSink m09refs.SyncResultSink
@@ -68,14 +71,17 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		opts.ConfigOutputDir,
 		opts.PromURL,
 	)
+	centerRules.SetAlertmanagerAddr(opts.AlertmanagerAddr)
 	query := service.NewQueryService(opts.PromURL, repo, repo)
 	packages := service.NewPackageService(opts.EdgePackagesDir)
+	artifacts := service.NewArtifactService(repo, store)
 	return &Module{
 		handlers: handler.Handlers{
 			Onboarding: handler.NewOnboardingHandler(onboarding),
 			Edge:       handler.NewEdgeHandler(edge, configSync),
 			Agents:     handler.NewAgentHandler(edge),
 			Snapshots:  handler.NewSnapshotHandler(onboarding, configSync),
+			Artifacts:  handler.NewArtifactHandler(onboarding, artifacts),
 			Query:      handler.NewQueryHandler(query),
 			Packages:   handler.NewPackageHandler(packages),
 			EdgeAuth:   service.NewTokenValidator(repo),
@@ -117,13 +123,6 @@ func (m *Module) MonitoringRetirer() references.MonitoringRetirer {
 // ConfigSync returns the config sync service so the bootstrap can run the
 // source-change watcher and trigger an initial sync.
 func (m *Module) ConfigSync() *service.ConfigSyncService {
-	return m.config
-}
-
-// AlertmanagerSnapshotSink returns the port M08 uses to persist the generated
-// alertmanager.yml as read-only history (D31). It never becomes the current
-// scrape snapshot and is never fanned out to edge domains.
-func (m *Module) AlertmanagerSnapshotSink() m09refs.AlertmanagerSnapshotSink {
 	return m.config
 }
 
