@@ -81,3 +81,58 @@ DELETE mapping 后再次 DELETE template                                -> 200
 2. **未实现 clone / mapping 级 CRUD / 模板资源清单**：v3 当前以整组 mappings 全量更新，满足 M01 消费；mapping 单条编辑、clone、模板资源反查留待 M07 前端迁移时评估。
 3. **默认模板 seed 未恢复**：legacy 迁移已删除默认模板种子；v3 保持「用户创建」语义，M01 映射模板默认为空。
 4. **PostgreSQL 未实跑**：00007 postgres 与 sqlite 同构（jsonb + 部分唯一索引），待 R3 环境验证。
+
+---
+
+## 5. v2.56 补充：默认模板语义 / 前端设默认 / M09 展开（2026-11-18）
+
+### 5.1 PRD 口径
+
+- **不恢复默认模板 seed**：延续 2026-10-28 legacy 删除种子模板的决策；v3 空库时模板列表为空，默认模板由用户创建后显式「设为默认」。
+- 每个资源类别至多一个默认模板，设置新默认时旧默认自动取消；默认模板只读（映射变更需先克隆）。
+- M09 生成期解析优先级：Job 显式 `label_template_id`（类别匹配）→ 同类别 `is_default=true` → 无模板（仅 system 标签）；显式模板被软删 / 类别不匹配时回落类别默认。
+- PRD 同步至 v2.56：§3.2.1 / §5.10 / §5.13 / §9.1 / §11.2，§5.13 六张表改为「推荐映射基线」；`Modules/README.md` 版本对齐表同步。
+
+### 5.2 前端「设为默认」
+
+| 产物 | 说明 |
+|---|---|
+| `ui-custom/web/src/api/labelTemplates.ts` | 新增 `setDefault(templateId)`：v3 PUT 全量替换，先 GET 原模板再带 `name` + 完整 `mappings` 提交 `is_default=true`（只传 `is_default` 会因 name 为空 / mappings 被清空而失败） |
+| `LabelTemplatesPage.tsx` | 新增模板表单增加「设为默认模板」开关（默认关闭）；创建提交 `is_default`；新增 `handleTemplateChange` 回写选中模板并递增 `reloadKey` |
+| `TemplateDetailTabs.tsx` | 非默认模板展示「设为默认」入口，二次确认后调用 `setDefault`；默认模板隐藏入口并保持编辑禁用 |
+| 测试 | `labelTemplates.test.ts`（GET+PUT 契约）、`TemplateDetailTabs.test.tsx`（设默认成功 / 默认模板无入口）、`LabelTemplatesPage.test.tsx`（创建即默认 / 详情设默认刷新列表） |
+
+前端验证：
+
+```text
+$ pnpm vitest run src/api/labelTemplates.test.ts src/pages/label-templates/TemplateDetailTabs.test.tsx src/pages/label-templates/LabelTemplatesPage.test.tsx
+Test Files  3 passed (3)
+Tests       40 passed (40)
+$ pnpm run typecheck:test   # 通过
+$ pnpm lint                 # 0 error / 0 warning
+```
+
+### 5.3 M09 消费链路
+
+| 产物 | 说明 |
+|---|---|
+| `platform/modules/m01/domain/resource.go` | `ResourceRef` 扩展业务字段（biz/app/platform/env/cluster/owner、host/db/mw/application/generic/api 属性；时间字段 RFC3339） |
+| `platform/modules/m01/references/resource.go` | `resourceSelect` 联表六类资源扩展表；`activated_at` / `go_live_at` 以 `*time.Time` 扫描后统一格式化，避免 SQLite/PG 方言差异 |
+| `platform/modules/m09/references/label_templates.go` | 只读加载 `m07_label_templates`（`deleted_at IS NULL`）；`byID` + `defaultByCategory` 索引；解析优先级、`resource_field` / `composite` / `prometheus_builtin` 展开、`lower` / `upper` 转换 |
+| `platform/modules/m09/references/source_reader.go` | Job 读取 `resource_category` / `label_template_id`；每域一次加载模板；`app_platform_rels` 主平台兜底；system `resource_id` 保护合并；Fingerprint 纳入模板 `updated_at` / `deleted_at` |
+| `platform/modules/m09/references/label_templates_test.go` | 显式模板、类别默认、显式优先、软删/类别不匹配回落、无模板仅 system、system 保护、platform 兜底与冲突、模板变更推进指纹 |
+
+M09 语义要点：
+
+- `composite` 仅展开 `instance_ip:port → instance`，使用 M01 已解析的抓取地址（application 的 endpoint 自带端口，不走组合字段）。
+- `prometheus_builtin` 支持 `instance` / `job` / `__address__`；`prefix` / `replace` 在 v3 无参数契约，原样透传。
+- 模板 target label 即使绕过校验以 `__` 开头也会被生成侧丢弃；system 层 `resource_id` 永远覆盖模板同名映射。
+- 模板是平台级低频配置：每次 `BuildSource` 一次性加载，不做跨调用缓存；模板变更通过 Fingerprint 触发所有域重新生成。
+- **遗留**：`generic_target.custom_labels → 标签` 未展开（P1；v3 资源表无 custom_labels 列，用户标签存于 `resource_labels`，留待标签治理轮次）。
+
+后端验证：
+
+```text
+$ make test-platform   # 全量通过
+$ go vet ./platform/... # 无输出
+```

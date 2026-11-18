@@ -193,7 +193,7 @@ v3 使用 `m07_label_templates`（前缀避免与 legacy `label_templates` 冲�
 
 约束：
 
-- 同一 `resource_category` 至多一个 `is_default=true`；设置新默认时旧默认自动取消。
+- **系统不预置默认模板**（D52）：空库模板列表为空，用户创建后可 `is_default=true`；同一 `resource_category` 至多一个 `is_default=true`；设置新默认时旧默认自动取消；默认模板只读。
 - `target_label` 必须匹配 `^[a-zA-Z_][a-zA-Z0-9_]*$`、不得以 `__` 开头、模板内唯一；`source_type=composite` 时目标必须为 `instance`。
 - M01 删除引用计数端口由 `v3.go` 注入（M07 不 import M01）。
 

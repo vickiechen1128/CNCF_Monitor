@@ -93,3 +93,4 @@
 | v0.8 | 2026-11-12 | 后台调度收口：M09 维护循环（离线检测/心跳保留）与配置 watcher（立即首轮 + 30s）接入 v3 bootstrap；FR-06 / NFR-06 done |
 | v0.9 | 2026-11-12 | A1-2 完成：agent 切换 /api/v3/edge/* + protocol_version v1 + If-None-Match；服务端 edge config 返回 zip；心跳回填 config_changed/下载地址；FR-11 done。A1-1 主循环拆包待执行 |
 | v1.0 | 2026-11-12 | A1-1 完成：agent 主循环迁入 internal/app（接口注入、context 驱动、可单测）；cmd 仅装配与信号处理 |
+| v1.1 | 2026-11-18 | 标签模板消费闭环：source_reader 读取 `m07_label_templates`，按「Job 显式 → 类别默认 → 仅 system」展开 target labels；system `resource_id` 受保护；`platform_code` 空值按应用主平台兜底；模板变更纳入 Fingerprint。详见 M07 `label-templates-execution.md` §5.3 |
