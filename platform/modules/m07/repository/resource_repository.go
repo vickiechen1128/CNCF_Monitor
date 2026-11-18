@@ -51,6 +51,65 @@ func (r *GORMRepository) Get(ctx context.Context, resourceID string) (*domain.Re
 	return fromResourceRecord(base, ext)
 }
 
+// GetMany loads live resources by ID, spanning categories in one call. Used by
+// bulk reassignment to validate every selected resource before any write.
+func (r *GORMRepository) GetMany(ctx context.Context, resourceIDs []string) ([]*domain.Resource, error) {
+	ids := normalizeResourceIDs(resourceIDs)
+	if len(ids) == 0 {
+		return []*domain.Resource{}, nil
+	}
+
+	var bases []resourceRecord
+	if err := r.db.WithContext(ctx).Where("resource_id IN ?", ids).Find(&bases).Error; err != nil {
+		return nil, fmt.Errorf("get resources: %w", err)
+	}
+	if len(bases) == 0 {
+		return []*domain.Resource{}, nil
+	}
+
+	byCategory := make(map[domain.Category][]string)
+	for i := range bases {
+		category := domain.Category(bases[i].ResourceCategory)
+		byCategory[category] = append(byCategory[category], bases[i].ResourceID)
+	}
+	extensions := make(map[domain.Category]map[string]any, len(byCategory))
+	for category, categoryIDs := range byCategory {
+		loaded, err := r.loadExtensions(ctx, category, categoryIDs)
+		if err != nil {
+			return nil, err
+		}
+		extensions[category] = loaded
+	}
+
+	out := make([]*domain.Resource, 0, len(bases))
+	for i := range bases {
+		category := domain.Category(bases[i].ResourceCategory)
+		resource, err := fromResourceRecord(&bases[i], extensions[category][bases[i].ResourceID])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resource)
+	}
+	return out, nil
+}
+
+func normalizeResourceIDs(resourceIDs []string) []string {
+	seen := make(map[string]struct{}, len(resourceIDs))
+	out := make([]string, 0, len(resourceIDs))
+	for _, id := range resourceIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (r *GORMRepository) List(ctx context.Context, filter ListFilter) ([]*domain.Resource, int64, error) {
 	if !filter.Category.Valid() {
 		return nil, 0, &domain.UnsupportedCategoryError{Category: string(filter.Category)}
@@ -165,6 +224,23 @@ func (r *GORMRepository) Update(ctx context.Context, resource *domain.Resource) 
 	})
 }
 
+// BulkSetScrapePort updates the instance-level scrape port for the listed
+// resources; soft-deleted rows are ignored.
+func (r *GORMRepository) BulkSetScrapePort(ctx context.Context, resourceIDs []string, scrapePort int) (int64, error) {
+	ids := normalizeResourceIDs(resourceIDs)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).
+		Model(&resourceRecord{}).
+		Where("resource_id IN ?", ids).
+		Updates(map[string]any{"scrape_port": scrapePort, "updated_at": time.Now().UTC()})
+	if result.Error != nil {
+		return 0, fmt.Errorf("bulk set scrape port: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
 func (r *GORMRepository) SoftDelete(ctx context.Context, resourceID string) error {
 	result := r.db.WithContext(ctx).
 		Where("resource_id = ?", resourceID).
@@ -178,13 +254,88 @@ func (r *GORMRepository) SoftDelete(ctx context.Context, resourceID string) erro
 	return nil
 }
 
-func (r *GORMRepository) FindByDedupKey(ctx context.Context, category domain.Category, dedupKey string) (*domain.Resource, bool, error) {
+// bulkReassignColumns whitelists the reference columns a bulk reassignment may
+// touch. Field names are never interpolated into SQL without this check.
+var bulkReassignColumns = map[string]string{
+	"biz_code":      "biz_code",
+	"app_code":      "app_code",
+	"platform_code": "platform_code",
+}
+
+func (r *GORMRepository) BulkReassign(ctx context.Context, input BulkReassignInput) (int64, error) {
+	column, ok := bulkReassignColumns[input.Field]
+	if !ok {
+		return 0, fmt.Errorf("unsupported bulk reassign field %q", input.Field)
+	}
+	ids := normalizeResourceIDs(input.ResourceIDs)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	var affected int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+
+		// Reassigning app_code on composed resources also has to move their
+		// platform label: D43 derives it from the target app's primary
+		// platform, so leaving the old label would create an inconsistent row.
+		if column == "app_code" && input.DerivedPlatformCode != "" {
+			composed := []string{
+				string(domain.CategoryApplication),
+				string(domain.CategoryInterfaceService),
+			}
+			result := tx.Model(&resourceRecord{}).
+				Where("resource_id IN ?", ids).
+				Where("resource_category IN ?", composed).
+				UpdateColumns(map[string]any{
+					column:          input.TargetCode,
+					"platform_code": input.DerivedPlatformCode,
+					"updated_at":    now,
+				})
+			if result.Error != nil {
+				return fmt.Errorf("bulk reassign %s for composed resources: %w", input.Field, result.Error)
+			}
+			affected += result.RowsAffected
+
+			result = tx.Model(&resourceRecord{}).
+				Where("resource_id IN ?", ids).
+				Where("resource_category NOT IN ?", composed).
+				UpdateColumns(map[string]any{
+					column:       input.TargetCode,
+					"updated_at": now,
+				})
+			if result.Error != nil {
+				return fmt.Errorf("bulk reassign %s for static resources: %w", input.Field, result.Error)
+			}
+			affected += result.RowsAffected
+			return nil
+		}
+
+		result := tx.Model(&resourceRecord{}).
+			Where("resource_id IN ?", ids).
+			UpdateColumns(map[string]any{
+				column:       input.TargetCode,
+				"updated_at": now,
+			})
+		if result.Error != nil {
+			return fmt.Errorf("bulk reassign %s: %w", input.Field, result.Error)
+		}
+		affected = result.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (r *GORMRepository) FindByDedupKey(ctx context.Context, tenantID string, category domain.Category, dedupKey string) (*domain.Resource, bool, error) {
 	if !category.Valid() {
 		return nil, false, &domain.UnsupportedCategoryError{Category: string(category)}
 	}
 	var base resourceRecord
 	err := r.db.WithContext(ctx).
-		Where("resource_category = ? AND dedup_key = ?", string(category), dedupKey).
+		Where("tenant_id = ? AND resource_category = ? AND dedup_key = ?", tenantID, string(category), dedupKey).
 		First(&base).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,18 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 		&zoneTypeRecord{},
 		&networkDomainRecord{},
 		&appPlatformRelRecord{},
+		&dictionaryAuditLogRecord{},
 	))
+	// The v3 `resources` table is owned by M07's main migration; dictionary
+	// tests only need the reference columns for count/merge assertions.
+	require.NoError(t, db.Exec(`CREATE TABLE IF NOT EXISTS resources (
+		resource_id TEXT PRIMARY KEY,
+		biz_code TEXT,
+		app_code TEXT,
+		platform_code TEXT,
+		updated_at TIMESTAMP,
+		deleted_at TIMESTAMP
+	)`).Error)
 
 	require.NoError(t, db.Create(&networkDomainRecord{ID: "mc-demo", DomainType: "edge", Status: "enabled"}).Error)
 	require.NoError(t, db.Create(&networkDomainRecord{ID: "mc-disabled", DomainType: "edge", Status: "disabled"}).Error)
@@ -259,3 +271,285 @@ func TestServiceList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, osOptions)
 }
+
+// TestValidateResourceUpdateIgnoresUnchangedDisabledRefs covers M07 SRS v2.0
+// FR-29: a historical reference to a now-disabled dictionary must not block
+// edits to unrelated fields, while a newly selected disabled value still fails.
+func TestValidateResourceUpdateIgnoresUnchangedDisabledRefs(t *testing.T) {
+	svc := NewService(NewGORMRepository(openDictionaryTestDB(t)))
+	ctx := context.Background()
+
+	before := testResource()
+	before.BizCode = "legacy" // disabled after the resource was registered
+	after := testResource()
+	after.BizCode = "legacy"
+	after.Cluster = "prod-b"
+	after.Owner = "alice"
+	require.NoError(t, svc.ValidateResourceUpdate(ctx, before, after))
+
+	after.BizCode = "missing"
+	require.ErrorContains(t, svc.ValidateResourceUpdate(ctx, before, after), "biz_code")
+	require.ErrorContains(t, svc.ValidateResource(ctx, after), "biz_code",
+		"新增资源仍执行全量校验")
+}
+
+func TestDictionaryRevokeLifecycle(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	// 零引用 → 撤销成功，编码保留为终态。
+	item, err := svc.RevokeBusinessDomain(ctx, "payment", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, DictionaryStatusRevoked, item.Status)
+
+	// 已撤销不可再次撤销 / 编辑。
+	_, err = svc.RevokeBusinessDomain(ctx, "payment", "alice")
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+	_, err = svc.UpdateBusinessDomain(ctx, "payment", nil, nil, boolPtr(true))
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+
+	// 有引用 → 拒绝撤销，并带上引用数。
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO resources(resource_id,biz_code) VALUES ('res-biz-1','legacy'),('res-biz-2','legacy')`).Error)
+	_, err = svc.RevokeBusinessDomain(ctx, "legacy", "alice")
+	require.ErrorIs(t, err, ErrDictionaryReferenced)
+	assert.Contains(t, err.Error(), "2")
+
+	// 应用：零引用可撤销。
+	_, err = svc.RevokeApplication(ctx, "new-app", "alice")
+	require.NoError(t, err)
+
+	// 平台：应用归属也算引用，组织关系未清理前不可撤销。
+	_, err = svc.RevokePlatform(ctx, "ecommerce", "alice")
+	require.ErrorIs(t, err, ErrDictionaryReferenced)
+	// 无资源、无应用归属的平台可撤销。
+	_, err = svc.RevokePlatform(ctx, "new-platform", "alice")
+	require.NoError(t, err)
+}
+
+// assertResourceTouchRecorded 断言合并刷新了 resources.updated_at：M09 的配置
+// 指纹只看 updated_at，引用变更不刷新时间就不会触发自动同步。
+func assertResourceTouchRecorded(t *testing.T, db *gorm.DB, resourceID string) {
+	t.Helper()
+	var updatedAt *time.Time
+	require.NoError(t, db.Table("resources").Select("updated_at").
+		Where("resource_id = ?", resourceID).Scan(&updatedAt).Error)
+	require.NotNil(t, updatedAt, "合并必须刷新 updated_at，M09 指纹才能感知变更")
+}
+
+func TestDictionaryMergeBusinessDomain(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO resources(resource_id,biz_code) VALUES ('res-1','legacy'),('res-2','legacy')`).Error)
+
+	moved, err := svc.MergeBusinessDomain(ctx, "legacy", "payment", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), moved)
+
+	var biz string
+	require.NoError(t, gormDB.Table("resources").Select("biz_code").
+		Where("resource_id = ?", "res-1").Scan(&biz).Error)
+	assert.Equal(t, "payment", biz, "引用应在同一事务内迁移")
+	assertResourceTouchRecorded(t, gormDB, "res-1")
+
+	bizList, err := svc.ListBusinessDomains(ctx)
+	require.NoError(t, err)
+	for _, entry := range bizList {
+		if entry.Code == "legacy" {
+			assert.Equal(t, DictionaryStatusMerged, entry.Status)
+			assert.Equal(t, "payment", entry.MergedInto)
+			assert.Equal(t, int64(0), entry.ReferenceCount)
+		}
+	}
+
+	logs, err := svc.ListDictionaryAuditLogs(ctx, "business", "legacy", 10)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	assert.Equal(t, DictionaryActionMerge, logs[0].Action)
+	assert.Equal(t, "payment", logs[0].TargetCode)
+	assert.Equal(t, int64(2), logs[0].ReferenceCount)
+	assert.Equal(t, "alice", logs[0].Operator)
+
+	// 源条目终态不可再次合并；自身合并被拒绝。
+	_, err = svc.MergeBusinessDomain(ctx, "legacy", "payment", "alice")
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+	_, err = svc.MergeBusinessDomain(ctx, "payment", "payment", "alice")
+	require.ErrorIs(t, err, ErrDictionaryMergeSelf)
+}
+
+func TestDictionaryMergeApplicationMigratesRelations(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO resources(resource_id,app_code) VALUES ('res-1','order-service')`).Error)
+
+	moved, err := svc.MergeApplication(ctx, "order-service", "new-app", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), moved)
+
+	var appCode string
+	require.NoError(t, gormDB.Table("resources").Select("app_code").
+		Where("resource_id = ?", "res-1").Scan(&appCode).Error)
+	assert.Equal(t, "new-app", appCode)
+	assertResourceTouchRecorded(t, gormDB, "res-1")
+
+	rels, err := svc.ListAppPlatformRels(ctx, "new-app", "")
+	require.NoError(t, err)
+	require.Len(t, rels, 2)
+	var primary string
+	for _, rel := range rels {
+		if rel.IsPrimary {
+			primary = rel.PlatformCode
+		}
+	}
+	assert.Equal(t, "ecommerce", primary, "源应用的主平台应随归属迁移")
+
+	ok, err := svc.repo.ApplicationEnabled(ctx, "order-service")
+	require.NoError(t, err)
+	assert.False(t, ok, "已合并应用不可再被引用")
+}
+
+func TestDictionaryMergePlatformMigratesOwnership(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO resources(resource_id,platform_code) VALUES ('res-1','lab')`).Error)
+
+	moved, err := svc.MergePlatform(ctx, "lab", "new-platform", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), moved)
+
+	var platformCode string
+	require.NoError(t, gormDB.Table("resources").Select("platform_code").
+		Where("resource_id = ?", "res-1").Scan(&platformCode).Error)
+	assert.Equal(t, "new-platform", platformCode)
+	assertResourceTouchRecorded(t, gormDB, "res-1")
+
+	rels, err := svc.ListAppPlatformRels(ctx, "order-service", "")
+	require.NoError(t, err)
+	require.Len(t, rels, 2)
+	codes := []string{rels[0].PlatformCode, rels[1].PlatformCode}
+	assert.Contains(t, codes, "new-platform")
+	assert.NotContains(t, codes, "lab")
+
+	ok, err := svc.repo.PlatformEnabled(ctx, "lab")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func TestDictionaryCloudZoneLifecycle(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	// Seed merge targets (M06 owns cloud/zone creation; tests insert directly).
+	require.NoError(t, gormDB.Create(&cloudDictRecord{
+		CloudCode: "PUB-ALI", CloudName: "阿里云", CloudType: "PUB", Carrier: "ALI", Enabled: true,
+	}).Error)
+	require.NoError(t, gormDB.Create(&zoneTypeRecord{Code: "dmz", DisplayName: "隔离区", Enabled: true}).Error)
+
+	// Zero-reference cloud/zone revoke succeeds and codes stay reserved (terminal).
+	cloud, err := svc.RevokeCloud(ctx, "PUB-TX", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, DictionaryStatusRevoked, cloud.Status)
+	_, err = svc.RevokeCloud(ctx, "PUB-TX", "alice")
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+
+	zone, err := svc.RevokeZoneType(ctx, "internet", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, DictionaryStatusRevoked, zone.Status)
+	_, err = svc.RevokeZoneType(ctx, "internet", "alice")
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+
+	// Audit rows for the two new dictionary types must be queryable.
+	cloudLogs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeCloud, "PUB-TX", 10)
+	require.NoError(t, err)
+	require.Len(t, cloudLogs, 1)
+	assert.Equal(t, DictionaryActionRevoke, cloudLogs[0].Action)
+	assert.Equal(t, "alice", cloudLogs[0].Operator)
+
+	zoneLogs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeZone, "internet", 10)
+	require.NoError(t, err)
+	require.Len(t, zoneLogs, 1)
+	assert.Equal(t, DictionaryActionRevoke, zoneLogs[0].Action)
+}
+
+func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
+	gormDB := openDictionaryTestDB(t)
+	svc := NewService(NewGORMRepository(gormDB))
+	ctx := context.Background()
+
+	require.NoError(t, gormDB.Create(&cloudDictRecord{
+		CloudCode: "PUB-ALI", CloudName: "阿里云", CloudType: "PUB", Carrier: "ALI", Enabled: true,
+	}).Error)
+	require.NoError(t, gormDB.Create(&zoneTypeRecord{Code: "dmz", DisplayName: "隔离区", Enabled: true}).Error)
+
+	// Two live network domains reference the source cloud/zone.
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, cloud_code, zone_type, status, deleted_at)
+		VALUES ('dom-a','PUB-TX','internet','enabled',NULL),
+		       ('dom-b','PUB-TX','internet','enabled',NULL)`).Error)
+
+	// Referenced revoke is rejected and reports the reference count.
+	_, err := svc.RevokeCloud(ctx, "PUB-TX", "alice")
+	require.ErrorIs(t, err, ErrDictionaryReferenced)
+	assert.Contains(t, err.Error(), "2")
+	_, err = svc.RevokeZoneType(ctx, "internet", "alice")
+	require.ErrorIs(t, err, ErrDictionaryReferenced)
+	assert.Contains(t, err.Error(), "2")
+
+	// Merge migrates authoritative labels in one transaction.
+	moved, err := svc.MergeCloud(ctx, "PUB-TX", "PUB-ALI", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), moved)
+	moved, err = svc.MergeZoneType(ctx, "internet", "dmz", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), moved)
+
+	var cloudCode, zoneType string
+	require.NoError(t, gormDB.Table("network_domains").Select("cloud_code, zone_type").
+		Where("id = ?", "dom-a").Row().Scan(&cloudCode, &zoneType))
+	assert.Equal(t, "PUB-ALI", cloudCode)
+	assert.Equal(t, "dmz", zoneType)
+
+	clouds, err := svc.ListClouds(ctx)
+	require.NoError(t, err)
+	for _, entry := range clouds {
+		if entry.CloudCode == "PUB-TX" {
+			assert.Equal(t, DictionaryStatusMerged, entry.Status)
+			assert.Equal(t, "PUB-ALI", entry.MergedInto)
+			assert.Equal(t, int64(0), entry.ReferenceCount)
+		}
+	}
+	zones, err := svc.ListZoneTypes(ctx)
+	require.NoError(t, err)
+	for _, entry := range zones {
+		if entry.Code == "internet" {
+			assert.Equal(t, DictionaryStatusMerged, entry.Status)
+			assert.Equal(t, "dmz", entry.MergedInto)
+		}
+	}
+
+	logs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeCloud, "PUB-TX", 10)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	assert.Equal(t, DictionaryActionMerge, logs[0].Action)
+	assert.Equal(t, "PUB-ALI", logs[0].TargetCode)
+	assert.Equal(t, int64(2), logs[0].ReferenceCount)
+
+	// Terminal source and self-merge are rejected.
+	_, err = svc.MergeCloud(ctx, "PUB-TX", "PUB-ALI", "alice")
+	require.ErrorIs(t, err, ErrDictionaryTerminal)
+	_, err = svc.MergeZoneType(ctx, "dmz", "dmz", "alice")
+	require.ErrorIs(t, err, ErrDictionaryMergeSelf)
+}
+
+func boolPtr(v bool) *bool { return &v }

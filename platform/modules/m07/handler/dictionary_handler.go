@@ -3,10 +3,12 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dto"
 )
@@ -298,6 +300,197 @@ func (h *DictionaryHandler) DeleteAppPlatformRel(c *gin.Context) {
 	response.OK(c, gin.H{"rel_id": relID})
 }
 
+// --- dictionary lifecycle (M07 SRS v2.0 §5.7) -------------------------------
+
+func (h *DictionaryHandler) RevokeBusinessDomain(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		response.BadRequest(c, fmt.Errorf("code is required"))
+		return
+	}
+	item, err := h.svc.RevokeBusinessDomain(c.Request.Context(), code, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromBusinessDomain(item))
+}
+
+func (h *DictionaryHandler) RevokeApplication(c *gin.Context) {
+	appCode := strings.TrimSpace(c.Param("app_code"))
+	if appCode == "" {
+		response.BadRequest(c, fmt.Errorf("app_code is required"))
+		return
+	}
+	item, err := h.svc.RevokeApplication(c.Request.Context(), appCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromApplication(item))
+}
+
+func (h *DictionaryHandler) RevokePlatform(c *gin.Context) {
+	platformCode := strings.TrimSpace(c.Param("platform_code"))
+	if platformCode == "" {
+		response.BadRequest(c, fmt.Errorf("platform_code is required"))
+		return
+	}
+	item, err := h.svc.RevokePlatform(c.Request.Context(), platformCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromPlatform(item))
+}
+
+type mergeDictionaryRequest struct {
+	TargetCode string `json:"target_code"`
+}
+
+func (h *DictionaryHandler) MergeBusinessDomain(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	var req mergeDictionaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	moved, err := h.svc.MergeBusinessDomain(c.Request.Context(), code, req.TargetCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, gin.H{
+		"source": code, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
+	})
+}
+
+func (h *DictionaryHandler) MergeApplication(c *gin.Context) {
+	appCode := strings.TrimSpace(c.Param("app_code"))
+	var req mergeDictionaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	moved, err := h.svc.MergeApplication(c.Request.Context(), appCode, req.TargetCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, gin.H{
+		"source": appCode, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
+	})
+}
+
+func (h *DictionaryHandler) MergePlatform(c *gin.Context) {
+	platformCode := strings.TrimSpace(c.Param("platform_code"))
+	var req mergeDictionaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	moved, err := h.svc.MergePlatform(c.Request.Context(), platformCode, req.TargetCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, gin.H{
+		"source": platformCode, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
+	})
+}
+
+func (h *DictionaryHandler) RevokeCloud(c *gin.Context) {
+	cloudCode := strings.TrimSpace(c.Param("cloud_code"))
+	if cloudCode == "" {
+		response.BadRequest(c, fmt.Errorf("cloud_code is required"))
+		return
+	}
+	item, err := h.svc.RevokeCloud(c.Request.Context(), cloudCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromCloud(item))
+}
+
+func (h *DictionaryHandler) RevokeZoneType(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		response.BadRequest(c, fmt.Errorf("code is required"))
+		return
+	}
+	item, err := h.svc.RevokeZoneType(c.Request.Context(), code, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, dto.FromZoneType(item))
+}
+
+func (h *DictionaryHandler) MergeCloud(c *gin.Context) {
+	cloudCode := strings.TrimSpace(c.Param("cloud_code"))
+	var req mergeDictionaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	moved, err := h.svc.MergeCloud(c.Request.Context(), cloudCode, req.TargetCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, gin.H{
+		"source": cloudCode, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
+	})
+}
+
+func (h *DictionaryHandler) MergeZoneType(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	var req mergeDictionaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	moved, err := h.svc.MergeZoneType(c.Request.Context(), code, req.TargetCode, dictionaryOperator(c))
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	response.OK(c, gin.H{
+		"source": code, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
+	})
+}
+
+func (h *DictionaryHandler) ListDictionaryAuditLogs(c *gin.Context) {
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = parsed
+		}
+	}
+	items, err := h.svc.ListDictionaryAuditLogs(
+		c.Request.Context(),
+		strings.TrimSpace(c.Query("dictionary_type")),
+		strings.TrimSpace(c.Query("code")),
+		limit,
+	)
+	if err != nil {
+		respondDictionaryError(c, err)
+		return
+	}
+	list := dto.FromDictionaryAuditLogs(items)
+	response.OK(c, gin.H{"list": list, "total": len(list)})
+}
+
+// dictionaryOperator resolves the audit actor. Unauthenticated dev/standalone
+// runs fall back to platform_admin, matching the import pipeline.
+func dictionaryOperator(c *gin.Context) string {
+	if name := auth.CurrentUsername(c); name != "" {
+		return name
+	}
+	return "platform_admin"
+}
+
 func respondDictionaryError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, dictionary.ErrAppPlatformRelExists):
@@ -312,6 +505,15 @@ func respondDictionaryError(c *gin.Context, err error) {
 		response.Conflict(c, err)
 	case errors.Is(err, dictionary.ErrDictionaryExists):
 		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrDictionaryReferenced):
+		// M07 SRS v2.0：有引用只能停用或合并，撤销属状态冲突。
+		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrDictionaryTerminal):
+		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrDictionaryMergeInvalid):
+		response.Conflict(c, err)
+	case errors.Is(err, dictionary.ErrDictionaryMergeSelf):
+		response.BadRequest(c, err)
 	case errors.Is(err, dictionary.ErrAppPlatformRelNotFound):
 		response.NotFound(c, err.Error())
 	case errors.Is(err, dictionary.ErrDictionaryNotFound):

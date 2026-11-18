@@ -149,6 +149,45 @@ type ListResponse struct {
 	PageSize int                `json:"page_size"`
 }
 
+// BulkReassignRequest is the v3 request that moves one reference field of many
+// resources to a target dictionary entry (M07 SRS v2.0 FR-28).
+type BulkReassignRequest struct {
+	ResourceIDs []string `json:"resource_ids"`
+	Field       string   `json:"field"`
+	TargetCode  string   `json:"target_code"`
+}
+
+// BulkReassignFailure is one rejected resource in a failed bulk reassignment.
+type BulkReassignFailure struct {
+	ResourceID string `json:"resource_id"`
+	Reason     string `json:"reason"`
+}
+
+// BulkReassignResponse reports a successful atomic batch update.
+type BulkReassignResponse struct {
+	UpdatedCount int    `json:"updated_count"`
+	Field        string `json:"field"`
+	TargetCode   string `json:"target_code"`
+}
+
+// BulkScrapePortRequest sets the instance-level scrape port for many resources.
+type BulkScrapePortRequest struct {
+	ResourceIDs []string `json:"resource_ids"`
+	ScrapePort  int      `json:"scrape_port"`
+}
+
+// BulkScrapePortResponse reports the batch update result.
+type BulkScrapePortResponse struct {
+	UpdatedCount int `json:"updated_count"`
+	ScrapePort   int `json:"scrape_port"`
+}
+
+// BulkReassignFailureResponse is the 400 data block listing every rejected
+// resource; the batch itself was not applied.
+type BulkReassignFailureResponse struct {
+	Failures []BulkReassignFailure `json:"failures"`
+}
+
 // ResourceResponse is the v3 resource representation.
 type ResourceResponse struct {
 	ResourceID       string    `json:"resource_id"`

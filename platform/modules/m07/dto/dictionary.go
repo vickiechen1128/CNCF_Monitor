@@ -1,49 +1,78 @@
 package dto
 
 import (
+	"time"
+
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
 )
 
 // BusinessDomain is a v3 business dictionary item.
 type BusinessDomain struct {
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	Status         string `json:"status"`
+	ReferenceCount int64  `json:"reference_count"`
+	MergedInto     string `json:"merged_into,omitempty"`
 }
 
 // Application is a v3 application dictionary item.
 type Application struct {
-	AppCode     string `json:"app_code"`
-	AppName     string `json:"app_name"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status"`
+	AppCode        string `json:"app_code"`
+	AppName        string `json:"app_name"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status"`
+	ReferenceCount int64  `json:"reference_count"`
+	MergedInto     string `json:"merged_into,omitempty"`
 }
 
 // Platform is a v3 platform dictionary item.
 type Platform struct {
-	PlatformCode string `json:"platform_code"`
-	PlatformName string `json:"platform_name"`
-	Description  string `json:"description,omitempty"`
-	Enabled      bool   `json:"enabled"`
+	PlatformCode   string `json:"platform_code"`
+	PlatformName   string `json:"platform_name"`
+	Description    string `json:"description,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	Status         string `json:"status"`
+	ReferenceCount int64  `json:"reference_count"`
+	MergedInto     string `json:"merged_into,omitempty"`
 }
 
-// Cloud is a v3 cloud dictionary item. Writes live in M06 (D37); M07 serves
-// the read list consumed by resource/domain dropdowns and the admin page.
+// DictionaryAuditLog is one lifecycle action on a dictionary entry.
+type DictionaryAuditLog struct {
+	ID             string `json:"id"`
+	DictionaryType string `json:"dictionary_type"`
+	Action         string `json:"action"`
+	SourceCode     string `json:"source_code"`
+	TargetCode     string `json:"target_code,omitempty"`
+	ReferenceCount int64  `json:"reference_count"`
+	Operator       string `json:"operator"`
+	Detail         string `json:"detail,omitempty"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// Cloud is a v3 cloud dictionary item. Create/disable writes live in M06 (D37);
+// M07 serves the read list plus the terminal lifecycle states (revoke/merge).
 type Cloud struct {
-	CloudCode   string `json:"cloud_code"`
-	CloudName   string `json:"cloud_name"`
-	CloudType   string `json:"cloud_type"`
-	Carrier     string `json:"carrier"`
-	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	CloudCode      string `json:"cloud_code"`
+	CloudName      string `json:"cloud_name"`
+	CloudType      string `json:"cloud_type"`
+	Carrier        string `json:"carrier"`
+	Description    string `json:"description,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	Status         string `json:"status"`
+	ReferenceCount int64  `json:"reference_count"`
+	MergedInto     string `json:"merged_into,omitempty"`
 }
 
 // ZoneType is a v3 zone type item.
 type ZoneType struct {
-	Code        string `json:"code"`
-	DisplayName string `json:"display_name"`
-	Enabled     bool   `json:"enabled"`
+	Code           string `json:"code"`
+	DisplayName    string `json:"display_name"`
+	Enabled        bool   `json:"enabled"`
+	Status         string `json:"status"`
+	ReferenceCount int64  `json:"reference_count"`
+	MergedInto     string `json:"merged_into,omitempty"`
 }
 
 // OSOption is a v3 OS dictionary item.
@@ -74,9 +103,7 @@ func FromAppPlatformRel(item *dictionary.AppPlatformRel) AppPlatformRel {
 func FromBusinessDomains(items []dictionary.BusinessDomain) []BusinessDomain {
 	out := make([]BusinessDomain, 0, len(items))
 	for _, item := range items {
-		out = append(out, BusinessDomain{
-			Code: item.Code, Name: item.Name, Description: item.Description, Enabled: item.Enabled,
-		})
+		out = append(out, fromBusinessDomain(item))
 	}
 	return out
 }
@@ -86,8 +113,13 @@ func FromBusinessDomain(item *dictionary.BusinessDomain) BusinessDomain {
 	if item == nil {
 		return BusinessDomain{}
 	}
+	return fromBusinessDomain(*item)
+}
+
+func fromBusinessDomain(item dictionary.BusinessDomain) BusinessDomain {
 	return BusinessDomain{
 		Code: item.Code, Name: item.Name, Description: item.Description, Enabled: item.Enabled,
+		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
 	}
 }
 
@@ -95,9 +127,7 @@ func FromBusinessDomain(item *dictionary.BusinessDomain) BusinessDomain {
 func FromApplications(items []dictionary.Application) []Application {
 	out := make([]Application, 0, len(items))
 	for _, item := range items {
-		out = append(out, Application{
-			AppCode: item.AppCode, AppName: item.AppName, Description: item.Description, Status: item.Status,
-		})
+		out = append(out, fromApplication(item))
 	}
 	return out
 }
@@ -107,8 +137,13 @@ func FromApplication(item *dictionary.Application) Application {
 	if item == nil {
 		return Application{}
 	}
+	return fromApplication(*item)
+}
+
+func fromApplication(item dictionary.Application) Application {
 	return Application{
 		AppCode: item.AppCode, AppName: item.AppName, Description: item.Description, Status: item.Status,
+		ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
 	}
 }
 
@@ -116,10 +151,7 @@ func FromApplication(item *dictionary.Application) Application {
 func FromPlatforms(items []dictionary.Platform) []Platform {
 	out := make([]Platform, 0, len(items))
 	for _, item := range items {
-		out = append(out, Platform{
-			PlatformCode: item.PlatformCode, PlatformName: item.PlatformName,
-			Description: item.Description, Enabled: item.Enabled,
-		})
+		out = append(out, fromPlatform(item))
 	}
 	return out
 }
@@ -129,35 +161,78 @@ func FromPlatform(item *dictionary.Platform) Platform {
 	if item == nil {
 		return Platform{}
 	}
+	return fromPlatform(*item)
+}
+
+func fromPlatform(item dictionary.Platform) Platform {
 	return Platform{
 		PlatformCode: item.PlatformCode, PlatformName: item.PlatformName,
 		Description: item.Description, Enabled: item.Enabled,
+		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
 	}
+}
+
+// FromDictionaryAuditLogs maps lifecycle audit rows to DTOs.
+func FromDictionaryAuditLogs(items []dictionary.DictionaryAuditLog) []DictionaryAuditLog {
+	out := make([]DictionaryAuditLog, 0, len(items))
+	for _, item := range items {
+		out = append(out, DictionaryAuditLog{
+			ID: item.ID, DictionaryType: item.DictionaryType, Action: item.Action,
+			SourceCode: item.SourceCode, TargetCode: item.TargetCode,
+			ReferenceCount: item.ReferenceCount, Operator: item.Operator,
+			Detail: item.Detail, CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out
 }
 
 // FromClouds maps dictionary entries to DTOs.
 func FromClouds(items []dictionary.Cloud) []Cloud {
 	out := make([]Cloud, 0, len(items))
 	for _, item := range items {
-		out = append(out, Cloud{
-			CloudCode:   item.CloudCode,
-			CloudName:   item.CloudName,
-			CloudType:   item.CloudType,
-			Carrier:     item.Carrier,
-			Description: item.Description,
-			Enabled:     item.Enabled,
-		})
+		out = append(out, fromCloud(item))
 	}
 	return out
+}
+
+// FromCloud maps one cloud dictionary entry to a DTO.
+func FromCloud(item *dictionary.Cloud) Cloud {
+	if item == nil {
+		return Cloud{}
+	}
+	return fromCloud(*item)
+}
+
+func fromCloud(item dictionary.Cloud) Cloud {
+	return Cloud{
+		CloudCode: item.CloudCode, CloudName: item.CloudName, CloudType: item.CloudType,
+		Carrier: item.Carrier, Description: item.Description, Enabled: item.Enabled,
+		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
+	}
 }
 
 // FromZoneTypes maps dictionary entries to DTOs.
 func FromZoneTypes(items []dictionary.ZoneType) []ZoneType {
 	out := make([]ZoneType, 0, len(items))
 	for _, item := range items {
-		out = append(out, ZoneType{Code: item.Code, DisplayName: item.DisplayName, Enabled: item.Enabled})
+		out = append(out, fromZoneType(item))
 	}
 	return out
+}
+
+// FromZoneType maps one zone type dictionary entry to a DTO.
+func FromZoneType(item *dictionary.ZoneType) ZoneType {
+	if item == nil {
+		return ZoneType{}
+	}
+	return fromZoneType(*item)
+}
+
+func fromZoneType(item dictionary.ZoneType) ZoneType {
+	return ZoneType{
+		Code: item.Code, DisplayName: item.DisplayName, Enabled: item.Enabled,
+		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
+	}
 }
 
 // FromOSOptions maps dictionary entries to DTOs.

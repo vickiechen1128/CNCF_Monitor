@@ -2,32 +2,23 @@ package repository
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func openRepositoryTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m07_repository.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on&_busy_timeout=5000"), &gorm.Config{
-		Logger: logger.Discard,
-	})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		// 00000 core tables already exist; only seed the rows M07 reads.
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,channel,status) VALUES ('mc-demo','演示采集域','edge','platform_admin','agent_pull','enabled')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status) VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
 		`INSERT INTO business_domains(code,name) VALUES ('payment','支付')`,
 		`INSERT INTO application_dicts(app_code,app_name) VALUES ('order-service','订单服务')`,
 		`INSERT INTO platform_dicts(platform_code,platform_name) VALUES ('ecommerce','电商平台')`,
@@ -100,7 +91,7 @@ func TestRepositoryCreateGetListUpdateDelete(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "web-01-renamed", attrs.Hostname)
 
-	found, ok, err := repo.FindByDedupKey(ctx, domain.CategoryHost, "host|mc-demo|10.0.0.1")
+	found, ok, err := repo.FindByDedupKey(ctx, "platform_admin", domain.CategoryHost, "host|mc-demo|10.0.0.1")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "res-1", found.ResourceID)
@@ -129,6 +120,40 @@ func TestRepositoryDedupConflict(t *testing.T) {
 	var conflict *domain.ConflictError
 	require.ErrorAs(t, err, &conflict)
 	assert.Equal(t, "host|mc-demo|10.0.0.1", conflict.DedupKey)
+}
+
+func TestRepositoryDedupIsTenantScoped(t *testing.T) {
+	gormDB := openRepositoryTestDB(t)
+	require.NoError(t, gormDB.Exec(
+		`INSERT INTO tenants(id,name,status) VALUES ('tenant-b','租户B','active')`,
+	).Error)
+	repo := NewGORMRepository(gormDB)
+	ctx := context.Background()
+
+	adminHost := newHost("res-1", "10.0.0.1", "web-01") // tenant_id=platform_admin
+	require.NoError(t, repo.Create(ctx, adminHost))
+
+	otherTenantHost := newHost("res-2", "10.0.0.1", "web-01-copy")
+	otherTenantHost.TenantID = "tenant-b"
+	require.NoError(t, repo.Create(ctx, otherTenantHost),
+		"相同 category+dedup_key 但不同 tenant_id 应允许并存")
+
+	// Same tenant + same dedup_key still conflicts.
+	err := repo.Create(ctx, newHost("res-3", "10.0.0.1", "web-01-other-tenant"))
+	require.Error(t, err)
+	var conflict *domain.ConflictError
+	require.ErrorAs(t, err, &conflict)
+
+	// FindByDedupKey must be tenant-scoped.
+	found, ok, err := repo.FindByDedupKey(ctx, "platform_admin", domain.CategoryHost, "host|mc-demo|10.0.0.1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "res-1", found.ResourceID)
+
+	found, ok, err = repo.FindByDedupKey(ctx, "tenant-b", domain.CategoryHost, "host|mc-demo|10.0.0.1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "res-2", found.ResourceID)
 }
 
 func TestRepositoryApplicationAttributes(t *testing.T) {

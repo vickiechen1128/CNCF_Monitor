@@ -1,12 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
@@ -159,6 +160,56 @@ func (h *ResourceHandler) References(c *gin.Context) {
 		})
 	}
 	response.OK(c, dto.ReferencesResponse{Jobs: jobs, Total: len(jobs)})
+}
+
+// BulkReassign handles POST /resources/bulk-reassign.
+//
+// M07 SRS v2.0 FR-28: all-or-nothing batch. Validation failures are reported
+// as a 400 with a structured `data.failures` block so the UI can show each
+// resource-level reason.
+func (h *ResourceHandler) BulkReassign(c *gin.Context) {
+	var req dto.BulkReassignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	result, err := h.svc.BulkReassign(c.Request.Context(), req.ResourceIDs, req.Field, req.TargetCode)
+	if err != nil {
+		var bulkErr *service.BulkReassignError
+		if errors.As(err, &bulkErr) {
+			failures := make([]dto.BulkReassignFailure, 0, len(bulkErr.Failures))
+			for _, failure := range bulkErr.Failures {
+				failures = append(failures, dto.BulkReassignFailure{
+					ResourceID: failure.ResourceID,
+					Reason:     failure.Reason,
+				})
+			}
+			response.BadRequestWithDetails(c, response.ErrorTypeBadRequest, err, dto.BulkReassignFailureResponse{Failures: failures})
+			return
+		}
+		respondError(c, err)
+		return
+	}
+	response.OK(c, dto.BulkReassignResponse{
+		UpdatedCount: result.UpdatedCount,
+		Field:        strings.TrimSpace(req.Field),
+		TargetCode:   strings.TrimSpace(req.TargetCode),
+	})
+}
+
+// BulkSetScrapePort handles POST /resources/bulk-scrape-port (采集端口批量设置).
+func (h *ResourceHandler) BulkSetScrapePort(c *gin.Context) {
+	var req dto.BulkScrapePortRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
+		return
+	}
+	updated, err := h.svc.BulkSetScrapePort(c.Request.Context(), req.ResourceIDs, req.ScrapePort)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, dto.BulkScrapePortResponse{UpdatedCount: int(updated), ScrapePort: req.ScrapePort})
 }
 
 func parsePagination(c *gin.Context) (int, int) {

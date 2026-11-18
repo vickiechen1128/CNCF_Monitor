@@ -93,7 +93,7 @@ func (s *ImportService) Import(ctx context.Context, category domain.Category, mo
 			continue
 		}
 
-		existing, found, err := s.resources.FindByDedupKey(ctx, category, resource.DedupKey)
+		existing, found, err := s.resources.FindByDedupKey(ctx, resource.TenantID, category, resource.DedupKey)
 		if err != nil {
 			return nil, err
 		}
