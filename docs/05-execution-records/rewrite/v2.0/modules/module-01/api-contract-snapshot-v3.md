@@ -287,6 +287,107 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 
 ---
 
+
+---
+
+## 4.1 Job 组（监控意图，SRS JG v1.0 增量）
+
+> 增量能力：一次提交跨多个网域。**多域只存在于意图层**——每域仍生成一条单域子 Job，
+> M09 契约零变更（仍按 `network_domain_id` 读取 Job）。
+> 实现：`platform/modules/m01/handler/job_group.go`、`service/job_group.go`、`repository/job_group.go`。
+
+### 4.1.1 端点
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| GET | `/job-groups` | 登录 | 组列表（`status` / `keyword` / 分页）；每行含 `domains` 与派生 `sync` |
+| POST | `/job-groups` | 登录 | 创建：公共参数 + 跨域实例 → 单事务写 1 组 + N 子 Job |
+| GET | `/job-groups/:id` | 登录 | 组详情（逐域子 Job + 派生状态） |
+| PUT | `/job-groups/:id` | 登录 | 更新：公共参数扇出 + 实例增量对账（域清零 → 删除该域子 Job） |
+| DELETE | `/job-groups/:id` | 登录 | 软删组 + 全部子 Job（级联） |
+
+### 4.1.2 请求
+
+```json
+{
+  "name": "主机基础采集",
+  "job_name": "host-base",
+  "job_type": "standard",
+  "resource_category": "host",
+  "monitor_type": "host_linux",
+  "exporter_template_id": "",
+  "scrape_interval": "30s",
+  "scrape_timeout": "10s",
+  "metrics_path": "/metrics",
+  "scheme": "http",
+  "auth_type": "none",
+  "username": "",
+  "password": "",
+  "token": "",
+  "tls_skip_verify": false,
+  "ca_file": "",
+  "label_template_id": "",
+  "blackbox_module": "",
+  "selected_instance_ids": ["res-a1", "res-b1"],
+  "enabled": true,
+  "status": "enabled"
+}
+```
+
+- 实例**跨域合法**：按 `resources.network_domain_id` 自动归组，不接受手填网域。
+- `job_name` 组内一致；唯一性口径为「同域唯一」（见 §10 变更第 1 条）。
+- 公共参数缺省时与单域 Job 同规则解析（默认采集配置 → 采集实现池 → 内置默认）。
+- `enabled=false` 或 `status=disabled` → 全部子 Job 停用并回到 `draft`。
+
+### 4.1.3 响应
+
+```json
+{
+  "id": "8f1c…",
+  "name": "主机基础采集",
+  "job_name": "host-base",
+  "scrape_interval": "30s",
+  "status": "enabled",
+  "created_by": "admin",
+  "domains": [
+    {
+      "network_domain_id": "mc-a",
+      "network_domain_name": "域A",
+      "job_id": "…",
+      "job_name": "host-base",
+      "instance_count": 12,
+      "enabled": true,
+      "sync_status": "pending",
+      "sync_version": "",
+      "sync_error": "",
+      "synced_at": null
+    }
+  ],
+  "sync": {"status": "pending", "total": 2, "synced": 0, "failed": 0, "pending": 2, "draft": 0}
+}
+```
+
+- `sync.status` 为**派生值**（不落库）：`disabled > empty > draft > partial > failed > pending > synced`。
+- `sync` 等派生字段只出现在响应里；写请求携带 → 忽略（与单域 Job 的只读 `sync` 一致）。
+- `job_name` 响应字段取自子 Job（组表不冗余存储）。
+
+### 4.1.4 错误
+
+| 场景 | 状态码 | 说明 |
+|---|---|---|
+| 组名重复 | 409 | `job_group` / `name` 冲突 |
+| 实例不存在 / 跨类别 / 离线且非既有 | 400 | 与单域 Job 同口径（`selected_instance_ids`） |
+| 目标域未纳管 / 已禁用 | 400 | `network_domain_id` 不可用（复用 Job 校验） |
+| 组不存在 | 404 | `job_group` |
+| 无任何可解析实例 | 400 | `selected_instance_ids` |
+
+### 4.1.5 不变量（增量）
+
+1. 组与子 Job **同事务**写入，不存在「建了一半」的组。
+2. 子 Job 的 `network_domain_id` 仍不可变更；跨域变更表达为「某域移除 + 另一域新增」。
+3. 子 Job 仍完整持有参数快照与 `sync_*`；组不参与下发。
+4. 组名全局唯一；`job_name` 同域唯一（部分唯一索引 `deleted_at IS NULL`）。
+
 ## 5. 实例候选 / 安装登记 / 预演
 
 ### 5.1 实例候选
@@ -320,6 +421,75 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 - `offline` 返回但 `selectable=false`、`disabled_reason="实例已离线"`。
 - `npu`：候选为主机全集，不按 OS/型号过滤。
 - blackbox：`monitor_type` 可空，改传 `resource_category=interface_service|application`；`target_address` 为派生 URL。
+
+### 5.1.1 组合筛选（SRS JG v1.1，P0）
+
+> 目的：把「先选网域再选实例」改成「按任意维度圈对象」。条件为 **AND** 组合，
+> 字段清单由服务端下发，前端不硬编码字段名；`GET` 老接口保留兼容。
+
+**字段清单**：`GET /scrape-jobs/instance-candidates/filter-schema`
+
+```json
+{"fields":[
+  {"key":"network_domain_id","label":"网域","type":"multi_enum","ops":["in"],"source":"network_domains"},
+  {"key":"status","label":"运行状态","type":"multi_enum","ops":["in"],
+   "options":[{"value":"online","label":"运行中"},{"value":"offline","label":"已停止"},{"value":"maintenance","label":"维护中"}],
+   "default":["online","offline"]},
+  {"key":"app_code","label":"应用","type":"multi_enum","ops":["in"],"source":"application_dicts"},
+  {"key":"biz_code","label":"业务","type":"multi_enum","ops":["in"],"source":"business_domains"},
+  {"key":"platform_code","label":"平台","type":"multi_enum","ops":["in"],"source":"platform_dicts"},
+  {"key":"env","label":"环境","type":"multi_enum","ops":["in"],"options":[{"value":"OPS","label":"OPS"},{"value":"PRD","label":"PRD"},{"value":"UAT","label":"UAT"}]},
+  {"key":"cluster","label":"集群","type":"text","ops":["eq","contains"]},
+  {"key":"owner","label":"负责人","type":"text","ops":["contains"]}
+]}
+```
+
+- `source` 表示选项来自哪个字典接口（前端懒加载）；`type=text` 的字段用输入框。
+- 字段清单按监控类型裁剪（如 host 专属字段在后续增量加入），**新增字段不改前端**。
+
+**查询**：`POST /scrape-jobs/instance-candidates/query`
+
+```json
+{
+  "monitor_type": "host_linux",
+  "filters": [
+    {"field":"network_domain_id","op":"in","values":["mc-a","mc-b"]},
+    {"field":"status","op":"in","values":["online"]},
+    {"field":"app_code","op":"in","values":["order-svc"]}
+  ],
+  "keyword": "", "page": 1, "page_size": 20
+}
+```
+
+```json
+{"list":["…同 5.1 元素…"],"total":312,"page":1,"page_size":20,
+ "domains":[{"network_domain_id":"mc-a","network_domain_name":"域A","count":120}]}
+```
+
+- `domains` 为**分域计数**，直接用于保存前的分域预览（不再由前端二次聚合）。
+- 未显式筛 `status` 时默认排除 `maintenance`（与 5.1 老接口一致）。
+- 同字段多次出现按 AND 合并（`in` 取交集），不静默覆盖。
+- `page_size` 上限 100。
+
+**全选**：`POST /scrape-jobs/instance-candidates/query/ids`（同条件、无分页）
+
+```json
+{"ids":["r-1","r-2"],"total":312,"truncated":false,"max_ids":2000}
+```
+
+- 上限 2000；超限 `truncated=true`，前端必须提示收窄条件（禁止静默截断）。
+
+**错误（400，fail-closed）**
+
+| 场景 | 说明 |
+|---|---|
+| 未知字段 | `unsupported filter field "x"` |
+| 不支持的操作符 | `operator "contains" is not supported for field "network_domain_id"` |
+| 空 `values` | 至少一个取值 |
+| 非法枚举值 | `status` / `env` 按白名单校验 |
+| 未授权网域 | 授权范围外一律拒绝（服务端以会话租户为上限，浏览器不得放宽） |
+
+**兼容**：`GET /scrape-jobs/instance-candidates` 保留（单网域、必填 `network_domain_id`），新前端走 POST。
 
 ### 5.2 Job 实例列表
 
@@ -581,7 +751,7 @@ M01 不写 M07 表；M07 资源删除由 M01 对账循环回收（D40）。
 
 ## 10. 冻结字段与不变量
 
-1. `job_name` 创建后允许改名，但必须全局唯一；改名等同新 Job 配置变更（`sync.status → pending`）。
+1. `job_name` 创建后允许改名，但必须**同域唯一**（00012 起；原「全局唯一」为 00006 口径，随 Job 组收敛）；改名等同新 Job 配置变更（`sync.status → pending`）。
 2. `network_domain_id` 创建后不可变更（换域 = 新建 Job）。
 3. `job_type` 创建后不可变更。
 4. `draft_status` 只能 `draft → ready`，不可回退。

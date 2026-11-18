@@ -19,7 +19,7 @@
 2. **legacy 做过 7 轮「功能重构」，但不是结构重写**：唯一生成规则收敛、渠道/模板/路由解耦、架构红线修复、事件表单一事实源、抑制独立等都在旧技术栈内完成，依赖 `platform/models` 全局模型 + `configcenter/draft/change` + SQLite `AutoMigrate`，不满足 v3 分层与 PG 目标。
 3. **新建 `platform/modules/m08/`**，按 `domain / dto / repository / service / handler / references / apply / configgen` 分层；legacy `platform/alertmanager/*` 冻结保留，只服务 `/api/v2/*` 兼容窗口，**不在原包上做大改**。
 4. **内部 Reload 子模块是本次唯一「从零建」的能力**：legacy 的写盘 + reload 在 M09（`configcenter/deployment.writeAlertmanagerAndReload`），且**无结果校验、无失败回退、无 reload 日志**；v3 按 FR-07 / D46 在 M08 内重建，并删除对 `configcenter` 的依赖。
-5. **权限与数据口径随 v3 收敛**：配置历史只读不可回滚（删 `applied/discarded/applied_at` 两段式）；`route_tree` 随快照 JSON 持久化（D47）；事件表 `alert_events` 为唯一事实源并保留 180 天；快照经 `AlertmanagerSnapshotSink` 写 M09 仅留痕（D31）。
+5. **权限与数据口径随 v3 收敛**：配置历史只读不可回滚（删 `applied/discarded/applied_at` 两段式）；`route_tree` 随快照 JSON 持久化（D47）；事件表 `alert_events` 为唯一事实源并保留 180 天；快照由 M08 单份持久化，M09 统一历史只读引用（D31 经 D51 修订）。
 6. **两项能力明确延后**：告警面板 `platform/app/biz` 三维聚合按 **D44** 延后（当前 Grafana 手工配置替代，M08 只留 `resource_category` 回填字段）；渠道密钥加密存储按 **D45** 承接至全局凭据加密改造，本模块只保证接口/日志零明文。
 
 预计实施量：**后端 15–19 人日 + 前端 3–4 人日**（含抑制规则建表检索、静默留痕审计、手动重载；B6/B7 复用 legacy 逻辑越充分越接近下限；不含 M01/M07 资源链路与全局加密项）。
@@ -71,7 +71,7 @@
 |---|---|---|---|---|
 | 1 | 整份配置挂载 | 已收敛（v1.20 删导入/重挂/模式切换） | 彻底取消（NFR-02） | 保持；清理残留模型与 v2 端点 |
 | 2 | 内部 Reload | 无（在 legacy M09 `DiskApplier`） | FR-07：原子写→reload→验证→日志→失败回退 | 新建 `m08/apply`，判据按 D46 |
-| 3 | 配置快照同步 | 走 M09 变更单（draft/change） | FR-08：直接经端口写 M09，仅留痕 | 调 `AlertmanagerSnapshotSink`（D31）；切断 `configcenter` 依赖 |
+| 3 | 配置快照同步 | 走 M09 变更单（draft/change） | FR-08：M08 单份持久化，M09 只读引用 | D51：不再调 `AlertmanagerSnapshotSink`；统一历史/导出由 M09 读 `scope=alertmanager` |
 | 4 | 配置历史状态机 | `applied` / `discarded` + `applied_at` 回写 | FR-06 / NFR-04：只读、不可回滚 | 删两段式；current + 最近 N 份只读历史 |
 | 5 | 路由树存储 | 从 YAML 反推 | FR-13：树形表单为唯一编辑入口 | `route_tree` 随快照 JSON 持久化（D47） |
 | 6 | 抑制规则存储 | 从 YAML 反推 | FR-18：独立页面 CRUD | `inhibit_rules` 随快照 JSON 持久化（D-M08-02） |
@@ -114,7 +114,7 @@ platform/modules/m08/
 ├── repository/            # GORM + 双 dialect；m08_* 表；软删
 ├── service/               # snapshot / configgen / validate / notify / silence / inhibition / event / reconcile / reload
 ├── handler/               # 薄 handler；错误经 foundation/httpapi 统一映射
-├── references/            # AlertmanagerSnapshotSink(m09) / DomainAuthorizer(m06) / ResourceNamer(m07|m01)
+├── references/            # DomainAuthorizer(m06) / ResourceNamer(m07|m01)
 └── apply/                 # 内部 Reload：原子写、reload、验证、回退、日志
 ```
 
@@ -157,7 +157,7 @@ platform/modules/m08/
 
 | 依赖 | 内容 | 状态 |
 |---|---|---|
-| M09 | `AlertmanagerSnapshotSink`（[references/m08.go](../../../../../../platform/modules/m09/references/m08.go) + `ConfigSyncService.SaveAlertmanagerSnapshot`） | **已就绪**，M08 只需接线 |
+| M09 | 统一配置产物历史只读引用 `scope=alertmanager`（D51） | **已就绪**，M08 无需接线 |
 | M06 | 网域授权集合（静默/抑制 matcher 作用域校验） | 就绪（m06 已 done），需 M08 定义 `DomainAuthorizer` 端口 |
 | M07 / M01 | 资源台账（`resource_id` → 实例名 / `resource_category` 回填） | 表已就绪；M08 用只读 `ResourceNamer` 端口（不反向依赖） |
 | M01 | 中心求值规则 → 告警产生 | doing，不阻塞 M08 B0–B5 |

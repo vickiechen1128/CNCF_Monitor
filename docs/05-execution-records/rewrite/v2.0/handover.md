@@ -89,6 +89,27 @@ METRIC_CENTER_DB_DSN='postgres://...' \
 make migrate
 ```
 
+#### 本地 PostgreSQL 测试环境（macOS / Homebrew）
+
+生产目标为 PostgreSQL，迁移运行器支持 SQLite/PostgreSQL 双方言。本地装一个 PG 用于迁移与集成验证：
+
+```bash
+# 国内网络可用清华镜像加速（否则 brew 可能无法拉元数据）
+export HOMEBREW_API_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles/api"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles"
+brew install postgresql@16
+brew services start postgresql@16
+
+export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
+createdb metric_center_test   # 一次性测试库，迁移测试会反复 Up/Down
+
+# 运行 PG 迁移生命周期测试（Up → 逐版本 Down → 全部 Down）
+METRIC_CENTER_TEST_POSTGRES_DSN='postgres://<user>@127.0.0.1:5432/metric_center_test?sslmode=disable' \
+  .tools/go/bin/go test ./platform/db -run TestMigrateV3Postgres -count=1 -v
+```
+
+> 迁移运行器对 PostgreSQL 使用 `default_query_exec_mode=simple_protocol`，因为单个迁移文件会整段多语句执行（含 `DO $$` 块）；运行时连接池仍走 prepared-statement 模式。`schema_migrations` 记账语句相应使用内联字面量（值均为本地派生，无外部输入）。
+
 启动模式也可用 `--database.mode=v3`；flag 优先于环境变量。
 
 v3 系统端点：`/api/v3/platform/health`（存活）、`/api/v3/platform/ready`（DB + migration）、

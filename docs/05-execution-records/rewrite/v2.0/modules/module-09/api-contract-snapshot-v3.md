@@ -221,7 +221,9 @@ POST /network-domains/:id/token/reset
 >
 > **源数据（2026-11-16 起）**：每域配置由 M01 `m01_scrape_jobs`（`ready + enabled + 未删`）驱动；targets 取 `selected_instance_ids` 对应的 M07 v3 资源，blackbox 使用资源的探测 URL。M09 生成/校验完成后通过 `SyncResultSink` 将 per-job 结果回写 M01 的 `sync_*` 列（D-2）。
 >
-> **中心规则（2026-11-16 起）**：规则为平台级全局对象（D35/D36），M09 后台服务读取 M01 `m01_monitoring_rules`（`enabled + ready`），以 `centerEvaluator=true` 生成 `rules.yml`，原子写入 `--config.dir/rules.yml` 并 `POST /-/reload` 中心 Prometheus；快照记录在 `center_config_snapshots`（唯一 current），结果通过 `SyncResultSink.RecordRuleSync` 回写 M01。
+> **中心规则（2026-11-16 起）**：规则为平台级全局对象（D35/D36），M09 后台服务读取 M01 `m01_monitoring_rules`（`enabled + ready`），以 `centerEvaluator=true` 生成 `rules.yml`，原子写入 `--config.dir/rules.yml` 并 `POST /-/reload` 中心 Prometheus；快照记录在 `config_snapshots` 的 `scope=center`（唯一 current），结果通过 `SyncResultSink.RecordRuleSync` 回写 M01。
+>
+> **告警配置（2026-11-17 起）**：M08 单份持久化 `alertmanager.yml` 快照（`scope=alertmanager`）；M09 统一历史只读引用同一份记录，**不再复制 `am-` 行、不二次落库、不触发 reload**，也不扇出边缘（D31 修订）。
 
 ### 4.1 快照视图
 
@@ -254,6 +256,54 @@ POST /network-domains/:id/token/reset
 
 - 不提供：`confirm`、`revalidate`、`discard`、`rollback`、`deployments` 端点（已删除）。
 - `failed` 快照不对外作为当前版本发布，仅供排障展示。
+- 旧端点保留兼容；统一历史/预览/导出使用 §4.3（2026-11-17 新增）。
+
+### 4.3 统一配置产物历史与导出（2026-11-17）
+
+> SRS v1.5 FR-13 / FR-13.1 / FR-13.2。三类产物同表（`config_snapshots`）：
+> `scope=domain`（网域采集配置，`scope_key=network_domain_id`）、`scope=center`（中心规则）、
+> `scope=alertmanager`（M08 告警配置，只读引用）。**无回滚/确认端点。**
+
+#### 4.3.1 视图
+
+```json
+{
+  "id": 42,
+  "artifact_type": "domain",
+  "network_domain_id": "mc-demo",
+  "version": "20261117-0a1b",
+  "checksum": "sha256:deadbeef",
+  "validation_status": "passed",
+  "validation_cause": "none",
+  "validation_details": {},
+  "is_current": true,
+  "generated_by": "system",
+  "generated_at": null,
+  "created_at": "2026-11-17T10:00:00Z",
+  "content_available": true
+}
+```
+
+- `artifact_type`：`domain` / `center` / `alertmanager`；`network_domain_id` 仅 domain 有值。
+- 列表/详情登录可见；内容预览、导出、恢复包仅 admin（产物含凭据明文）。
+- 历史内容必须持久化：domain/center 存内容文件（`config-output/snapshots/<scope_key>/<version>.json`），alertmanager 存 DB `content` 列。
+
+#### 4.3.2 端点
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| GET | `/config-artifacts` | 登录 | 统一历史列表；筛选 `artifact_type` / `network_domain_id` / `validation_status` / `limit`(≤500)，最新在前 |
+| GET | `/config-artifacts/:id` | 登录 | 产物详情（元数据 + `content_available`） |
+| GET | `/config-artifacts/:id/content` | admin | 内容预览：`{artifact, files:[{name,content}]}`，按文件 Tab |
+| GET | `/config-artifacts/:id/export` | admin | 可直接落盘导出：domain→zip；center→rules.yml；alertmanager→alertmanager.yml |
+| GET | `/config-artifacts/:id/export?raw=1` | admin | 次级下载：原始载荷（domain/center 为 JSON 包，alertmanager 为 YAML） |
+| GET | `/config-artifacts/recovery-bundle` | admin | 中心一体化恢复包 zip：prometheus.yml + rules.yml + alertmanager.yml（可用时）+ targets/*.json + manifest.json |
+
+- domain 导出 zip 内容：`prometheus.yml`、`targets/*.json`、`blackbox.yml`、`rules.yml`（如有）、`metadata.json`；解压到 Prometheus 配置目录即可加载。
+- 导出 `Content-Disposition` 文件名：`<domain>-<version>.zip` / `<version>-rules.yml` / `<version>-alertmanager.yml` / `center-recovery-<version>.zip`。
+- 中心恢复包取各类型**当前生效**版本；M08 不可用时省略 `alertmanager.yml` 并在 manifest 标注；无中心产物返回 404。
+- 预览/导出不改变当前版本、不触发 reload。
+- 非 admin 调用内容/导出/恢复包返回 `403 forbidden`。
 
 ---
 
@@ -492,7 +542,7 @@ POST /network-domains/:id/token/reset
 | 边缘协议 | `/api/v2/platform/edge/*` | `/api/v3/edge/*`；协议 v1；旧 agent 不兼容 |
 | 查询代理 | 裸透传，无隔离 | 按租户解析授权网域集，注入 `network_domain_id` 单标签约束（D33）；越权返回空；追加 meta |
 | 采集节点 | 逻辑分散，部分占位 | m09 收敛；自动注册/组件/crash-loop/seq 指令 |
-| 告警配置 | M09 生成并扇出 | M08 生成，M09 仅快照留存，不扇出边缘 |
+| 告警配置 | M09 生成并扇出 | M08 生成并单份持久化，M09 统一历史只读引用；不扇出边缘（D31/D51） |
 | 鉴权 | edge 前缀对全局 auth 豁免 + Token | `/api/v3/edge` 仅 Token；`/api/v3/platform` 用户鉴权 + admin；`/api/v1` 用户鉴权 + 隔离 |
 
 ---
@@ -501,7 +551,7 @@ POST /network-domains/:id/token/reset
 
 - `network_domains`（M06）：M09 v3 **不写**其 legacy 纳管列（`channel`/`token`/`agent_type`/`remote_write_url`/`monitored_status`/`last_heartbeat`/`agent_version`/`is_monitored`/`registration_status`）；M09 纳管状态以 `network_domain_access` 行为准。
 - `network_domain_access.domain_id` 创建后不可变；`token_hash` 重置即覆盖旧值。
-- `domain_config_snapshots`：每域仅一个 `is_current`；历史只读，无回滚端点。
+- `config_snapshots`：`scope=domain/center/alertmanager`；每对象仅一个 `is_current`；历史只读，无回滚端点；三类产物统一历史与导出（D51）。
 - `edge_agents`：`retired` 终态不可转回；`(network_domain_id, hostname)` 域内唯一。
 - 查询与目标状态：无 bypass；始终按当前租户解析授权网域集，并注入 `network_domain_id` 标签过滤（D28/D33），不注入 `tenant`。
 - 任何接口/日志不返回 Token 明文（仅签发/重置响应的 `token` 字段，且服务端不落明文）。

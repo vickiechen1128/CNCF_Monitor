@@ -443,7 +443,7 @@ tasks:
   # B8 M09 快照接线
   # ---------------------------------------------------------------------------
   - id: T08-B8-1
-    title: "AlertmanagerSnapshotSink 接线 + CenterDomainID + snapshot_synced"
+    title: "D51：取消 AlertmanagerSnapshotSink / CenterDomainID / snapshot_synced（M09 只读引用）"
     status: pending
     depends_on: [T08-B5-3]
     schema_change: none
@@ -452,9 +452,9 @@ tasks:
     scope:
       - "装配注入 m09 ConfigSyncService 为 sink（D31）"
       - "CenterDomainID 为空时跳过并 warn，不阻断保存（D-M08-01）"
-      - "sink 失败不回滚本地保存；响应 snapshot_synced=false"
+      - "M08 单份持久化；M09 只读引用；响应不再包含 snapshot_synced"
     acceptance: "单测：sink 被调且参数正确；为空跳过；失败不影响保存结果"
-    verify: ["go test ./platform/modules/m08/... -run Sink", "m09 侧 SaveAlertmanagerSnapshot 联合断言"]
+    verify: ["go test ./platform/modules/m08/...", "go test ./platform/modules/m09/..."]
     commit_unit: "独立（接线）"
 
   - id: T08-B8-2

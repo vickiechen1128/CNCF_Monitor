@@ -183,8 +183,7 @@ matcher 支持可选 `is_equal`（缺省 `true`；`false` 渲染 `!=` / `!~`）�
   "config_checksum": "b71c…",
   "config_version": "20261116-0f3d",
   "pending_sections": ["route_changed"],
-  "reload": { "status": "succeeded", "duration_ms": 980 },
-  "snapshot_synced": true
+  "reload": { "status": "succeeded", "duration_ms": 980 }
 }
 ```
 
@@ -392,7 +391,7 @@ matcher 支持可选 `is_equal`（缺省 `true`；`false` 渲染 `!=` / `!~`）�
 | `GET /alertmanager/config/versions/:id` | 同名 | 仅前缀 |
 | `GET /alertmanager/config/product` | **删除** | 路由保存改为服务端内部合并，前端不再拉产品视图（NFR-02） |
 | `GET /alertmanager/routes` | 同名 | 响应增 `base_checksum` 与完整树 |
-| `POST /alertmanager/routes` | 同名 | 响应增 `config_version` / `pending_sections` / `reload` / `snapshot_synced` |
+| `POST /alertmanager/routes` | 同名 | 响应增 `config_version` / `pending_sections` / `reload`（`snapshot_synced` 已随 D51 删除） |
 | `GET /alertmanager/inhibitions` | 同名 | 响应改为条目数组（含 `builtin` / `id`） |
 | `POST /alertmanager/inhibitions` | 拆为 POST/PUT/DELETE/PATCH | 单条 CRUD + 启停（FR-18） |
 | `GET /alertmanager/notify-channels` | 同名 | 仅前缀；`secret` 恒缺省 |
@@ -409,11 +408,12 @@ matcher 支持可选 `is_equal`（缺省 `true`；`false` 渲染 `!=` / `!~`）�
 
 ## 6. 跨模块契约
 
-### 6.1 M09：快照留痕（D31）
+### 6.1 M09：快照历史只读引用（D31 / D51）
 
-- M08 在「校验通过 + 快照落库」后调用 `references.AlertmanagerSnapshotSink.SaveAlertmanagerSnapshot(ctx, domainID, content, checksum, generatedBy)`。
-- `domainID` 取装配注入的 `Options.CenterDomainID`；启动时与每次保存前校验该网域**存在且 `status=enabled`**（经只读端口），为空或非法时**跳过**同步并记 warn，**不阻断**保存（D-M08-01）。v3 无 `is_center` 标记，故不按网域表派生（派生即猜测）。
-- M09 只存只读历史、不切换 current、不扇出边缘；返回错误不影响 M08 保存结果，响应 `snapshot_synced=false`。
+- M08 在「校验通过 + 快照落库」后**单份持久化** `alertmanager.yml`（`config_snapshots`，`scope=alertmanager`，`content` 列保存 YAML）；不再调用 `AlertmanagerSnapshotSink`，不再写 `am-` 镜像行。
+- M09 统一配置产物历史直接只读引用该记录（`GET /config-artifacts?artifact_type=alertmanager`），不复制、不二次落库、不触发 reload；详情/导出走 `/config-artifacts/:id/content|export`（admin）。
+- 告警配置不扇出边缘；中心一体化恢复包按只读引用纳入 `alertmanager.yml`（M08 不可用则省略并在 manifest 标注）。
+- D-M08-01（`CenterDomainID` 注入与跳过）随 D51 作废；M08 保存/reload 不再依赖 M09。
 
 ### 6.2 M05：首页告警卡（D-M08-03）
 
@@ -440,4 +440,4 @@ matcher 支持可选 `is_equal`（缺省 `true`；`false` 渲染 `!=` / `!~`）�
 | 2 | `POST /config/reload` 手动重放 | **纳入首版**（#31）；复用 apply，不产生新版本，写 `trigger=manual` 日志 | D-M08-06（实现层自决） |
 | 3 | 抑制规则存储 | **独立表** `m08_inhibition_rules` + 检索分页；B0 草案 D-M08-02 作废 | **D49（owner 确认）** |
 | 4 | 静默操作留痕 | **纳入本期**：`m08_silence_audits` 记录创建/删除（含越权拒绝），只读；查询端点 #32 | **D50（owner 确认）** |
-| 5 | `CenterDomainID` 取值 | **装配参数 + 存在性校验**；v3 无 `is_center` 标记，不按表派生 | D-M08-01（实现层自决） |
+| 5 | `CenterDomainID` 取值 | **作废**：D51 取消二次写入，M09 只读引用 M08 单份快照 | D51（owner 确认） |

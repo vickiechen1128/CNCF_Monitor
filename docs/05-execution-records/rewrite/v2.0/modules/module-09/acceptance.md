@@ -25,7 +25,7 @@
 | FR-11 | 配置包供节点拉取；心跳响应 config_changed + 下载地址/校验和；含凭据仅 Token 校验返回 | T09-B4-4 / T09-B4-1 / T09-A1-2 | 单测：304/200/404；无 Token 拒绝 | 心跳按当前 passed 快照回填 config_changed/config_version/config_checksum + 绝对 config_download_url；/api/v3/edge/config 返回 zip（prometheus.yml/targets/metadata）+ ETag=checksum，304 命中；agent 已切换 v3 路由并携带 If-None-Match | done |
 | FR-12 | 生成产物 promtool/blackbox/targets 校验；失败标记不发布；区分 user_config/platform_fault | T09-B5-2 | 单测：校验失败不切换；归因字段正确 | 校验复用 generator.ValidateArtifacts（promtool/blackbox/targets），pending 归一为 failed+platform_fault；失败不切换；内容写盘失败记 platform_fault。真实外部工具场景待联调 | partial |
 | FR-13 | 保留最近 3~5 份只读历史；不支持回滚；超量自动清理 | T09-B5-2 / T09-B5-3 | 单测：保留数上限；grep 无 rollback 端点 | 保留 5 份（含 current）自动清理元数据+内容；路由扫描单测断言无 confirm/rollback/restore/revalidate/discard/deployments | done |
-| FR-14 | M08 可调用本模块能力下发 alertmanager.yml；不单维护变更确认 | T09-B5-3 | 单测：M08 端口写入落快照；无确认流程 | references.AlertmanagerSnapshotSink + SaveAlertmanagerSnapshot 落只读快照且不切换 current；M08 v3 落地后接线 | partial |
+| FR-14 | M08 告警配置纳入统一历史（D51）；不单维护变更确认 | T09-B5-3 | 单测：统一历史可读 alertmanager scope；无确认流程 | D51 修订：M08 单份持久化，M09 只读引用，不再使用 AlertmanagerSnapshotSink / am- 镜像；导出/恢复包覆盖 | done |
 | FR-15 | /api/v1/targets 融合中心 + 边缘快照；字段齐全 | T09-B6-1 | 单测：融合去重；source 标注；字段映射 | 边缘快照按契约字段返回（job/instance/network_domain/instance_name/health/last_scrape/last_error/source）；中心 Prometheus targets 融合暂未接入（v3 中心无自有 scrape） | partial |
 | FR-16 | /api/v1/health/coverage 三态，供 M07 消费 | T09-B6-1 | 单测：三态计数口径 | service 单测：新鲜且 up=采集中；过期/非 up=已下发未采到；无匹配快照的 online 资源=未监控 | done |
 | FR-17 | targets 按网域/Job/健康/关键字筛选 + 分页 | T09-B6-1 | 契约测试：筛选与分页信封 | 筛选（network_domain/job/health/keyword）+ 分页（20/100）与健康派生（stale→unknown）单测通过 | done |

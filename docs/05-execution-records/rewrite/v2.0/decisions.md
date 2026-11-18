@@ -35,7 +35,7 @@
 | D28 | 2026-11-11 | 查询与目标隔离（单维度） | 查询 / targets / coverage 隔离**只注入 `network_domain` 一个标签匹配器**：服务端按当前租户解析被授权网域集（D17：`d.tenant_id==T` 或 `T∈d.authorized_tenant_ids`），注入 `network_domain=~"<authorized>"`；**不注入 `tenant` 标签**——写入侧 `external_labels` 仅含 `network_domain_id`（`configcenter/generator` 决策 19，明确不注入 tenant），数据面无 tenant 标签，注入 `tenant=...` 会对所有查询匹配空。任何用户（含 platform_admin）无 bypass；越权或未带网域标签的数据返回空（200），非 403。**与 SRS NFR-08 / §9 「tenant + network_domain 双重」措辞冲突，以本决策为准，由 owner 回填 PRD**（见审计记录）。 | 后端 / 安全 / 契约 |
 | D29 | 2026-11-11 | Token 存储与展示 | 只存 `sha256(token)` + 脱敏值；明文仅在签发/重置响应返回一次；重置/废止立即覆盖旧 hash，旧 Token 心跳鉴权失败；任何接口/日志不返回明文 | 后端 / 安全 |
 | D30 | 2026-11-11 | 心跳与快照清理 | 心跳历史保留 7 天（可配）自动清理；target 快照在资源删除 / Job 清空 / 退纳管 / 网域删除时同步清理，避免残留 | 后端 / M09 |
-| D31 | 2026-11-11 | M08 边界 | `alertmanager.yml` 由 M08 生成，M09 仅快照留存与分发，不扇出到边缘域配置包；M08 通过 `AlertmanagerSnapshotSink` 端口写入 | M08 / M09 / 契约 |
+| D31 | 2026-11-11 | M08 边界 | `alertmanager.yml` 由 M08 生成，M09 仅快照留存与分发，不扇出到边缘域配置包；**写入方式由 D51 修订为「M08 单份持久化、M09 只读引用」** | M08 / M09 / 契约 |
 | D32 | 2026-11-12 | m09/m06 网域读路由归属 | 冻结契约 §2.2 列 m09 `GET /network-domains`、`GET /network-domains/:id`，但 m06 v3 已在同一 group `/api/v3/platform` 注册同路径 → gin 重复路由 panic。B2 只注册 m09 不冲突的 platform 路由（edge-agents / edge-packages / monitor / token-reset / config-snapshots）；**B3 由 m06 让出这两条行政读**，改由 m09 提供「行政字段 + 运行态」enriched 视图（契约 §2.1），m06 保留行政写（POST/PUT/PATCH/DELETE），同步更新 m06 e2e 对这两条 GET 的断言 | 后端 / M09 / M06 / 契约 |
 | D33 | 2026-11-12 | 查询隔离注入的标签名 | 契约/SRS 原写「注入 `network_domain` 匹配器」，但写入侧 `configcenter/generator.buildExternalLabels` 实际注入的 external label 是 **`network_domain_id`**（决策 19）。**owner 2026-11-12 授权统一用词**：注入匹配器改为 `network_domain_id=~"<授权域>"`，SRS（v1.2）/契约快照同步更正；API 入参/响应 meta 字段名仍为 `network_domain` / `network_domains`，语义等价 | 后端 / M09 / 契约 |
 | D34 | 2026-11-12 | M09 网域列表双视角 | M09 `GET /network-domains` 默认保持纳管视角（`status=enabled` + `domain_type=edge`）；admin 显式传 `view=admin` 或 `status` 时切换为行政视角（`status` 可选过滤、`domain_type IN (edge, collection)`），响应补 `description` / `domain_type` / `domain_type_label` / `tenant_id` / `authorized_tenant_ids` / `status`。非 admin 请求行政视角 → 403；M06 已让出该读端点（D32），M06 管理页以该视图承载启用/停用全量列表 | 后端 / M09 / M06 / 契约 |
@@ -55,6 +55,7 @@
 | D48 | 2026-11-16 | amtool 缺失降级 | `amtool` 不可用（未安装 / 崩溃 / 非可执行）时，配置校验返回 **503 可重试**（与 M09 `promtool` 处理口径一致），不 panic、不阻塞服务启动；任何配置进入 reload 前必须先通过校验（NFR-05），校验未通过**不得覆盖**当前生效文件。owner 2026-11-16 授权实现层直接落地 | M08 / 运维 / 契约 |
 | D49 | 2026-11-16 | 抑制规则独立建表 + 检索 | owner 2026-11-16 确认「抑制规则要做检索，可以建表」：新增 `m08_inhibition_rules` **独立表**（不随快照 JSON、不从 `alertmanager.yml` 反推），支持按名称 / 启用状态 / 匹配条件关键字**检索与分页**；生成器从表读取规则渲染 `inhibit_rules` 段；预置规则以 `builtin` 标记、可启停调参不可删。取代 B0 草案的「随快照 JSON 持久化」（D-M08-02 作废） | M08 / 契约 / DB |
 | D50 | 2026-11-16 | 静默操作审计留痕 | owner 2026-11-16 确认「静默操作需要留痕防审计」：新增 `m08_silence_audits`，记录每次静默创建 / 删除（**含越权被拒**）的操作人、时间、动作、matcher、结果与原因；留痕**只读**，不提供编辑 / 删除接口，纳入本期范围 | M08 / 安全 / DB |
+| D51 | 2026-11-17 | 配置产物历史与导出（不回滚） | owner 2026-11-17 确认：①保持「不回滚」，但三类配置产物（domain 采集配置 / center 规则 / alertmanager 告警配置）统一只读历史，详情可直接预览，导出件必须可直接落盘（domain zip、center `rules.yml`、alertmanager `alertmanager.yml`、中心一体化恢复包 zip）；②历史内容随版本持久化，不能只存元数据；③**M08 取消二次写入**：`AlertmanagerSnapshotSink` / `am-` 镜像行废弃，M08 单份持久化快照，M09 统一历史只读引用同一份记录，不复制、不二次落库、不触发 reload；④中心规则快照同时持久化 `prometheus.yml + rules.yml`，以支持恢复包；⑤不提供任何历史版本回滚入口 | M08 / M09 / 契约 / 前端 |
 
 ---
 

@@ -223,7 +223,7 @@ m09 同时挂载两个路由组：`platform`（用户鉴权）与 `edge`（Token
 ### 6.4 M08（告警收敛）
 
 - M08 是 `alertmanager.yml` 内容 Owner + 中心即时 reload（D-M09-09）。
-- M09 提供端口：`AlertmanagerSnapshotSink`，M08 写入 `alertmanager.yml` 内容 → M09 落入 `domain_config_snapshots`（仅中心管理域语义在新架构下不再存在；按「中心所在网域」的当前域快照留存）。
+- ~~M09 提供端口：`AlertmanagerSnapshotSink`，M08 写入 `alertmanager.yml` 内容 → M09 落入 `domain_config_snapshots`~~。**D51 修订（2026-11-17）**：M08 单份持久化 `config_snapshots(scope=alertmanager)`，M09 统一配置产物历史只读引用；不再二次写入。
 - M09 不向边缘域扇出 `alertmanager.yml`；边缘配置包不含 alertmanager 段。
 
 ### 6.5 M03（认证）

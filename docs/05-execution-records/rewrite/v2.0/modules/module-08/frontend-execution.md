@@ -53,6 +53,24 @@ v3 与页面沿用的 v2 视图差异集中在信封与路由树形态，因此*
 - `src/pages/alerts/NotifyChannelDrawer.tsx`：模板下拉使用字符串 ID
 - 测试：`HomePage.test.tsx` 路径常量 v2→v3、渠道用例模板 ID 字符串化、`useRoutes.test.ts` 断言即时生效
 
+## 4.1 F1.1 告警配置页去 M09 变更单化（2026-11-17）
+
+用户在复看「告警配置」功能时指出：v3 保存即生效，页面不应再出现 M09 变更单 / 待确认下发语义。
+本轮把 M08 三个告警页残留的「变更单 → 确认下发」叙事全部移除，并顺手清理了对应死代码。
+
+| 文件 | 改动 |
+|---|---|
+| `AlertConfigPage.tsx` | 重写为 v3 视图：表格列改「版本 / 状态（当前生效·历史）/ 生成时间 / 生成人 / 校验和」；删除「M09 变更单」列、`applied_at` 派生状态、废弃态提示与 `/config-preview` 深链；新增**最近 reload 状态**标签与**手动重载**按钮（`POST /config/reload`） |
+| `useAlertConfig.ts` | 增加 `lastReload`（取 `/config/reload-logs` 首条，失败不阻断页面） |
+| `RoutesPage.tsx` | 按钮「保存并提交变更」→「保存并生效」；删除「已提交待确认」横幅与 pending 变更单横幅/类型；保存口径改为「amtool 校验通过后立即写入并 reload」 |
+| `InhibitionsPage.tsx` | 同上：删除 pending 横幅与确认链接；保存提示按 `applied/reload_status` 给出「已保存并生效」或 reload 状态 |
+| `RouteEditorDrawer.tsx` | 抽屉提示改为「保存后立即写入并 reload」 |
+| `types/alertmanager.ts` | 删除 `AlertmanagerConfigStatus`、`source_change_no`、`pending`（RouteTreeData / InhibitionListData）；配置版本字段更名 `applied_at/by → generated_at/by`，新增 `is_current` |
+| `alertmanagerConstants.ts` | 删除 `CONFIG_PREVIEW_PATH`、`configStatusView`、`CONFIG_STATUS_*`、`configStatusLabel/Color`、`isConfigApplied` 及其单测 |
+| `api/alertmanager.ts` / `api/inhibitions.ts` | 适配新字段；控制器映射去掉伪 `status='applied'` |
+
+**验证**：`tsc -p tsconfig.test.json --noEmit` 通过；`vitest run src/pages/alerts src/api src/pages/home` **35 文件 / 400 例全绿**；变更范围 eslint 0 error / 0 warning。测试同步删除 §25/#44/决策 69-③ 等 M09 语义用例，并新增「当前生效/历史标记」「最近 reload 成功/回退」「手动重载调用接口」用例。
+
 ## 5. 遗留
 
 | # | 项 | 说明 |
