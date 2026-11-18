@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/dashboard/panelmount"
+	"github.com/metriccenter/metriccenter/platform/legacy/dashboard/panelmount"
 	"gorm.io/gorm"
 )
 

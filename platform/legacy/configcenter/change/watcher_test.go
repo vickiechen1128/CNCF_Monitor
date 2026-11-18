@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

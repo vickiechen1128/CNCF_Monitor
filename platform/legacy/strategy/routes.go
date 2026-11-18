@@ -7,12 +7,12 @@ package strategy
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/strategy/blackboxmodule"
-	"github.com/metriccenter/metriccenter/platform/strategy/ci-exporter"
-	"github.com/metriccenter/metriccenter/platform/strategy/exporter-template"
-	"github.com/metriccenter/metriccenter/platform/strategy/metric-library"
-	"github.com/metriccenter/metriccenter/platform/strategy/rule"
-	"github.com/metriccenter/metriccenter/platform/strategy/scrapejob"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/blackboxmodule"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/ci-exporter"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/exporter-template"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/metric-library"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/rule"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/scrapejob"
 	"gorm.io/gorm"
 )
 

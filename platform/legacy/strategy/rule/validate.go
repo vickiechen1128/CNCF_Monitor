@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/jobref"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )

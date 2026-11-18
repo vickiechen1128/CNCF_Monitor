@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"gorm.io/gorm"
 )
 
@@ -75,16 +75,7 @@ func resourceModels() []interface{} {
 // 归属仍以「归属网域」承载（ScrapeJob.NetworkDomainID 为 not null）。遵循「可空不臆造」：
 // status 只来自真实 probe_success 样本，无样本留空（前端显示「未知」），不硬编 up/down；
 // last_probe_at 取样本采样时间，拿不到则 nil。
-type ProbeTargetItem struct {
-	URL               string     `json:"url"`                 // 拨测目标展示地址（接口服务 api_url / 应用服务 health_check_url）
-	ServiceName       string     `json:"service_name"`        // 服务名（接口服务 api_name / 应用服务应用字典中文名，缺失时空串）
-	PlatformNames     string     `json:"platform_names"`      // 应用服务所属平台展示名（多平台「、」连接；接口服务恒为空串）
-	ResourceCategory  string     `json:"resource_category"`   // 资源类别（interface_service / application），前端分区展示依据
-	Status            string     `json:"status"`              // up/down/''（''=无 probe_success 样本，未知）
-	NetworkDomainID   string     `json:"network_domain_id"`   // 归属网域 ID（ScrapeJob.NetworkDomainID，not null）
-	NetworkDomainName string     `json:"network_domain_name"` // 归属网域展示名（字典缺条目回落为 ID）
-	LastProbeAt       *time.Time `json:"last_probe_at"`       // 最近一次拨测时间（拿不到时 nil）
-}
+type ProbeTargetItem = dto.ProbeTargetItem
 
 // lookupProbeSample 按 job 名 + 拨测目标地址匹配 probe_success 样本（F-13）。
 // instance 标签即 blackbox 探测的目标地址：资源模式下即所选接口服务资源的 api_url。
@@ -111,73 +102,17 @@ func lookupProbeSample(
 }
 
 // Summary 是首页聚合接口的返回结构。
-type Summary struct {
-	ResourceCount         int `json:"resource_count"`           // 监控资源总数（M07 resource）
-	MonitoredCount        int `json:"monitored_count"`          // 已监控资源数（口径见 §3.5：ready+enabled Job——含拨测资源模式——覆盖去重）
-	ScrapeJobCount        int `json:"scrape_job_count"`         // 采集 Job 总数（M01，未软删）
-	ScrapeJobEnabledCount int `json:"scrape_job_enabled_count"` // 采集 Job 中 enabled=true 数
-	DomainCount           int `json:"domain_count"`             // 已纳管网域数（is_monitored=true）
-
-	// —— 决策 91（M05 PRD v1.7）：首页分组聚合字段（不变量见各测试）——
-	ByCategory                 []CategorySummary `json:"by_category"`                  // 按资源类型分组，6 类固定齐全（缺则补 0 值条目）
-	ByApp                      []AppSummary      `json:"by_app"`                       // 按应用分组（app_code 非空的资源）
-	UnclassifiedResourceCount  int               `json:"unclassified_resource_count"`  // app_code 为空的资源数
-	UnclassifiedMonitoredCount int               `json:"unclassified_monitored_count"` // 其中已被监控数
-	ProbeTargetCount           int               `json:"probe_target_count"`           // 拨测目标数（blackbox）
-	ProbeTargetAbnormalCount   int               `json:"probe_target_abnormal_count"`  // 拨测异常目标数
-	ProbeTargets               []ProbeTargetItem `json:"probe_targets"`                // 拨测目标明细（异常排前由前端按 status 排序，后端不排序）
-
-	// —— 反馈 10（路线 B）：工程师视角采集健康聚合段 ——
-	// 分母 = 已下发资源数（= MonitoredCount），不含未下发；拨测目标不参与。
-	// 查询失败 / 未注入 querier 时为 nil（字段省略），前端按「不可用」呈现，绝不误报 0。
-	CollectionHealth *CollectionHealth `json:"collection_health,omitempty"`
-
-	// —— 反馈 11（首页首屏改版）：平台 × 应用 · 主机数矩阵 ——
-	// 仅统计 resource_category=host；度量单位是**主机台数**（每台主机只有一个
-	// platform_code + 一个 app_code），故行合计 === 列合计 === 主机总数。
-	// 恒返回非 nil slice（空库为 []，绝不 null）；前端对 undefined / [] 一律按
-	// 「不可用态」处理，不渲染全 0 矩阵。
-	ByPlatformApp []PlatformAppSummary `json:"by_platform_app"`
-
-	// —— by_cloud：按云 · 主机台数（M06 决策 103 scheme-B 派生链）——
-	// 仅统计 resource_category=host；cloud_code 的**唯一权威来源**是网域派生链
-	// Host.NetworkDomainID → NetworkDomain.CloudCode → CloudDict.CloudName，
-	// 绝不使用已废弃的 Host.CloudCode 残留列（该列导入路径已不再写入）。
-	// 网域记录缺失、或该网域 cloud_code 为空的主机，统一进 cloud_code="" 的
-	// 「未指定云」兜底行（恒保留、不丢弃），否则行合计对不上主机总数。
-	// 恒返回非 nil slice（空库为 []，绝不 null）。
-	ByCloud []CloudSummary `json:"by_cloud"`
-}
+type Summary = dto.Summary
 
 // PlatformAppSummary 是「平台 × 应用 · 主机数」矩阵的**单行**（反馈 11，
 // 落档见 docs/05-execution-records/module-05/dev-feedback.md §11.4）。
 //
 // 度量单位是主机台数而非应用数：行合计（按平台加总）恒等于列合计（按应用加总）
 // 恒等于主机总数，右下角单一合计格同时闭合两个方向。
-type PlatformAppSummary struct {
-	// PlatformCode 平台编码。约定值："" = 「未指定平台」兜底行（恒保留、不参与
-	// Top N 竞争）；platformAppOtherCode = 「其他」聚合行（其下所有落选平台合并）。
-	PlatformCode string `json:"platform_code"`
-	// PlatformName 平台展示名：查平台字典，字典缺条目回落 PlatformCode 本身
-	// （不臆造）；PlatformCode 为空时为固定兜底名「未指定平台」（回落编码会得到
-	// 空串，故此处给固定展示名）；「其他」行为固定展示名。
-	PlatformName string `json:"platform_name"`
-	// Cells 该平台下各应用的主机台数（app_code 为空的进「未指定应用」列）。
-	Cells []PlatformAppCell `json:"cells"`
-	// HostCount 该平台主机合计（恒等于 Cells 之和，便于前端直接渲染行合计）。
-	HostCount int `json:"host_count"`
-}
+type PlatformAppSummary = dto.PlatformAppSummary
 
 // PlatformAppCell 是矩阵的**单个格子**：某平台 × 某应用的主机台数。
-type PlatformAppCell struct {
-	// AppCode 应用编码；空串 = 「未指定应用」列（不丢弃，否则合计对不上）。
-	AppCode string `json:"app_code"`
-	// AppName 应用展示名：查应用字典，字典缺条目回落 AppCode 本身（不臆造）；
-	// AppCode 为空时为固定兜底名「未指定应用」。
-	AppName string `json:"app_name"`
-	// HostCount 该平台 × 该应用的主机台数。
-	HostCount int `json:"host_count"`
-}
+type PlatformAppCell = dto.PlatformAppCell
 
 // CloudSummary 是「按云 · 主机台数」的**单行**（M06 决策 103 scheme-B 派生链：
 // Host.NetworkDomainID → NetworkDomain.CloudCode → CloudDict.CloudName）。
@@ -188,51 +123,17 @@ type PlatformAppCell struct {
 // ⚠️ 分组轴只有一个——cloud_code。CloudType（公有云/私有云/政务云）与 Carrier
 // （运营商）是**描述性元数据，不是分类轴**，故本聚合既不按其分组、也不在响应里
 // 暴露这两个维度（红线见 platform/config/resource/cloud_dict.go §口径）。
-type CloudSummary struct {
-	// CloudCode 云字典主键（如 PUB-TX / GM-CU）。约定值："" = 「未指定云」兜底行
-	// （网域缺失或网域 cloud_code 为空，恒保留、恒排末位、不参与降序竞争）。
-	CloudCode string `json:"cloud_code"`
-	// CloudName 云展示名：查云字典，字典缺条目回落 CloudCode 本身（不臆造、
-	// 不返回空串）；CloudCode 为空时为固定兜底名「未指定云」（回落编码会得到
-	// 空串，前端卡片主视觉会是无名卡片）。
-	CloudName string `json:"cloud_name"`
-	// ResourceCount 该云下主机资源数（行合计恒等于 by_category 中 host 的
-	// resource_count，含「未指定云」行）。
-	ResourceCount int `json:"resource_count"`
-	// MonitoredCount 该云下主机已被 ready+enabled 采集任务纳管的数量。口径与
-	// 全局 MonitoredCount 同源（复用 loadSelectedResourceIDs 的 selected 集合），
-	// 但**只统计 host 类**，故各行之和 ≤ 全局 monitored_count。
-	MonitoredCount int `json:"monitored_count"`
-	// CoverageRate 纳管率（整数百分比）= MonitoredCount * 100 / ResourceCount；
-	// ResourceCount 为 0 时取 0（防除零）。
-	CoverageRate int `json:"coverage_rate"`
-}
+type CloudSummary = dto.CloudSummary
 
 // CategorySummary 单个资源类型（L1 卡）的聚合。不含告警字段——首页未恢复数字由
 // 前端按 /api/v1/alerts 分组得到，后端零改动。
-type CategorySummary struct {
-	ResourceCategory string           `json:"resource_category"` // host/database/middleware/application/generic_target/interface_service
-	ResourceCount    int              `json:"resource_count"`
-	MonitoredCount   int              `json:"monitored_count"`
-	BySubtype        []SubtypeSummary `json:"by_subtype"` // 采集类型子类明细（application 恒为空数组）
-}
+type CategorySummary = dto.CategorySummary
 
 // SubtypeSummary 单个采集类型子类的聚合。
-type SubtypeSummary struct {
-	Subtype        string `json:"subtype"`
-	ResourceCount  int    `json:"resource_count"`
-	MonitoredCount int    `json:"monitored_count"`
-}
+type SubtypeSummary = dto.SubtypeSummary
 
 // AppSummary 单个应用（L2 行）的资源聚合。
-type AppSummary struct {
-	AppCode        string `json:"app_code"`
-	AppName        string `json:"app_name"` // 应用字典展示名；字典无条目时回落为 app_code
-	BizCode        string `json:"biz_code"` // 多数归因业务域编码（决策 92/93/95）；无有效计数时为空串
-	BizName        string `json:"biz_name"` // 业务字典展示名；字典无条目时回落为 biz_code
-	ResourceCount  int    `json:"resource_count"`
-	MonitoredCount int    `json:"monitored_count"`
-}
+type AppSummary = dto.AppSummary
 
 // buildOptions Build 的可选依赖（F-13：拨测结果查询器）。
 type buildOptions struct {

@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/metriccenter/metriccenter/platform/domainregistry"
+	"github.com/metriccenter/metriccenter/platform/legacy/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/require"
 )

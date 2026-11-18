@@ -14,10 +14,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/change"
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
-	"github.com/metriccenter/metriccenter/platform/domainregistry"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/change"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/legacy/domainregistry"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )

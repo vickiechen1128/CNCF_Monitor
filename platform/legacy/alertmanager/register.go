@@ -15,12 +15,12 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/inhibition"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/silence"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/alerts"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/config"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/inhibition"
+	"github.com/metriccenter/metriccenter/platform/modules/m08/notify"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/route"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/silence"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"gorm.io/gorm"
 )

@@ -7,9 +7,9 @@ package configcenter
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
-	"github.com/metriccenter/metriccenter/platform/configcenter/domain"
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/deployment"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/domain"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/draft"
 	"gorm.io/gorm"
 )
 

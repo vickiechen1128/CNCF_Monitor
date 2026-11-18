@@ -14,7 +14,7 @@
 package route
 
 import (
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 )
 
 // boolPtr 返回 bool 指针（编辑态 *bool 字段构造用）。

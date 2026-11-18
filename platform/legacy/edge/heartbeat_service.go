@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/models"
 
 	"gorm.io/gorm"

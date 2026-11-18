@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"

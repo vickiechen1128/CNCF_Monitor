@@ -114,17 +114,13 @@ func TestUpdateBusinessDomainProfile(t *testing.T) {
 	assert.False(t, d.Enabled)
 }
 
-func TestUpdateBusinessDomainInfraDisableRejected(t *testing.T) {
+// M07 SRS v2.0：infra 兜底条目与禁用红线已删除，任何业务条目都可正常停用。
+func TestUpdateBusinessDomainInfraDisableAllowed(t *testing.T) {
 	r, _ := mountBusinessRouter(t)
 
 	code, out := putJSON(t, r, "/api/v2/platform/business-domains/infra", `{"enabled":false}`)
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "bad_request", out["errorType"])
-
-	// 非停用的其他字段仍可编辑 infra。
-	code, out = putJSON(t, r, "/api/v2/platform/business-domains/infra", `{"name":"公共基础设施"}`)
-	assert.Equal(t, http.StatusOK, code)
-	assert.Equal(t, true, out["data"].(map[string]interface{})["enabled"], "infra 仅禁停用，其余编辑放行")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, false, out["data"].(map[string]interface{})["enabled"])
 }
 
 func TestUpdateBusinessDomainNotFound(t *testing.T) {

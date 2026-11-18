@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/draft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

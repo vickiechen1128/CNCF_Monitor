@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 )
 
 // 校验结论等级：error = 阻断保存；warning = 仅提示（可保存）。

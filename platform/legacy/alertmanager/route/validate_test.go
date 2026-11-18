@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 )
 
 // healthyRouteYAML 是一份健康的 route 段：根兜底带节奏，两条一级子路由（第二条带一条

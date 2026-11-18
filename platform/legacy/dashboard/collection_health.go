@@ -26,6 +26,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 )
 
 // 采集健康判定所需的 PromQL 表达式。
@@ -34,12 +36,7 @@ const upInstantQuery = "up"
 
 // CollectionHealth 按实例汇总全部成功、部分成功和全部失败的采集健康。
 // 不变量：DispatchedCount == CollectingCount + PartialCollectingCount + DownCount。
-type CollectionHealth struct {
-	DispatchedCount        int `json:"dispatched_count"`
-	CollectingCount        int `json:"collecting_count"`
-	PartialCollectingCount int `json:"partial_collecting_count"`
-	DownCount              int `json:"down_count"`
-}
+type CollectionHealth = dto.CollectionHealth
 
 // UpHealthIndex 按 resource_id 归集 Target 成功与失败样本。
 type UpHealthIndex struct {

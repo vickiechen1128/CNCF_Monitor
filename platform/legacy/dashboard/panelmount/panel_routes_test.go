@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/dashboard"
+	"github.com/metriccenter/metriccenter/platform/legacy/dashboard"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/require"

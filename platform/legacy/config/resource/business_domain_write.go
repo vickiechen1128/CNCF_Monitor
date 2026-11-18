@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/models"
 )
 
@@ -101,11 +101,6 @@ func UpdateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc {
 		}
 		if !found {
 			response.NotFound(c, fmt.Sprintf("业务 %s 不存在", code))
-			return
-		}
-		// infra 兜底条目禁止停用（决策 48 红线）。
-		if code == models.InfraBizCode && req.Enabled != nil && !*req.Enabled {
-			response.BadRequest(c, fmt.Errorf("infra 为无业务归属设备的兜底分组，不可停用"))
 			return
 		}
 		updated, err := store.Update(code, req)

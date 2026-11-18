@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/strategy/common"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/common"
 	"gorm.io/gorm"
 )
 

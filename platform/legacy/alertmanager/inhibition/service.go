@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/route"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 )
 
 // ErrInvalidRule indicates invalid inhibition rule input.

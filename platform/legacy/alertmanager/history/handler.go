@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/query"
+	"github.com/metriccenter/metriccenter/platform/legacy/query"
 	"gorm.io/gorm"
 )
 

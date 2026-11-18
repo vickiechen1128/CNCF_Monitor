@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
-	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/legacy/configcenter/deployment"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/strategy/rule"
+	"github.com/metriccenter/metriccenter/platform/legacy/strategy/rule"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
-	"github.com/metriccenter/metriccenter/platform/query"
+	"github.com/metriccenter/metriccenter/platform/legacy/query"
 	"gorm.io/gorm"
 )
 

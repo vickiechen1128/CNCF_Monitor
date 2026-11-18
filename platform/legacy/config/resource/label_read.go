@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/api/response"
-	"github.com/metriccenter/metriccenter/platform/config/label"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
+	"github.com/metriccenter/metriccenter/platform/legacy/config/label"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )

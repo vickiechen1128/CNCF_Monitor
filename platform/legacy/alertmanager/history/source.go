@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
+	"github.com/metriccenter/metriccenter/platform/legacy/alertmanager/alerts"
 )
 
 // AMSource 把 M08 的 Alertmanager 告警代理适配为对账数据源。
