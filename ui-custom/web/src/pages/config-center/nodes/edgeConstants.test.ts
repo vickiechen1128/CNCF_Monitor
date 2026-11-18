@@ -101,7 +101,7 @@ describe('edgeConstants 纯函数', () => {
     expect(configSyncDisplayBadgeStatus('manual_override')).toBe('warning')
   })
 
-  it('apply_failed 映射矩阵：展示「同步失败」+ error，并提供提示与「查看下发」引导（D-2）', () => {
+  it('apply_failed 映射矩阵：展示「同步失败」+ error，并提供提示与「查看配置快照」引导（D-2）', () => {
     expect(configSyncDisplayLabel('out_of_sync', 'apply_failed')).toBe('同步失败')
     expect(configSyncDisplayBadgeStatus('out_of_sync', 'apply_failed')).toBe('error')
     // 与「同步中」「未同步」文案/色明确区分
@@ -112,6 +112,8 @@ describe('edgeConstants 纯函数', () => {
     expect(configSyncDisplayBadgeStatus('in_sync', 'apply_failed')).toBe('success')
     // 提示与引导按钮
     expect(outOfSyncCauseHint.apply_failed).toContain('已回滚至上一可用版本')
-    expect(outOfSyncCauseAction.apply_failed).toEqual({ text: '查看下发', target: '/deployments' })
+    // v3 已无下发记录页：引导统一指向合并后的配置快照页
+    expect(outOfSyncCauseAction.apply_failed).toEqual({ text: '查看配置快照', target: '/config-snapshots' })
+    expect(outOfSyncCauseAction.pending_draft).toEqual({ text: '查看配置快照', target: '/config-snapshots' })
   })
 })

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Button } from 'antd'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -12,14 +12,19 @@ import type { PlatformDict } from '../../types/resource'
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const revokeMock = vi.fn()
+const mergeMock = vi.fn()
 const relListMock = vi.fn()
 const appListMock = vi.fn()
+const auditListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   platformDictApi: {
     list: (...args: unknown[]) => listMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+    revoke: (...args: unknown[]) => revokeMock(...args),
+    merge: (...args: unknown[]) => mergeMock(...args),
   },
   // D42 / G4：平台页「关联应用」反查依赖应用↔平台关联 + 应用字典展示名
   appPlatformRelApi: {
@@ -28,12 +33,45 @@ vi.mock('../../api/resources', () => ({
   applicationDictApi: {
     list: (...args: unknown[]) => appListMock(...args),
   },
+  dictionaryAuditApi: {
+    list: (...args: unknown[]) => auditListMock(...args),
+  },
 }))
 
 const platforms: PlatformDict[] = [
-  { platform_code: 'ecommerce', platform_name: '电商中台', description: '交易主链路', enabled: true },
-  { platform_code: 'public-data-auth', platform_name: '公共数据授权运营平台', description: '数据授权', enabled: true },
-  { platform_code: 'legacy-pf', platform_name: '已下线平台', description: '停用中', enabled: false },
+  {
+    platform_code: 'ecommerce',
+    platform_name: '电商中台',
+    description: '交易主链路',
+    enabled: true,
+    status: 'enabled',
+    reference_count: 2,
+  },
+  {
+    platform_code: 'public-data-auth',
+    platform_name: '公共数据授权运营平台',
+    description: '数据授权',
+    enabled: true,
+    status: 'enabled',
+    reference_count: 0,
+  },
+  {
+    platform_code: 'legacy-pf',
+    platform_name: '已下线平台',
+    description: '停用中',
+    enabled: false,
+    status: 'disabled',
+    reference_count: 1,
+  },
+  {
+    platform_code: 'merged-pf',
+    platform_name: '已合并平台',
+    description: '历史重码',
+    enabled: false,
+    status: 'merged',
+    merged_into: 'ecommerce',
+    reference_count: 0,
+  },
 ]
 
 function renderPage() {
@@ -80,19 +118,31 @@ describe('PlatformManagementPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    revokeMock.mockReset()
+    mergeMock.mockReset()
     relListMock.mockReset()
     appListMock.mockReset()
+    auditListMock.mockReset()
     relListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     appListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     listMock.mockResolvedValue({ status: 'success', data: { list: platforms, total: platforms.length } })
     createMock.mockResolvedValue({
       status: 'success',
-      data: { platform_code: 'risk-pf', platform_name: '风控平台', enabled: true },
+      data: { platform_code: 'risk-pf', platform_name: '风控平台', enabled: true, status: 'enabled', reference_count: 0 },
     })
     updateMock.mockResolvedValue({
       status: 'success',
-      data: { platform_code: 'ecommerce', platform_name: '电商中台', enabled: false },
+      data: { platform_code: 'ecommerce', platform_name: '电商中台', enabled: false, status: 'disabled', reference_count: 2 },
     })
+    revokeMock.mockResolvedValue({
+      status: 'success',
+      data: { platform_code: 'public-data-auth', platform_name: '公共数据授权运营平台', enabled: false, status: 'revoked', reference_count: 0 },
+    })
+    mergeMock.mockResolvedValue({
+      status: 'success',
+      data: { source: 'public-data-auth', target: 'ecommerce', moved_references: 0 },
+    })
+    auditListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })
 
   it('加载并渲染平台字典列表，停用条目以「平台名（已停用）」标识', async () => {
@@ -127,20 +177,57 @@ describe('PlatformManagementPage', () => {
     expect(within(row).queryByRole('button', { name: /删除/ })).toBeNull()
   })
 
-  it('「更多」菜单停用经确认弹层提交 enabled=false（停用不删除）', async () => {
+  it('停用经确认弹层提交 enabled=false（停用不删除）', async () => {
     const modal = mockAntdModal()
     renderPage()
     await screen.findByText('ecommerce')
 
     const row = screen.getByText('ecommerce').closest('tr')!
-    await userEvent.click(within(row).getByRole('button', { name: /更多/ }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: '停用' }))
+    await userEvent.click(within(row).getByRole('button', { name: '停用' }))
 
     await waitFor(() => expect(modal.confirm).toHaveBeenCalledTimes(1))
     const onOk = modal.confirm.mock.calls[0][0].onOk
     await onOk?.()
 
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith('ecommerce', { enabled: false }))
+  })
+
+  it('展示引用数；零引用平台可撤销，有引用平台撤销按钮禁用', async () => {
+    renderPage()
+    await screen.findByText('ecommerce')
+
+    const ecommerceRow = screen.getByText('ecommerce').closest('tr')!
+    expect(within(ecommerceRow).getByText('2')).toBeInTheDocument()
+    expect(within(ecommerceRow).getByRole('button', { name: '撤销' })).toBeDisabled()
+
+    const authRow = screen.getByText('public-data-auth').closest('tr')!
+    await userEvent.click(within(authRow).getByRole('button', { name: '撤销' }))
+    await userEvent.click(await screen.findByRole('button', { name: /确认撤销/ }))
+    await waitFor(() => expect(revokeMock).toHaveBeenCalledWith('public-data-auth'))
+  })
+
+  it('合并弹窗展示历史数据提示，确认后提交源编码与目标编码', async () => {
+    renderPage()
+    await screen.findByText('ecommerce')
+
+    const authRow = screen.getByText('public-data-auth').closest('tr')!
+    await userEvent.click(within(authRow).getByRole('button', { name: '合并' }))
+    expect(await screen.findByText('合并会迁移引用，历史监控数据不追溯改写')).toBeInTheDocument()
+
+    fireEvent.mouseDown(document.querySelector('.ant-modal .ant-select-selector') as HTMLElement)
+    fireEvent.click(await screen.findByText('电商中台（ecommerce）', { selector: '.ant-select-item-option-content' }))
+    await userEvent.click(screen.getByRole('button', { name: /确认合并/ }))
+
+    await waitFor(() => expect(mergeMock).toHaveBeenCalledWith('public-data-auth', 'ecommerce'))
+  })
+
+  it('切换到「全部」后展示已合并平台及合并目标', async () => {
+    renderPage()
+    await screen.findByText('ecommerce')
+
+    await userEvent.click(screen.getByText('全部'))
+    expect(await screen.findByText('已合并平台（已合并）')).toBeInTheDocument()
+    expect(screen.getByText('已合并 → ecommerce')).toBeInTheDocument()
   })
 
   // D42 / G4：组织视角下「平台 = 应用的聚合」，平台页须能回答「本平台下有哪些应用」

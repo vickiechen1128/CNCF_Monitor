@@ -18,6 +18,7 @@ import type { SkinTokens } from '../../skins'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { EllipsisText } from '../../components/EllipsisText'
 import type { ResourceListItem } from './useResources'
+import { MONITOR_STATE_FILTER_OPTIONS, STATUS_FILTER_OPTIONS } from './resourceFilterOptions'
 import { SOURCE_TYPE_MAP, STATUS_MAP, statusColor } from './resourceMeta'
 
 const { Text } = Typography
@@ -76,6 +77,14 @@ export interface ResourceColumnContext {
   resolvePlatformName: (code?: string) => string
   /** 平台是否停用 */
   isPlatformDisabled: (code: string) => boolean
+  /** 列头筛选：网域选项（与筛选抽屉同一份网域清单） */
+  networkDomainFilterOptions: { text: string; value: string }[]
+  /** 列头筛选：当前网域筛选值 */
+  networkDomainFilterValue?: string
+  /** 列头筛选：当前运行状态筛选值 */
+  statusFilterValue?: string
+  /** 列头筛选：当前采集状态筛选值 */
+  monitorStateFilterValue?: string
   /** 行内「详情」入口 */
   onDetail: (record: ResourceListItem) => void
   /** 行内「编辑」入口 */
@@ -110,6 +119,10 @@ export function buildResourceColumns(
     isCloudDisabled,
     resolvePlatformName,
     isPlatformDisabled,
+    networkDomainFilterOptions,
+    networkDomainFilterValue,
+    statusFilterValue,
+    monitorStateFilterValue,
     onDetail,
     onEdit,
     onDelete,
@@ -120,6 +133,9 @@ export function buildResourceColumns(
     title: '网域',
     dataIndex: 'network_domain_id',
     key: 'network_domain_id',
+    filters: networkDomainFilterOptions,
+    filteredValue: networkDomainFilterValue ? [networkDomainFilterValue] : null,
+    filterMultiple: false,
     render: (value: string) => <Tag color="cyan">{domainNameOf(value)}</Tag>,
   }
   const businessColumn: ColumnsType<ResourceListItem>[number] = {
@@ -229,6 +245,9 @@ export function buildResourceColumns(
     ),
     dataIndex: 'status',
     key: 'status',
+    filters: STATUS_FILTER_OPTIONS.map(({ value, label }) => ({ text: label, value })),
+    filteredValue: statusFilterValue ? [statusFilterValue] : null,
+    filterMultiple: false,
     render: (value: string) => (
       <Badge color={statusColor(tokens)[value] ?? tokens.colorTextTertiary} text={STATUS_MAP[value] ?? value} />
     ),
@@ -264,6 +283,9 @@ export function buildResourceColumns(
     title: '采集状态',
     key: 'monitor_state',
     width: 120,
+    filters: MONITOR_STATE_FILTER_OPTIONS.map(({ value, label }) => ({ text: label, value })),
+    filteredValue: monitorStateFilterValue ? [monitorStateFilterValue] : null,
+    filterMultiple: false,
     render: (_: unknown, record: ResourceListItem) => {
       const coverage = coverageByResource[record.resource_id]
       const state = coverage?.monitor_state ?? 'not_monitored'
@@ -281,6 +303,15 @@ export function buildResourceColumns(
 
   // 列序约定（M07 dev-feedback §13 F-13 撤销列头分组后的替代口径）：
   // 原按「技术属性 / 位置」与「业务归属」两组归并，现改为**平铺单层列**，但保留原分组的列序语义——
+  // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0）。
+  // 位置按 PM 反馈后置到「采集状态」之后：先看采没采到，再看端口配置。
+  const scrapePortColumn: ColumnsType<ResourceListItem>[number] = {
+    title: '采集端口',
+    dataIndex: 'scrape_port',
+    key: 'scrape_port',
+    render: (v?: number) => (v ? v : '-'),
+  }
+
   // 技术属性 / 位置列在前（主标识 → 类型专属列 → 网域 → 运行状态 → 采集状态 → 录入方式 → 云），
   // 业务归属列在后（平台 → 应用名称 → 业务名称），即「应用名称在业务名称之前」。
   // 撤销理由：antd 父列分组把表头变两行却一列未减，与 tablePresets.ts「列数 ≤ 8，超出字段下沉详情 Drawer」
@@ -312,8 +343,6 @@ export function buildResourceColumns(
       // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
       const typeColumns: ColumnsType<ResourceListItem> = [
         { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
-        // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
-        { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
         {
           title: '环境',
@@ -334,6 +363,7 @@ export function buildResourceColumns(
         domainColumn,
         statusColumn,
         monitorColumn,
+        scrapePortColumn,
         sourceColumn,
         cloudColumn,
         platformColumn,
@@ -362,8 +392,6 @@ export function buildResourceColumns(
         },
         { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
         { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
-        // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
-        { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
       ]
       return [
@@ -372,6 +400,7 @@ export function buildResourceColumns(
         domainColumn,
         statusColumn,
         monitorColumn,
+        scrapePortColumn,
         sourceColumn,
         cloudColumn,
         platformColumn,
@@ -400,8 +429,6 @@ export function buildResourceColumns(
         },
         { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
         { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
-        // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
-        { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
       ]
       return [
@@ -410,6 +437,7 @@ export function buildResourceColumns(
         domainColumn,
         statusColumn,
         monitorColumn,
+        scrapePortColumn,
         sourceColumn,
         cloudColumn,
         platformColumn,
@@ -478,8 +506,6 @@ export function buildResourceColumns(
           key: 'port',
           render: (v?: number) => v ?? '-',
         },
-        // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
-        { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
       ]
       return [
         identifier,
@@ -487,6 +513,7 @@ export function buildResourceColumns(
         domainColumn,
         statusColumn,
         monitorColumn,
+        scrapePortColumn,
         sourceColumn,
         cloudColumn,
         platformColumn,
@@ -509,8 +536,6 @@ export function buildResourceColumns(
         { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
         { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
         { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
-        // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
-        { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         { title: '采集路径', dataIndex: 'metrics_path', key: 'metrics_path', render: (v?: string) => v || '/metrics' },
         { title: '协议', dataIndex: 'scheme', key: 'scheme', render: (v?: string) => v || 'http' },
       ]
@@ -520,6 +545,7 @@ export function buildResourceColumns(
         domainColumn,
         statusColumn,
         monitorColumn,
+        scrapePortColumn,
         sourceColumn,
         cloudColumn,
         platformColumn,

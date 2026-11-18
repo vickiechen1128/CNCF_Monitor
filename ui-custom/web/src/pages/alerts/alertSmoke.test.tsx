@@ -164,7 +164,7 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     getVersionsMock.mockRejectedValue(new Error('backend unreachable'))
     renderM08('/alert-config')
     expect(await screen.findByText('配置信息加载失败，请稍后重试')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /重新加载/ })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /重新加载/ }).length).toBeGreaterThan(0)
   })
 
   // 2026-10-22 用户裁决：告警配置页只读，导入能力与策略控件均不得残留。

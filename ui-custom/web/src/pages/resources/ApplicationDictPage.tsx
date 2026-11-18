@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  Badge,
   Button,
   Card,
   Drawer,
@@ -9,15 +8,17 @@ import {
   Form,
   Input,
   Popconfirm,
+  Segmented,
   Select,
   Space,
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { appPlatformRelApi, applicationDictApi, platformDictApi } from '../../api/resources'
 import type { AppPlatformRel, ApplicationDict, PlatformDict } from '../../types/resource'
@@ -26,6 +27,18 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { DictLifecycleNotice } from './DictLifecycleNotice'
+import {
+  DictionaryAuditDrawer,
+  DictionaryMergeButton,
+  DictionaryRevokeButton,
+  DictionaryStatusBadge,
+} from './DictionaryLifecycleActions'
+import {
+  DICTIONARY_ACTIVE_STATUSES,
+  dictionaryNameSuffix,
+  dictionaryStatusOf,
+  isDictionaryTerminal,
+} from './dictionaryLifecycle'
 
 const { Text } = Typography
 
@@ -77,8 +90,10 @@ export function ApplicationDictPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
+  const [scope, setScope] = useState<'active' | 'all'>('active')
   const [drawer, setDrawer] = useState<{ open: boolean; record: ApplicationDict | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  const [auditOpen, setAuditOpen] = useState(false)
   // 平台字典（决策 104）：仅用于「所属平台」下拉选项与「所属平台」列展示名解析
   const [platforms, setPlatforms] = useState<PlatformDict[]>([])
   // 决策 111：应用↔平台关联（`app_platform_rel`）为平台关系权威，列表「平台」列据此反查
@@ -118,14 +133,17 @@ export function ApplicationDictPage() {
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
-    if (!kw) return list
-    return list.filter(
-      (d) =>
+    return list.filter((d) => {
+      const status = dictionaryStatusOf(d)
+      if (scope === 'active' && !DICTIONARY_ACTIVE_STATUSES.includes(status)) return false
+      if (!kw) return true
+      return (
         d.app_code.toLowerCase().includes(kw) ||
         d.app_name.toLowerCase().includes(kw) ||
-        (d.description ?? '').toLowerCase().includes(kw),
-    )
-  }, [list, keyword])
+        (d.description ?? '').toLowerCase().includes(kw)
+      )
+    })
+  }, [list, keyword, scope])
 
   /** app_code → 该应用的平台关联集合（决策 111：M:N，按关联建立顺序展示） */
   const relsByApp = useMemo(() => {
@@ -138,15 +156,15 @@ export function ApplicationDictPage() {
     return map
   }, [rels])
 
-  /** 平台编码 → 展示名（缺条目回退编码，停用加「（已停用）」） */
+  /** 平台编码 → 展示名（缺条目回退编码，非启用平台加对应状态后缀） */
   const platformLabel = (code: string) => {
     const hit = platforms.find((p) => p.platform_code === code)
     if (!hit) return code
-    return hit.enabled ? hit.platform_name : `${hit.platform_name}${DISABLED_SUFFIX}`
+    return `${hit.platform_name}${dictionaryNameSuffix(dictionaryStatusOf(hit))}`
   }
 
   const toggleStatus = useCallback(
-    async (record: ApplicationDict, next: ApplicationDict['status']) => {
+    async (record: ApplicationDict, next: 'enabled' | 'disabled') => {
       setActingCode(record.app_code)
       try {
         await applicationDictApi.update(record.app_code, { status: next })
@@ -178,9 +196,10 @@ export function ApplicationDictPage() {
       dataIndex: 'app_name',
       key: 'app_name',
       width: 200,
-      // §5.19 / 决策 22 同口径：停用条目以「应用名（已停用）」标识
-      render: (v: string, r: ApplicationDict) =>
-        r.status === 'enabled' ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
+      // §5.19 / 决策 22 同口径：停用 / 终态条目以名称后缀标识
+      render: (v: string, r: ApplicationDict) => (
+        <EllipsisText>{`${v}${dictionaryNameSuffix(dictionaryStatusOf(r))}`}</EllipsisText>
+      ),
     },
     {
       // 决策 111：应用↔平台改为 M:N——「平台」列罗列全部关联平台 Tag，
@@ -194,7 +213,9 @@ export function ApplicationDictPage() {
         return (
           <Space size={[4, 4]} wrap>
             {appRels.map((rel) => {
-              const disabled = platforms.some((p) => p.platform_code === rel.platform_code && !p.enabled)
+              const disabled = platforms.some(
+                (p) => p.platform_code === rel.platform_code && dictionaryStatusOf(p) !== 'enabled',
+              )
               return (
                 <Tag key={rel.rel_id} color={disabled ? 'default' : 'purple'}>
                   {`${platformLabel(rel.platform_code)}${rel.is_primary ? '（主）' : ''}`}
@@ -213,41 +234,70 @@ export function ApplicationDictPage() {
       render: (v?: string) => (v ? <EllipsisText>{v}</EllipsisText> : <Text type="secondary">-</Text>),
     },
     {
+      title: '引用数',
+      dataIndex: 'reference_count',
+      key: 'reference_count',
+      width: 90,
+      render: (v?: number) => <Text type={v ? undefined : 'secondary'}>{v ?? 0}</Text>,
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (v: ApplicationDict['status']) =>
-        v === 'enabled' ? <Badge status="success" text="已启用" /> : <Badge status="default" text="已停用" />,
+      width: 120,
+      render: (_: unknown, r: ApplicationDict) => (
+        <DictionaryStatusBadge status={dictionaryStatusOf(r)} mergedInto={r.merged_into} />
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 160,
+      width: 260,
       render: (_: unknown, r: ApplicationDict) => {
-        const enabled = r.status === 'enabled'
+        const status = dictionaryStatusOf(r)
+        const terminal = isDictionaryTerminal(status)
+        const mergeOptions = list
+          .filter((item) => dictionaryStatusOf(item) === 'enabled' && item.app_code !== r.app_code)
+          .map((item) => ({ code: item.app_code, name: item.app_name }))
         return (
-          <Space size={0}>
-            <Button type="link" size="small" onClick={() => openEdit(r)}>
+          <Space size={0} wrap>
+            <Button type="link" size="small" disabled={terminal} onClick={() => openEdit(r)}>
               编辑
             </Button>
-            <Popconfirm
-              title={enabled ? '停用应用' : '启用应用'}
-              description={
-                enabled
-                  ? `停用后「${r.app_name}」不再可供新增 / 编辑资源选用，存量资源保留历史值，采集与聚合不受影响。`
-                  : `启用后「${r.app_name}」恢复为新资源可选用。`
-              }
-              okText={enabled ? '确认停用' : '确认启用'}
-              okButtonProps={enabled ? { danger: true } : undefined}
-              cancelText="取消"
-              onConfirm={() => void toggleStatus(r, enabled ? 'disabled' : 'enabled')}
-            >
-              <Button type="link" size="small" loading={actingCode === r.app_code}>
-                {enabled ? '停用' : '启用'}
-              </Button>
-            </Popconfirm>
+            {!terminal && (
+              <Popconfirm
+                title={r.status === 'enabled' ? '停用应用' : '启用应用'}
+                description={
+                  r.status === 'enabled'
+                    ? `停用后「${r.app_name}」不再可供新增 / 编辑资源选用，存量资源保留历史值，采集与聚合不受影响。`
+                    : `启用后「${r.app_name}」恢复为新资源可选用。`
+                }
+                okText={r.status === 'enabled' ? '确认停用' : '确认启用'}
+                okButtonProps={r.status === 'enabled' ? { danger: true } : undefined}
+                cancelText="取消"
+                onConfirm={() => void toggleStatus(r, r.status === 'enabled' ? 'disabled' : 'enabled')}
+              >
+                <Button type="link" size="small" loading={actingCode === r.app_code}>
+                  {r.status === 'enabled' ? '停用' : '启用'}
+                </Button>
+              </Popconfirm>
+            )}
+            <DictionaryRevokeButton
+              name={r.app_name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              onRevoke={() => applicationDictApi.revoke(r.app_code)}
+              onDone={() => void load()}
+            />
+            <DictionaryMergeButton
+              name={r.app_name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              options={mergeOptions}
+              onMerge={(targetCode) => applicationDictApi.merge(r.app_code, targetCode)}
+              onDone={() => void load()}
+            />
           </Space>
         )
       },
@@ -259,6 +309,7 @@ export function ApplicationDictPage() {
       <Card
         extra={
           <Space>
+            <Button onClick={() => setAuditOpen(true)}>变更日志</Button>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
               刷新
             </Button>
@@ -285,6 +336,16 @@ export function ApplicationDictPage() {
           />
         )}
         <FilterBar>
+          <FilterItem label="范围" width={200}>
+            <Segmented
+              value={scope}
+              onChange={(v) => setScope(v as 'active' | 'all')}
+              options={[
+                { value: 'active', label: '有效条目' },
+                { value: 'all', label: '全部' },
+              ]}
+            />
+          </FilterItem>
           <FilterItem label="关键字" width={260}>
             <Input.Search
               allowClear
@@ -316,6 +377,11 @@ export function ApplicationDictPage() {
             void load()
           }}
         />
+        <DictionaryAuditDrawer
+          dictionaryType="application"
+          open={auditOpen}
+          onClose={() => setAuditOpen(false)}
+        />
       </Card>
     </MainLayout>
   )
@@ -337,16 +403,16 @@ interface ApplicationDictFormValues {
   description?: string
   /** 表单内用布尔承载启用状态（Switch），提交时转为 status 枚举 */
   enabled?: boolean
-  /** {v2.49 决策 111} 所属平台（多选）：应用↔平台 M:N 的全部关联平台编码 */
+  /** {v2.49 决策 111 / M07 SRS v2.0} 关联平台（多选）：应用↔平台 M:N 的全部关联平台编码 */
   platform_codes?: string[]
-  /** {v2.49 决策 111} 主平台（单选）：至多一个，取值必须是「所属平台」已选集合的子集 */
-  primary_platform_code?: string
 }
 
 /**
  * 应用字典登记 / 受限编辑抽屉（§5.19 红线）
  *
- * 登记含编码规范校验；编辑仅开放 应用名 / 描述 / 状态 / 平台关联（多选 + 主平台单选）。
+ * 登记含编码规范校验；编辑仅开放 应用名 / 描述 / 状态 / 关联平台。
+ * 关联平台为**单字段**（M07 SRS v2.0 §5 / NFR-22）：多选平台后，通过标签左侧星标
+ * 切换主平台；只选一个平台时自动成为主平台。
  * **应用字典写链路不再承载 `platform_code`**（决策 111 废弃该单值字段）：
  * 提交序列为「先 PUT 应用基础字段 → 再对 `app-platform-rel` 做增量 diff」。
  */
@@ -362,17 +428,19 @@ export function ApplicationDictDrawer({
   const [submitError, setSubmitError] = useState<string | null>(null)
   /** 编辑态打开时反查的存量关联（diff 基线；登记态为空数组） */
   const [originalRels, setOriginalRels] = useState<AppPlatformRel[]>([])
+  /** 当前主平台（由标签星标切换）；实际生效值由 effectivePrimaryCode 统一推导 */
+  const [primaryCode, setPrimaryCode] = useState<string | undefined>(undefined)
   const isEdit = !!record
-  /** 当前已选平台（多选值），驱动「主平台」下拉子集与停用项回显 */
+  /** 当前已选平台（多选值），驱动主平台星标与停用项回显 */
   const selectedCodes = Form.useWatch('platform_codes', form) as string[] | undefined
 
   /**
-   * 「所属平台」多选下拉：仅启用平台可选；已选中的停用 / 已下线平台保留历史值展示
+   * 「关联平台」多选下拉：仅启用平台可选；已选中的停用 / 已下线平台保留历史值展示
    * （不可新选，但不清空）。按 `value` 去重，避免启用项与回显项重复渲染。
    */
   const platformOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>()
-    for (const p of platforms.filter((x) => x.enabled)) {
+    for (const p of platforms.filter((x) => dictionaryStatusOf(x) === 'enabled')) {
       options.set(p.platform_code, { value: p.platform_code, label: `${p.platform_name}（${p.platform_code}）` })
     }
     // 历史停用关联回显（决策 111）：已关联但已停用的平台须始终作为可选 / 回显项，
@@ -390,11 +458,18 @@ export function ApplicationDictDrawer({
     return [...options.values()]
   }, [platforms, originalRels])
 
-  /** 主平台下拉：选项恒为「所属平台」已选集合的子集（未选平台时无可选项） */
-  const primaryOptions = useMemo(() => {
-    const byValue = new Map(platformOptions.map((o) => [o.value, o.label]))
-    return (selectedCodes ?? []).filter((c) => byValue.has(c)).map((c) => ({ value: c, label: byValue.get(c)! }))
-  }, [platformOptions, selectedCodes])
+  /**
+   * 生效主平台：保留用户显式星标（只要仍在已选集合内），否则自动取首个启用平台，
+   * 再退化到首个已选平台——保证「应用有且仅有一个主平台」（D42）。
+   */
+  const effectivePrimaryCode = useMemo(() => {
+    const codes = selectedCodes ?? []
+    if (primaryCode && codes.includes(primaryCode)) return primaryCode
+    const firstEnabled = codes.find((code) =>
+      platforms.some((p) => p.platform_code === code && dictionaryStatusOf(p) === 'enabled'),
+    )
+    return firstEnabled ?? codes[0]
+  }, [primaryCode, selectedCodes, platforms])
 
   useEffect(() => {
     if (!open) return
@@ -402,6 +477,7 @@ export function ApplicationDictDrawer({
     // 编辑回显：编码只读展示（提交载荷不含 app_code，§5.19 红线①）
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubmitError(null)
+    setPrimaryCode(undefined)
     if (record) {
       form.setFieldsValue({
         app_code: record.app_code,
@@ -422,22 +498,11 @@ export function ApplicationDictDrawer({
       .then((res) => {
         const list = res.data?.list ?? []
         setOriginalRels(list)
-        form.setFieldsValue({
-          platform_codes: list.map((r) => r.platform_code),
-          primary_platform_code: list.find((r) => r.is_primary)?.platform_code,
-        })
+        form.setFieldsValue({ platform_codes: list.map((r) => r.platform_code) })
+        setPrimaryCode(list.find((r) => r.is_primary)?.platform_code)
       })
       .catch(() => setOriginalRels([]))
   }, [open, record, form])
-
-  /** 主平台必须落在已选平台集合内（D42）：多选变化后修正越界取值，
-   *  未选主平台时默认取首个已选平台，保证应用始终有且仅有一个主平台。 */
-  useEffect(() => {
-    const codes = selectedCodes ?? []
-    const primary = form.getFieldValue('primary_platform_code') as string | undefined
-    if (primary && codes.includes(primary)) return
-    form.setFieldValue('primary_platform_code', codes[0])
-  }, [selectedCodes, form])
 
   const handleSubmit = async () => {
     let values: ApplicationDictFormValues
@@ -449,10 +514,8 @@ export function ApplicationDictDrawer({
       return
     }
     const nextCodes = values.platform_codes ?? []
-    // 主平台越界兜底：仅当取值仍在已选集合内时才生效
-    const primaryCode = nextCodes.includes(values.primary_platform_code ?? '')
-      ? values.primary_platform_code
-      : undefined
+    // 主平台兜底：优先星标值，否则按「首个启用平台 → 首个已选平台」推导
+    const primaryCode = nextCodes.includes(effectivePrimaryCode ?? '') ? effectivePrimaryCode : undefined
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -548,16 +611,16 @@ export function ApplicationDictDrawer({
         </Form.Item>
         <Form.Item
           name="platform_codes"
-          label="所属平台"
+          label="关联平台"
           rules={[
             {
               validator: (_, value?: string[]) =>
                 (value ?? []).length > 0
                   ? Promise.resolve()
-                  : Promise.reject(new Error('应用必须归属至少一个平台，请选择所属平台（首个即主平台）')),
+                  : Promise.reject(new Error('应用必须归属至少一个平台，请选择关联平台')),
             },
           ]}
-          extra="必填：应用必须归属至少一个平台（可多选，支持一套软件跨多个平台部署）；仅启用平台可被新选，已停用的历史关联保留展示"
+          extra="必填：至少选择一个平台；点击标签左侧星标设为主平台，仅一个平台时自动为主平台；仅启用平台可新选，已停用的历史关联保留展示"
         >
           <Select
             mode="multiple"
@@ -566,32 +629,51 @@ export function ApplicationDictDrawer({
             optionFilterProp="label"
             placeholder="必选，可多选"
             options={platformOptions}
-          />
-        </Form.Item>
-        <Form.Item
-          name="primary_platform_code"
-          label="主平台"
-          dependencies={['platform_codes']}
-          rules={[
-            {
-              required: true,
-              message: '请选择主平台（默认取首个所属平台）',
-            },
-            {
-              validator: (_, value?: string) =>
-                value && !(selectedCodes ?? []).includes(value)
-                  ? Promise.reject(new Error('主平台必须属于已选平台'))
-                  : Promise.resolve(),
-            },
-          ]}
-          extra="必填：有且仅有一个，决定资源兜底归属与告警派单方向；只能从已选平台中选择，变更主平台须在此显式切换"
-        >
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="必选，需先选择所属平台"
-            options={primaryOptions}
+            tagRender={(props) => {
+              const code = String(props.value)
+              const label = String(props.label ?? code)
+              const isPrimary = code === effectivePrimaryCode
+              const selectable =
+                platforms.some((p) => p.platform_code === code && dictionaryStatusOf(p) === 'enabled')
+              return (
+                <Tag
+                  color={isPrimary ? 'gold' : undefined}
+                  closable={props.closable}
+                  onClose={props.onClose}
+                  style={{ marginInlineEnd: 4 }}
+                >
+                  <Tooltip
+                    title={
+                      isPrimary
+                        ? '主平台：决定资源兜底归属与告警派单方向'
+                        : selectable
+                          ? '设为主平台'
+                          : '已停用平台不能设为主平台'
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label={isPrimary ? `主平台 ${label}` : `设为主平台 ${label}`}
+                      disabled={!selectable && !isPrimary}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (selectable) setPrimaryCode(code)
+                      }}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        marginRight: 4,
+                        cursor: selectable ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      {isPrimary ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                    </button>
+                  </Tooltip>
+                  {label}
+                </Tag>
+              )
+            }}
           />
         </Form.Item>
         <Form.Item name="description" label="描述">

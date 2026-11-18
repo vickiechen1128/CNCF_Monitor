@@ -247,87 +247,31 @@ describe('MainLayout', () => {
     expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
-  it('renders M06 网域管理 + M09 独立顶级模块「网域与边缘配置中心」的两个一级子菜单（N2-1）', async () => {
+  it('M09 侧栏平铺 4 项：不再有「网域与节点管理 / 配置下发」折叠分组，也不再有两页快照入口', async () => {
     render(
-      <MemoryRouter initialEntries={['/deployments']}>
+      <MemoryRouter initialEntries={['/config-snapshots']}>
         <Routes>
-          <Route path="/deployments" element={<MainLayout>deployments-content</MainLayout>} />
+          <Route path="/config-snapshots" element={<MainLayout>snapshots-content</MainLayout>} />
         </Routes>
       </MemoryRouter>,
     )
     // 顶部一级 tab：M09 独立为「网域与边缘配置中心」顶级模块
     expect(screen.getByText('网域与边缘配置中心')).toBeInTheDocument()
     expect(screen.getByText('系统与平台管理')).toBeInTheDocument()
-    // 「网域与节点管理」为低频折叠子菜单：默认折叠（/deployments 非其激活路由），子项不显示
-    expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
-    expect(screen.queryByText('网域纳管')).toBeNull()
-    expect(screen.queryByText('采集节点状态')).toBeNull()
-    // 「配置下发」为激活折叠组（/deployments 配置面路由）时自动展开，子项可见
-    expect(screen.getByText('配置下发')).toBeInTheDocument()
-    expect(await screen.findByText('配置快照')).toBeInTheDocument()
-    expect(screen.getByText('快照历史')).toBeInTheDocument()
-    expect(screen.getByText('deployments-content')).toBeInTheDocument()
-  })
-
-  it('toggles 网域与节点管理 submenu on click（低频接入面可折叠）', async () => {
-    render(
-      <MemoryRouter initialEntries={['/deployments']}>
-        <Routes>
-          <Route path="/deployments" element={<MainLayout>deployments-content</MainLayout>} />
-        </Routes>
-      </MemoryRouter>,
-    )
-    // /deployments 不激活「网域与节点管理」，默认折叠，子项不显示
-    expect(screen.queryByText('网域纳管')).toBeNull()
-    expect(screen.queryByText('采集节点状态')).toBeNull()
-    // 点击组标题展开
-    fireEvent.click(screen.getByText('网域与节点管理'))
+    // 平铺：4 个二级页面常态可见，无需展开任何分组
     expect(await screen.findByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-  })
-
-  it('auto-expands 网域与节点管理 when active route is in that group (/domain-onboarding)', async () => {
-    render(
-      <MemoryRouter initialEntries={['/domain-onboarding']}>
-        <Routes>
-          <Route
-            path="/domain-onboarding"
-            element={<MainLayout>onboarding-content</MainLayout>}
-          />
-        </Routes>
-      </MemoryRouter>,
-    )
-    // 激活路由归属「网域与节点管理」：自动展开，子项可见
-    expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
-    expect(await screen.findByText('网域纳管')).toBeInTheDocument()
-    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-    // 「配置下发」非激活：默认折叠，子项不显示
-    expect(screen.queryByText('配置快照')).toBeNull()
+    expect(screen.getByText('监控目标状态')).toBeInTheDocument()
+    expect(screen.getByText('配置产物历史')).toBeInTheDocument()
+    // 分组标题与已合并的「快照历史」入口均不再出现
+    expect(screen.queryByText('网域与节点管理')).toBeNull()
+    expect(screen.queryByText('配置下发')).toBeNull()
     expect(screen.queryByText('快照历史')).toBeNull()
-    expect(screen.getByText('onboarding-content')).toBeInTheDocument()
+    expect(screen.getByText('snapshots-content')).toBeInTheDocument()
   })
 
-  it('exposes 监控目标状态 under 网域与节点管理 for /targets route (M02 P1 临时挂载, F-1)', async () => {
-    render(
-      <MemoryRouter initialEntries={['/targets']}>
-        <Routes>
-          <Route path="/targets" element={<MainLayout>targets-content</MainLayout>} />
-        </Routes>
-      </MemoryRouter>,
-    )
-    // 激活路由归属「网域与节点管理」：自动展开，临时挂载的「监控目标状态」可见
-    expect(await screen.findByText('监控目标状态')).toBeInTheDocument()
-    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-    expect(screen.getByText('targets-content')).toBeInTheDocument()
-    // 顶部一级 tab「网域与边缘配置中心」处于 active（/targets 归 M09）
-    const tab = screen
-      .getAllByRole('button')
-      .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
-    expect(tab?.className ?? '').toContain('active')
-  })
-
-  it('collapses 网域与节点管理 on manual toggle even when active route is in that group（激活页可手动折叠）', async () => {
-    render(
+  it('M09 二级导航不含可折叠 SubMenu（平铺后无 ant-menu-submenu 节点）', async () => {
+    const { container } = render(
       <MemoryRouter initialEntries={['/domain-onboarding']}>
         <Routes>
           <Route
@@ -337,49 +281,33 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    // antd Menu 折叠/展开由 SubMenu 的 ant-menu-submenu-open class 标记（jsdom 下
-    // CSSMotion 不生效、DOM 不随折叠移除，故用 className 而非可见性/存在性断言）
-    const submenuTitle = screen.getByText('网域与节点管理')
-    const submenuLi = submenuTitle.closest('li.ant-menu-submenu') as HTMLElement
-    // 首次进入该组自动展开
-    await waitFor(() => {
-      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(true)
-    })
-    // 用户手动折叠应立即生效，不再被强制展开
-    fireEvent.click(submenuTitle)
-    await waitFor(() => {
-      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(false)
-    })
-    // 再次点击展开
-    fireEvent.click(submenuTitle)
-    await waitFor(() => {
-      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(true)
-    })
+    await screen.findByText('网域纳管')
+    expect(container.querySelector('.app-sider .ant-menu-submenu')).toBeNull()
+    expect(container.querySelectorAll('.app-sider .ant-menu-item').length).toBe(4)
   })
 
-  it('highlights 快照历史 sub-item when route is /deployments (M09)', async () => {
+  it('highlights 采集节点状态 when route is /node-status (M09 平铺菜单选中态)', async () => {
     render(
-      <MemoryRouter initialEntries={['/deployments']}>
+      <MemoryRouter initialEntries={['/node-status']}>
         <Routes>
-          <Route path="/deployments" element={<MainLayout>deployments-content</MainLayout>} />
+          <Route path="/node-status" element={<MainLayout>node-status-content</MainLayout>} />
         </Routes>
       </MemoryRouter>,
     )
-    // /deployments 属「配置下发」组：自动展开后子项渲染，且「快照历史」处于选中态
     await waitFor(() => {
       const selected = screen
         .getAllByRole('menuitem')
-        .find((el) => (el.textContent || '').includes('快照历史'))
+        .find((el) => (el.textContent || '').includes('采集节点状态'))
       expect(selected).toBeDefined()
       expect(selected?.className ?? '').toContain('ant-menu-item-selected')
     })
   })
 
-  it('resolves /domain-onboarding、/node-status、/config-preview to 网域与边缘配置中心 module tab', () => {
+  it('resolves /domain-onboarding、/node-status、/config-snapshots 到网域与边缘配置中心 tab', () => {
     render(
-      <MemoryRouter initialEntries={['/config-preview']}>
+      <MemoryRouter initialEntries={['/config-snapshots']}>
         <Routes>
-          <Route path="/config-preview" element={<MainLayout>preview-content</MainLayout>} />
+          <Route path="/config-snapshots" element={<MainLayout>preview-content</MainLayout>} />
         </Routes>
       </MemoryRouter>,
     )
@@ -573,6 +501,32 @@ describe('MainLayout', () => {
     expect(selected).toBeDefined()
     expect(selected?.className ?? '').toContain('ant-menu-item-selected')
     expect(screen.getByText('cloud-dict-content')).toBeInTheDocument()
+  })
+
+  /** 区域类型字典维护页与云字典同属「系统与平台管理」，在 /admin/zone-types 高亮。 */
+  it('exposes 区域类型 under 系统与平台管理 and highlights it on /admin/zone-types', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/zone-types']}>
+        <Routes>
+          <Route
+            path="/admin/zone-types"
+            element={<MainLayout>zone-type-content</MainLayout>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('系统与平台管理'))
+    expect(tab?.className ?? '').toContain('active')
+
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('区域类型'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('zone-type-content')).toBeInTheDocument()
   })
 
   /**

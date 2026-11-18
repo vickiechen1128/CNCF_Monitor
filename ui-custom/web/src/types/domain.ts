@@ -4,6 +4,7 @@
  * 与 Module_06 §5（行政）和 Module_09 §5（纳管）对齐。
  * v3 只创建采集节点域（edge）；`collection` 仅读兼容（D16）。
  */
+import type { DictionaryStatus } from './resource'
 
 /** 网域类型：采集节点域 / 历史采集域（只读兼容） */
 export type DomainType = 'edge' | 'collection'
@@ -20,13 +21,22 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 /** 网域注册态（M09 v3 契约 §2.1） */
 export type RegistrationStatus = 'created' | 'monitored' | 'retired'
 
-/** 区域类型字典（部署级只读；v3 返回 code/display_name/enabled） */
+/**
+ * 区域类型字典条目（部署预置；v3 返回 code/display_name/enabled + 生命周期四态）。
+ * `code` 不可变；撤销 / 合并由 M07 v3 字典生命周期接口维护，编码永久保留。
+ */
 export interface ZoneType {
   id?: number
   code: string
   display_name: string
   description?: string
   enabled: boolean
+  /** 生命周期四态；缺省时由 `dictionaryStatusOf` 按 enabled 回退推导 */
+  status?: DictionaryStatus
+  /** 引用该 zone_type 的网域数（服务端分组查询返回） */
+  reference_count?: number
+  /** 仅 status='merged' 时非空：合并后的目标编码 */
+  merged_into?: string
   created_at?: string
   updated_at?: string
   deleted_at?: string

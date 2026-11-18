@@ -105,7 +105,6 @@ function result(over: Partial<{
     // loading 专项用例显式覆盖。页面把它传给 useRouteEditor 作首屏自动导入门控。
     ready: over.ready ?? ((over.loading ?? false) === false),
     effectiveChecksum: data?.effective_checksum ?? '',
-    pending: data?.pending ?? null,
     reload: over.reload ?? vi.fn(),
   }
 }
@@ -183,7 +182,7 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
     const points = screen.getByTestId('routes-intro-guide-points')
     expect(points.textContent ?? '').toContain('一条规则包含')
-    expect(points.textContent ?? '').toContain('确认下发后才会生效')
+    expect(points.textContent ?? '').toContain('立即校验 + reload 生效')
     // 读表须知常驻在路由树表格正上方
     expect(screen.getByText(/顶层路由是所有告警的总入口/)).toBeInTheDocument()
   })
@@ -407,7 +406,7 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
   })
 
   // 编辑态只提供「新建 / 保存 / 放弃」三个动作
-  it('编辑态：提供「新建路由规则」「保存并提交变更」「放弃编辑」，不再有载入按钮', () => {
+  it('编辑态：提供「新建路由规则」「保存并生效」「放弃编辑」，不再有载入按钮', () => {
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
     renderPage()
     expect(screen.getByTestId('route-new-btn')).toBeEnabled()
@@ -452,13 +451,13 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
         tree: editTree,
         importState: 'imported',
         importNotice:
-          '已载入平台当前生效的 alertmanager.yml 中的 4 个路由（名称由注释还原），请核对下方列表，无误后点上方「保存并提交变更」提交。',
+          '已载入平台当前生效的 alertmanager.yml 中的 4 个路由（名称由注释还原），请核对下方列表，无误后点上方「保存并生效」提交。',
       }),
     )
     renderPage()
     const notice = screen.getByTestId('route-import-notice')
     expect(notice).toHaveTextContent('alertmanager.yml')
-    expect(notice).toHaveTextContent('保存并提交变更')
+    expect(notice).toHaveTextContent('保存并生效')
     // 与保存按钮同在操作区那张卡片内，不再单独占一条全宽 Alert
     expect(screen.getByTestId('route-save-btn').closest('.ant-card')).toContainElement(notice)
   })
@@ -515,36 +514,30 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(remove).toHaveBeenCalledWith('root/1')
   })
 
-  // 验收 1：保存 = 生成整份配置 → 复用既有挂载端点 → 产 M09 pending 变更单（需人工确认才生效）
-  // 2026-10-09（立场 1，关闭自动闭环）：文案口径随之修订——提交**不再**自动生效，
-  // 必须由用户在 M09「配置变更确认」人工确认。
-  it('保存：点击「保存并提交变更」触发保存链路，并明示需在「配置变更确认」人工确认', async () => {
+  // v3：保存 = 生成整份配置 → amtool 校验 → 内部 reload，立即生效（无变更单/确认下发）。
+  it('保存：点击「保存并生效」触发保存链路，并说明立即校验 + reload', async () => {
     const save = vi.fn(async () => true)
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported', save }))
     renderPage()
-    expect(screen.getByText(/需在「配置变更确认」中人工确认后才会写入并 reload/)).toBeInTheDocument()
+    expect(screen.getAllByText(/amtool 校验通过后立即写入并 reload/).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByTestId('route-save-btn'))
     await waitFor(() => expect(save).toHaveBeenCalled())
   })
 
-  it('保存结果：成功后明示等待人工确认，并给出「配置变更确认」跳转入口', () => {
+  it('保存结果：成功后提示已保存并生效，不出现变更单/确认入口', () => {
     useRouteEditorMock.mockReturnValue(
       editorResult({
         tree: editTree,
         importState: 'imported',
-        saveResult: {
-          ok: true,
-          message: '已生成整份 alertmanager.yml 并提交挂载。改动不会自动生效——请前往「配置变更确认」人工确认，确认后才会写入并 reload Alertmanager。',
-        },
+        saveResult: { ok: true, message: '已保存并生效：amtool 校验通过，Alertmanager 已 reload 且健康检查通过。' },
       }),
     )
     renderPage()
     const result = screen.getByTestId('route-save-result')
-    expect(result).toHaveTextContent('已提交，等待你在「配置变更确认」中确认下发')
-    // 护栏：成功后的唯一下一步是去 M09 确认，必须有可点入口（否则用户无路可走，
-    // 会重现「提示要去确认、却找不到入口」的断链）。
-    const link = within(result).getByRole('link', { name: '前往「配置变更确认」' })
-    expect(link).toHaveAttribute('href', '/config-preview')
+    expect(result).toHaveTextContent('路由已保存并生效')
+    expect(result).toHaveTextContent('已保存并生效')
+    expect(within(result).queryByRole('link')).toBeNull()
+    expect(result.textContent ?? '').not.toContain('变更单')
   })
 
   // 验收 5：接收人悬空 → 红字阻断
@@ -713,7 +706,7 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(reset).toHaveBeenCalledTimes(1)
   })
 
-  it('保存成功后回到只读并提示「已提交，待确认下发」', async () => {
+  it('保存成功后回到只读，不再有「待确认下发」横幅', async () => {
     const reset = vi.fn()
     useRouteEditorMock.mockReturnValue(
       editorResult({ tree: editTree, importState: 'imported', reset }),
@@ -721,7 +714,8 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     renderPage()
     fireEvent.click(screen.getByTestId('route-save-btn'))
     await waitFor(() => expect(reset).toHaveBeenCalled())
-    expect(screen.getByTestId('route-submitted-notice')).toBeInTheDocument()
+    expect(screen.queryByTestId('route-submitted-notice')).toBeNull()
+    expect(document.body.textContent ?? '').not.toContain('待确认下发')
   })
 
   /**
@@ -743,21 +737,6 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
     expect(opts.baseChecksum).toBe('base-sha256')
     expect(opts.sourceItems).toHaveLength(2)
-  })
-
-  it('有 pending 变更单时展示「待确认版本」横幅', () => {
-    useRoutesMock.mockReturnValue(
-      result({
-        data: {
-          items: [rootNode],
-          pending: { change_no: 'CHG-20261022-009', created_at: '2026-10-22T10:00:00Z' },
-        },
-      }),
-    )
-    renderPage()
-    const banner = screen.getByTestId('route-pending-banner')
-    expect(banner).toHaveTextContent('当前显示的是待确认版本')
-    expect(banner).toHaveTextContent('CHG-20261022-009')
   })
 
   it('接线：解析失败时把 parseError 传下去', () => {

@@ -346,12 +346,50 @@ export type ResourceUpdateInput =
   | (ResourceUpdateBaseShape & Partial<GenericTargetResourceFields>)
   | (ResourceUpdateBaseShape & Partial<InterfaceServiceResourceFields>)
 
-/** 业务分组字典条目（§3.1 / T07-02，MVP 只读接口） */
+/** 批量改归属可修改的引用字段（M07 SRS v2.0 FR-28） */
+export type BulkReassignField = 'biz_code' | 'app_code' | 'platform_code'
+
+/** 批量改归属请求（POST /api/v3/platform/resources/bulk-reassign） */
+export interface BulkReassignInput {
+  resource_ids: string[]
+  field: BulkReassignField
+  target_code: string
+}
+
+/** 批量改归属成功响应：整批原子生效 */
+export interface BulkReassignResult {
+  updated_count: number
+  field: BulkReassignField
+  target_code: string
+}
+
+/** 批量改归属的单条失败明细（400 响应 data.failures） */
+export interface BulkReassignFailure {
+  resource_id: string
+  reason: string
+}
+
+/**
+ * 字典生命周期状态（M07 SRS v2.0 §3.4 / FR-24）。
+ *
+ * - enabled  启用：可被新增 / 编辑资源引用；
+ * - disabled 停用：存量引用保留，禁止新增引用；
+ * - merged   已合并：编码作为别名保留，引用已迁移到 merged_into；
+ * - revoked  已撤销：仅零引用条目可撤销，编码永久保留、不可重新登记。
+ */
+export type DictionaryStatus = 'enabled' | 'disabled' | 'merged' | 'revoked'
+
+/** 业务分组字典条目（§3.1 / T07-02；M07 SRS v2.0 起含生命周期与引用数） */
 export interface BusinessDomain {
   code: string
   name: string
   description?: string
   enabled: boolean
+  status: DictionaryStatus
+  /** 引用该 biz_code 的未删除资源数（服务端一次分组查询返回） */
+  reference_count: number
+  /** 仅 status='merged' 时非空：合并后的目标编码 */
+  merged_into?: string
 }
 
 /**
@@ -362,7 +400,11 @@ export interface ApplicationDict {
   app_code: string
   app_name: string
   description?: string
-  status: 'enabled' | 'disabled'
+  status: DictionaryStatus
+  /** 引用该 app_code 的未删除资源数 */
+  reference_count: number
+  /** 仅 status='merged' 时非空：合并后的目标编码 */
+  merged_into?: string
   /**
    * @deprecated {v2.49 决策 111} 应用↔平台改 M:N，关联权威迁至 `app_platform_rel`
    * （`GET /api/v2/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`）。
@@ -403,6 +445,24 @@ export interface PlatformDict {
   platform_name: string
   description?: string
   enabled: boolean
+  status: DictionaryStatus
+  /** 资源引用数 + 应用平台归属数 */
+  reference_count: number
+  /** 仅 status='merged' 时非空：合并后的目标编码 */
+  merged_into?: string
+}
+
+/** 字典生命周期审计日志（GET /dictionary-audit-logs，M07 SRS v2.0 §6.4） */
+export interface DictionaryAuditLog {
+  id: string
+  dictionary_type: 'business' | 'application' | 'platform' | 'cloud' | 'zone'
+  action: 'enable' | 'disable' | 'revoke' | 'merge'
+  source_code: string
+  target_code?: string
+  reference_count: number
+  operator: string
+  detail?: string
+  created_at: string
 }
 
 /**
@@ -419,6 +479,12 @@ export interface CloudDict {
   carrier: string
   description?: string
   enabled: boolean
+  /** 生命周期四态；缺省时由 `dictionaryStatusOf` 按 enabled 回退推导 */
+  status?: DictionaryStatus
+  /** 引用该 cloud_code 的网域数（服务端分组查询返回） */
+  reference_count?: number
+  /** 仅 status='merged' 时非空：合并后的目标编码 */
+  merged_into?: string
 }
 
 /** 操作系统内置字典条目（os_dict.go，GET /api/v2/platform/os-options）：规范名 + 家族 */

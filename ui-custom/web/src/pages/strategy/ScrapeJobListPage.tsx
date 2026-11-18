@@ -1,605 +1,631 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
+/**
+ * 采集任务列表（M01，SRS JG v1.3）。
+ *
+ * 用户只认识「采集任务」：一行一个任务，任务类型为采集 / 拨测；跨域由系统按实例所属网域
+ * 自动落成多份域级配置（`job_group_id` 为内部字段，界面不出现「任务组 / 未分组」）。
+ * 列表为单视图：跨域任务展示「覆盖网域」聚合，展开为逐域子任务。
+ */
+import { useCallback, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
   Card,
+  ConfigProvider,
   Empty,
   Input,
   Popconfirm,
   Select,
   Space,
-  Spin,
   Table,
   Tag,
   Tooltip,
   Typography,
   message,
 } from 'antd'
-import { InfoCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import type { ColumnsType } from 'antd/es/table/interface'
-import { networkDomainApi } from '../../api/domain'
-import { useSkin } from '../../skinContext'
-import { scrapeJobApi } from '../../api/scrapeJobs'
-import { exporterTemplateApi } from '../../api/exporterTemplates'
-import { labelTemplateApi } from '../../api/labelTemplates'
-import { ciExporterMappingApi } from '../../api/ciExporterMappings'
-import type { NetworkDomain } from '../../types/domain'
-import type { CITypeExporterMapping, ExporterTemplate, JobType, MonitorType, ScrapeJob } from '../../types/strategy'
-import type { LabelTemplateListItem } from '../../types/label'
-import { FilterBar, FilterItem } from '../../components/FilterBar'
-import { EllipsisText } from '../../components/EllipsisText'
-import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import config from 'antd/locale/zh_CN'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Navigate, useLocation } from 'react-router-dom'
+import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../layouts/MainLayout'
-import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, COLLECTION_STATUS_TOOLTIP } from './strategyConstants'
+import { FilterBar, FilterItem } from '../../components/FilterBar'
+import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { jobGroupApi } from '../../api/jobGroups'
+import { scrapeJobApi } from '../../api/scrapeJobs'
+import type { JobGroup, JobGroupChild } from '../../types/jobGroup'
+import type { JobType, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { ScrapeJobV3 } from '../../types/strategyV3'
 import { useScrapeJobs } from './useScrapeJobs'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
+import { JOB_TYPE_MAP, MONITOR_TYPE_MAP, MONITOR_TYPE_CASCADE } from './strategyConstants'
+import SyncStatusTag from './SyncStatusTag'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
-import SyncStatusTag from './SyncStatusTag'
+import { JobGroupWizardDrawer } from './JobGroupWizardDrawer'
+import { JobGroupDetailDrawer } from './JobGroupDetailDrawer'
 
 const { Text } = Typography
 
-/**
- * 变更进度（M09 管线追踪视角，Module_01 §9），回答「它挂在变更单的哪一环」。
- * 与「生效状态」列共用底层 change_status，但用 M09 管线词表呈现，避免两列文案撞车。
- */
-/**
- * 采集 Job Tab 页（Module_01 §3.1/§5.4/§8/§11.1/§11.2，F3）。
- * - 网域（仅已纳管 is_monitored=true 且 status=enabled）/ 监控类型（两级级联）/ 关键字筛选，分页默认 20/页；
- * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 启用状态 / 同步状态 / 参数同步 / 操作；
- * - 「生效状态」= 用户视角生命周期（草稿 / 待生效（原待下发）/ 已生效 / 已停用）；「变更进度」= M09 管线视角
- *   （待确认 / 已确认待下发 / 已下发 / 无变更）；两列均带头部角标指引——先看「生效状态」是否已真正生效，
- *   再看「变更进度」在哪一环；确认不必逐次进行，可待所有监控配置调整完后再到 M09 一次性批量确认；
- *   参数同步列展示 mapping_overrides.length 概览；
- * - 启停 / 删除二次确认；成功后同步触发变更单生成，提示变更单号 +「前往配置变更确认」跳转；
- * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
- */
+/** 列表行：一个采集任务（跨域任务 = 组；单域任务 = 无组 Job） */
+type TaskRow =
+  | { kind: 'group'; key: string; group: JobGroup }
+  | { kind: 'job'; key: string; job: ScrapeJob }
+
+const SYNC_LABEL: Record<string, { text: string; color: string }> = {
+  synced: { text: '已同步', color: 'success' },
+  pending: { text: '待同步', color: 'processing' },
+  syncing: { text: '同步中', color: 'processing' },
+  failed: { text: '同步失败', color: 'error' },
+  draft: { text: '草稿', color: 'default' },
+  disabled: { text: '已停用', color: 'default' },
+}
+
+/** 把后端组视图的子任务投影成 Job（用于采集状态聚合与展开行） */
+function childJob(child: JobGroupChild): ScrapeJob | null {
+  const job = child.job as ScrapeJobV3 | undefined
+  if (!job) return null
+  return {
+    ...(job as unknown as ScrapeJob),
+    job_group_id: job.job_group_id,
+    job_group_name: job.job_group_name,
+  }
+}
+
+export function ScrapeJobListPage() {
+  const location = useLocation()
+  // 兼容旧外链：`/scrape-jobs?tab=collectors` → 采集器管理独立页
+  if (new URLSearchParams(location.search).get('tab') === 'collectors') {
+    return <Navigate to="/collectors" replace />
+  }
+  return (
+    <MainLayout>
+      <JobsTab />
+    </MainLayout>
+  )
+}
+
 function JobsTab() {
-  // 品牌/语义色走皮肤 token（单一来源，见 skins.ts 设计约束）
-  const { tokens } = useSkin()
-  /**
-   * 深链预筛（2026-10-17 第六轮走查）：首页「监控对象纳管完成率 → 查看采集任务」带
-   * `?job_type=standard` 进来，落页即只看采集类型（拉模型）Job。只认两个合法枚举，
-   * 其余一律不预置（深链是展示入口，不报错）。
-   */
-  const [searchParams] = useSearchParams()
-  const initialJobType = ((): JobType | undefined => {
-    const raw = searchParams.get('job_type')
-    return raw === 'standard' || raw === 'blackbox' ? raw : undefined
-  })()
-  const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
-    useScrapeJobs(initialJobType ? { job_type: initialJobType } : undefined)
-  const [domains, setDomains] = useState<NetworkDomain[]>([])
-  const [templates, setTemplates] = useState<ExporterTemplate[]>([])
-  const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
-  const [defaultMappings, setDefaultMappings] = useState<CITypeExporterMapping[]>([])
+  const [keyword, setKeyword] = useState('')
+  const [monitorType, setMonitorType] = useState<MonitorType | undefined>()
+  const [jobType, setJobType] = useState<JobType | undefined>()
+  const [domainFilter, setDomainFilter] = useState<string | undefined>()
+  const [groupsPage, setGroupsPage] = useState(1)
+  const [groups, setGroups] = useState<JobGroup[]>([])
+  const [groupsTotal, setGroupsTotal] = useState(0)
+  const [groupsLoading, setGroupsLoading] = useState(true)
+  const [groupsError, setGroupsError] = useState<string | null>(null)
+
+  // 单域任务（无内部承载）：与跨域任务同表展示
+  const {
+    data: jobData,
+    loading: jobsLoading,
+    error: jobsError,
+    reload: reloadJobs,
+    page: jobsPage,
+    pageSize,
+    onPageChange: onJobsPageChange,
+  } = useScrapeJobs({ ungrouped: true, keyword: keyword || undefined, monitor_type: monitorType, job_type: jobType, network_domain_id: domainFilter })
+
+  const loadGroups = useCallback(() => {
+    setGroupsLoading(true)
+    setGroupsError(null)
+    jobGroupApi
+      .list({ keyword: keyword || undefined, page: groupsPage, page_size: 20 })
+      .then((res) => {
+        setGroups(res.data.list ?? [])
+        setGroupsTotal(res.data.total ?? 0)
+      })
+      .catch((err) => setGroupsError(err instanceof Error ? err.message : '任务加载失败'))
+      .finally(() => setGroupsLoading(false))
+  }, [keyword, groupsPage])
+
+  // 首屏与筛选变化时拉取组（单域任务由 hook 自行触发）
+  const renderedKey = `${keyword}|${groupsPage}`
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
+  if (loadedKey !== renderedKey) {
+    setLoadedKey(renderedKey)
+    loadGroups()
+  }
+
+  const reload = useCallback(() => {
+    setGroupsPage(1)
+    loadGroups()
+    reloadJobs()
+  }, [loadGroups, reloadJobs])
+
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<JobGroup | null>(null)
+  const [adoptJobID, setAdoptJobID] = useState<string | null>(null)
+  const [detailGroup, setDetailGroup] = useState<JobGroup | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<ScrapeJob | null>(null)
-  // 决策 47-2 Job 实例级下钻：『查看』抽屉展示该 Job 各实例/目标的具体采集状态
+  const [editingJob, setEditingJob] = useState<ScrapeJob | null>(null)
   const [viewing, setViewing] = useState<ScrapeJob | null>(null)
-  // 决策 47-2 per-job 形态：按当前页 Job 聚合「实例采集状态」（在线/待采集/已下发未采到），约 20s 自动刷新
-  const scrapeStatusByJob = useJobScrapeStatus(data.list)
 
-  // 已纳管（is_monitored=true）且非冻结（status=enabled）的网域下拉（§5.4 / §11.1）
-  useEffect(() => {
-    // 异步请求回调内 setState（既不阻塞也不在 effect 内同步 setState）
-    networkDomainApi
-      .list({ page: 1, page_size: 100 })
-      .then((res) => setDomains(res.data?.list ?? []))
-      .catch(() => setDomains([]))
-  }, [])
+  // 采集状态聚合：跨域任务的子任务 + 单域任务
+  const statusJobs = useMemo<ScrapeJob[]>(() => {
+    const children = groups.flatMap((group) =>
+      group.domains.map((child) => childJob(child)).filter((job): job is ScrapeJob => Boolean(job)),
+    )
+    return [...jobData.list, ...children]
+  }, [groups, jobData.list])
+  const scrapeStatusByJob = useJobScrapeStatus(statusJobs)
 
-  // 采集器模板 / 标签模板 / 默认映射快照：F1-1 采集器列反查名称、标签模板列渲染；F1-2 参数同步三态对比
-  useEffect(() => {
-    Promise.all([
-      exporterTemplateApi.list({ page: 1, page_size: 100 }),
-      labelTemplateApi.list({ page: 1, page_size: 100 }),
-      ciExporterMappingApi.list({ is_default: true, page: 1, page_size: 100 }),
-    ])
-      .then(([tmplRes, labelRes, mapRes]) => {
-        setTemplates(tmplRes.data?.list ?? [])
-        setLabelTemplates(labelRes.data?.list ?? [])
-        setDefaultMappings(mapRes.data?.list ?? [])
-      })
-      .catch(() => {
-        setTemplates([])
-        setLabelTemplates([])
-        setDefaultMappings([])
-      })
-  }, [])
+  const rows: TaskRow[] = useMemo(
+    () => [
+      ...groups.map((group) => ({ kind: 'group' as const, key: `group:${group.id}`, group })),
+      ...jobData.list.map((job) => ({ kind: 'job' as const, key: `job:${job.id}`, job })),
+    ],
+    [groups, jobData.list],
+  )
 
-  const domainById = useMemo(() => {
-    const m = new Map<string, NetworkDomain>()
-    domains.filter((d) => d.is_monitored && d.status === 'enabled').forEach((d) => m.set(d.id, d))
-    return m
-  }, [domains])
-
-  // 采集器模板按「数字 id / 名称」双重索引，兼容 job.exporter_template_id 为 id 或名称两种口径（F1-1）
-  const templateByRef = useMemo(() => {
-    const m = new Map<string, ExporterTemplate>()
-    templates.forEach((t) => {
-      m.set(String(t.id), t)
-      m.set(t.name, t)
-    })
-    return m
-  }, [templates])
-
-  // 标签模板按 id 索引（F1-1）
-  const labelTemplateById = useMemo(() => {
-    const m = new Map<string, LabelTemplateListItem>()
-    labelTemplates.forEach((t) => m.set(String(t.id), t))
-    return m
-  }, [labelTemplates])
-
-  // 默认映射快照按 monitor_type 索引（F1-2 参数同步「异常驱动」对比基线）
-  const defaultMappingByMonitorType = useMemo(() => {
-    const m = new Map<string, CITypeExporterMapping>()
-    defaultMappings.filter((d) => d.is_default).forEach((d) => m.set(d.monitor_type, d))
-    return m
-  }, [defaultMappings])
-
-  // 补配跳转占位（Job 列表侧「待配置」入口；实际维护在采集器默认配置/M07）
-  const openLabelTemplateGuide = useCallback(() => {
-    message.info('标签模板补配请前往「采集器默认配置」维护（M07）')
-  }, [])
-
-  const toggleEnabled = useCallback(async (job: ScrapeJob, enabled: boolean) => {
-    try {
-      await scrapeJobApi.update(job.id, {
-        job_name: job.job_name,
-        network_domain_id: job.network_domain_id,
-        job_type: job.job_type,
-        ...(job.monitor_type ? { monitor_type: job.monitor_type as MonitorType } : {}),
-        enabled,
-      })
-      reload()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
-    }
-  }, [reload])
-
-  const removeJob = useCallback(async (job: ScrapeJob) => {
-    try {
-      await scrapeJobApi.remove(job.id)
-      reload()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
-    }
-  }, [reload])
+  const total = groupsTotal + jobData.total
+  const loading = groupsLoading || jobsLoading
+  const error = groupsError ?? jobsError ?? null
 
   const openCreate = () => {
-    setEditing(null)
-    setFormOpen(true)
+    setEditingGroup(null)
+    setAdoptJobID(null)
+    setWizardOpen(true)
   }
-  const openEdit = (record: ScrapeJob) => {
-    setEditing(record)
-    setFormOpen(true)
+  const openGroupEdit = (group: JobGroup) => {
+    setEditingGroup(group)
+    setAdoptJobID(null)
+    setWizardOpen(true)
+  }
+  /** 单域任务编辑：跨域保存时由后端晋升（复用原 Job 行） */
+  const openJobEdit = (job: ScrapeJob) => {
+    setEditingGroup({
+      id: '',
+      name: job.job_name,
+      job_name: job.job_name,
+      job_type: job.job_type,
+      resource_category: (job.resource_category ?? 'host') as JobGroup['resource_category'],
+      monitor_type: job.monitor_type,
+      blackbox_module: job.blackbox_module,
+      scrape_interval: job.scrape_interval,
+      scrape_timeout: job.scrape_timeout,
+      metrics_path: job.metrics_path,
+      scheme: job.scheme,
+      status: job.enabled ? 'enabled' : 'disabled',
+      created_by: '',
+      created_at: job.created_at,
+      updated_at: job.updated_at,
+      domains: [],
+      sync: { status: job.sync?.status ?? 'draft', total: 1, synced: 0, failed: 0, pending: 0, draft: 0 },
+    })
+    setAdoptJobID(job.id)
+    setWizardOpen(true)
   }
 
-  const columns: ColumnsType<ScrapeJob> = [
+  const removeGroup = async (group: JobGroup) => {
+    try {
+      await jobGroupApi.remove(group.id)
+      message.success(`已删除任务「${group.name}」`)
+      setDetailGroup(null)
+      reload()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+  const removeJob = async (job: ScrapeJob) => {
+    try {
+      await scrapeJobApi.remove(job.id)
+      message.success('已删除任务')
+      reload()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const toggleEnabled = async (job: ScrapeJob, enabled: boolean) => {
+    try {
+      await scrapeJobApi.update(job.id, {
+        ...job,
+        enabled,
+        resource_category: job.resource_category as never,
+      } as never)
+      reload()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '操作失败')
+    }
+  }
+
+  const syncTag = (status: string) => {
+    const meta = SYNC_LABEL[status] ?? { text: status, color: 'default' }
+    return <Tag color={meta.color}>{meta.text}</Tag>
+  }
+
+  const columns: ColumnsType<TaskRow> = [
     {
-      title: 'Job 名称',
-      dataIndex: 'job_name',
-      key: 'job_name',
+      title: '任务名',
+      key: 'name',
       fixed: 'left',
       width: 220,
-      render: (v: string) => <EllipsisText>{v}</EllipsisText>,
+      render: (_: unknown, row: TaskRow) =>
+        row.kind === 'group' ? (
+          <div>
+            <div>{row.group.name}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {row.group.job_name}
+            </Text>
+          </div>
+        ) : (
+          <div>
+            <div>{row.job.job_name}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              单域任务
+            </Text>
+          </div>
+        ),
     },
     {
       title: '类型',
-      dataIndex: 'job_type',
       key: 'job_type',
       width: 90,
-      render: (v: string) => <EllipsisText>{JOB_TYPE_MAP[v] ?? v}</EllipsisText>,
-    },
-    {
-      title: '网域',
-      dataIndex: 'network_domain_id',
-      key: 'network_domain_id',
-      width: 160,
-      render: (v: string) => <EllipsisText>{domainById.get(v)?.name ?? v}</EllipsisText>,
-    },
-    {
-      title: '监控类型',
-      dataIndex: 'monitor_type',
-      key: 'monitor_type',
-      width: 140,
-      render: (v?: string) => (v ? MONITOR_TYPE_MAP[v as keyof typeof MONITOR_TYPE_MAP] ?? v : '-'),
-    },
-    {
-      title: '采集器',
-      dataIndex: 'exporter_template_id',
-      key: 'exporter_template_id',
-      width: 160,
-      // F1-1：按 exporter_template_id 反查真实模板名（id/名称双重索引）；blackbox 显拨测模块；
-      // 查不到才回退「默认采集器」占位，禁止裸露 ID
-      render: (_: unknown, r: ScrapeJob) => {
-        if (r.job_type === 'blackbox') return r.blackbox_module ? <EllipsisText>{r.blackbox_module}</EllipsisText> : '-'
-        const ref = r.exporter_template_id
-        if (!ref) return '-'
-        const tmpl = templateByRef.get(String(ref))
-        return tmpl ? <EllipsisText>{tmpl.name}</EllipsisText> : <EllipsisText>默认采集器</EllipsisText>
+      render: (_: unknown, row: TaskRow) => {
+        const type = row.kind === 'group' ? row.group.job_type : row.job.job_type
+        return JOB_TYPE_MAP[type] ?? type
       },
     },
     {
-      title: '标签模板',
-      key: 'label_template',
+      title: '覆盖网域',
+      key: 'domains',
+      width: 220,
+      render: (_: unknown, row: TaskRow) => {
+        if (row.kind === 'job') return row.job.network_domain_name || row.job.network_domain_id
+        const names = row.group.domains.map((child) => child.network_domain_name)
+        return (
+          <Space size={4} wrap>
+            <Tag color="blue">{names.length} 个网域</Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {names.join(' / ')}
+            </Text>
+          </Space>
+        )
+      },
+    },
+    {
+      title: '监控类型',
+      key: 'monitor_type',
       width: 140,
-      // O1/T01-F14：异常驱动。正常继承（job.label_template_id 命中）→ 只显模板名，不显「待配置」Tag；
-      // 仅当 job 未关联标签模板、但该 monitor_type 的默认映射已挂 label_template_id（有默认标签待补配）时，
-      // 显橙色「待配置」Tag（可点击补配引导）；其余 → '-'
-      render: (_: unknown, r: ScrapeJob) => {
-        const ref = r.label_template_id
-        if (ref) {
-          const t = labelTemplateById.get(String(ref))
-          return <EllipsisText>{t?.name ?? '标签模板'}</EllipsisText>
-        }
-        const def = r.monitor_type ? defaultMappingByMonitorType.get(String(r.monitor_type)) : undefined
-        if (def?.label_template_id) {
-          return (
-            <Tag color="orange" onClick={openLabelTemplateGuide} style={{ cursor: 'pointer' }}>
-              待配置
-            </Tag>
-          )
-        }
-        return '-'
+      render: (_: unknown, row: TaskRow) => {
+        const value = row.kind === 'group' ? row.group.monitor_type : row.job.monitor_type
+        if (!value) return row.kind === 'group' && row.group.blackbox_module ? row.group.blackbox_module : '-'
+        return MONITOR_TYPE_MAP[value as keyof typeof MONITOR_TYPE_MAP] ?? value
       },
     },
     {
       title: '已选实例',
-      dataIndex: 'selected_instance_ids',
-      key: 'selected_instance_ids',
+      key: 'instances',
       width: 100,
-      // 分母与「实例采集状态」列同源（见其列注释）：一律取 useJobScrapeStatus 聚合出的
-      // v.total（= ListJobInstances 返回的有效实例集，资源软删后已收敛为 29），不再直接用
-      // selected_instance_ids.length（DB 历史选择意图数组，软删后无人回收，会恒显 32 不收敛）。
-      // 加载中复用右侧同列的 Spin 占位。
-      render: (_: unknown, r: ScrapeJob) => {
-        const v = scrapeStatusByJob[r.id]
-        if (!v) return <Spin size="small" />
-        return v.total
+      render: (_: unknown, row: TaskRow) =>
+        row.kind === 'group'
+          ? row.group.domains.reduce((sum, child) => sum + child.instance_count, 0)
+          : (row.job.selected_instance_ids?.length ?? 0),
+    },
+    {
+      title: '实例采集状态',
+      key: 'collection',
+      width: 180,
+      render: (_: unknown, row: TaskRow) => {
+        if (row.kind === 'group') {
+          const views = row.group.domains
+            .map((child) => (child.job ? scrapeStatusByJob[child.job.id] : undefined))
+            .filter(Boolean) as { online: number; total: number; down: number; pending: number }[]
+          if (views.length === 0) return <Text type="secondary">-</Text>
+          const online = views.reduce((sum, view) => sum + view.online, 0)
+          const count = views.reduce((sum, view) => sum + view.total, 0)
+          const bad = views.some((view) => view.down > 0 || view.pending > 0)
+          return <Tag color={bad ? 'error' : 'green'}>{`在线 ${online} / 总数 ${count}`}</Tag>
+        }
+        const view = scrapeStatusByJob[row.job.id]
+        if (!view) return <Text type="secondary">-</Text>
+        const bad = view.down > 0 || view.pending > 0
+        return <Tag color={bad ? 'error' : 'green'}>{`在线 ${view.online} / 总数 ${view.total}`}</Tag>
       },
     },
     {
-      // 决策 47-2：实例采集状态列对齐原型（F-12：拨测 Job 按 probe_success 聚合「通过 x / 总数 y」）。
-      // 数据源 = useJobScrapeStatus 只读消费 M02 /api/v1/query（标准 Job 用 up、拨测 Job 用 probe_success），约 20s 自动刷新；
-      // 存在「待采集 / 已下发未采到」或「待拨测 / 拨测失败」时整格高饱和红；整格（Tag）可点击进入 Job 详情查看具体原因。
-      title: (
-        <Tooltip title={COLLECTION_STATUS_TOOLTIP}>
-          <Space size={4}>
-            实例采集状态
-            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-          </Space>
-        </Tooltip>
-      ),
-      key: 'collection_status',
-      width: 190,
-      render: (_: unknown, r: ScrapeJob) => {
-        // 拨测 Job（F-12）按拨测目标聚合；标准 Job 按已选实例聚合。无目标/无实例时显示 '-'
-        const isBlackbox = r.job_type === 'blackbox'
-        // 已选集为空时可直接判定无聚合对象（此时有效实例数必为 0，与 v.total 无口径分歧），
-        // 短路显示 '-' 避免无谓的 Spin 骨架。拨测 Job 的目标同样来自 selected_instance_ids
-        // （由 preview-targets 解析为探测地址），故与标准 Job 共用同一判定。
-        const noAggregateTarget = r.selected_instance_ids.length === 0
-        if (noAggregateTarget) return <Text type="secondary">-</Text>
-        const v = scrapeStatusByJob[r.id]
-        if (!v) return <Spin size="small" />
-        // 分母与分子同源：一律取 useJobScrapeStatus 聚合出的 v.total（源自
-        // ListJobInstances 返回的有效实例集 / blackbox_targets），不再直接用
-        // selected_instance_ids.length。后者是 DB 里的历史「选择意图」数组，资源被软删后
-        // 无人回收，会与分子（up 指标实际采集、已删资源不可能有样本）不同源，
-        // 表现为「在线 29 / 总数 32」且分母永不收敛。
-        // 全部实例均已失效时 v.total=0 → 同样显示 '-'。
-        const total = v.total
-        if (total === 0) return <Text type="secondary">-</Text>
-        const anomaly = v.down > 0 || v.pending > 0
-        // F-40：回传延迟中（stale）≠ 采集故障——样本在途，橙色警示而非红色 anomaly，
-        // 且不遮蔽 down/pending（同时存在时仍红）。stale-only 指仅剩延迟实例（在线 0）。
-        const staleOnly = !anomaly && v.stale > 0 && v.online === 0
-        const onClick = () => setViewing(r)
-        const text = isBlackbox ? `通过 ${v.online} / 总数 ${total}` : `在线 ${v.online} / 总数 ${total}`
-        // 已软删/失效的实例资源不计入分母（v.total 已排除），单独在 Tooltip 提示，
-        // 避免用户对「在线 x / 总数 y」少了几台毫无感知（M01 F-39 / M09 F-38）。
-        const missingNote =
-          !isBlackbox && v.missingCount > 0
-            ? `；另有 ${v.missingCount} 台实例资源已被删除（不计入分母）`
-            : ''
-        const anomalyTip = isBlackbox
-          ? '有拨测目标没通过，点一下查看是哪些目标'
-          : '有实例没采到数据，点一下查看是哪些实例、失败原因' + missingNote
-        const staleTip = isBlackbox
-          ? '有拨测结果尚未送达中心，点一下查看详情'
-          : '有实例数据尚未送达中心（回传延迟），点一下查看各实例状态' + missingNote
-        const normalTip = isBlackbox ? '点击查看各拨测目标的探测情况' : '点击查看各实例的采集情况' + missingNote
-        // F-40 醒目化（计数分段）：stale 不再只靠 hover/详情抽屉才可见——
-        //   · stale-only：整格橙色 Tag 直接点名「回传延迟中 n / 总数 y」（替代原哑文本「在线 0 / 总数 y」）；
-        //   · 混合态（有在线也有延迟）：主 Tag 旁追加橙色「延迟 n」小 Tag，延迟数一目了然；
-        //   · anomaly 与 stale 并存：主 Tag 仍红（真实故障重于延迟），旁追加橙色小 Tag。
-        // 拨测聚合不产出 stale（probe_success 口径），stale 分支仅标准 Job 可达。
-        if (staleOnly) {
-          return (
-            <Tooltip title={staleTip}>
-              <Tag
-                color={tokens.colorWarning}
-                style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
-                onClick={onClick}
-              >
-                {`回传延迟中 ${v.stale} / 总数 ${total}`}
-              </Tag>
-            </Tooltip>
-          )
-        }
-        if (v.stale > 0) {
-          const mixedTip = anomaly ? `${anomalyTip}；另有 ${v.stale} 台样本回传延迟中` : staleTip
-          return (
-            <Tooltip title={mixedTip}>
-              <Space size={4}>
-                <Tag
-                  color={anomaly ? tokens.colorError : 'green'}
-                  style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: anomaly ? 500 : undefined }}
-                  onClick={onClick}
-                >
-                  {text}
-                </Tag>
-                <Tag
-                  color={tokens.colorWarning}
-                  style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
-                  onClick={onClick}
-                >
-                  {`延迟 ${v.stale}`}
-                </Tag>
-              </Space>
-            </Tooltip>
-          )
-        }
-        return anomaly ? (
-          <Tooltip title={anomalyTip}>
-            <Tag
-              color={tokens.colorError}
-              style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
-              onClick={onClick}
-            >
-              {text}
-            </Tag>
-          </Tooltip>
-        ) : (
-          <Tooltip title={normalTip}>
-            <Tag color="green" style={{ marginInlineEnd: 0, cursor: 'pointer' }} onClick={onClick}>
-              {text}
-            </Tag>
-          </Tooltip>
-        )
-      },
+      title: '间隔',
+      key: 'interval',
+      width: 90,
+      render: (_: unknown, row: TaskRow) =>
+        row.kind === 'group' ? row.group.scrape_interval : row.job.scrape_interval || '-',
     },
-    { title: '间隔', dataIndex: 'scrape_interval', key: 'scrape_interval', width: 90, render: (v?: string) => v || '-' },
     {
       title: '启用状态',
       key: 'enabled',
       width: 100,
-      render: (_: unknown, r: ScrapeJob) => (
-        <Tag color={r.enabled ? 'green' : 'default'}>{r.enabled ? '已启用' : '已停用'}</Tag>
-      ),
+      render: (_: unknown, row: TaskRow) => {
+        const enabled = row.kind === 'group' ? row.group.status === 'enabled' : row.job.enabled
+        return <Tag color={enabled ? 'green' : 'default'}>{enabled ? '已启用' : '已停用'}</Tag>
+      },
     },
     {
       title: '同步状态',
       key: 'sync',
-      width: 120,
-      render: (_: unknown, r: ScrapeJob) => (
-        <SyncStatusTag sync={r.sync} draftStatus={r.draft_status} enabled={r.enabled} />
-      ),
-    },
-    {
-      title: '参数同步',
-      key: 'params',
-      width: 110,
-      // F1-2：三态回显（异常驱动）。优先按持久化 mapping_overrides（F-03：后端已落库）
-      // 显示「已覆盖 n 项」；否则对比当前默认映射快照——不一致显「待同步」，一致显「已同步」。
-      render: (_: unknown, r: ScrapeJob) => {
-        if (r.job_type === 'blackbox') return <Text type="secondary">同步</Text>
-        const n = r.mapping_overrides?.length ?? 0
-        if (n > 0) {
+      width: 150,
+      render: (_: unknown, row: TaskRow) => {
+        if (row.kind === 'group') {
           return (
-            <Tooltip title={`已覆盖 ${n} 个采集参数`}>
-              <Tag color="blue">已覆盖 {n} 项</Tag>
-            </Tooltip>
+            <Space direction="vertical" size={0}>
+              {syncTag(row.group.sync.status)}
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                成功 {row.group.sync.synced} / 失败 {row.group.sync.failed} / 共 {row.group.sync.total}
+              </Text>
+            </Space>
           )
         }
-        const def = r.monitor_type ? defaultMappingByMonitorType.get(String(r.monitor_type)) : undefined
-        const pending =
-          !!def &&
-          ((r.scrape_interval && r.scrape_interval !== def.scrape_interval) ||
-            (r.scrape_timeout && r.scrape_timeout !== def.scrape_timeout) ||
-            (r.metrics_path && r.metrics_path !== def.metrics_path) ||
-            (r.scheme && r.scheme !== def.scheme))
-        return pending ? (
-          <Tooltip title="映射默认值已变更，建议在编辑中同步">
-            <Tag color="orange">待同步</Tag>
-          </Tooltip>
-        ) : (
-          <Tooltip title="参数与当前默认映射一致">
-            <Text type="secondary">已同步</Text>
-          </Tooltip>
-        )
+        return <SyncStatusTag sync={row.job.sync} draftStatus={row.job.draft_status} enabled={row.job.enabled} />
       },
     },
     {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 160,
-      render: (_: unknown, r: ScrapeJob) => (
-        <Space size={0}>
-          <Tooltip title="查看各实例采集状态详情">
-            <Button type="link" size="small" onClick={() => setViewing(r)}>
+      width: 200,
+      render: (_: unknown, row: TaskRow) =>
+        row.kind === 'group' ? (
+          <Space size={0}>
+            <Button type="link" size="small" onClick={() => setDetailGroup(row.group)}>
+              详情
+            </Button>
+            <Button type="link" size="small" onClick={() => openGroupEdit(row.group)}>
+              编辑
+            </Button>
+            <Popconfirm
+              title={`删除任务「${row.group.name}」？`}
+              description="其域级子任务将一并删除，M09 会停止对这些网域的采集。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void removeGroup(row.group)}
+            >
+              <Button type="link" size="small" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        ) : (
+          <Space size={0}>
+            <Button type="link" size="small" onClick={() => setViewing(row.job)}>
               查看
             </Button>
-          </Tooltip>
-          <Button type="link" size="small" onClick={() => openEdit(r)}>
-            编辑
-          </Button>
-          <Popconfirm
-            title={r.enabled ? '停用采集任务' : '启用采集任务'}
-            description={
-              r.enabled
-                ? `停用后「${r.job_name}」将从下发配置中移除，相关监控中断；保存后由 M09 自动同步生效。`
-                : `启用后「${r.job_name}」将重新纳入配置下发；保存后由 M09 自动同步生效。`
-            }
-            okText={r.enabled ? '确认停用' : '确认启用'}
-            okButtonProps={r.enabled ? { danger: true } : undefined}
-            cancelText="取消"
-            onConfirm={() => void toggleEnabled(r, !r.enabled)}
-          >
-            <Button type="link" size="small" danger={r.enabled}>
-              {r.enabled ? '停用' : '启用'}
+            <Button type="link" size="small" onClick={() => openJobEdit(row.job)}>
+              编辑
             </Button>
-          </Popconfirm>
-          <Popconfirm
-            title="删除采集任务"
-            description="删除后该任务将不再下发配置，确定删除？"
-            okText="删除"
-            cancelText="取消"
-            onConfirm={() => void removeJob(r)}
-          >
-            <Button type="link" size="small" danger>
-              删除
+            <Tooltip title="映射默认值 / 采集器登记 / 安装确认等高级能力">
+              <Button
+                type="link"
+                size="small"
+                onClick={() => {
+                  setEditingJob(row.job)
+                  setFormOpen(true)
+                }}
+              >
+                高级
+              </Button>
+            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              danger={row.job.enabled}
+              onClick={() => void toggleEnabled(row.job, !row.job.enabled)}
+            >
+              {row.job.enabled ? '停用' : '启用'}
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Popconfirm title="删除采集任务" okText="删除" onConfirm={() => void removeJob(row.job)}>
+              <Button type="link" size="small" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        ),
     },
   ]
 
   return (
-    <Card
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={reload}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新增采集任务
-          </Button>
-        </Space>
-      }
-    >
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          message="采集任务加载失败，请稍后重试"
-          description={error}
-          action={
-            <Button size="small" icon={<ReloadOutlined />} onClick={reload}>
-              重新加载
+    <ConfigProvider locale={config}>
+      <Card
+        title="采集任务"
+        extra={
+          <Space>
+            <Input.Search
+              placeholder="按任务名 / 域名搜索"
+              allowClear
+              style={{ width: 220 }}
+              onSearch={(value) => {
+                setKeyword(value)
+                setGroupsPage(1)
+              }}
+            />
+            <Button icon={<ReloadOutlined />} onClick={reload}>
+              刷新
             </Button>
-          }
-          style={{ marginBottom: 16 }}
-        />
-      )}
-      <FilterBar>
-        <FilterItem label="网域" width={230}>
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="全部网域（已纳管）"
-            style={{ width: 190 }}
-            value={filters.network_domain_id}
-            onChange={(v) => setFilters({ ...filters, network_domain_id: v ?? undefined, keyword: filters.keyword })}
-          >
-            {[...domainById.values()].map((d) => (
-              <Select.Option key={d.id} value={d.id} label={d.name}>
-                {d.name}
-              </Select.Option>
-            ))}
-          </Select>
-        </FilterItem>
-        <FilterItem label="监控类型" width={220}>
-          <Select
-            allowClear
-            placeholder="全部监控类型"
-            style={{ width: 180 }}
-            value={filters.monitor_type}
-            onChange={(v) => setFilters({ ...filters, monitor_type: v as never ?? undefined })}
-          >
-            {MONITOR_TYPE_CASCADE.map((g) =>
-              g.types.map((t) => (
-                <Select.Option key={t} value={t}>
-                  {MONITOR_TYPE_MAP[t]}
-                </Select.Option>
-              )),
-            )}
-          </Select>
-        </FilterItem>
-        <FilterItem label="关键字" width={260}>
-          <Input.Search
-            allowClear
-            placeholder="搜索 Job 名称"
-            style={{ width: 220 }}
-            value={filters.keyword}
-            onSearch={(v) => setFilters({ ...filters, keyword: v || undefined })}
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              新建采集任务
+            </Button>
+          </Space>
+        }
+      >
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="任务加载失败"
+            description={error}
+            action={
+              <Button size="small" onClick={reload}>
+                重新加载
+              </Button>
+            }
           />
-        </FilterItem>
-      </FilterBar>
+        )}
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="一个任务可覆盖多个网域：选择实例后由系统按实例所属网域自动下发，无需先选网域。"
+        />
+        <FilterBar>
+          <FilterItem label="任务类型" width={160}>
+            <Select
+              allowClear
+              placeholder="全部类型"
+              style={{ width: 140 }}
+              value={jobType}
+              onChange={(value) => setJobType(value as JobType | undefined)}
+              options={[
+                { value: 'standard', label: '采集' },
+                { value: 'blackbox', label: '拨测' },
+              ]}
+            />
+          </FilterItem>
+          <FilterItem label="监控类型" width={200}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="全部监控类型"
+              style={{ width: 180 }}
+              value={monitorType}
+              onChange={(value) => setMonitorType(value as MonitorType | undefined)}
+              options={MONITOR_TYPE_CASCADE.flatMap((item) =>
+                item.types.map((type) => ({ value: type, label: MONITOR_TYPE_MAP[type] })),
+              )}
+            />
+          </FilterItem>
+          <FilterItem label="网域" width={180}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="全部网域"
+              style={{ width: 160 }}
+              value={domainFilter}
+              onChange={(value) => setDomainFilter(value as string | undefined)}
+              options={(jobData.list ?? []).map((job) => ({
+                value: job.network_domain_id,
+                label: job.network_domain_name || job.network_domain_id,
+              }))}
+            />
+          </FilterItem>
+        </FilterBar>
 
-      <Table<ScrapeJob>
-        rowKey="id"
-        dataSource={data.list}
-        loading={loading}
-        columns={columns}
-        size="small"
-        scroll={TABLE_SCROLL_X}
-        locale={{ emptyText: <Empty description="暂无采集任务" /> }}
-        pagination={{
-          ...TABLE_PAGINATION,
-          current: page,
-          pageSize,
-          total: data.total,
-          onChange: onPageChange,
-          onShowSizeChange: onPageSizeChange,
+        <Table<TaskRow>
+          rowKey="key"
+          loading={loading}
+          dataSource={rows}
+          columns={columns}
+          scroll={TABLE_SCROLL_X}
+          expandable={{
+            rowExpandable: (row) => row.kind === 'group' && row.group.domains.length > 0,
+            expandedRowRender: (row) =>
+              row.kind === 'group' ? (
+                <Table<JobGroupChild>
+                  rowKey="job_id"
+                  size="small"
+                  pagination={false}
+                  dataSource={row.group.domains}
+                  columns={[
+                    { title: '所属网域', dataIndex: 'network_domain_name', key: 'network_domain_name', width: 160 },
+                    { title: '实例数', dataIndex: 'instance_count', key: 'instance_count', width: 90 },
+                    {
+                      title: '采集状态',
+                      key: 'collection',
+                      width: 160,
+                      render: (_: unknown, child: JobGroupChild) => {
+                        const view = child.job ? scrapeStatusByJob[child.job.id] : undefined
+                        if (!view) return <Text type="secondary">-</Text>
+                        const bad = view.down > 0 || view.pending > 0
+                        return (
+                          <Tag color={bad ? 'error' : 'green'}>{`在线 ${view.online} / 总数 ${view.total}`}</Tag>
+                        )
+                      },
+                    },
+                    {
+                      title: '同步状态',
+                      dataIndex: 'sync_status',
+                      key: 'sync_status',
+                      width: 120,
+                      render: (status: string) => syncTag(status),
+                    },
+                    { title: '失败原因', dataIndex: 'sync_error', key: 'sync_error', render: (v: string) => v || '-' },
+                  ]}
+                />
+              ) : null,
+          }}
+          pagination={{
+            ...TABLE_PAGINATION,
+            current: groupsPage,
+            pageSize,
+            total,
+            onChange: (nextPage) => {
+              setGroupsPage(nextPage)
+              onJobsPageChange(nextPage)
+            },
+          }}
+          locale={{
+            emptyText: <Empty description="还没有采集任务，点击右上角「新建采集任务」" />,
+          }}
+        />
+        {jobsPage !== groupsPage && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            单域任务当前第 {jobsPage} 页
+          </Text>
+        )}
+      </Card>
+
+      <JobGroupDetailDrawer
+        open={Boolean(detailGroup)}
+        group={detailGroup}
+        onClose={() => setDetailGroup(null)}
+        onEdit={(group) => {
+          setDetailGroup(null)
+          openGroupEdit(group)
         }}
+        onDelete={(group) => void removeGroup(group)}
+      />
+
+      <JobGroupWizardDrawer
+        open={wizardOpen}
+        record={editingGroup}
+        adoptJobId={adoptJobID}
+        onClose={() => {
+          setWizardOpen(false)
+          setEditingGroup(null)
+          setAdoptJobID(null)
+        }}
+        onSaved={reload}
       />
 
       <ScrapeJobFormDrawer
         open={formOpen}
-        record={editing}
+        record={editingJob}
         onCancel={() => setFormOpen(false)}
         onSuccess={() => {
           setFormOpen(false)
           reload()
         }}
       />
-      {/* 决策 47-2 Job 详情抽屉（原型对齐）：『实例采集状态』格与操作列『查看』共用同一入口 */}
+
       <ScrapeJobDetailDrawer
-        open={!!viewing}
+        open={Boolean(viewing)}
         job={viewing}
         onClose={() => setViewing(null)}
-        resolveDomainName={(id) => domainById.get(id)?.name ?? id}
-        resolveTemplateName={(ref) => templateByRef.get(String(ref))?.name ?? String(ref)}
-        resolveLabelTemplateName={(id) => labelTemplateById.get(String(id))?.name ?? String(id)}
-        getDefaultMapping={(m) => (m ? defaultMappingByMonitorType.get(m) : undefined)}
+        resolveDomainName={(id) => {
+          const job = jobData.list.find((item) => item.network_domain_id === id)
+          return job?.network_domain_name ?? id
+        }}
+        resolveTemplateName={(ref) => {
+          const job = jobData.list.find((item) => String(item.exporter_template_id) === String(ref))
+          return job?.exporter_template_name ?? String(ref)
+        }}
+        resolveLabelTemplateName={(id) => {
+          const job = jobData.list.find((item) => String(item.label_template_id) === String(id))
+          return job?.label_template_name ?? String(id)
+        }}
+        getDefaultMapping={() => undefined}
       />
-    </Card>
-  )
-}
-
-/**
- * 采集 Job 独立页（F-09 用户裁定拆分，路由 /scrape-jobs，2026-08-23）。
- * 「采集器管理」已拆为独立页面（/collectors），故本页仅承载采集 Job 列表，
- * 不再使用页内 Tabs；旧 `?tab=collectors` 直达链接自动重定向到 /collectors。
- */
-export function ScrapeJobListPage() {
-  const location = useLocation()
-  // 兼容旧外链：`/scrape-jobs?tab=collectors` → 采集器管理独立页（F-09）
-  if (new URLSearchParams(location.search).get('tab') === 'collectors') {
-    return <Navigate to="/collectors" replace />
-  }
-
-  return (
-    <MainLayout>
-      <JobsTab />
-    </MainLayout>
+    </ConfigProvider>
   )
 }
 

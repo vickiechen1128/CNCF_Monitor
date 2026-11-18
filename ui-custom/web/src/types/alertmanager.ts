@@ -10,14 +10,6 @@ export interface PaginatedItems<T> {
   total: number
 }
 
-/**
- * 配置版本状态（2026-10-13 dev-feedback #44 废弃联动修订）：
- *   - applied：已收录为 M09 下发源（applied_at 为空 = 待确认下发；有值 = 已生效）；
- *   - discarded：已废弃终态——变更单被废弃（用户废弃 / 被更新单取代）后，已无活
- *     pending 单可确认的留痕一律标记此态，不再显示「已提交，待确认下发」。
- */
-export type AlertmanagerConfigStatus = 'applied' | 'discarded'
-
 /** 静默状态（Alertmanager 运行时状态） */
 export type SilenceStatus = 'active' | 'pending' | 'expired'
 
@@ -31,27 +23,24 @@ export interface AlertmanagerConfigVersion {
   content: string
   /** 配置内容 sha256 */
   checksum: string
-  /** 写入并 reload 成功时间（M09 下发回写后才回填） */
-  applied_at?: string
-  /** 应用人（M09 下发回写） */
-  applied_by?: string
-  /** applied（待确认下发 / 已生效）或 discarded（已废弃，dev-feedback #44） */
-  status: AlertmanagerConfigStatus
-  /** 挂载留痕时间 */
+  /** 生成（并成功 apply）时间，RFC3339 */
+  generated_at?: string
+  /** 触发生成的操作人 */
+  generated_by?: string
+  /** 是否为当前生效版本 */
+  is_current?: boolean
+  /** 快照创建时间 */
   created_at?: string
-  /** 关联 M09 变更单号（决策 60，管道侧确认后可见） */
-  source_change_no?: string
 }
 
 /** 配置版本列表项（不含 content，省流量） */
 export interface AlertmanagerConfigVersionListItem {
   id: string
   checksum: string
-  applied_at?: string
-  applied_by?: string
-  status: AlertmanagerConfigStatus
+  generated_at?: string
+  generated_by?: string
+  is_current?: boolean
   created_at?: string
-  source_change_no?: string
 }
 
 /**
@@ -300,7 +289,7 @@ export interface AlertEventStats {
   today_resolved_total: number
   today_resolved_real: number
   today_resolved_inferred: number
-  /** 当前未结（不限今天）：与列表 status=open 同一口径，供当前告警页三张卡 / 首页右栏计数 */
+  /** 当前未结（不限今天）：与列表 status_group=open 同一口径，供当前告警页三张卡 / 首页右栏计数 */
   open_total: number
   open_firing: number
   open_silenced: number
@@ -503,13 +492,6 @@ export interface RouteTreeData {
   items?: RouteNode[]
   /** 当前合并基（生效产品视图 YAML）的 sha256，进入编辑时作为 base_checksum 回传 */
   effective_checksum?: string
-  /** 管理域当前活 pending 变更单（存在即表示页面展示的是待确认版本） */
-  pending?: {
-    change_no: string
-    created_at: string
-    route_changed?: boolean
-    inhibit_rules_changed?: boolean
-  } | null
   /** 生效配置 `receivers:` 段已声明的接收人名（全集，含手写）；解析失败时仍可能存在 */
   declared_receivers?: string[]
   /** 解析失败原因（成功时缺省） */
@@ -536,8 +518,6 @@ export interface SaveRoutesResult {
   reload_status?: string
   /** v3：本次保存未覆盖的配置段（route_changed / inhibit_rules_changed） */
   pending_sections?: string[]
-  /** v3：生效配置是否已写入 M09 只读快照 */
-  snapshot_synced?: boolean
 }
 
 export interface InhibitionRule {
@@ -551,8 +531,8 @@ export interface InhibitionRule {
 
 export interface InhibitionListData {
   items: InhibitionRule[]
+  /** v3 无整表 checksum；保留字段以兼容页面签名（恒为空串） */
   effective_checksum: string
-  pending?: RouteTreeData['pending']
 }
 
 export interface SaveInhibitionsPayload {

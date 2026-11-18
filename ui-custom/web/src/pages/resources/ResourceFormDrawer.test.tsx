@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import type {
   AppPlatformRel,
@@ -13,6 +13,8 @@ import type { ResourceListItem } from './useResources'
 
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const businessCreateMock = vi.fn()
+const businessUpdateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 // 字典类 mock 一律声明为无参 vi.fn()，默认返回值在 beforeEach 里 mockResolvedValue 给出——
@@ -33,6 +35,8 @@ vi.mock('../../api/resources', () => ({
   },
   businessDomainApi: {
     list: (...a: unknown[]) => businessDomainListMock(...a),
+    create: (...a: unknown[]) => businessCreateMock(...a),
+    update: (...a: unknown[]) => businessUpdateMock(...a),
   },
   osOptionApi: {
     list: (...a: unknown[]) => osOptionListMock(...a),
@@ -89,8 +93,8 @@ const businessDomains = [
  * 平台字典（§5.21 / 决策 110：「平台归属」下拉仅列启用条目，停用平台禁止新引用）
  */
 const platformDicts: PlatformDict[] = [
-  { platform_code: 'ecommerce', platform_name: '电商平台', enabled: true },
-  { platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false },
+  { platform_code: 'ecommerce', platform_name: '电商平台', enabled: true, status: 'enabled', reference_count: 0 },
+  { platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false, status: 'disabled', reference_count: 0 },
 ]
 
 /**
@@ -98,9 +102,9 @@ const platformDicts: PlatformDict[] = [
  * 「平台归属」不在此处填写。
  */
 const applicationDicts: ApplicationDict[] = [
-  { app_code: 'order', app_name: '订单应用', status: 'enabled' },
-  { app_code: 'billing', app_name: '计费应用', status: 'enabled' },
-  { app_code: 'legacy-app', app_name: '停用应用', status: 'disabled' },
+  { app_code: 'order', app_name: '订单应用', status: 'enabled', reference_count: 0 },
+  { app_code: 'billing', app_name: '计费应用', status: 'enabled', reference_count: 0 },
+  { app_code: 'legacy-app', app_name: '停用应用', status: 'disabled', reference_count: 0 },
 ]
 
 /** 应用↔平台关联（决策 111）：order 挂电商平台（主），billing 挂另一平台 */
@@ -205,7 +209,7 @@ async function clickSelectOption(text: string) {
 async function fillHostRequiredFields() {
   openSelect('请选择网域')
   fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-  openSelect('请选择业务')
+  openSelect('未归属业务（可留空）')
   fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
   openSelect('请选择环境')
   await clickSelectOption('PRD')
@@ -227,7 +231,7 @@ async function fillHostRequiredFields() {
 async function fillMiddlewareRequiredFields() {
   openSelect('请选择网域')
   fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-  openSelect('请选择业务')
+  openSelect('未归属业务（可留空）')
   fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
   openSelect('请选择环境')
   await clickSelectOption('PRD')
@@ -269,6 +273,8 @@ describe('ResourceFormDrawer', () => {
   beforeEach(() => {
     createMock.mockReset()
     updateMock.mockReset()
+    businessCreateMock.mockReset()
+    businessUpdateMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
     osOptionListMock.mockReset()
@@ -420,7 +426,7 @@ describe('ResourceFormDrawer', () => {
     // 填好其余必填项，唯独不选运行状态 → 触发必填校验「请选择运行状态」且不提交
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -448,7 +454,8 @@ describe('ResourceFormDrawer', () => {
     await waitFor(() =>
       expect(screen.getByText('请选择网域', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument(),
     )
-    expect(await screen.findByText('请选择业务', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    // 业务对 host 可空（决策 93 / M07 SRS v2.0）：不得再出现业务必填报错
+    expect(screen.queryByText('请选择业务', { selector: '.ant-form-item-explain-error' })).toBeNull()
     expect(await screen.findByText('请选择环境', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
     // 「运行状态」PRD 必填、无默认值，placeholder 与校验文案同名；用 selector 定位错误元素断言
     expect(await screen.findByText('请选择运行状态', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
@@ -674,7 +681,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'application' })
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -721,9 +728,86 @@ describe('ResourceFormDrawer', () => {
 
   it('shows only enabled business domains in the select', async () => {
     renderDrawer({ category: 'host' })
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     expect(await screen.findByText('公共基础设施 (infra)')).toBeInTheDocument()
     expect(screen.queryByText('停用业务 (legacy)')).toBeNull()
+  })
+
+  /** 决策 93 / M07 SRS v2.0：host 业务可空，登记时不得再强制业务。 */
+  it('host 业务留空可提交，payload biz_code 为空字符串', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择环境')
+    await clickSelectOption('PRD')
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
+    fireEvent.change(getOsInput(), { target: { value: 'Ubuntu' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ biz_code: '' })
+    expect(successMock).toHaveBeenCalled()
+  })
+
+  /** 仅接口服务保留业务必填（用户裁定：其余类型可空后补）。 */
+  it('接口服务业务必填：未选业务时拦截提交', async () => {
+    renderDrawer({ category: 'interface_service' })
+    await waitForDicts()
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择环境')
+    await clickSelectOption('PRD')
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('例如：订单查询接口'), { target: { value: '订单查询接口' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：https://api.example.com/health?token=xxx'), {
+      target: { value: 'https://api.example.com/health' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+
+    expect(await screen.findByText('请选择业务', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  /** 业务字典为空时不再把用户赶去字典页：表单内可快捷登记并自动回填。 */
+  it('资源表单内快捷登记业务，成功后自动回填并刷新下拉', async () => {
+    const created = {
+      code: 'risk-control',
+      name: '风控业务',
+      enabled: true,
+      status: 'enabled',
+      reference_count: 0,
+    }
+    businessDomainListMock
+      .mockResolvedValueOnce({ status: 'success', data: { list: businessDomains, total: 2 } })
+      .mockResolvedValueOnce({ status: 'success', data: { list: [...businessDomains, created], total: 3 } })
+    businessCreateMock.mockResolvedValue({ status: 'success', data: created })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+
+    fireEvent.click(screen.getByText('登记业务'))
+    expect(await screen.findByText('登记业务分组')).toBeInTheDocument()
+    const drawer = screen.getByText('登记业务分组').closest('.ant-drawer') as HTMLElement
+    fireEvent.change(within(drawer).getByLabelText('业务编码'), { target: { value: 'risk-control' } })
+    fireEvent.change(within(drawer).getByLabelText('业务名称'), { target: { value: '风控业务' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: /提\s*交/ }))
+
+    await waitFor(() =>
+      expect(businessCreateMock).toHaveBeenCalledWith({
+        code: 'risk-control',
+        name: '风控业务',
+        description: undefined,
+      }),
+    )
+    await waitFor(() => expect(businessDomainListMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('风控业务 (risk-control)')).toBeInTheDocument()
   })
 
   it('submits generic target without v3-removed custom_labels', async () => {
@@ -731,7 +815,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'generic_target' })
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -755,6 +839,23 @@ describe('ResourceFormDrawer', () => {
     expect(input).not.toHaveProperty('custom_labels')
   })
 
+  it('generic_target 业务与应用都为空时拦截提交（维持二选一约束）', async () => {
+    renderDrawer({ category: 'generic_target' })
+    await waitForDicts()
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择环境')
+    await clickSelectOption('PRD')
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'node-exporter-cn-north' } })
+    fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), { target: { value: 'exporter.example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+
+    expect(createMock).not.toHaveBeenCalled()
+    expect(await screen.findByText('所属业务与所属应用至少填写一个')).toBeInTheDocument()
+  })
+
   it('prefills 采集路径=/metrics and 协议=http for generic_target create', async () => {
     createMock.mockResolvedValue({ status: 'success', data: {} })
     renderDrawer({ category: 'generic_target' })
@@ -763,7 +864,7 @@ describe('ResourceFormDrawer', () => {
     // 填必填共享字段 + 其他监控目标必填项后提交
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -811,7 +912,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'generic_target' })
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -915,7 +1016,7 @@ describe('ResourceFormDrawer', () => {
     await waitForDicts()
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')
@@ -1036,7 +1137,7 @@ describe('ResourceFormDrawer', () => {
   async function fillSharedRequiredFields() {
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
-    openSelect('请选择业务')
+    openSelect('未归属业务（可留空）')
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     await clickSelectOption('PRD')

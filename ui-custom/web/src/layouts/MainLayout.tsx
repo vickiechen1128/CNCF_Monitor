@@ -16,6 +16,7 @@ import {
   FileSearchOutlined,
   FileTextOutlined,
   FundProjectionScreenOutlined,
+  GlobalOutlined,
   HddOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -23,7 +24,6 @@ import {
   PartitionOutlined,
   PlusOutlined,
   RadarChartOutlined,
-  SendOutlined,
   StopOutlined,
   TagsOutlined,
   ThunderboltOutlined,
@@ -61,9 +61,10 @@ interface MainLayoutProps {
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
  * D3（临时）：MVP 一级模块顶部栏顺序为「可视化大屏 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
- * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
- * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置快照 / 快照历史）；
- * 既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
+ * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），二级导航**平铺** 4 项：
+ * 网域纳管 / 采集节点状态 / 监控目标状态 / 配置快照（2026-11-17 用户反馈：原 N2-1 的两个折叠组
+ * 默认收起后二级页面全部不可见、跨组还需二次展开，改为与其它模块一致的平铺；配置快照与快照历史
+ * 已合并为同一页面）。既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
  */
 interface ModuleDef {
   key: string
@@ -73,21 +74,14 @@ interface ModuleDef {
 }
 
 /**
- * config-center 二级导航中两个可折叠子菜单（SubMenu）的 key 及各自路由。
- * 「网域与节点管理」为低频接入面、「配置下发」为高频查看面，均默认折叠，
- * 首次进入各自路由时自动展开一次，之后尊重用户手动开合（见 MainLayout 折叠逻辑）。
+ * Sider 中仅剩的可折叠子菜单：可视化大屏模块下的「自定义大屏」（面板数量不定，需要收纳）。
+ * 2026-11-17：M09 的「网域与节点管理 / 配置下发」两组已改为平铺，折叠机制只服务本组，
+ * 保留首次进入自动展开 / 尊重用户手动开合的行为。
  */
-const ACCESS_PLANE_KEY = 'access-plane'
-const DELIVERY_PLANE_KEY = 'delivery-plane'
-
 const CUSTOM_DASHBOARD_KEY = 'custom-dashboards'
 
 /** 可折叠子菜单组定义：key 与归属路由（用于首次进入自动展开判断） */
-const COLLAPSIBLE_GROUPS = [
-  { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status', '/targets'] },
-  { key: DELIVERY_PLANE_KEY, routes: ['/config-preview', '/deployments'] },
-  { key: CUSTOM_DASHBOARD_KEY, routes: ['/dashboard/panels'] },
-]
+const COLLAPSIBLE_GROUPS = [{ key: CUSTOM_DASHBOARD_KEY, routes: ['/dashboard/panels'] }]
 
 const MODULES: ModuleDef[] = [
   {
@@ -147,30 +141,15 @@ const MODULES: ModuleDef[] = [
     label: '网域与边缘配置中心',
     path: '/domain-onboarding',
     subItems: [
-      {
-        // 「网域与节点管理」为低频折叠子菜单（SubMenu）：默认折叠，
-        // 激活路由落在该组时自动展开（见 MainLayout 折叠逻辑）。
-        key: ACCESS_PLANE_KEY,
-        label: '网域与节点管理',
-        icon: <AppstoreOutlined />,
-        children: [
-          { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
-          { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
-          // M02 目标状态页（P1）：M09 网域与节点管理下增「监控目标状态」暂挂入口
-          // （与 PRD 决策 47-4 不符，见 module-02/dev-feedback.md F-1，待设计侧收割）。
-          { key: '/targets', label: '监控目标状态', icon: <RadarChartOutlined /> },
-        ],
-      },
-      {
-        // 「配置下发」同样为可折叠子菜单（SubMenu）：默认折叠，进入配置面自动展开。
-        key: DELIVERY_PLANE_KEY,
-        label: '配置下发',
-        icon: <SendOutlined />,
-        children: [
-          { key: '/config-preview', label: '配置快照', icon: <FileSearchOutlined /> },
-          { key: '/deployments', label: '快照历史', icon: <SendOutlined /> },
-        ],
-      },
+      // 2026-11-17 用户反馈：本模块二级导航改为**平铺**（原「网域与节点管理」+「配置下发」两个折叠组
+      // 默认收起，进入模块后二级页面全部不可见、跨组还要二次展开；合并后仅 4 项，无需分组）。
+      // 顺序按「接入 → 观测 → 追溯」组织，与页面动线一致。
+      { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
+      { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
+      // M02 目标状态页（P1）：暂挂 M09 下（与 PRD 决策 47-4 不符，见 module-02/dev-feedback.md F-1）。
+      { key: '/targets', label: '监控目标状态', icon: <RadarChartOutlined /> },
+      // 配置快照与快照历史已合并为单一只读页（v3 无全局快照接口，页面内「网域」筛选承接原两页差异）。
+      { key: '/config-snapshots', label: '配置产物历史', icon: <FileSearchOutlined /> },
     ],
   },
   {
@@ -201,8 +180,10 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
-      // 云字典维护页（D37：admin 只增维护；读视图由 M07 提供）：云归属取值唯一来源
+      // 云字典维护页（D37：admin 维护；读视图由 M07 提供）：云归属取值唯一来源
       { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
+      // 区域类型字典维护页（M07 v3 生命周期）：网域「网络分区」字段的取值权威
+      { key: '/admin/zone-types', label: '区域类型', icon: <GlobalOutlined /> },
       { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
       { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
       // 外观设置（用户 2026-09-18 补充）：界面皮肤 + 产品名称。
@@ -278,7 +259,8 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
- * /domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
+ * /domain-onboarding、/node-status、/targets、/config-snapshots → 网域与边缘配置中心；
+ * （旧路由 /config-preview、/deployments 已合并重定向到 /config-snapshots，见 App.tsx 别名。）
  * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 可视化大屏（默认落地页）。
  */
@@ -290,8 +272,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
     locationPath.startsWith('/targets') ||
-    locationPath.startsWith('/config-preview') ||
-    locationPath.startsWith('/deployments')
+    locationPath.startsWith('/config-snapshots')
   )
     return findModuleByKey('config-center')
   if (
@@ -398,7 +379,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   const hasSider = Boolean(activeSubItems && activeSubItems.length > 0)
 
-  // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠，
+  // 可折叠子菜单展开态（当前仅「自定义大屏」一组）：默认折叠，
   // 激活路由归属的折叠组自动展开，并尊重用户手动开合（点击折叠按钮即可收起）。
   const activeGroup =
     COLLAPSIBLE_GROUPS.find((g) =>

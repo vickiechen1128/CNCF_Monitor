@@ -6,21 +6,19 @@
  *
  * 2026-10-22 用户裁决：**路由树是告警路由的唯一配置入口**。
  *   - 删除「路由规则由谁维护」模式开关与「根兜底接管」控件；
- *   - 本页始终可写：新建 / 编辑 / 删除 / 上移下移 / 拖拽 / 保存并提交变更；
+ *   - 本页始终可写：新建 / 编辑 / 删除 / 上移下移 / 拖拽 / 保存并生效；
  *   - 顶层路由的接收人同样在本页直接编辑（不再由平台兜底设定覆盖）；
- *   - 保存 = 生成整份 alertmanager.yml → 复用既有
- *     `POST /api/v2/platform/alertmanager/config`（**零新增端点**）→ 触发 M09 变更单，
- *     **不即时生效**。
+ *   - 保存 = 生成整份 alertmanager.yml → amtool 校验 → 内部 reload，**立即生效**
+ *     （v3 无变更单/确认下发环节）。
  *
  * 解析失败时降级为原文只读展示（不白屏、不报错页），并给「部分导入 + 手动校正」通道。
  *
  * ⚠ 2026-10-08 修订：编辑态改为**首屏自动导入**（只读树加载完成即灌入），修掉
- * 「新建路由规则 / 保存并提交变更 按钮恒灰」的阻断缺陷——此前须先点「从当前配置导入」
+ * 「新建路由规则 / 保存并生效 按钮恒灰」的阻断缺陷——此前须先点「从当前配置导入」
  * 才进入编辑态，而该按钮在首屏更像可选动作而非前置步骤。
  */
 import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import {
   Alert,
   App,
@@ -46,7 +44,7 @@ import {
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { MainLayout } from '../../layouts/MainLayout'
-import { CONFIG_PREVIEW_PATH, DEFAULT_RECEIVER_LABEL, formatMatchers } from './alertmanagerConstants'
+import { DEFAULT_RECEIVER_LABEL, formatMatchers } from './alertmanagerConstants'
 import { useRouteEditor, useRoutes } from './useRoutes'
 import {
   blankRouteNode,
@@ -138,7 +136,7 @@ const NOTICE_LEVEL_COLOR: Record<RouteNoticeLevel, string> = {
 }
 
 export function RoutesPage() {
-  const { data, rows, loading, error, effectiveChecksum, pending, reload } = useRoutes()
+  const { data, rows, loading, error, effectiveChecksum, reload } = useRoutes()
   const { modal } = App.useApp()
   const parseError = (data?.parse_error ?? '').trim()
   const degraded = parseError.length > 0
@@ -178,12 +176,9 @@ export function RoutesPage() {
 
   /** 点「编辑路由」时先刷新一次服务端配置，再灌入编辑区（避免用旧页面覆盖新配置） */
   const [enteringEdit, setEnteringEdit] = useState(false)
-  /** 保存成功后回到只读态，并常驻提示「已提交、待确认下发」 */
-  const [submitted, setSubmitted] = useState(false)
   const { importFromCurrent } = editor
 
   const enterEdit = useCallback(() => {
-    setSubmitted(false)
     setEnteringEdit(true)
     // 先刷新服务端配置，加载完成后再把本次最新树载入编辑区
     // （直接使用回调回传的 fresh 数据，避免拿到刷新前闭包里的旧 sourceItems）。
@@ -194,11 +189,10 @@ export function RoutesPage() {
     })
   }, [reload, importFromCurrent])
 
-  /** 保存成功后回到只读态（后续生效由 M09 确认下发） */
+  /** 保存成功后回到只读态（v3 保存即校验 + reload 生效）。 */
   const handleSave = useCallback(async () => {
     const ok = await editor.save()
     if (!ok) return
-    setSubmitted(true)
     editor.reset()
   }, [editor])
 
@@ -206,7 +200,6 @@ export function RoutesPage() {
   const handleDiscard = useCallback(() => {
     if (!editor.dirty) {
       editor.reset()
-      setSubmitted(false)
       reload()
       return
     }
@@ -218,7 +211,6 @@ export function RoutesPage() {
       cancelText: '继续编辑',
       onOk: () => {
         editor.reset()
-        setSubmitted(false)
         reload()
       },
     })
@@ -293,8 +285,8 @@ export function RoutesPage() {
         title: `删除路由「${label}」？`,
         content:
           children > 0
-            ? `将同时删除 ${children} 条子路由：该路由下还有 ${children} 条子路由，一并删除后不可恢复。删除后需保存并提交变更单才会生效。`
-            : '删除后需保存并提交变更单才会生效。',
+            ? `将同时删除 ${children} 条子路由：该路由下还有 ${children} 条子路由，一并删除后不可恢复。删除后保存即生效。`
+            : '删除后保存即生效。',
         okText: children > 0 ? `同时删除 ${children} 条子路由` : '删除',
         okButtonProps: { danger: true },
         cancelText: '取消',
@@ -570,7 +562,7 @@ export function RoutesPage() {
         loading={editor.saving}
         data-testid="route-save-btn"
       >
-        保存并提交变更
+        保存并生效
       </Button>
       <Button onClick={handleDiscard} data-testid="route-reset-btn">
         放弃编辑
@@ -601,7 +593,7 @@ export function RoutesPage() {
         </Text>
       )}
       <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-        保存会生成整份 alertmanager.yml 并提交变更单；改动不会立即生效，需在「配置变更确认」中人工确认后才会写入并 reload。
+        保存会生成整份 alertmanager.yml，amtool 校验通过后立即写入并 reload Alertmanager。
       </Text>
     </>
   ) : null
@@ -637,16 +629,8 @@ export function RoutesPage() {
       key: 'save-result',
       level: editor.saveResult.ok ? 'success' : 'error',
       testId: 'route-save-result',
-      title: editor.saveResult.ok ? '已提交，等待你在「配置变更确认」中确认下发' : '保存未通过',
-      body: editor.saveResult.ok ? (
-        <Space direction="vertical" size={4}>
-          <span>{editor.saveResult.message}</span>
-          {/* 成功后的唯一下一步就是去 M09 确认（提交只产 pending 草稿，不即时生效）。 */}
-          <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-        </Space>
-      ) : (
-        editor.saveResult.message
-      ),
+      title: editor.saveResult.ok ? '路由已保存并生效' : '保存未通过',
+      body: editor.saveResult.message,
     })
   }
   if (editor.importState === 'partial' && editor.importNotice) {
@@ -690,27 +674,9 @@ export function RoutesPage() {
         subtitle="查看告警路由树；点「编辑路由」后按标签把告警分流到不同通知渠道"
         points={[
           '一条规则包含：匹配条件（发什么）、接收人（发给谁）、分组与节奏（怎么攒批、多久重发）。',
-          '页面默认只读；点「编辑路由」进入编辑，保存会生成整份配置并提交变更单，确认下发后才会生效。',
+          '页面默认只读；点「编辑路由」进入编辑，保存会生成整份配置并立即校验 + reload 生效。',
         ]}
       />
-
-      {submitted && (
-        <Alert
-          type="success"
-          showIcon
-          closable
-          style={{ marginBottom: 16 }}
-          data-testid="route-submitted-notice"
-          message="路由变更已提交，等待确认下发"
-          description={
-            <Space direction="vertical" size={2}>
-              <span>改动尚未生效，需在「配置变更确认」中人工确认后才会写入并 reload Alertmanager。</span>
-              <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-            </Space>
-          }
-          onClose={() => setSubmitted(false)}
-        />
-      )}
 
       {error ? (
         <Alert
@@ -796,25 +762,6 @@ export function RoutesPage() {
             </Card>
           )}
 
-          {/* 有 pending 草稿时明确告知：页面展示的是待确认版本，AM 仍在跑上一版 */}
-          {pending && pending.route_changed !== false && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              data-testid="route-pending-banner"
-              message="当前显示的是待确认版本"
-              description={
-                <Space direction="vertical" size={2}>
-                  <span>
-                    变更单 {pending.change_no} 尚未确认下发，Alertmanager 仍在运行上一版配置。
-                  </span>
-                  <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-                </Space>
-              }
-            />
-          )}
-
           {showTree && (
           <Card
             title={
@@ -835,7 +782,7 @@ export function RoutesPage() {
             /* 操作按钮迁入 extra（2026-10-14）：原先独占一张无标题 Card。 */
             extra={routeActions}
           >
-            {/* 载入提示与保存口径：贴在表格正上方，紧邻其指引的「保存并提交变更」按钮 */}
+            {/* 载入提示与保存口径：贴在表格正上方，紧邻其指引的「保存并生效」按钮 */}
             {routeActionNotes}
             {/* 读表须知（2026-10-14 从 PageIntro 折叠要点下沉）：「顶层路由是总入口」约束的
                 是这张表里哪一行不能动，放在表格正上方才看得出说的是哪一行。 */}

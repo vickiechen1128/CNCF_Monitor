@@ -105,9 +105,10 @@ describe('TemplateDownloadModal', () => {
     expect(middleware.getByText(/所属业务（biz_code，导入后再补）/)).toBeInTheDocument()
     middleware.unmount()
 
-    // application：业务与应用都必填
+    // application：应用与集群必填，业务可空（上线后再补）
     const application = renderModal({ category: 'application' })
-    expect(application.getByText('必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）')).toBeInTheDocument()
+    expect(application.getByText('必填：所属应用（app_code）、所属集群（cluster）')).toBeInTheDocument()
+    expect(application.getByText(/所属业务（biz_code，上线后再补）/)).toBeInTheDocument()
     expect(application.queryByText('所属业务（必填）、所属应用（可选）')).toBeNull()
     application.unmount()
 
@@ -133,7 +134,7 @@ describe('TemplateDownloadModal', () => {
   })
 
   it('differentiates business/application column scope per category (F-22)', () => {
-    // 原泛化文案「业务列必填，应用列按需填写」对 5 类中仅 application 成立，已按类分化
+    // 原泛化文案「业务列必填，应用列按需填写」已按类分化：仅接口服务仍要求业务列
     const host = renderModal({ category: 'host' })
     expect(host.getByText(/^业务列和应用列都能留空/)).toBeInTheDocument()
     expect(host.queryByText(/业务列必填，应用列按需填写/)).toBeNull()
@@ -144,7 +145,7 @@ describe('TemplateDownloadModal', () => {
     database.unmount()
 
     const application = renderModal({ category: 'application' })
-    expect(application.getByText(/^业务列和应用列都必填/)).toBeInTheDocument()
+    expect(application.getByText(/^应用列必填，业务列能留空/)).toBeInTheDocument()
     application.unmount()
 
     const genericTarget = renderModal({ category: 'generic_target' })
@@ -167,12 +168,12 @@ describe('TemplateDownloadModal', () => {
   it('shows enabled business and application dict entries as selectable values, hides disabled (F-7-②)', () => {
     renderModal({
       businessDomains: [
-        { code: 'infra', name: '公共基础设施', enabled: true },
-        { code: 'legacy', name: '已下线业务', enabled: false },
+        { code: 'infra', name: '公共基础设施', enabled: true, status: 'enabled', reference_count: 0 },
+        { code: 'legacy', name: '已下线业务', enabled: false, status: 'disabled', reference_count: 0 },
       ],
       applicationDomains: [
-        { app_code: 'order', app_name: '订单服务', status: 'enabled' },
-        { app_code: 'old-app', app_name: '已停用应用', status: 'disabled' },
+        { app_code: 'order', app_name: '订单服务', status: 'enabled', reference_count: 0 },
+        { app_code: 'old-app', app_name: '已停用应用', status: 'disabled', reference_count: 0 },
       ],
     })
     // 启用条目以「编码 + 名称」直显

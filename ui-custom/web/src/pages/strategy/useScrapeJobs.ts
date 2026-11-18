@@ -11,6 +11,8 @@ export interface ScrapeJobFilters {
   network_domain_id?: string
   monitor_type?: MonitorType
   job_type?: JobType
+  /** true = 只看未归组的单域 Job（合并任务列表的「未分组」区） */
+  ungrouped?: boolean
   keyword?: string
 }
 
@@ -52,6 +54,7 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
       network_domain_id: filters.network_domain_id,
       monitor_type: filters.monitor_type,
       job_type: filters.job_type,
+      ungrouped: filters.ungrouped,
       keyword: filters.keyword,
       page,
       page_size: pageSize,
@@ -65,7 +68,7 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
     } finally {
       setLoading(false)
     }
-  }, [filters.network_domain_id, filters.monitor_type, filters.job_type, filters.keyword, page, pageSize])
+  }, [filters.network_domain_id, filters.monitor_type, filters.job_type, filters.ungrouped, filters.keyword, page, pageSize])
 
   useEffect(() => {
     // 数据请求回调内在异步完成后才 setState；沿用本模块既有抓取 effect 模式

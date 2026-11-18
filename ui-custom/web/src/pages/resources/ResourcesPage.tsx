@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import { useSearchParams } from 'react-router-dom'
 import { MainLayout } from '../../layouts/MainLayout'
-import { Alert, Button, Card, ConfigProvider, Empty, Modal, Space, message } from 'antd'
+import { Alert, Button, Card, ConfigProvider, Empty, InputNumber, Modal, Space, Typography, message } from 'antd'
 import {
   DownloadOutlined,
   HistoryOutlined,
@@ -10,11 +10,11 @@ import {
   ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
-import type { ResourceListParams } from '../../api/resources'
+import { resourceApi, type ResourceListParams } from '../../api/resources'
 import type { ResourceCategory } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { useResources } from './useResources'
-import type { ResourceListItem } from './useResources'
+import type { ResourceFilters, ResourceListItem } from './useResources'
 import { useResourceCoverage } from './useResourceCoverage'
 import { useResourceDelete } from './useResourceDelete'
 import { useResourceDictionaries } from './useResourceDictionaries'
@@ -25,13 +25,18 @@ import { ResourceFilterBar } from './ResourceFilterBar'
 import { ResourceListAlerts } from './ResourceListAlerts'
 import { ResourceCategoryTabs } from './ResourceCategoryTabs'
 import { ResourceTable } from './ResourceTable'
+import type { ResourceColumnFilters } from './ResourceTable'
+import { ROW_SELECTION_COLUMN_WIDTH } from '../../components/tablePresets'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
 import { TemplateDownloadModal } from './TemplateDownloadModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
+import { BulkReassignModal } from './BulkReassignModal'
 import { downloadResources } from './resourceExport'
 import { useSkin } from '../../skinContext'
+
+const { Text } = Typography
 
 /**
  * 资源管理列表页（Module_07 §11.1 页面状态矩阵）。
@@ -112,6 +117,25 @@ export function ResourcesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coveredList, deepLinkAppCode, deepLinkCloud, deepLinkSubtype, category, networkDomains])
 
+  /**
+   * 列头筛选（P1）：网域 / 运行状态走后端筛选，采集状态走当前页 coverage 过滤。
+   * 抽屉与列头共用同一状态；只有实际变化才触发请求，避免无关列刷新导致列表重载。
+   */
+  const handleColumnFiltersChange = (next: ResourceColumnFilters) => {
+    const patch: Partial<ResourceFilters> = {}
+    if ('network_domain_id' in next) patch.network_domain_id = next.network_domain_id
+    if ('status' in next) patch.status = next.status
+    if (
+      Object.keys(patch).length > 0 &&
+      (patch.network_domain_id !== filters.network_domain_id || patch.status !== filters.status)
+    ) {
+      setFilters({ ...filters, ...patch })
+    }
+    if ('monitor_state' in next && next.monitor_state !== monitorState) {
+      setMonitorState(next.monitor_state as CoverageState | undefined)
+    }
+  }
+
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
@@ -125,6 +149,19 @@ export function ResourcesPage() {
   const [templateOpen, setTemplateOpen] = useState(false)
   const [recordsOpen, setRecordsOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
+  /** FR-28：勾选资源 + 批量改归属弹窗 */
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
+  const [bulkOpen, setBulkOpen] = useState(false)
+  // 批量设置采集端口（实例级端口 = M01 解析链最高优先级）
+  const [portOpen, setPortOpen] = useState(false)
+  const [portValue, setPortValue] = useState<number | null>(null)
+  const [portSubmitting, setPortSubmitting] = useState(false)
+
+  const handleCategoryChange = (next: ResourceCategory) => {
+    setSelectedRowKeys([])
+    setBulkOpen(false)
+    setCategory(next)
+  }
 
   const handleExport = async () => {
     setExporting(true)
@@ -186,6 +223,10 @@ export function ResourcesPage() {
       isCloudDisabled,
       resolvePlatformName,
       isPlatformDisabled,
+      networkDomainFilterOptions: networkDomains.map((d) => ({ text: d.name, value: d.id })),
+      networkDomainFilterValue: filters.network_domain_id,
+      statusFilterValue: filters.status,
+      monitorStateFilterValue: monitorState,
       onDetail: openDetailDrawer,
       onEdit: openEditDrawer,
       onDelete: handleDeleteClick,
@@ -240,11 +281,27 @@ export function ResourcesPage() {
               deepLinkCloud={deepLinkCloud} deepLinkAppCode={deepLinkAppCode}
               deepLinkSubtype={deepLinkSubtype} visibleCount={visibleList.length}
               resolveCloudName={resolveCloudName} onClearDeepLink={() => setSearchParams({})}
-              betweenAlerts={<ResourceCategoryTabs category={category} onChange={setCategory} />}
+              betweenAlerts={<ResourceCategoryTabs category={category} onChange={handleCategoryChange} />}
             />
+            {selectedRowKeys.length > 0 && (
+              <Space style={{ marginBottom: 12 }}>
+                <Text type="secondary">已选 {selectedRowKeys.length} 条</Text>
+                <Button type="primary" onClick={() => setBulkOpen(true)}>
+                  批量改归属
+                </Button>
+                <Button onClick={() => { setPortValue(null); setPortOpen(true) }}>批量设采集端口</Button>
+                <Button onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+              </Space>
+            )}
             <ResourceTable
               dataSource={visibleList} columns={resizableColumns} loading={loading || coverageLoading}
-              scrollX={tableScrollX} containerRef={tableContainerRef} onRowClick={openDetailDrawer}
+              scrollX={tableScrollX + ROW_SELECTION_COLUMN_WIDTH} containerRef={tableContainerRef} onRowClick={openDetailDrawer}
+              rowSelection={{
+                selectedRowKeys,
+                onChange: (keys) => setSelectedRowKeys(keys.map(String)),
+                columnWidth: ROW_SELECTION_COLUMN_WIDTH,
+              }}
+              onColumnFiltersChange={handleColumnFiltersChange}
               page={page} pageSize={pageSize} total={data.total} onPageSizeChange={onPageSizeChange}
               onCreate={openCreateDrawer} onDownloadTemplate={openTemplateModal} onImport={openImportModal}
             />
@@ -296,6 +353,58 @@ export function ResourcesPage() {
           onUploadExcel={openImportModal}
         />
       </Modal>
+      <Modal
+        title="批量设置采集端口"
+        open={portOpen}
+        okText="应用"
+        confirmLoading={portSubmitting}
+        onCancel={() => setPortOpen(false)}
+        onOk={() => {
+          if (portValue === null) {
+            message.warning('请输入采集端口')
+            return
+          }
+          setPortSubmitting(true)
+          void resourceApi
+            .bulkSetScrapePort(selectedRowKeys, portValue)
+            .then((res) => {
+              message.success(`已为 ${res.data.updated_count} 条资源设置采集端口 ${portValue}`)
+              setPortOpen(false)
+              setSelectedRowKeys([])
+              reload()
+            })
+            .catch((err) => message.error(err instanceof Error ? err.message : '设置失败'))
+            .finally(() => setPortSubmitting(false))
+        }}
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          采集端口写在资源实例上，优先级最高（高于类型默认端口与采集器默认端口）；留空/0 表示未设置、继续向下回落。
+          已选 {selectedRowKeys.length} 条资源。
+        </Typography.Paragraph>
+        <InputNumber
+          style={{ width: 200 }}
+          min={0}
+          max={65535}
+          placeholder="如 9100 / 9104"
+          value={portValue}
+          onChange={(value) => setPortValue(typeof value === 'number' ? value : null)}
+        />
+      </Modal>
+      {/* FR-28：批量改归属（勾选资源后触发；整批单事务，失败逐条展示） */}
+      <BulkReassignModal
+        open={bulkOpen}
+        category={category}
+        resourceIDs={selectedRowKeys}
+        businessDomains={businessDomains}
+        applicationDomains={applicationDomains}
+        platformDicts={platformDicts}
+        onCancel={() => setBulkOpen(false)}
+        onSuccess={() => {
+          setBulkOpen(false)
+          setSelectedRowKeys([])
+          reload()
+        }}
+      />
     </MainLayout>
   )
 }

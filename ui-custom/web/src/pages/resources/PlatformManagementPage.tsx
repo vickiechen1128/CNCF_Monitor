@@ -5,11 +5,11 @@ import {
   Button,
   Card,
   Drawer,
-  Dropdown,
   Empty,
   Form,
   Input,
   Modal,
+  Segmented,
   Select,
   Space,
   Table,
@@ -17,7 +17,7 @@ import {
   message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { DownOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { appPlatformRelApi, applicationDictApi, platformDictApi } from '../../api/resources'
 import type { AppPlatformRel, ApplicationDict, PlatformDict } from '../../types/resource'
 import { Callout } from '../../components/Callout'
@@ -26,8 +26,27 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { DictLifecycleNotice } from './DictLifecycleNotice'
+import {
+  DictionaryAuditDrawer,
+  DictionaryMergeButton,
+  DictionaryRevokeButton,
+  DictionaryStatusBadge,
+} from './DictionaryLifecycleActions'
+import {
+  DICTIONARY_ACTIVE_STATUSES,
+  dictionaryNameSuffix,
+  dictionaryStatusOf,
+  isDictionaryTerminal,
+} from './dictionaryLifecycle'
 
 const { Text } = Typography
+
+/** 平台页专属生命周期补充说明（仅在「查看规则」抽屉中展示，避免首屏堆叠说明块） */
+const PLATFORM_LIFECYCLE_RULES = [
+  '平台编码是应用归属平台的权威标识，随应用归属派生为监控标签，用于按平台维度聚合，创建后不可修改。',
+  '平台是「平台 → 应用 → 服务 → 实例」层级的顶层组织单元：应用必须归属至少一个平台，且恰有一个主平台。',
+  '停用平台不删除：存量应用保留原归属，仅不再可被新增 / 编辑应用条目选用。',
+]
 
 /** 平台编码规范（§5.21 / 契约快照 §5C：小写字母 / 数字 / 连字符，≤ 64，创建后不可改） */
 const PLATFORM_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
@@ -45,8 +64,10 @@ export function PlatformManagementPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
+  const [scope, setScope] = useState<'active' | 'all'>('active')
   const [drawer, setDrawer] = useState<{ open: boolean; record: PlatformDict | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  const [auditOpen, setAuditOpen] = useState(false)
   /** D42 / G4：关联应用反查抽屉——回答「本平台下有哪些应用」。 */
   const [appsTarget, setAppsTarget] = useState<PlatformDict | null>(null)
 
@@ -70,14 +91,17 @@ export function PlatformManagementPage() {
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
-    if (!kw) return list
-    return list.filter(
-      (d) =>
+    return list.filter((d) => {
+      const status = dictionaryStatusOf(d)
+      if (scope === 'active' && !DICTIONARY_ACTIVE_STATUSES.includes(status)) return false
+      if (!kw) return true
+      return (
         d.platform_code.toLowerCase().includes(kw) ||
         d.platform_name.toLowerCase().includes(kw) ||
-        (d.description ?? '').toLowerCase().includes(kw),
-    )
-  }, [list, keyword])
+        (d.description ?? '').toLowerCase().includes(kw)
+      )
+    })
+  }, [list, keyword, scope])
 
   const toggleStatus = useCallback(
     (record: PlatformDict) => {
@@ -125,9 +149,10 @@ export function PlatformManagementPage() {
       dataIndex: 'platform_name',
       key: 'platform_name',
       width: 200,
-      // §5.21 / 决策 22 同口径：停用条目以「平台名（已停用）」标识
-      render: (v: string, r: PlatformDict) =>
-        r.enabled ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
+      // §5.21 / 决策 22 同口径：停用 / 终态条目以名称后缀标识
+      render: (v: string, r: PlatformDict) => (
+        <EllipsisText>{`${v}${dictionaryNameSuffix(dictionaryStatusOf(r))}`}</EllipsisText>
+      ),
     },
     {
       title: '描述',
@@ -137,39 +162,69 @@ export function PlatformManagementPage() {
       render: (v?: string) => (v ? <EllipsisText>{v}</EllipsisText> : <Text type="secondary">-</Text>),
     },
     {
+      title: '引用数',
+      dataIndex: 'reference_count',
+      key: 'reference_count',
+      width: 90,
+      render: (v?: number) => <Text type={v ? undefined : 'secondary'}>{v ?? 0}</Text>,
+    },
+    {
       title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 100,
-      render: (v: boolean) => (v ? <Badge status="success" text="启用" /> : <Badge status="default" text="停用" />),
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (_: unknown, r: PlatformDict) => (
+        <DictionaryStatusBadge status={dictionaryStatusOf(r)} mergedInto={r.merged_into} />
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 200,
-      render: (_: unknown, r: PlatformDict) => (
-        <Space size={12}>
-          <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setAppsTarget(r)}>
-            关联应用
-          </Button>
-          <Button type="link" size="small" style={{ padding: 0 }} onClick={() => openEdit(r)}>
-            编辑
-          </Button>
-          {/* 低频状态操作（停用 / 启用）收进「更多」菜单（对齐原型 PlatformManagementPage） */}
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [{ key: 'toggle', label: r.enabled ? '停用' : '启用', danger: r.enabled }],
-              onClick: () => toggleStatus(r),
-            }}
-          >
-            <Button type="link" size="small" style={{ padding: 0 }} loading={actingCode === r.platform_code}>
-              更多 <DownOutlined style={{ fontSize: 10 }} />
+      width: 320,
+      render: (_: unknown, r: PlatformDict) => {
+        const status = dictionaryStatusOf(r)
+        const terminal = isDictionaryTerminal(status)
+        const mergeOptions = list
+          .filter((item) => dictionaryStatusOf(item) === 'enabled' && item.platform_code !== r.platform_code)
+          .map((item) => ({ code: item.platform_code, name: item.platform_name }))
+        return (
+          <Space size={0} wrap>
+            <Button type="link" size="small" onClick={() => setAppsTarget(r)}>
+              关联应用
             </Button>
-          </Dropdown>
-        </Space>
-      ),
+            <Button type="link" size="small" disabled={terminal} onClick={() => openEdit(r)}>
+              编辑
+            </Button>
+            {!terminal && (
+              <Button
+                type="link"
+                size="small"
+                danger={r.enabled}
+                loading={actingCode === r.platform_code}
+                onClick={() => toggleStatus(r)}
+              >
+                {r.enabled ? '停用' : '启用'}
+              </Button>
+            )}
+            <DictionaryRevokeButton
+              name={r.platform_name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              onRevoke={() => platformDictApi.revoke(r.platform_code)}
+              onDone={() => void load()}
+            />
+            <DictionaryMergeButton
+              name={r.platform_name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              options={mergeOptions}
+              onMerge={(targetCode) => platformDictApi.merge(r.platform_code, targetCode)}
+              onDone={() => void load()}
+            />
+          </Space>
+        )
+      },
     },
   ]
 
@@ -179,6 +234,7 @@ export function PlatformManagementPage() {
         title="平台管理"
         extra={
           <Space>
+            <Button onClick={() => setAuditOpen(true)}>变更日志</Button>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
               刷新
             </Button>
@@ -189,16 +245,7 @@ export function PlatformManagementPage() {
         }
       >
         {/* F7 / 决策 112：字典 ≠ 可删除对象（四字典页共用同一份文案） */}
-        <DictLifecycleNotice />
-        <div style={{ marginBottom: 16 }}>
-          <Callout tone="info" title="平台编码是应用归属平台的权威标识">
-            平台编码随应用归属派生为监控标签、用于按平台维度聚合，<Text strong>创建后不可修改</Text>；
-            停用平台不删除，仅不再可被新增 / 编辑应用条目选用，存量应用保留原归属。
-            平台是「平台 → 应用 → 服务 → 实例」层级的<Text strong>顶层组织单元</Text>：
-            <Text strong>应用必须归属平台</Text>
-            （D42，至少一个平台且恰有一个主平台），可点操作列「关联应用」查看本平台下的应用清单。
-          </Callout>
-        </div>
+        <DictLifecycleNotice extraRules={PLATFORM_LIFECYCLE_RULES} />
         {error && (
           <Alert
             type="error"
@@ -214,6 +261,16 @@ export function PlatformManagementPage() {
           />
         )}
         <FilterBar>
+          <FilterItem label="范围" width={200}>
+            <Segmented
+              value={scope}
+              onChange={(v) => setScope(v as 'active' | 'all')}
+              options={[
+                { value: 'active', label: '有效条目' },
+                { value: 'all', label: '全部' },
+              ]}
+            />
+          </FilterItem>
           <FilterItem label="关键字" width={260}>
             <Input.Search
               allowClear
@@ -245,6 +302,11 @@ export function PlatformManagementPage() {
           }}
         />
         <PlatformAppsDrawer record={appsTarget} onClose={() => setAppsTarget(null)} />
+        <DictionaryAuditDrawer
+          dictionaryType="platform"
+          open={auditOpen}
+          onClose={() => setAuditOpen(false)}
+        />
       </Card>
     </MainLayout>
   )
@@ -298,7 +360,7 @@ export function PlatformAppsDrawer({ record, onClose }: PlatformAppsDrawerProps)
     (code: string) => {
       const hit = apps.find((a) => a.app_code === code)
       if (!hit) return code
-      return hit.status === 'enabled' ? hit.app_name : `${hit.app_name}（已停用）`
+      return `${hit.app_name}${dictionaryNameSuffix(dictionaryStatusOf(hit))}`
     },
     [apps],
   )

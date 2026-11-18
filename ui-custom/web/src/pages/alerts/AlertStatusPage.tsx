@@ -201,7 +201,7 @@ function DomainFilter({
   )
 }
 
-/** 未结三态统计卡片（与列表 status=open 同源；统计失败显示 '-'，不把失败静默成 0） */
+/** 未结三态统计卡片（与列表 status_group=open 同源；统计失败显示 '-'，不把失败静默成 0） */
 function OpenStatusStats({ stats, loading }: { stats: OpenAlertStats | null; loading: boolean }) {
   // 语义红走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()

@@ -10,6 +10,10 @@
 import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
+  ConfigArtifact,
+  ConfigArtifactListResponse,
+  ConfigArtifactPreview,
+  ConfigArtifactType,
   ConfigSnapshot,
   ConfigSnapshotListResponse,
   MonitoredStatus,
@@ -153,5 +157,62 @@ export const configSnapshotApi = {
     const res = await rawRequest(`${snapshotPath(domainId, snapshotId)}/content`, { method: 'GET' })
     if (!res.ok) throw await toRawApiError(res)
     return res.text()
+  },
+}
+
+/** 统一配置产物路径（SRS v1.5 FR-13/13.1/13.2） */
+const ARTIFACTS_PATH = '/api/v3/platform/config-artifacts'
+
+/** 统一历史筛选参数（服务端仅做类型/网域/状态过滤，分页由前端完成） */
+export interface ConfigArtifactListParams extends Record<string, string | number | boolean | undefined> {
+  artifact_type?: ConfigArtifactType
+  network_domain_id?: string
+  validation_status?: 'passed' | 'failed'
+  limit?: number
+}
+
+/** 从 Content-Disposition 解析下载文件名；缺失时回退调用方给定名。 */
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) return decodeURIComponent(utf8[1])
+  const plain = header.match(/filename="?([^";]+)"?/i)
+  return plain?.[1] ?? fallback
+}
+
+async function downloadArtifactResponse(res: Response, fallback: string): Promise<{ blob: Blob; filename: string }> {
+  if (!res.ok) throw await toRawApiError(res)
+  return {
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get('content-disposition'), fallback),
+  }
+}
+
+/**
+ * 统一配置产物历史（SRS v1.5）。
+ * 三类产物：网域采集配置（domain）、中心规则（center）、告警配置（alertmanager）。
+ * 列表/详情登录可见；内容预览、导出与中心恢复包仅 admin（服务端 403 兜底）。
+ */
+export const configArtifactApi = {
+  list(params?: ConfigArtifactListParams): Promise<ApiResponse<ConfigArtifactListResponse>> {
+    return apiClient.get<ConfigArtifactListResponse>(ARTIFACTS_PATH, { params })
+  },
+  get(id: number): Promise<ApiResponse<ConfigArtifact>> {
+    return apiClient.get<ConfigArtifact>(`${ARTIFACTS_PATH}/${id}`)
+  },
+  /** 内容预览（按文件返回，admin）；响应为统一 JSON 信封 */
+  preview(id: number): Promise<ApiResponse<ConfigArtifactPreview>> {
+    return apiClient.get<ConfigArtifactPreview>(`${ARTIFACTS_PATH}/${id}/content`)
+  },
+  /** 导出可直接落盘的配置包/配置文件（admin） */
+  async export(id: number, raw = false): Promise<{ blob: Blob; filename: string }> {
+    const suffix = raw ? '?raw=1' : ''
+    const res = await rawRequest(`${ARTIFACTS_PATH}/${id}/export${suffix}`, { method: 'GET' })
+    return downloadArtifactResponse(res, `config-artifact-${id}`)
+  },
+  /** 中心一体化恢复包（admin）：prometheus.yml + rules.yml + alertmanager.yml + targets + manifest */
+  async recoveryBundle(): Promise<{ blob: Blob; filename: string }> {
+    const res = await rawRequest(`${ARTIFACTS_PATH}/recovery-bundle`, { method: 'GET' })
+    return downloadArtifactResponse(res, 'center-recovery.zip')
   },
 }

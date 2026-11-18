@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Alert, Button, Card, Modal, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -9,7 +8,7 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { MainLayout } from '../../layouts/MainLayout'
 import { PageIntro } from '../../components/PageIntro'
 import type { InhibitionListData, InhibitionRule } from '../../types/alertmanager'
-import { CONFIG_PREVIEW_PATH, formatMatchers } from './alertmanagerConstants'
+import { formatMatchers } from './alertmanagerConstants'
 import { InhibitionEditorDrawer } from './InhibitionEditorDrawer'
 
 const { Text } = Typography
@@ -104,9 +103,14 @@ export function InhibitionsPage() {
     setSaving(true)
     try {
       const res = await inhibitionsApi.save({ base_checksum: data?.effective_checksum ?? '', inhibit_rules: draft })
-      const changeNo = res.data.change_no
-      setSubmitted(changeNo ?? '已提交')
-      message.success('抑制规则已提交变更')
+      if (res.data?.applied) {
+        message.success('抑制规则已保存并生效')
+      } else if (res.data?.reload_status) {
+        message.warning(`已保存，但 reload 状态：${res.data.reload_status}`)
+      } else {
+        message.success('抑制规则已保存')
+      }
+      setSubmitted('已保存')
       setEditing(false)
       await load()
     } catch (err) {
@@ -151,7 +155,7 @@ export function InhibitionsPage() {
         subtitle="查看抑制规则；点「编辑抑制规则」后设置根因告警存在时要抑制哪些次生告警"
         points={[
           '一条规则包含：源告警匹配（根因）、目标告警匹配（被抑制对象）和等同标签。',
-          '页面默认只读；保存会生成整份配置并提交变更单，确认下发后才会生效。',
+          '页面默认只读；保存会生成整份配置，amtool 校验通过后立即 reload 生效。',
         ]}
       />
       {submitted && (
@@ -160,13 +164,8 @@ export function InhibitionsPage() {
           showIcon
           closable
           style={{ marginBottom: 16 }}
-          message="抑制规则变更已提交，等待确认下发"
-          description={(
-            <Space direction="vertical" size={2}>
-              <span>改动尚未生效，需在「配置变更确认」中人工确认后才会写入并 reload Alertmanager。</span>
-              <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-            </Space>
-          )}
+          message="抑制规则已保存并生效"
+          description="平台已生成整份配置、通过 amtool 校验并 reload Alertmanager。"
           onClose={() => setSubmitted(null)}
         />
       )}
@@ -181,20 +180,6 @@ export function InhibitionsPage() {
         />
       ) : (
         <>
-          {data?.pending?.change_no && data.pending.inhibit_rules_changed !== false && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="当前显示的是待确认版本"
-              description={(
-                <Space direction="vertical" size={2}>
-                  <span>变更单 {data.pending.change_no} 尚未确认下发，Alertmanager 仍在运行上一版配置。</span>
-                  <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
-                </Space>
-              )}
-            />
-          )}
           <Card
             title={(
               <Space size={8}>
@@ -209,14 +194,14 @@ export function InhibitionsPage() {
                 <Button type="primary" icon={<PlusOutlined />} aria-label="新建抑制规则" onClick={() => { setEditingRule(null); setDrawerOpen(true) }}>
                   新建抑制规则
                 </Button>
-                <Button type="primary" loading={saving} onClick={() => void save()}>保存并提交变更</Button>
+                <Button type="primary" loading={saving} onClick={() => void save()}>保存并生效</Button>
                 <Button onClick={discard}>放弃编辑</Button>
               </Space>
             ) : <Button type="primary" icon={<EditOutlined />} aria-label="编辑抑制规则" onClick={enterEdit}>编辑抑制规则</Button>)}
           >
             {editing && (
               <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-                修改不会立即生效，保存并提交后需前往「配置变更确认」人工确认下发。
+                保存后立即执行 amtool 校验并 reload 生效；校验失败不会覆盖当前生效配置。
               </Text>
             )}
             <Table

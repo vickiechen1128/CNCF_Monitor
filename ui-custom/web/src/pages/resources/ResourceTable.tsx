@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { Button, Empty, Space, Table } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TableProps } from 'antd/es/table'
 import {
   DownloadOutlined,
   PlusOutlined,
@@ -9,6 +9,12 @@ import {
 import { ResizableHeaderCell } from '../../components/ResizableHeaderCell'
 import { TABLE_PAGINATION } from '../../components/tablePresets'
 import type { ResourceListItem } from './useResources'
+
+export interface ResourceColumnFilters {
+  network_domain_id?: string
+  status?: string
+  monitor_state?: string
+}
 
 export interface ResourceTableProps {
   dataSource: ResourceListItem[]
@@ -19,6 +25,10 @@ export interface ResourceTableProps {
   /** 表格容器引用（ResizeObserver 实测容器宽度） */
   containerRef: RefObject<HTMLDivElement>
   onRowClick: (record: ResourceListItem) => void
+  /** 行勾选（FR-28 批量改归属）；不传则不展示勾选列 */
+  rowSelection?: TableProps<ResourceListItem>['rowSelection']
+  /** 列头筛选变更（网域 / 运行状态 / 采集状态），由页面落到后端筛选或客户端 coverage 筛选 */
+  onColumnFiltersChange?: (filters: ResourceColumnFilters) => void
   page: number
   pageSize: number
   total: number
@@ -42,6 +52,8 @@ export function ResourceTable({
   scrollX,
   containerRef,
   onRowClick,
+  rowSelection,
+  onColumnFiltersChange,
   page,
   pageSize,
   total,
@@ -62,10 +74,22 @@ export function ResourceTable({
         size="small"
         scroll={{ x: scrollX }}
         components={{ header: { cell: ResizableHeaderCell } }}
+        rowSelection={rowSelection}
+        onChange={(_pagination, tableFilters, _sorter, extra) => {
+          if (extra.action !== 'filter') return
+          const next: ResourceColumnFilters = {}
+          for (const key of ['network_domain_id', 'status', 'monitor_state'] as const) {
+            if (!(key in tableFilters)) continue
+            const raw = tableFilters[key]
+            next[key] = Array.isArray(raw) && raw.length > 0 ? String(raw[0]) : undefined
+          }
+          onColumnFiltersChange?.(next)
+        }}
         onRow={(record) => ({
           onClick: (e) => {
-            // T07-F6 行点击打开资源详情抽屉；行内按钮（详情/编辑/删除）点击不触发
-            if ((e.target as HTMLElement).closest('button')) return
+            // T07-F6 行点击打开资源详情抽屉；行内按钮（详情/编辑/删除）与勾选框不触发
+            const target = e.target as HTMLElement
+            if (target.closest('button') || target.closest('.ant-table-selection-column')) return
             onRowClick(record)
           },
         })}

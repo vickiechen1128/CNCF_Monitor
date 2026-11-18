@@ -10,17 +10,22 @@ import type { AppPlatformRel, ApplicationDict, PlatformDict } from '../../types/
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const revokeMock = vi.fn()
+const mergeMock = vi.fn()
 const platformListMock = vi.fn()
 const relListMock = vi.fn()
 const relCreateMock = vi.fn()
 const relUpdateMock = vi.fn()
 const relRemoveMock = vi.fn()
+const auditListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   applicationDictApi: {
     list: (...args: unknown[]) => listMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+    revoke: (...args: unknown[]) => revokeMock(...args),
+    merge: (...args: unknown[]) => mergeMock(...args),
   },
   platformDictApi: {
     list: (...args: unknown[]) => platformListMock(...args),
@@ -32,21 +37,77 @@ vi.mock('../../api/resources', () => ({
     update: (...args: unknown[]) => relUpdateMock(...args),
     remove: (...args: unknown[]) => relRemoveMock(...args),
   },
+  dictionaryAuditApi: {
+    list: (...args: unknown[]) => auditListMock(...args),
+  },
 }))
 
 const apps: ApplicationDict[] = [
-  { app_code: 'order-service', app_name: '订单服务', description: '订单主链路', status: 'enabled' },
-  { app_code: 'pay-service', app_name: '支付服务', description: '支付域', status: 'enabled' },
-  { app_code: 'legacy-portal', app_name: '已下线应用', description: '停用中', status: 'disabled' },
+  {
+    app_code: 'order-service',
+    app_name: '订单服务',
+    description: '订单主链路',
+    status: 'enabled',
+    reference_count: 2,
+  },
+  {
+    app_code: 'pay-service',
+    app_name: '支付服务',
+    description: '支付域',
+    status: 'enabled',
+    reference_count: 0,
+  },
+  {
+    app_code: 'legacy-portal',
+    app_name: '已下线应用',
+    description: '停用中',
+    status: 'disabled',
+    reference_count: 1,
+  },
   // 无关联分支：无任何 app_platform_rel → 平台列 '-'
-  { app_code: 'orphan-app', app_name: '孤立应用', description: '无平台关联', status: 'enabled' },
+  {
+    app_code: 'orphan-app',
+    app_name: '孤立应用',
+    description: '无平台关联',
+    status: 'enabled',
+    reference_count: 0,
+  },
+  {
+    app_code: 'merged-app',
+    app_name: '已合并应用',
+    description: '历史重码',
+    status: 'merged',
+    merged_into: 'order-service',
+    reference_count: 0,
+  },
 ]
 
 /** 平台字典：ecommerce / public-data-auth 启用，legacy-pf 停用 */
 const platforms: PlatformDict[] = [
-  { platform_code: 'ecommerce', platform_name: '电商中台', description: '交易主链路', enabled: true },
-  { platform_code: 'public-data-auth', platform_name: '公共数据授权平台', description: '数据授权', enabled: true },
-  { platform_code: 'legacy-pf', platform_name: '已下线平台', description: '停用中', enabled: false },
+  {
+    platform_code: 'ecommerce',
+    platform_name: '电商中台',
+    description: '交易主链路',
+    enabled: true,
+    status: 'enabled',
+    reference_count: 1,
+  },
+  {
+    platform_code: 'public-data-auth',
+    platform_name: '公共数据授权平台',
+    description: '数据授权',
+    enabled: true,
+    status: 'enabled',
+    reference_count: 0,
+  },
+  {
+    platform_code: 'legacy-pf',
+    platform_name: '已下线平台',
+    description: '停用中',
+    enabled: false,
+    status: 'disabled',
+    reference_count: 1,
+  },
 ]
 
 /**
@@ -69,13 +130,9 @@ function renderPage() {
   )
 }
 
-/**
- * 等待抽屉的存量关联反查回填完成（多选回显项渲染出停用历史关联即为信号）。
- * 注意「电商中台」同时出现在所属平台（多选回显）与主平台（单选回显）两处，
- * 故以仅存在于停用回显项的文案作为唯一信号。
- */
+/** 等待抽屉的存量关联反查回填完成（停用历史关联标签出现即为信号）。 */
 async function waitRelsLoaded() {
-  await waitFor(() => expect(screen.getAllByTitle('已下线平台（已停用）').length).toBeGreaterThanOrEqual(1))
+  await waitFor(() => expect(screen.getAllByText('已下线平台（已停用）').length).toBeGreaterThanOrEqual(1))
 }
 
 /**
@@ -94,11 +151,14 @@ describe('ApplicationDictPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    revokeMock.mockReset()
+    mergeMock.mockReset()
     platformListMock.mockReset()
     relListMock.mockReset()
     relCreateMock.mockReset()
     relUpdateMock.mockReset()
     relRemoveMock.mockReset()
+    auditListMock.mockReset()
     platformListMock.mockResolvedValue({ status: 'success', data: { list: platforms, total: platforms.length } })
     listMock.mockResolvedValue({ status: 'success', data: { list: apps, total: apps.length } })
     // 列表列反查走全量关联（不带 app_code 过滤）
@@ -111,8 +171,23 @@ describe('ApplicationDictPage', () => {
     relCreateMock.mockResolvedValue({ status: 'success', data: { rel_id: 'rel-new', app_code: 'x', platform_code: 'y', is_primary: false } })
     relUpdateMock.mockResolvedValue({ status: 'success', data: { rel_id: 'rel-1', app_code: 'x', platform_code: 'y', is_primary: true } })
     relRemoveMock.mockResolvedValue({ status: 'success', data: { rel_id: 'rel-1' } })
-    createMock.mockResolvedValue({ status: 'success', data: { app_code: 'gateway-service', app_name: '网关服务', status: 'enabled' } })
-    updateMock.mockResolvedValue({ status: 'success', data: { app_code: 'pay-service', app_name: '支付服务', status: 'enabled' } })
+    createMock.mockResolvedValue({
+      status: 'success',
+      data: { app_code: 'gateway-service', app_name: '网关服务', status: 'enabled', reference_count: 0 },
+    })
+    updateMock.mockResolvedValue({
+      status: 'success',
+      data: { app_code: 'pay-service', app_name: '支付服务', status: 'enabled', reference_count: 0 },
+    })
+    revokeMock.mockResolvedValue({
+      status: 'success',
+      data: { app_code: 'pay-service', app_name: '支付服务', status: 'revoked', reference_count: 0 },
+    })
+    mergeMock.mockResolvedValue({
+      status: 'success',
+      data: { source: 'pay-service', target: 'order-service', moved_references: 0 },
+    })
+    auditListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })
 
   it('加载并渲染应用字典列表，停用条目以「应用名（已停用）」标识', async () => {
@@ -121,6 +196,8 @@ describe('ApplicationDictPage', () => {
     expect(screen.getByText('支付服务')).toBeInTheDocument()
     // 停用条目按「应用名（已停用）」展示（§5.19 / 决策 22 同口径）
     expect(screen.getByText('已下线应用（已停用）')).toBeInTheDocument()
+    // 终态默认不出现在「有效条目」视图
+    expect(screen.queryByText('已合并应用（已合并）')).toBeNull()
     expect(listMock).toHaveBeenCalledTimes(1)
   })
 
@@ -133,12 +210,11 @@ describe('ApplicationDictPage', () => {
     expect(await screen.findByText('应用编码创建后不可改')).toBeInTheDocument()
     // 登记态：编码可填、名称可填
     expect(await screen.findByLabelText('应用编码')).toBeInTheDocument()
-    expect(screen.getByText('应用编码创建后不可改')).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
   })
 
   // F7 / 决策 112：字典 ≠ 可删除对象——顶部定位说明 + 无删除入口（停用不删除红线）
-  it('渲染「字典 ≠ 可删除对象」定位说明，且不提供删除入口', async () => {
+  it('渲染生命周期说明，且不提供删除入口', async () => {
     renderPage()
     await screen.findByText('order-service')
 
@@ -175,6 +251,29 @@ describe('ApplicationDictPage', () => {
     // 无关联：'-'
     expect(within(screen.getByText('orphan-app').closest('tr')!).getByText('-')).toBeInTheDocument()
   })
+
+  it('展示引用数；有引用的条目不可撤销，零引用条目撤销走 revoke', async () => {
+    renderPage()
+    await screen.findByText('order-service')
+
+    const orderRow = screen.getByText('order-service').closest('tr')!
+    expect(within(orderRow).getByText('2')).toBeInTheDocument()
+    expect(within(orderRow).getByRole('button', { name: '撤销' })).toBeDisabled()
+
+    const payRow = screen.getByText('pay-service').closest('tr')!
+    await userEvent.click(within(payRow).getByRole('button', { name: '撤销' }))
+    await userEvent.click(await screen.findByRole('button', { name: /确认撤销/ }))
+    await waitFor(() => expect(revokeMock).toHaveBeenCalledWith('pay-service'))
+  })
+
+  it('切换到「全部」后展示已合并条目及合并目标', async () => {
+    renderPage()
+    await screen.findByText('order-service')
+
+    await userEvent.click(screen.getByText('全部'))
+    expect(await screen.findByText('已合并应用（已合并）')).toBeInTheDocument()
+    expect(screen.getByText('已合并 → order-service')).toBeInTheDocument()
+  })
 })
 
 describe('ApplicationDictDrawer', () => {
@@ -188,8 +287,14 @@ describe('ApplicationDictDrawer', () => {
     relCreateMock.mockReset()
     relUpdateMock.mockReset()
     relRemoveMock.mockReset()
-    createMock.mockResolvedValue({ status: 'success', data: { app_code: 'gateway-service', app_name: '网关服务', status: 'enabled' } })
-    updateMock.mockResolvedValue({ status: 'success', data: { app_code: 'order-service', app_name: '订单服务', status: 'enabled' } })
+    createMock.mockResolvedValue({
+      status: 'success',
+      data: { app_code: 'gateway-service', app_name: '网关服务', status: 'enabled', reference_count: 0 },
+    })
+    updateMock.mockResolvedValue({
+      status: 'success',
+      data: { app_code: 'order-service', app_name: '订单服务', status: 'enabled', reference_count: 2 },
+    })
     relListMock.mockImplementation((params?: { app_code?: string }) =>
       Promise.resolve({
         status: 'success' as const,
@@ -218,8 +323,8 @@ describe('ApplicationDictDrawer', () => {
 
     await userEvent.type(screen.getByLabelText('应用编码'), 'gateway-service')
     await userEvent.type(screen.getByLabelText('应用名'), '网关服务')
-    // D42：应用必须归属至少一个平台，登记时即须选定
-    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    // D42：应用必须归属至少一个平台，登记时即须选定；单字段「关联平台」
+    fireEvent.mouseDown(screen.getByLabelText('关联平台'))
     fireEvent.click(await findOption('电商中台（ecommerce）'))
     await userEvent.click(screen.getByText(/提\s*交/))
 
@@ -236,16 +341,14 @@ describe('ApplicationDictDrawer', () => {
     expect(bodyArg).not.toHaveProperty('platform_code')
   })
 
-  it('D42：未选所属平台时拒绝提交，不调用 create', async () => {
+  it('D42：未选关联平台时拒绝提交，不调用 create', async () => {
     render(<ApplicationDictDrawer open record={null} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await userEvent.type(screen.getByLabelText('应用编码'), 'gateway-service')
     await userEvent.type(screen.getByLabelText('应用名'), '网关服务')
     await userEvent.click(screen.getByText(/提\s*交/))
 
-    expect(
-      await screen.findByText('应用必须归属至少一个平台，请选择所属平台（首个即主平台）'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('应用必须归属至少一个平台，请选择关联平台')).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
   })
 
@@ -286,38 +389,42 @@ describe('ApplicationDictDrawer', () => {
   })
 
   // F2：多选下拉 = 启用平台项 ∪ 已选停用项回显，且按编码去重（不重复渲染）
-  it('决策 111：「所属平台」多选下拉仅列启用项 + 停用历史关联回显，且按编码去重', async () => {
+  it('决策 111：「关联平台」多选下拉仅列启用项 + 停用历史关联回显，且按编码去重', async () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     // 等待存量关联反查回填（电商中台 + 已下线平台）
     await waitRelsLoaded()
-    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    fireEvent.mouseDown(screen.getByLabelText('关联平台'))
 
     expect(await findOption('电商中台（ecommerce）')).toBeInTheDocument()
     expect(await findOption('公共数据授权平台（public-data-auth）')).toBeInTheDocument()
     // 停用平台原不在启用项内，因存量关联回显为「已下线平台（已停用）」
     expect(await findOption('已下线平台（已停用）')).toBeInTheDocument()
-    // 去重：启用项与回显项各只渲染一次——下拉恰好 3 个选项（电商中台 / 公共数据授权平台 / 已下线平台），无重复渲染
+    // 去重：启用项与回显项各只渲染一次——下拉恰好 3 个选项
     expect(document.querySelectorAll('.ant-select-item-option').length).toBe(3)
   })
 
-  // F2：主平台选项恒为已选平台子集——未选平台不可选，选中后即时纳入
-  it('决策 111：「主平台」下拉选项恒为已选平台子集，随多选联动', async () => {
+  // M07 SRS v2.0 §5 / NFR-22：单字段「关联平台」+ 星标切换主平台
+  it('单字段星标：主平台标签为实心星标，点击其他启用平台星标后切换主平台', async () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
-    fireEvent.mouseDown(screen.getByLabelText('主平台'))
+    // 当前主平台「电商中台」标签的星标按钮为「主平台 ...」
+    expect(
+      await screen.findByRole('button', { name: '主平台 电商中台（ecommerce）' }),
+    ).toBeInTheDocument()
 
-    expect(await screen.findByRole('option', { name: '电商中台（ecommerce）' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '已下线平台（已停用）' })).toBeInTheDocument()
-    // 未选平台不出现在主平台下拉
-    expect(screen.queryByRole('option', { name: '公共数据授权平台（public-data-auth）' })).toBeNull()
-
-    // 在「所属平台」中补选该平台后，主平台下拉即时纳入
-    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    // 补选一个启用平台，再通过其标签星标切换主平台（单字段交互核心）
+    fireEvent.mouseDown(screen.getByLabelText('关联平台'))
     fireEvent.click(await findOption('公共数据授权平台（public-data-auth）'))
-    fireEvent.mouseDown(screen.getByLabelText('主平台'))
-    expect(await screen.findByRole('option', { name: '公共数据授权平台（public-data-auth）' })).toBeInTheDocument()
+    const star = await screen.findByRole('button', { name: '设为主平台 公共数据授权平台（public-data-auth）' })
+    await userEvent.click(star)
+
+    // 点击星标后立即反馈：主平台标记切换到「公共数据授权平台」
+    expect(await screen.findByRole('button', { name: '主平台 公共数据授权平台（public-data-auth）' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(relUpdateMock).toHaveBeenCalledWith('rel-new', { is_primary: true }))
   })
 
   // F2：rel diff ① 新增关联 → POST /app-platform-rel
@@ -325,7 +432,7 @@ describe('ApplicationDictDrawer', () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
-    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    fireEvent.mouseDown(screen.getByLabelText('关联平台'))
     fireEvent.click(await findOption('公共数据授权平台（public-data-auth）'))
     const saveBtn = screen.getByRole('button', { name: /保\s*存/ })
     await userEvent.click(saveBtn)
@@ -342,13 +449,13 @@ describe('ApplicationDictDrawer', () => {
   })
 
   // F2：rel diff ② 解绑关联 → DELETE /app-platform-rel/:rel_id（D42：主平台不可直接解绑）
-  it('决策 111 / D42：解绑非主平台走 DELETE /app-platform-rel/:rel_id，主平台保留', async () => {
+  it('决策 111 / D42：移除停用平台标签走 DELETE /app-platform-rel/:rel_id，主平台保留', async () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
     // 摘掉「已下线平台（停用历史关联）」这个非主平台 tag，保留主平台「电商中台」
-    const tag = screen.getAllByTitle('已下线平台（已停用）')[0]
-    const removeIcon = tag.querySelector('.ant-select-selection-item-remove') as HTMLElement
+    const tag = screen.getAllByText('已下线平台（已停用）')[0].closest('.ant-tag') as HTMLElement
+    const removeIcon = tag.querySelector('.ant-tag-close-icon') as HTMLElement
     expect(removeIcon).toBeTruthy()
     fireEvent.click(removeIcon)
 
@@ -359,8 +466,8 @@ describe('ApplicationDictDrawer', () => {
     expect(relCreateMock).not.toHaveBeenCalled()
   })
 
-  // D42 I1：应用必须归属至少一个平台——不允许把所属平台清空后提交
-  it('D42：清空全部所属平台被拒绝，不发起任何解绑', async () => {
+  // D42 I1：应用必须归属至少一个平台——不允许把关联平台清空后提交
+  it('D42：清空全部关联平台被拒绝，不发起任何解绑', async () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
@@ -372,23 +479,9 @@ describe('ApplicationDictDrawer', () => {
     await waitFor(() => expect(document.querySelector('.ant-select-selection-item')).toBeNull())
 
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-    expect(
-      await screen.findByText('应用必须归属至少一个平台，请选择所属平台（首个即主平台）'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('应用必须归属至少一个平台，请选择关联平台')).toBeInTheDocument()
     expect(relRemoveMock).not.toHaveBeenCalled()
     expect(updateMock).not.toHaveBeenCalled()
-  })
-
-  // F2：rel diff ③ 主平台切换 → PUT /app-platform-rel/:rel_id {is_primary:true}
-  it('决策 111：主平台切换走 PUT /app-platform-rel/:rel_id', async () => {
-    render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
-
-    await waitRelsLoaded()
-    fireEvent.mouseDown(screen.getByLabelText('主平台'))
-    fireEvent.click(await findOption('已下线平台（已停用）'))
-    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
-
-    await waitFor(() => expect(relUpdateMock).toHaveBeenCalledWith('rel-3', { is_primary: true }))
   })
 
   // F2：关联写失败须显式报错（不静默丢关系）
@@ -397,7 +490,7 @@ describe('ApplicationDictDrawer', () => {
     render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
 
     await waitRelsLoaded()
-    fireEvent.mouseDown(screen.getByLabelText('所属平台'))
+    fireEvent.mouseDown(screen.getByLabelText('关联平台'))
     fireEvent.click(await findOption('公共数据授权平台（public-data-auth）'))
     await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
 

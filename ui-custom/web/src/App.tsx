@@ -5,8 +5,10 @@ import DomainsPage from './pages/admin/domains/DomainsPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
-// 云字典维护页（D37：admin 只增维护；读视图由 M07 提供）
+// 云字典维护页（D37：admin 维护；读视图由 M07 提供）
 import CloudDictPage from './pages/admin/clouddict/CloudDictPage'
+// 区域类型字典维护页（M07 v3 字典生命周期：撤销 / 合并）
+import ZoneTypePage from './pages/admin/zonetype/ZoneTypePage'
 // 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
 // 存储与日志管理页（M06 F-41：TSDB 保留策略 + 磁盘/日志轮转展示）
@@ -33,11 +35,9 @@ const NetworkDomainsPage = lazy(() =>
 const EdgeAgentsPage = lazy(() =>
   import('./pages/config-center/nodes/EdgeAgentsPage').then((m) => ({ default: m.EdgeAgentsPage })),
 )
+// M09 配置快照：原「配置快照」（单域）与「快照历史」（跨域聚合）两页已合并为单页
 const ConfigPreviewPage = lazy(() =>
   import('./pages/config-center/preview/ConfigPreviewPage').then((m) => ({ default: m.ConfigPreviewPage })),
-)
-const DeploymentsPage = lazy(() =>
-  import('./pages/config-center/deployments/DeploymentsPage').then((m) => ({ default: m.DeploymentsPage })),
 )
 // Module_02 决策 47-4：独立目标状态页（P1 极简列表，跨 Job 全局排障入口；不新增顶部一级 tab）
 const TargetStatusPage = lazy(() =>
@@ -111,8 +111,10 @@ function AppRoutes() {
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/tenants" element={<TenantsPage />} />
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
-          {/* 云字典维护页（D37：admin 只增维护；读视图由 M07 提供） */}
+          {/* 云字典维护页（D37：admin 维护；读视图由 M07 提供） */}
           <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
+          {/* 区域类型字典维护页（M07 v3 字典生命周期：撤销 / 合并） */}
+          <Route path="/admin/zone-types" element={<ZoneTypePage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
           <Route path="/admin/dashboard-panels" element={<DashboardPanelsPage />} />
           <Route path="/dashboard/panels/:id" element={<DashboardPanelPage />} />
@@ -131,8 +133,11 @@ function AppRoutes() {
           <Route path="/metric-library" element={<MetricLibraryPage />} />
           <Route path="/domain-onboarding" element={<NetworkDomainsPage />} />
           <Route path="/node-status" element={<EdgeAgentsPage />} />
-          <Route path="/config-preview" element={<ConfigPreviewPage />} />
-          <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/config-snapshots" element={<ConfigPreviewPage />} />
+          {/* 旧地址保留重定向（/config-preview 原单域快照页、/deployments 原快照历史页），
+              避免既有书签与深链落到首页通配路由 */}
+          <Route path="/config-preview" element={<Navigate to="/config-snapshots" replace />} />
+          <Route path="/deployments" element={<Navigate to="/config-snapshots" replace />} />
           <Route path="/targets" element={<TargetStatusPage />} />
           <Route path="/query" element={<QueryPage />} />
           <Route path="/alert-config" element={<AlertConfigPage />} />

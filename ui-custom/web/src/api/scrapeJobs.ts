@@ -26,6 +26,8 @@ export interface ScrapeJobListParams extends Record<string, string | number | bo
   monitor_type?: MonitorType
   job_type?: JobType
   enabled?: boolean
+  /** true = 只返回未归组（job_group_id 为空）的单域 Job */
+  ungrouped?: boolean
   keyword?: string
   page?: number
   page_size?: number

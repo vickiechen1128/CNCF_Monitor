@@ -240,7 +240,12 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
         </Row>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="默认端口" name="default_port" rules={[{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]}>
+            <Form.Item
+              label="默认端口"
+              name="default_port"
+              extra="默认兜底端口：实例级「采集端口」优先（资源管理 → 编辑资源）"
+              rules={[{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]}
+            >
               <InputNumber
                 style={{ width: '100%' }}
                 min={1}

@@ -7,6 +7,7 @@ import {
   platformDictApi,
   appPlatformRelApi,
   cloudDictApi,
+  dictionaryAuditApi,
   importApi,
   toV3ResourcePayload,
   v3ResourceToListItem,
@@ -580,7 +581,7 @@ describe('resources API (v3)', () => {
       carrier: 'TX',
       description: '预置',
     })
-    expect(Object.keys(cloudDictApi).sort()).toEqual(['create', 'disable', 'list'])
+    expect(Object.keys(cloudDictApi).sort()).toEqual(['create', 'disable', 'list', 'merge', 'revoke'])
   })
 
   it('cloudDictApi.create POSTs the composite code entry', async () => {
@@ -630,6 +631,56 @@ describe('resources API (v3)', () => {
     expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict/IND-CM')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
     expect(lastInitBody()).toEqual({ enabled: false })
+  })
+
+  it('cloudDictApi.revoke POSTs /cloud-dict/:cloud_code/revoke', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        cloud_code: 'PUB-TX',
+        cloud_name: '腾讯云',
+        cloud_type: 'PUB',
+        carrier: 'TX',
+        enabled: false,
+        status: 'revoked',
+        reference_count: 0,
+      },
+    })
+
+    const res = await cloudDictApi.revoke('PUB-TX')
+
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict/PUB-TX/revoke')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toBeUndefined()
+    expect(res.data.status).toBe('revoked')
+    expect(res.data.reference_count).toBe(0)
+  })
+
+  it('cloudDictApi.merge POSTs /cloud-dict/:cloud_code/merge with target_code', async () => {
+    mockFetch({ status: 'success', data: { source: 'PUB-TX', target: 'PUB-ALI', moved_references: 3 } })
+
+    const res = await cloudDictApi.merge('PUB-TX', 'PUB-ALI')
+
+    expect(lastUrlInstance().pathname).toBe('/api/v3/platform/cloud-dict/PUB-TX/merge')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toEqual({ target_code: 'PUB-ALI' })
+    expect(res.data.moved_references).toBe(3)
+  })
+
+  it('dictionaryAuditApi.list accepts cloud / zone dictionary_type and forwards filters', async () => {
+    mockFetch({ status: 'success', data: { list: [], total: 0 } })
+
+    await dictionaryAuditApi.list({ dictionary_type: 'cloud', code: 'PUB-TX', limit: 20 })
+
+    const url = lastUrlInstance()
+    expect(url.pathname).toBe('/api/v3/platform/dictionary-audit-logs')
+    expect(url.searchParams.get('dictionary_type')).toBe('cloud')
+    expect(url.searchParams.get('code')).toBe('PUB-TX')
+    expect(url.searchParams.get('limit')).toBe('20')
+
+    mockFetch({ status: 'success', data: { list: [], total: 0 } })
+    await dictionaryAuditApi.list({ dictionary_type: 'zone', code: 'dmz' })
+    expect(lastUrlInstance().searchParams.get('dictionary_type')).toBe('zone')
   })
 
   // ---- 决策 111：应用↔平台关联 app_platform_rel（§5.24 / §6.1）----

@@ -95,21 +95,25 @@ export function configSyncDisplayBadgeStatus(
 
 /** out_of_sync 成因分档引导（文案 + 跳转目标；local_reset 无明确页面，走消息） */
 export const outOfSyncCauseHint: Record<OutOfSyncCause, string> = {
-  pending_draft: '存在待确认的配置变更单，确认后随下次心跳拉取生效',
+  // v3 无「配置变更单 / 人工确认」，pending_draft 仅为历史数据的兼容取值
+  pending_draft: '配置已变更并生成快照，等待采集节点下次心跳拉取生效',
   pull_pending: '新配置包已就绪，等待 Agent 下次心跳拉取（准实时 30s）',
   local_reset: '本地配置已重置，需重新拉取中心最新配置包',
   apply_failed: '配置包已拉取，但 Agent 应用失败并已回滚至上一可用版本，请查看失败原因并修正后重新下发',
 }
 
-/** out_of_sync 成因 → 引导按钮：文案 + 单参数跳转集中管理（无对应页面则返回 null） */
+/**
+ * out_of_sync 成因 → 引导按钮：文案 + 单参数跳转集中管理（无对应页面则返回 null）。
+ * 跳转目标统一为合并后的「配置快照」页（/config-snapshots）；v3 已无下发记录 / 变更确认页面。
+ */
 export const outOfSyncCauseAction: Record<
   OutOfSyncCause,
   { text: string; target?: string } | null
 > = {
-  pending_draft: { text: '前往配置确认', target: '/config-preview' },
-  pull_pending: { text: '查看下发', target: '/deployments' },
+  pending_draft: { text: '查看配置快照', target: '/config-snapshots' },
+  pull_pending: { text: '查看配置快照', target: '/config-snapshots' },
   local_reset: { text: '重新同步', target: undefined },
-  apply_failed: { text: '查看下发', target: '/deployments' },
+  apply_failed: { text: '查看配置快照', target: '/config-snapshots' },
 }
 
 /** 组件类型展示名 */

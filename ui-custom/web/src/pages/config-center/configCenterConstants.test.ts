@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   CURRENT_USER,
+  DOMAIN_FIELD_TIP,
   TOKEN_MASK,
   channelLabel,
   channelTip,
-  domainTypeLabel,
   changeTargetLabel,
   draftStatusLabel,
   deploymentStatusLabel,
@@ -14,14 +14,19 @@ import {
 } from './configCenterConstants'
 
 describe('configCenterConstants（Module_09 契约映射）', () => {
-  it('下发通道枚举映射与提示按契约 §8', () => {
-    expect(channelLabel).toEqual({ local: 'local', agent_pull: 'agent_pull' })
-    expect(channelTip.local).toContain('写盘')
+  it('下发通道只剩采集节点拉取一种，且用户文案不出现 agent_pull 技术术语（SRS NFR-10）', () => {
+    expect(channelLabel).toEqual({ agent_pull: '采集节点拉取' })
+    expect(channelLabel.agent_pull).not.toContain('agent_pull')
     expect(channelTip.agent_pull).toContain('采集节点')
+    // v3 取消「中心直连域」：不再有 local 通道文案 / 域类型「中心直连域」映射（SRS NFR-02）
+    expect(Object.keys(channelLabel)).toEqual(['agent_pull'])
+    expect(Object.keys(channelTip)).toEqual(['agent_pull'])
   })
 
-  it('域类型用户术语与 M06 统一（中心直连域 / 采集节点域，不再使用「边缘域」）', () => {
-    expect(domainTypeLabel).toEqual({ management: '中心直连域', edge: '采集节点域' })
+  it('字段解释不再保留中心直连域相关说明', () => {
+    expect(Object.keys(DOMAIN_FIELD_TIP)).not.toContain('channelLocal')
+    expect(Object.keys(DOMAIN_FIELD_TIP)).not.toContain('agentTypeLocal')
+    expect(JSON.stringify(DOMAIN_FIELD_TIP)).not.toContain('中心直连域')
   })
 
   it('Token 完全脱敏：TOKEN_MASK 不含明文', () => {

@@ -328,7 +328,7 @@ export function RouteEditorDrawer({
       }
     >
       <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        保存后不会立即生效：会生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后才写盘 reload。
+        保存后会生成整份 alertmanager.yml，amtool 校验通过后立即写入并 reload Alertmanager。
       </Text>
 
       <Form

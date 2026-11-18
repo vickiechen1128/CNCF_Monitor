@@ -9,6 +9,7 @@ const listMock = vi.fn()
 const removeMock = vi.fn()
 const referencedByMock = vi.fn()
 const templateMock = vi.fn()
+const bulkReassignMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn()
@@ -26,6 +27,8 @@ vi.mock('../../api/resources', () => ({
     referencedBy: (...args: unknown[]) => referencedByMock(...args),
     // F-4：模板下载弹窗（TemplateDownloadModal）依赖 resourceApi.template
     template: (...args: unknown[]) => templateMock(...args),
+    // FR-28：批量改归属
+    bulkReassign: (...args: unknown[]) => bulkReassignMock(...args),
   },
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
@@ -144,9 +147,12 @@ function renderPageAt(path: string) {
   )
 }
 
-/** F-17：当前可见列的表头文案列表（trim 后） */
+/** F-17：当前可见列的表头文案列表（trim 后；过滤行勾选列的空白表头） */
 function visibleHeaderTexts(): string[] {
-  return screen.getAllByRole('columnheader').map((h) => (h.textContent ?? '').trim())
+  return screen
+    .getAllByRole('columnheader')
+    .map((h) => (h.textContent ?? '').trim())
+    .filter((text) => text !== '')
 }
 
 /**
@@ -158,6 +164,30 @@ function visibleHeaderTexts(): string[] {
 async function openColumnSettings() {
   fireEvent.click(screen.getByRole('button', { name: /列设置/ }))
   await waitFor(() => expect(document.querySelector('.ant-checkbox-group')).toBeTruthy())
+}
+
+/** P1：打开筛选抽屉（网域 / 平台 / 应用 / 业务 / 运行状态 / 采集状态均在其中）。 */
+async function openFilterDrawer() {
+  fireEvent.click(screen.getByRole('button', { name: /筛选/ }))
+  expect(await screen.findByText('筛选资源')).toBeInTheDocument()
+}
+
+/** P1：打开指定列头的筛选浮层（列头筛选入口由 antd 渲染为 filter-trigger）。 */
+function openColumnFilter(headerName: RegExp) {
+  const th = screen.getByRole('columnheader', { name: headerName })
+  const trigger = th.querySelector('.ant-table-filter-trigger') as HTMLElement | null
+  expect(trigger, `${String(headerName)} 列应有筛选入口`).toBeTruthy()
+  fireEvent.click(trigger!)
+}
+
+/** P1：在已打开的列头筛选浮层中选择选项并确认。 */
+async function chooseColumnFilterOption(optionText: string) {
+  // 列头筛选浮层是独立 portal；限定在浮层内查询，避免与表格行 badge 同名文本冲突
+  const dropdown = document.querySelector('.ant-table-filter-dropdown') as HTMLElement | null
+  expect(dropdown, '列头筛选浮层应已打开').toBeTruthy()
+  fireEvent.click(await within(dropdown!).findByText(optionText))
+  const confirm = within(dropdown!).queryByRole('button', { name: /确\s*定|OK/ })
+  if (confirm) fireEvent.click(confirm)
 }
 
 /**
@@ -193,6 +223,7 @@ describe('ResourcesPage', () => {
     listMock.mockReset()
     removeMock.mockReset()
     templateMock.mockReset()
+    bulkReassignMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
     applicationDictListMock.mockReset()
@@ -321,6 +352,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部业务'))
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     await waitFor(() =>
@@ -333,6 +365,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getAllByText('全部')[0])
     fireEvent.click(await screen.findByText('离线'))
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'offline' })))
@@ -364,6 +397,7 @@ describe('ResourcesPage', () => {
     })
     renderPage()
     await screen.findByText('prod-web-01')
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部业务'))
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     await waitFor(() => {
@@ -523,6 +557,7 @@ describe('ResourcesPage', () => {
     })
     renderPage()
     await screen.findByText('prod-web-01')
+    await openFilterDrawer()
     // 运行状态与采集状态占位均为「全部」，取最后一个（采集状态位于运行状态之后）
     const placeholders = screen.getAllByText('全部')
     fireEvent.mouseDown(placeholders[placeholders.length - 1])
@@ -541,6 +576,7 @@ describe('ResourcesPage', () => {
     await screen.findByText('prod-web-01')
     // 未选采集状态时不提示
     expect(screen.queryByText('「采集状态」为前端过滤')).toBeNull()
+    await openFilterDrawer()
     // 选中后须显式提示
     const placeholders = screen.getAllByText('全部')
     fireEvent.mouseDown(placeholders[placeholders.length - 1])
@@ -615,10 +651,10 @@ describe('ResourcesPage', () => {
     await showColumnsByLabels('IP 地址')
     const row = (await screen.findByText('mysql')).closest('tr')
     expect(row).not.toBeNull()
-    // 列序：实例名 / 数据库类型 / IP 地址 / 端口 / 版本 ...
+    // 列序：勾选 / 实例名 / 数据库类型 / IP 地址 / 端口 / 版本 ...
     const cells = within(row as HTMLElement).getAllByRole('cell')
-    expect(cells[0]).toHaveTextContent('10.0.2.20')
-    expect(cells[2]).toHaveTextContent('10.0.2.20')
+    expect(cells[1]).toHaveTextContent('10.0.2.20')
+    expect(cells[3]).toHaveTextContent('10.0.2.20')
   })
 
   it('决策 70 / F-38：数据库 Tab「实例名」列头挂提示角标（模型无独立名称字段）', async () => {
@@ -1014,13 +1050,22 @@ describe('ResourcesPage', () => {
   // 决策 103：资源列表「云」列（五类共享列）——启用条目展示 cloud_name、
   // 停用条目加「（已停用）」、字典缺条目回退 cloud_code、空值 '-'
   it('决策 103：云列渲染云字典 cloud_name（启用条目）', async () => {
+    networkDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX', zone_type: 'public' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
     cloudDictListMock.mockResolvedValue({
       status: 'success',
       data: { list: [{ cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true }], total: 1 },
     })
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PUB-TX' })], total: 1, page: 1, page_size: 50 },
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('prod-web-01')
@@ -1030,6 +1075,15 @@ describe('ResourcesPage', () => {
   })
 
   it('决策 103：停用云以「云名（已停用）」标识', async () => {
+    networkDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX', zone_type: 'public' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
     cloudDictListMock.mockResolvedValue({
       status: 'success',
       data: {
@@ -1039,7 +1093,7 @@ describe('ResourcesPage', () => {
     })
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PUB-TX' })], total: 1, page: 1, page_size: 50 },
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('prod-web-01')
@@ -1048,9 +1102,18 @@ describe('ResourcesPage', () => {
   })
 
   it('决策 103：字典缺条目回退显示 cloud_code', async () => {
+    networkDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PRI-TX', zone_type: 'private' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
     listMock.mockResolvedValue({
       status: 'success',
-      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PRI-TX' })], total: 1, page: 1, page_size: 50 },
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
     await screen.findByText('prod-web-01')
@@ -1207,6 +1270,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部平台'))
     fireEvent.click(await screen.findByText('电商平台'))
     await waitFor(() =>
@@ -1229,6 +1293,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部平台'))
     expect(await screen.findByText('电商平台')).toBeInTheDocument()
     expect(screen.queryByText('停用平台')).toBeNull()
@@ -1243,6 +1308,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部应用'))
     fireEvent.click(await screen.findByText('订单服务 (order)'))
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ app_code: 'order' })))
@@ -1275,6 +1341,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
 
     // 先选平台 → ecommerce（order 关联、payment 未关联）
     fireEvent.mouseDown(screen.getByText('全部平台'))
@@ -1308,6 +1375,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部应用'))
     expect(await screen.findByText('订单服务 (order)')).toBeInTheDocument()
     expect(screen.queryByText('停用应用')).toBeNull()
@@ -1332,6 +1400,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部应用'))
     fireEvent.click(await screen.findByText('订单服务 (order)'))
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ app_code: 'order' })))
@@ -1359,11 +1428,11 @@ describe('ResourcesPage', () => {
 
   /** F-17：五类 Tab 的全量可配置列（下拉里应能看到的全部勾选项） */
   const F17_ALL_COLUMNS: Record<string, string[]> = {
-    主机: ['实例名', 'IP 地址', '采集端口', '操作系统', '环境', '集群', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    数据库: ['实例名', '数据库类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    中间件: ['实例名', '中间件类型', 'IP 地址', '端口', '采集端口', '版本', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '采集端口', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
-    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    主机: ['实例名', 'IP 地址', '操作系统', '环境', '集群', '网域', '运行状态', '采集状态', '采集端口', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    数据库: ['实例名', '数据库类型', 'IP 地址', '端口', '版本', '网域', '运行状态', '采集状态', '采集端口', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    中间件: ['实例名', '中间件类型', 'IP 地址', '端口', '版本', '网域', '运行状态', '采集状态', '采集端口', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    应用服务: ['服务名', '健康检查 URL', '协议', '端点', '端口', '网域', '运行状态', '采集状态', '采集端口', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
+    其他监控目标: ['目标名称', 'Exporter 类型', 'IP 地址', '端口', '采集路径', '协议', '自定义标签', '网域', '运行状态', '采集状态', '采集端口', '录入方式', '云', '平台', '应用名称', '业务名称', '操作'],
   }
 
   it('F-17：工具栏提供「列设置」入口，可展开列出当前 Tab 的全部数据列', async () => {
@@ -1657,6 +1726,7 @@ describe('ResourcesPage', () => {
     await waitFor(() => expect(listMock).toHaveBeenCalled())
 
     // 先选平台 → 应用下拉仍应列出全部启用应用（而非空）
+    await openFilterDrawer()
     fireEvent.mouseDown(screen.getByText('全部平台'))
     fireEvent.click(await screen.findByText('电商平台'))
     await waitFor(() =>
@@ -1699,6 +1769,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
+    await openFilterDrawer()
     // 选「零售平台」——该平台确实无任何应用关联
     fireEvent.mouseDown(screen.getByText('全部平台'))
     fireEvent.click(await screen.findByText('零售平台'))
@@ -1751,14 +1822,28 @@ describe('ResourcesPage', () => {
   })
 
   describe('首页云卡下钻（design-proposal §2.1：cloud 客户端过滤）', () => {
-    /** 三台主机：两台分属 PUB-TX / GM-CU，一台未派生云编码（cloud_code 缺失 → 空串） */
+    /** 三台主机：两台分属 PUB-TX / GM-CU，一台未派生云编码（所属网域无 cloud_code → 空串） */
     const CLOUD_HOSTS = [
-      hostItem('res-1', 'tx-web-01', { cloud_code: 'PUB-TX' }),
-      hostItem('res-2', 'cu-web-01', { cloud_code: 'GM-CU' }),
-      hostItem('res-3', 'no-cloud-01'),
+      hostItem('res-1', 'tx-web-01', { network_domain_id: 'mc-tx' }),
+      hostItem('res-2', 'cu-web-01', { network_domain_id: 'mc-cu' }),
+      hostItem('res-3', 'no-cloud-01', { network_domain_id: 'mc-none' }),
     ]
 
     function setupCloudHosts() {
+      // 决策 103 scheme-B：v3 资源不再内联 cloud_code，云归属由所属网域只读派生
+      networkDomainListMock.mockResolvedValue({
+        status: 'success',
+        data: {
+          list: [
+            { id: 'mc-tx', name: '腾讯云网域', cloud_code: 'PUB-TX', zone_type: 'public' },
+            { id: 'mc-cu', name: '政务云网域', cloud_code: 'GM-CU', zone_type: 'public' },
+            { id: 'mc-none', name: '未归属云网域', zone_type: 'private' },
+          ],
+          total: 3,
+          page: 1,
+          page_size: 100,
+        },
+      })
       listMock.mockResolvedValue({
         status: 'success',
         data: { list: CLOUD_HOSTS, total: 3, page: 1, page_size: 50 },
@@ -1835,5 +1920,171 @@ describe('ResourcesPage', () => {
     expect(container.querySelectorAll('th[scope="colgroup"]').length).toBe(0)
     expect(container.textContent).not.toContain('技术属性 / 位置')
     expect(container.textContent).not.toContain('业务归属')
+  })
+
+  /** M07 SRS v2.0 FR-28：勾选 → 批量改归属 → 成功后清空选择并刷新列表。 */
+  it('FR-28：勾选资源批量改归属，成功后清空选择并刷新列表', async () => {
+    businessDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { code: 'infra', name: '公共基础设施', enabled: true, status: 'enabled', reference_count: 2 },
+          { code: 'payment', name: '支付业务', enabled: true, status: 'enabled', reference_count: 0 },
+        ],
+        total: 2,
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')],
+        total: 2,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    bulkReassignMock.mockResolvedValue({
+      status: 'success',
+      data: { updated_count: 2, field: 'biz_code', target_code: 'payment' },
+    })
+    renderPage()
+    expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
+
+    const rowCheckboxes = document.querySelectorAll('.ant-table-tbody tr.ant-table-row .ant-checkbox-input')
+    expect(rowCheckboxes).toHaveLength(2)
+    fireEvent.click(rowCheckboxes[0])
+    fireEvent.click(rowCheckboxes[1])
+    expect(await screen.findByText('已选 2 条')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '批量改归属' }))
+    // 弹窗内两个 Select：修改字段（默认业务归属）/ 目标条目
+    const selectors = document.querySelectorAll('.ant-modal .ant-select-selector')
+    expect(selectors.length).toBe(2)
+    fireEvent.mouseDown(selectors[1])
+    fireEvent.click(
+      await screen.findByText('支付业务（payment）', { selector: '.ant-select-item-option-content' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /确认修改/ }))
+
+    await waitFor(() =>
+      expect(bulkReassignMock).toHaveBeenCalledWith({
+        resource_ids: ['res-1', 'res-2'],
+        field: 'biz_code',
+        target_code: 'payment',
+      }),
+    )
+    // 成功后关闭弹窗、清空勾选并刷新列表
+    await waitFor(() => expect(screen.queryByText('已选 2 条')).toBeNull())
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // P1：筛选器收敛（全局搜索 + 筛选抽屉 + 可见列列头筛选）
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('P1：筛选抽屉汇总六类条件，生效后显示标签与计数并可清除', async () => {
+    businessDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ code: 'infra', name: '公共基础设施', enabled: true, status: 'enabled', reference_count: 0 }],
+        total: 1,
+      },
+    })
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    await openFilterDrawer()
+    const drawer = screen.getByText('筛选资源').closest('.ant-drawer') as HTMLElement
+
+    for (const label of ['网域', '平台', '应用', '业务', '运行状态', '采集状态']) {
+      expect(within(drawer).getByText(label)).toBeInTheDocument()
+    }
+
+    fireEvent.mouseDown(screen.getByText('全部业务'))
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ biz_code: 'infra' })),
+    )
+
+    // 抽屉关闭后，生效条件以标签形式留在工具栏，筛选入口显示计数
+    fireEvent.click(screen.getByRole('button', { name: /完\s*成/ }))
+    expect(await screen.findByText('业务：公共基础设施')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '筛选，已生效 1 项' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '清除全部' }))
+    await waitFor(() => expect(screen.queryByText('业务：公共基础设施')).toBeNull())
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ biz_code: undefined })),
+    )
+  })
+
+  it('P1：网域列头筛选下沉后端并回显筛选态', async () => {
+    networkDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ id: 'mc-a', name: '政务网A区', cloud_code: '', zone_type: 'internet' }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    await waitFor(() => {
+      const th = screen.getByRole('columnheader', { name: /网域/ })
+      expect(th.querySelector('.ant-table-filter-trigger')).toBeTruthy()
+    })
+
+    openColumnFilter(/网域/)
+    await chooseColumnFilterOption('政务网A区')
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ network_domain_id: 'mc-a' })),
+    )
+    expect(
+      screen.getByRole('columnheader', { name: /网域/ }).querySelector('.ant-table-filter-trigger'),
+    ).toHaveClass('active')
+  })
+
+  it('P1：运行状态列头筛选下沉后端', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+
+    openColumnFilter(/运行状态/)
+    await chooseColumnFilterOption('离线')
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'offline' })),
+    )
+  })
+
+  it('P1：采集状态列头筛选按 coverage 当页过滤', async () => {
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'res-1', resource_category: 'host', instance_name: 'prod-web-01', monitor_state: 'collecting', health: 'up' },
+          { resource_id: 'res-2', resource_category: 'host', instance_name: 'prod-web-02', monitor_state: 'pending_down', health: 'down' },
+        ],
+        total: 2,
+        summary: { total: 2, collecting: 1, pending_down: 1, not_monitored: 0, coverage_rate: 0.5 },
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')],
+        total: 2,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+
+    openColumnFilter(/采集状态/)
+    await chooseColumnFilterOption('采集中')
+    expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
+    expect(screen.queryByText('prod-web-02')).toBeNull()
   })
 })

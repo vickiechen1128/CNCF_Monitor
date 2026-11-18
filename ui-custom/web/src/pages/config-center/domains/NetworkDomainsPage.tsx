@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Button,
@@ -59,13 +59,14 @@ const { Text } = Typography
 /**
  * 网域纳管列表页（Module_09 §11.1 页面状态矩阵）。
  * PRD v1.79 §3.1.1 / §11.3：7 列收敛为 5 列（网域 / 纳管状态 / 采集节点在线 / 凭据 / 操作）；
- * 网络区域类型、下发通道两列已下沉至详情抽屉。详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位（agent_pull）；
- * local（default）恒显 '-'，绝不误展示 agent_pull 专属字段（C1~C4 裁剪占位）。
+ * 网络区域类型、下发通道两列已下沉至详情抽屉。详情抽屉 + 行内纳管 + 顶部安装指引 + 行内下载入口。
+ * v3 只有采集节点域一种类型（无「中心直连域」），所有网域均需部署采集节点（SRS §2.3 / NFR-02）。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足状态。
  */
 export function NetworkDomainsPage() {
   // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
+  const navigate = useNavigate()
   const {
     data,
     loading,
@@ -87,7 +88,7 @@ export function NetworkDomainsPage() {
   const [plainToken, setPlainToken] = useState<{ title: string; token: string; tokenMasked?: string; domainName?: string } | null>(null)
   const guideRef = useRef<HTMLDivElement>(null)
   const [guideHighlight, setGuideHighlight] = useState(false)
-  // 安装指引折叠态（PRD §1109 常驻提示区）：默认收起，local 通道用户无需细看；agent_pull 纳管成功自动展开
+  // 安装指引折叠态（常驻提示区）：默认收起避免占用首屏；纳管成功后自动展开并高亮
   const [guideOpen, setGuideOpen] = useState(false)
   // F-33：行内「更多 → 下载安装包」打开独立 Modal（复用懒加载面板，关闭即不发请求）
   const [downloadOpen, setDownloadOpen] = useState(false)
@@ -247,7 +248,7 @@ export function NetworkDomainsPage() {
       key: 'monitored_status',
       width: 180,
       render: (_: unknown, record: NetworkDomain) => {
-        if (record.channel === 'agent_pull' && record.monitored_status) {
+        if (record.monitored_status) {
           return (
             <Space size={4}>
               <Tag color={monitoredStatusColor[record.monitored_status]} style={{ marginRight: 0 }}>
@@ -267,7 +268,7 @@ export function NetworkDomainsPage() {
       // HIGH-1：list 不返回明文 token，故凭据列仅展示脱敏串，不提供「复制明文」按钮；
       // 用户可见文案见 TOKEN_CREDENTIAL_TIP（F-30：Tooltip 用普通用户语言说明「为何只有脱敏值 / 丢了怎么重置」）
       render: (_: unknown, record: NetworkDomain) =>
-        record.channel === 'agent_pull' && record.token_masked ? (
+        record.token_masked ? (
           <Tooltip title={TOKEN_CREDENTIAL_TIP}>
             <Text type="secondary" style={{ fontSize: 12 }}>{TOKEN_MASK}</Text>
           </Tooltip>
@@ -282,31 +283,27 @@ export function NetworkDomainsPage() {
       fixed: 'right',
       render: (_: unknown, record: NetworkDomain) => {
         const isMonitored = record.is_monitored
-        // F-33：下载入口从页面级主按钮改为**行内按需**——仅采集节点域（agent_pull）行提供「更多」下拉；
-        // 中心直连域（local）无需部署采集节点，整行不出现下载入口。
-        // 「重置 Token」仅已纳管采集节点域才有意义，故按 isMonitored 动态拼接菜单项。
-        // 退纳管作为行内主操作（已纳管时展示），不再重复放入下拉。
-        const moreItems: MenuProps['items'] =
-          record.channel === 'agent_pull'
+        // F-33：下载入口从页面级主按钮改为**行内按需**，收进「更多」下拉。
+        // v3 所有网域都是采集节点域，无需按通道裁剪入口；「重置 Token」仅已纳管时才有意义，
+        // 故按 isMonitored 动态拼接菜单项。退纳管作为行内主操作（已纳管时展示），不重复放入下拉。
+        const moreItems: MenuProps['items'] = [
+          ...(isMonitored
             ? [
-                ...(isMonitored
-                  ? [
-                      {
-                        key: 'reset-token',
-                        icon: <ReloadOutlined />,
-                        label: '重置 Token',
-                        onClick: () => handleResetToken(record),
-                      },
-                    ]
-                  : []),
                 {
-                  key: 'download-package',
-                  icon: <DownloadOutlined />,
-                  label: '下载安装包',
-                  onClick: () => setDownloadOpen(true),
+                  key: 'reset-token',
+                  icon: <ReloadOutlined />,
+                  label: '重置 Token',
+                  onClick: () => handleResetToken(record),
                 },
               ]
-            : []
+            : []),
+          {
+            key: 'download-package',
+            icon: <DownloadOutlined />,
+            label: '下载安装包',
+            onClick: () => setDownloadOpen(true),
+          },
+        ]
         return (
           <Space size="small">
             {!isMonitored ? (
@@ -348,15 +345,15 @@ export function NetworkDomainsPage() {
     <MainLayout>
       <ConfigProvider locale={config}>
         <Card title="网域纳管">
-        {/* F-33 动线前置：本条提示常驻在折叠指引**之外**，让中心直连域用户一眼确认「无需部署、无需下载」，
-            不必展开指引；下方折叠区只保留采集节点域（agent_pull）的部署动线。 */}
+        {/* 动线前置：本提示常驻在折叠指引**之外**——用户无需展开安装指引，也能先建立
+            「中心只管理与存储、采集由网域内采集节点执行」的心智模型（v3 不存在中心直连域）。 */}
         <Alert
           type="success"
           showIcon
           style={{ marginBottom: 12 }}
-          message="中心直连域（如 default）：平台与采集在同侧，无需部署采集节点。本页只展示 M06 已登记且启用的采集节点域，纳管后需在网域内部署采集节点。"
+          message="所有网域均为采集节点域：平台只负责管理与存储，监控目标由部署在网域内的采集节点抓取并回传。纳管后请按下方指引部署采集节点。"
         />
-        {/* PRD §1109：安装指引为页面顶部常驻提示区（不随是否有 agent_pull 网域而隐藏） */}
+        {/* 安装指引为页面顶部常驻提示区（不随列表是否为空而隐藏） */}
         <div
             ref={guideRef}
             style={{
@@ -378,15 +375,15 @@ export function NetworkDomainsPage() {
                   label: (
                     <Space size={8}>
                       <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                      {/* F-33：标题限定为「采集节点域」，与折叠区外的常驻提示分工——直连域用户不必点进来 */}
-                      <Text strong>采集节点域接入操作流程（安装指引）</Text>
+                      {/* 标题直述本区内容：装的是采集节点（Edge Sync Agent），不是「网域」 */}
+                      <Text strong>采集节点接入操作流程（安装指引）</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>点击展开</Text>
                     </Space>
                   ),
                   children: (
                     <div>
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        采集节点域与平台网络隔离，需要在网域内一台常开机器上部署一个采集节点（Edge Sync Agent），由它代理采集并把监控数据回传给平台。按下方步骤接入。
+                        采集节点需部署在该网域内一台常开机器上（Edge Sync Agent），由它代理采集并把监控数据回传给平台。按下方步骤接入。
                       </Typography.Paragraph>
                       <Steps
                         size="small"
@@ -494,8 +491,14 @@ sudo systemctl enable --now edge-sync-agent`}</pre>
           locale={{
             emptyText: (
               <Empty description="暂无网域，请先在「系统与平台管理 · 网域管理」完成行政登记">
-                <Button type="primary" icon={<CloudUploadOutlined />} disabled>
-                  网域纳管
+                {/* 空态引导出口：本页只消费 M06 已登记网域，无网域时给出直达登记页的按钮
+                    （原为 disabled 占位按钮，点了没反应，用户只能自己找菜单） */}
+                <Button
+                  type="primary"
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => navigate('/admin/domains')}
+                >
+                  去网域管理登记
                 </Button>
               </Empty>
             ),

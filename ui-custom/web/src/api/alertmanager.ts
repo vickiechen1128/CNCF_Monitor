@@ -103,7 +103,6 @@ interface WireSaveResult {
   config_version: string
   pending_sections: string[]
   reload?: { status: string; duration_ms: number; at?: string } | null
-  snapshot_synced: boolean
 }
 
 interface WireSilence {
@@ -219,9 +218,9 @@ function toConfigVersion(snapshot: WireSnapshot): AlertmanagerConfigVersion {
     id: snapshot.id,
     content: snapshot.content,
     checksum: snapshot.checksum,
-    applied_at: snapshot.generated_at,
-    applied_by: snapshot.generated_by,
-    status: 'applied',
+    generated_at: snapshot.generated_at,
+    generated_by: snapshot.generated_by,
+    is_current: snapshot.is_current,
     created_at: snapshot.generated_at,
   }
 }
@@ -230,9 +229,9 @@ function toConfigVersionListItem(item: WireSnapshotListItem): AlertmanagerConfig
   return {
     id: item.id,
     checksum: item.checksum,
-    applied_at: item.generated_at,
-    applied_by: item.generated_by,
-    status: 'applied',
+    generated_at: item.generated_at,
+    generated_by: item.generated_by,
+    is_current: item.is_current,
     created_at: item.generated_at,
   }
 }
@@ -484,7 +483,10 @@ export interface AlertHistoryQuery extends Record<string, string | number | bool
 export interface AlertEventQuery extends Record<string, string | number | undefined> {
   page?: number
   page_size?: number
-  status?: AlertEventStatus | 'open'
+  /** 单态过滤；与 status_group 互斥 */
+  status?: AlertEventStatus
+  /** 未结三态分组（firing/silenced/inhibited）并集，v3 契约别名 */
+  status_group?: 'open'
   severity?: string
   alert_name?: string
   summary?: string
@@ -661,16 +663,15 @@ export const alertmanagerRoutesApi = {
             id: '',
             content: '',
             checksum: res.data.config_checksum,
-            applied_at: res.data.reload?.at,
-            applied_by: '',
-            status: 'applied',
+            generated_at: res.data.reload?.at,
+            generated_by: '',
+            is_current: true,
             created_at: res.data.reload?.at,
           },
           change_no: undefined,
           applied: res.data.reload?.status === 'succeeded',
           reload_status: res.data.reload?.status,
           pending_sections: res.data.pending_sections,
-          snapshot_synced: res.data.snapshot_synced,
         },
       }))
   },

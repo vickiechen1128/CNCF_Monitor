@@ -82,6 +82,43 @@ describe('domain API (v3)', () => {
     expect(res.data[0].code).toBe('internet')
   })
 
+  it('zoneTypeApi.revoke POSTs /zone-types/:code/revoke with no request body', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        code: 'dmz',
+        display_name: '隔离区',
+        enabled: false,
+        status: 'revoked',
+        reference_count: 0,
+      },
+    })
+
+    const res = await zoneTypeApi.revoke('dmz')
+
+    const url = lastUrlInstance()
+    expect(url.pathname).toBe('/api/v3/platform/zone-types/dmz/revoke')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toBeUndefined()
+    expect(res.data.status).toBe('revoked')
+    expect(res.data.reference_count).toBe(0)
+  })
+
+  it('zoneTypeApi.merge POSTs /zone-types/:code/merge with target_code', async () => {
+    mockFetch({
+      status: 'success',
+      data: { source: 'dmz', target: 'internet', moved_references: 2 },
+    })
+
+    const res = await zoneTypeApi.merge('dmz', 'internet')
+
+    const url = lastUrlInstance()
+    expect(url.pathname).toBe('/api/v3/platform/zone-types/dmz/merge')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    expect(lastInitBody()).toEqual({ target_code: 'internet' })
+    expect(res.data.moved_references).toBe(2)
+  })
+
   it('networkDomainApi.list sends admin view + pagination/filter params and maps the enriched item', async () => {
     mockFetch({
       status: 'success',

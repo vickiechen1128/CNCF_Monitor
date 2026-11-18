@@ -20,6 +20,9 @@ export type InstanceSelectionMode = 'manual' | 'filter'
 export interface ScrapeJob {
   id: string
   job_name: string
+  /** 所属监控任务组（空 = 传统单域 Job；合并任务表用于显示归属） */
+  job_group_id?: string
+  job_group_name?: string
   job_type: JobType
   resource_type: string
   resource_category?: string

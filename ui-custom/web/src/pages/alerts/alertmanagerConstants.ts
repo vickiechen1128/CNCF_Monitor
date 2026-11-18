@@ -9,7 +9,6 @@
 import type {
   AlertEventStatus,
   AlertHistoryState,
-  AlertmanagerConfigStatus,
   NotifyChannelType,
   NotifyStatus,
   PromAlertState,
@@ -22,9 +21,6 @@ import type { SkinTokens } from '../../skins'
 /** 当前登录用户（MVP 预置应用人 / 创建人；用户管理接入后同步为真实用户） */
 export const CURRENT_USER = '张伟（运维）'
 
-/** 跨模块跳转落点：M09「配置变更确认」页（管理域 default 变更单在此确认下发，决策 60） */
-export const CONFIG_PREVIEW_PATH = '/config-preview'
-
 /** 路由规则页（告警路由的唯一配置入口：用户直接编辑路由树） */
 export const ROUTES_PATH = '/routes'
 
@@ -35,87 +31,6 @@ export const ROUTES_PATH = '/routes'
  * 命中它的告警不会发往任何渠道，属**显式的静默丢弃**。文案必须把这个后果说清楚。
  */
 export const DEFAULT_RECEIVER_LABEL = '默认（不通知）'
-
-/**
- * 配置版本**收录**状态（AlertmanagerConfigVersion.status）。
- *
- * 2026-10-13（dev-feedback #44 废弃联动）：由「恒 applied」扩为两态——
- *   - applied：已收录为 M09 下发源。**不得据此声称「已生效」**（dev-feedback §25）：该状态在
- *     M08 挂载（Submit/Remount）**落库那一刻**即置位，而此刻磁盘 `config-output/alertmanager.yml`
- *     尚未更新、Alertmanager 仍加载旧文件；真正写盘 + reload 发生在 M09「确认下发」
- *     （ConfirmDraft）之后。applied 内部再按 `applied_at` 派生两种展示（见 configStatusView）。
- *   - discarded：已废弃终态——变更单被废弃（用户废弃 / 被更新单取代）后，已无活 pending 单
- *     可确认的留痕由后端联动标记；修复前此类留痕 applied_at 永为空，会永久显示
- *     「已提交，待确认下发」（用户实测 id=18 遗留问题）。
- */
-export const configStatusLabel: Record<AlertmanagerConfigStatus, string> = {
-  applied: '已收录',
-  discarded: '已废弃',
-}
-
-export const configStatusColor: Record<AlertmanagerConfigStatus, string> = {
-  applied: 'default',
-  discarded: 'default',
-}
-
-/**
- * 配置是否**已真正生效**的**唯一判据**（dev-feedback §25）：
- * `applied_at` 由 M09 确认下发、写盘成功后才回填（挂载时为空的），是「Alertmanager 已加载本版本」的信号。
- */
-export function isConfigApplied(appliedAt?: string | null): boolean {
-  return typeof appliedAt === 'string' && appliedAt.trim().length > 0
-}
-
-/** 状态展示：已真正生效 */
-export const CONFIG_STATUS_APPLIED_LABEL = '已生效'
-
-/** 状态展示：已提交收录、但尚未下发写盘（status=applied，applied_at 仍为空） */
-export const CONFIG_STATUS_PENDING_LABEL = '已提交，待确认下发'
-
-/**
- * 状态展示：已废弃终态（status=discarded，dev-feedback #44）——变更单被废弃后由后端
- * 联动标记，无活单可确认；恢复需重新挂载（Remount）或修改策略/资源重新触发产草稿。
- */
-export const CONFIG_STATUS_DISCARDED_LABEL = '已废弃'
-
-/** 「待确认下发」指引（用户语言，不含 applied_at / status 等技术字段名；末尾「前往」接跳转入口） */
-export const CONFIG_STATUS_PENDING_TIP =
-  '配置已提交收录，尚未写入 Alertmanager，需确认下发后才会生效。前往'
-
-/** 「已废弃」说明（为何废弃、如何恢复；用户语言，不含技术字段名） */
-export const CONFIG_STATUS_DISCARDED_TIP =
-  '对应变更单已废弃，本版本不会下发。如需生效请重新挂载，或修改策略/资源后重新生成变更单。'
-
-/** 配置状态派生视图（展示色随状态：已生效=成功绿 / 待确认下发=警示橙 / 已废弃=中性灰） */
-export interface ConfigStatusView {
-  label: string
-  color: string
-  /** 是否已真正生效（applied_at 有值） */
-  applied: boolean
-  /** 是否已废弃终态（status=discarded） */
-  discarded: boolean
-}
-
-/**
- * 按 `status` + `applied_at` 派生配置状态展示（dev-feedback §25 方案 A 前端侧 +
- * #44 废弃联动）：
- *   - status=discarded → 「已废弃」（终态，不再提示去确认——已无在途单可确认）；
- *   - applied_at 有值 → 「已生效」；
- *   - 其余（status=applied 且 applied_at 为空）→ 「已提交，待确认下发」。
- *
- * 契约未变、wire 字段未变（status / applied_at 均既有字段），仅展示口径补入废弃态，
- * 消除「看到 applied 以为已生效」与「单子已废弃却永远显示待确认」两类误判。
- *
- * status 缺省（老调用方 / 缓存数据）时按 applied 处理，行为与修订前一致。
- */
-export function configStatusView(appliedAt?: string | null, status?: AlertmanagerConfigStatus): ConfigStatusView {
-  if (status === 'discarded') {
-    return { label: CONFIG_STATUS_DISCARDED_LABEL, color: 'default', applied: false, discarded: true }
-  }
-  return isConfigApplied(appliedAt)
-    ? { label: CONFIG_STATUS_APPLIED_LABEL, color: 'success', applied: true, discarded: false }
-    : { label: CONFIG_STATUS_PENDING_LABEL, color: 'warning', applied: false, discarded: false }
-}
 
 /** 静默状态（Alertmanager 运行时状态，追踪 §6 枚举字典 / §8 UI 展示名） */
 export const silenceStatusLabel: Record<SilenceStatus, string> = {

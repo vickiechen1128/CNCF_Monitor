@@ -29,7 +29,7 @@ describe('InhibitionsPage', () => {
   beforeEach(() => {
     listMock.mockReset()
     saveMock.mockReset()
-    listMock.mockResolvedValue({ status: 'success', data: { items: [existing], effective_checksum: 'sum-1', pending: null } })
+    listMock.mockResolvedValue({ status: 'success', data: { items: [existing], effective_checksum: 'sum-1' } })
     saveMock.mockResolvedValue({ status: 'success', data: { change_no: 'CHG-001' } })
   })
 
@@ -50,7 +50,7 @@ describe('InhibitionsPage', () => {
     await user.type(target.getByPlaceholderText('标签名'), 'inhibitable')
     await user.type(target.getByPlaceholderText('标签值'), 'true')
     await user.click(screen.getByRole('button', { name: '确定' }))
-    await user.click(screen.getByRole('button', { name: '保存并提交变更' }))
+    await user.click(screen.getByRole('button', { name: '保存并生效' }))
 
     await waitFor(() => expect(saveMock).toHaveBeenCalled())
     const payload = saveMock.mock.calls[0][0]
@@ -59,7 +59,7 @@ describe('InhibitionsPage', () => {
     expect(payload.inhibit_rules[1].name).toBe('网域离线抑制')
     expect(payload.inhibit_rules[1].source_matchers[0].value).toBe('EdgeSiteOffline')
     expect(payload.inhibit_rules[1].target_matchers[0].value).toBe('true')
-    expect(await screen.findByText('抑制规则变更已提交，等待确认下发')).toBeInTheDocument()
+    expect(await screen.findByText('抑制规则已保存并生效')).toBeInTheDocument()
   })
 
   it('shows load errors', async () => {
@@ -73,7 +73,6 @@ describe('InhibitionsPage', () => {
       status: 'success',
       data: {
         items: [existing], effective_checksum: 'sum-1',
-        pending: { change_no: 'CHG-ROUTE', created_at: '2026-10-26T00:00:00Z', route_changed: true, inhibit_rules_changed: false },
       },
     })
     render(<MemoryRouter><InhibitionsPage /></MemoryRouter>)

@@ -2,7 +2,7 @@
  * 「路由规则」页数据 Hook。
  *
  * 只读数据来源：`GET /api/v2/platform/alertmanager/routes`（仅全局认证）：
- *   成功 → `{ items, dead_receivers, effective_checksum, pending }`；
+ *   成功 → `{ items, declared_receivers, effective_checksum }`（v3：无待确认变更单）；
  *   解析失败 → `{ parse_error, raw_yaml }`（非 500、不白屏）。
  *
  * 编辑态（`useRouteEditor`）：
@@ -10,7 +10,7 @@
  * - 顺序用上移 / 下移 / 拖拽表达，落盘顺序 = 同层数组位置；
  * - 保存 = **只提交结构化路由树 + base_checksum** 给
  *   `POST /api/v2/platform/alertmanager/routes`，由后端生成 route 段、合并整份配置、
- *   amtool 校验并触发 M09 变更单。前端不再生成 / 合并 YAML。
+ *   amtool 校验并立即 reload 生效。前端不再生成 / 合并 YAML。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alertmanagerRoutesApi, notifyChannelsApi } from '../../api/alertmanager'
@@ -72,8 +72,6 @@ export interface UseRoutesResult {
   ready: boolean
   /** 当前合并基 sha256；进入编辑时作为 base_checksum 回传，保存时做乐观锁 */
   effectiveChecksum: string
-  /** 管理域当前活 pending 变更单；存在即表示页面展示的是待确认版本 */
-  pending: RouteTreeData['pending']
   /**
    * 重新拉取只读视图。可选 `after` 在本次加载结束后回调（ok=是否成功，data=本次最新数据）。
    * 页面用它在「编辑路由」刷新完成后载入编辑区，避免把 setState 放进 effect；
@@ -153,7 +151,6 @@ export function useRoutes(): UseRoutesResult {
     error,
     ready: !loading,
     effectiveChecksum: data?.effective_checksum ?? '',
-    pending: data?.pending ?? null,
     reload,
   }
 }
@@ -229,7 +226,7 @@ export interface UseRouteEditorResult {
   upsert: (node: RouteEditNode) => void
   /** 放弃编辑，回到未导入态 */
   reset: () => void
-  /** 保存：预检 → 生成 route 段 → 合并整份 → 复用挂载端点 → M09 变更单。返回是否成功 */
+  /** 保存：预检 → 提交嵌套路由树 → 后端生成/校验/reload。返回是否成功 */
   save: () => Promise<boolean>
 }
 
@@ -238,7 +235,7 @@ export interface UseRouteEditorResult {
  *
  * 保存链路：只提交 `{ base_checksum, route_tree }` 给
  * `POST /api/v2/platform/alertmanager/routes`；route YAML 生成、整份合并、amtool 校验、
- * 版本落库与 M09 变更单全部由后端完成。
+ * 版本落库、apply 与 reload 全部由后端完成。
  */
 export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEditorResult {
   const {

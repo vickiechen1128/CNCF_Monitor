@@ -45,8 +45,8 @@ describe('NetworkDomainDetailDrawer（网域详情抽屉）', () => {
     })
   })
 
-  it('local（default）通道运行态恒显「-」，不误展示 agent_pull 专属字段', () => {
-    renderDrawer(domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }))
+  it('无运行态数据时「采集节点在线」恒显「-」', () => {
+    renderDrawer(domainRow('default', '默认域', { is_monitored: false }))
     expect(screen.getAllByText('采集节点在线').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
@@ -70,12 +70,26 @@ describe('NetworkDomainDetailDrawer（网域详情抽屉）', () => {
     expect(screen.getAllByText('节点列表与计数为 v0.2 采集节点状态页范围').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('local 通道「采集节点情况」下版本/心跳/数量均恒「-」，不误展示 agent_pull 专属字段', () => {
-    renderDrawer(domainRow('default2', '默认域', { channel: 'local', domain_type: 'management' }))
+  it('无节点字段时「采集节点情况」下版本 / 心跳 / 数量均显示「-」', () => {
+    renderDrawer(domainRow('default2', '默认域', { is_monitored: false }))
     expect(screen.getByText('采集节点版本')).toBeInTheDocument()
     expect(screen.getByText('最近心跳')).toBeInTheDocument()
     expect(screen.getByText('采集节点数量')).toBeInTheDocument()
-    // 版本 + 心跳 + 数量 均为 '-'（加既有 local 运行态 '-' 共 ≥4 个）
+    // 版本 + 心跳 + 数量 均为 '-'（加运行态 '-' 共 ≥4 个）
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('不展示「域类型」行，也不出现「中心直连域」：v3 只有采集节点域（SRS NFR-02）', () => {
+    renderDrawer(domainRow('mc-v3', '政务网V3', { is_monitored: true }))
+    expect(screen.queryByText('域类型')).not.toBeInTheDocument()
+    expect(screen.queryByText(/中心直连域/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/采集节点域/)).not.toBeInTheDocument()
+  })
+
+  it('下发通道展示用户语言「采集节点拉取」，不暴露 agent_pull 技术术语（NFR-10）', () => {
+    renderDrawer(domainRow('mc-v3b', '政务网V3B', { is_monitored: true }))
+    expect(screen.getByText('下发通道')).toBeInTheDocument()
+    expect(screen.getByText('采集节点拉取')).toBeInTheDocument()
+    expect(screen.queryByText('agent_pull')).not.toBeInTheDocument()
   })
 })

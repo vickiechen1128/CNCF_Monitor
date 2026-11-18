@@ -1,7 +1,7 @@
 /**
  * 告警状态页数据 Hook（Module_08 告警收敛与通知管理，双视图）。
  * useCurrentAlerts：当前告警（M08 历史告警事件表的未结三态 firing/silenced/inhibited，
- *   与历史告警、首页四格同源；status=open 为服务端分组别名）；
+ *   与历史告警、首页四格同源；status_group=open 为服务端分组别名）；
  * useOpenAlertStats：未结三态计数（当前告警页三张统计卡，随网域筛选）；
  * usePromAlerts：Prometheus 规则评估结果（M02 代理 /api/v1/alerts，firing/pending）。
  * network_domain 为 UX 筛选透传（过滤由后端承担，前端不重复过滤）；
@@ -32,7 +32,7 @@ export interface DomainOption {
 /** 当前告警的未结三态（event 表停止更新前始终属于这三态之一） */
 export type OpenAlertStatus = Extract<AlertEventStatus, 'firing' | 'silenced' | 'inhibited'>
 
-/** 当前告警状态筛选：全部 = 未结三态并集（服务端 status=open） */
+/** 当前告警状态筛选：全部 = 未结三态并集（服务端 status_group=open） */
 export type CurrentAlertStatusFilter = 'all' | OpenAlertStatus
 
 export interface CurrentAlertsQuery {
@@ -59,7 +59,10 @@ export const CURRENT_ALERTS_PAGE_SIZE = 20
 
 const MAX_PAGE_SIZE = 100
 
-/** 当前告警查询参数：status=open 表示未结三态并集，与首页右栏同口径。 */
+/**
+ * 当前告警查询参数：status_group=open 表示未结三态并集，与首页右栏同口径。
+ * v3 契约中 status 只接受单态七值，分组别名必须走 status_group（二者互斥）。
+ */
 export function currentAlertParams(
   q: CurrentAlertsQuery,
   page: number,
@@ -68,9 +71,10 @@ export function currentAlertParams(
   const params: Record<string, string | number | undefined> = {
     page,
     page_size: pageSize,
-    status: q.status === 'all' ? 'open' : q.status,
     sort: 'starts_at desc',
   }
+  if (q.status === 'all') params.status_group = 'open'
+  else params.status = q.status
   if (q.networkDomain && q.networkDomain !== 'all') params.network_domain = q.networkDomain
   return params
 }
@@ -146,7 +150,7 @@ export function useCurrentAlerts(q: CurrentAlertsQuery): CurrentAlertsResult {
   }
 }
 
-/** 未结三态计数（当前告警页统计卡；与列表 status=open 同口径）。 */
+/** 未结三态计数（当前告警页统计卡；与列表 status_group=open 同口径）。 */
 export interface OpenAlertStats {
   total: number
   firing: number

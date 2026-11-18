@@ -36,7 +36,6 @@ interface WireSaveResult {
   config_version: string
   pending_sections: string[]
   reload?: { status: string; duration_ms: number; at?: string } | null
-  snapshot_synced: boolean
 }
 
 function toRule(rule: WireInhibition): InhibitionRule {
@@ -92,14 +91,13 @@ function lastSaveResult(res: ApiResponse<{ save?: WireSaveResult }>): SaveRoutes
       id: '',
       content: '',
       checksum: save?.config_checksum ?? '',
-      status: 'applied',
+      is_current: true,
       created_at: save?.reload?.at,
-      applied_at: save?.reload?.at,
+      generated_at: save?.reload?.at,
     },
     applied: save?.reload?.status === 'succeeded',
     reload_status: save?.reload?.status,
     pending_sections: save?.pending_sections ?? [],
-    snapshot_synced: save?.snapshot_synced ?? false,
   }
 }
 
@@ -124,7 +122,7 @@ export const inhibitionsApi = {
     const server = new Map((current.data.list ?? []).map((rule) => [rule.id, rule]))
     const draft = payload.inhibit_rules ?? []
     let lastResult: SaveRoutesResult = {
-      version: { id: '', content: '', checksum: '', status: 'applied' },
+      version: { id: '', content: '', checksum: '', is_current: true },
     }
 
     for (const rule of draft) {

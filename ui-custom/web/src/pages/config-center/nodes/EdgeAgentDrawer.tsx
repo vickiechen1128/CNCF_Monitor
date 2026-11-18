@@ -162,7 +162,7 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
   const causeAction = cause ? outOfSyncCauseAction[cause] : null
   const syncStatus = agent.config_sync_status ?? 'unknown'
   // 配置应用失败（D-2）：apply_failed 成因或已上报失败原因时展示「配置应用」诊断行；
-  // 该行自带「查看下发」按钮，故 apply_failed 时不再渲染通用「同步引导」行（避免重复按钮）。
+  // 该行自带「查看配置快照」按钮，故 apply_failed 时不再渲染通用「同步引导」行（避免重复按钮）。
   const applyFailed = isConfigSyncApplyFailed(syncStatus, cause)
   const showApplyError = applyFailed || !!agent.config_apply_error
 
@@ -222,11 +222,12 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
               size="small"
               type="link"
               onClick={() => {
-                navigate('/deployments')
+                // 深链预筛该节点所属网域，落地即只看这个域的快照
+                navigate(`/config-snapshots?network_domain=${encodeURIComponent(agent.network_domain_id)}`)
                 onClose()
               }}
             >
-              查看下发
+              查看配置快照
             </Button>
           </Descriptions.Item>
         )}

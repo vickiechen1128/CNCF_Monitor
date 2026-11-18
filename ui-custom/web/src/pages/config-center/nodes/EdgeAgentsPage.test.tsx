@@ -74,8 +74,8 @@ const agentRow = (id: number, hostname: string, extra: AgentRowOver = {}): Agent
   ...extra,
 })
 
-const domain = (id: string, channel: 'local' | 'agent_pull' = 'agent_pull'): NetworkDomain =>
-  ({ id, name: id, domain_type: 'edge', tenant_id: 't', channel, is_monitored: true }) as NetworkDomain
+const domain = (id: string): NetworkDomain =>
+  ({ id, name: id, domain_type: 'edge', tenant_id: 't', channel: 'agent_pull', is_monitored: true }) as NetworkDomain
 
 function result(over: Partial<UseEdgeAgentsResult> = {}): UseEdgeAgentsResult {
   return {
@@ -177,15 +177,15 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(screen.getAllByText('通道异常')).toHaveLength(1)
   })
 
-  it('out_of_sync + pending_draft 成因给出「前往配置确认」引导按钮（跳转 /config-preview）', async () => {
+  it('out_of_sync + pending_draft 成因给出「查看配置快照」引导按钮（跳转合并后的 /config-snapshots）', async () => {
     const agents: AgentView[] = [
       agentRow(1, 'edge01', { status: 'online', config_sync_status: 'out_of_sync', out_of_sync_cause: 'pending_draft' }),
     ]
     useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 1, offline: 0 } }))
     renderPage()
 
-    fireEvent.click(await screen.findByRole('button', { name: /前往配置确认/ }))
-    expect(navigateMock).toHaveBeenCalledWith('/config-preview')
+    fireEvent.click(await screen.findByRole('button', { name: /查看配置快照/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/config-snapshots')
   })
 
   it('配置同步 out_of_sync + pull_pending 展示「同步中」中间态（F-16）', async () => {
@@ -200,9 +200,9 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     // 与「未同步」区分：badge 用 processing（蓝），不落 error（红）
     expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-processing')).not.toBeNull()
     expect(screen.queryByText('未同步')).toBeNull()
-    // 引导动作仍为「查看下发」
-    fireEvent.click(screen.getByRole('button', { name: /查看下发/ }))
-    expect(navigateMock).toHaveBeenCalledWith('/deployments')
+    // 引导动作指向合并后的配置快照页
+    fireEvent.click(screen.getByRole('button', { name: /查看配置快照/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/config-snapshots')
   })
 
   it('配置同步 out_of_sync + pending_draft 仍展示「未同步」（非 pull_pending 不落「同步中」）', async () => {
@@ -237,9 +237,9 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     // 反例：绝不能误判为「同步中」（processing）
     expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-processing')).toBeNull()
     expect(screen.queryByText('同步中')).toBeNull()
-    // 引导动作「查看下发」→ /deployments
-    fireEvent.click(screen.getByRole('button', { name: /查看下发/ }))
-    expect(navigateMock).toHaveBeenCalledWith('/deployments')
+    // 引导动作「查看配置快照」→ /config-snapshots
+    fireEvent.click(screen.getByRole('button', { name: /查看配置快照/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/config-snapshots')
     // 失败原因以 Tooltip 呈现（列内不直接展示全文，避免窄列撑爆）
     fireEvent.mouseEnter(badge)
     expect(await screen.findByText(/targets app.json: empty array/)).toBeInTheDocument()
@@ -275,17 +275,7 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(resetFilters).toHaveBeenCalledTimes(1)
   })
 
-  it('空态三支：中心直连域（无 agent_pull 网域）提示无需 Agent', async () => {
-    useEdgeAgentsMock.mockReturnValue(
-      result({ rawAgents: [], agents: [], domains: [domain('default', 'local')], summary: null }),
-    )
-    renderPage()
-
-    expect(await screen.findByText('暂无 agent_pull 网域（中心直连域）')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /去网域纳管/ })).toBeInTheDocument()
-  })
-
-  it('空态三支：暂无采集节点（有 agent_pull 网域）引导去网域纳管', async () => {
+  it('空态：尚无采集节点时引导去网域纳管，且不再出现「中心直连域」专属空态（SRS NFR-02）', async () => {
     useEdgeAgentsMock.mockReturnValue(
       result({ rawAgents: [], agents: [], domains: [domain('gov-cloud-a')], summary: null }),
     )
@@ -296,7 +286,20 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(navigateMock).toHaveBeenCalledWith('/domain-onboarding')
   })
 
-  it('空态三支：筛选后无匹配显示「无匹配」', async () => {
+  it('空态：一个网域都未登记时引导去 M06 网域管理登记', async () => {
+    useEdgeAgentsMock.mockReturnValue(
+      result({ rawAgents: [], agents: [], domains: [], summary: null }),
+    )
+    renderPage()
+
+    expect(await screen.findByText('尚未接入采集节点')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /去网域管理登记/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/admin/domains')
+    // 没有任何网域时，「去网域纳管」是死路（纳管页同样空），不应出现
+    expect(screen.queryByRole('button', { name: /去网域纳管/ })).not.toBeInTheDocument()
+  })
+
+  it('空态：筛选后无匹配显示「无匹配」', async () => {
     useEdgeAgentsMock.mockReturnValue(
       result({ rawAgents: [agentRow(1, 'edge01')], agents: [], domains: [domain('gov-cloud-a')], hasActiveFilter: true, filters: { overall: 'offline' } }),
     )
@@ -320,7 +323,7 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     mockSearchParams(new URLSearchParams('network_domain=gov-cloud-a'))
     renderPage()
 
-    await screen.findByText('暂无 agent_pull 网域（中心直连域）')
+    await screen.findByText('尚未接入采集节点')
     expect(useEdgeAgentsMock).toHaveBeenCalledWith('gov-cloud-a')
   })
 

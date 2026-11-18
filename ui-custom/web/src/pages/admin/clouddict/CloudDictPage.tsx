@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import {
   Alert,
-  Badge,
   Button,
   Card,
   ConfigProvider,
@@ -11,20 +10,38 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Segmented,
   Select,
   Space,
   Table,
   Tag,
+  Typography,
   message,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { EllipsisText } from '../../../components/EllipsisText'
+import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { getStoredUser } from '../../../api/client'
 import { cloudDictApi } from '../../../api/resources'
 import type { CloudDict } from '../../../types/resource'
+import { DictLifecycleNotice } from '../../resources/DictLifecycleNotice'
+import {
+  DictionaryAuditDrawer,
+  DictionaryMergeButton,
+  DictionaryRevokeButton,
+  DictionaryStatusBadge,
+} from '../../resources/DictionaryLifecycleActions'
+import {
+  DICTIONARY_ACTIVE_STATUSES,
+  dictionaryNameSuffix,
+  dictionaryStatusOf,
+  isDictionaryTerminal,
+} from '../../resources/dictionaryLifecycle'
+
+const { Text } = Typography
 
 /**
  * 云类型中文映射（对齐 platform/models/cloud_dict.go：PUB/GM/IND/PRI）。
@@ -61,7 +78,7 @@ interface CloudDictFormValues {
 /**
  * 云字典维护页（Module_06 FR-09 / D37；Module_07 §5.20 / 决策 98 / 102）。
  * - 数据源 `GET /api/v3/platform/cloud-dict`（M07 只读视图，非分页信封 `{list,total}`）。
- * - **admin 只增维护**：仅提供「新增云」与「停用」，无编辑 / 删除入口；编码不可变。
+ * - **admin 维护**：新增 / 停用 + 零引用撤销、错建合并；无编辑 / 删除入口，编码不可变。
  * - 复合码 `{云类型}-{云载体}` 由表单派生，服务端校验格式、类型/载体一致性与唯一性。
  * - 普通用户只读（后端写路由另挂 RequireAdmin 兜底）。
  * - `cloud_type` / `carrier` 仅作展示列：不参与筛选、不作为查询 / 标签维度。
@@ -70,9 +87,12 @@ export function CloudDictPage() {
   const [list, setList] = useState<CloudDict[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [keyword, setKeyword] = useState('')
+  const [scope, setScope] = useState<'active' | 'all'>('active')
   const [createOpen, setCreateOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [disablingCode, setDisablingCode] = useState<string | null>(null)
+  const [auditOpen, setAuditOpen] = useState(false)
   const [form] = Form.useForm<CloudDictFormValues>()
   const isAdmin = getStoredUser()?.role === 'admin'
   const cloudType = Form.useWatch('cloud_type', form)
@@ -97,6 +117,20 @@ export function CloudDictPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
+
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    return list.filter((d) => {
+      const status = dictionaryStatusOf(d)
+      if (scope === 'active' && !DICTIONARY_ACTIVE_STATUSES.includes(status)) return false
+      if (!kw) return true
+      return (
+        d.cloud_code.toLowerCase().includes(kw) ||
+        d.cloud_name.toLowerCase().includes(kw) ||
+        (d.description ?? '').toLowerCase().includes(kw)
+      )
+    })
+  }, [list, keyword, scope])
 
   const openCreate = () => {
     form.resetFields()
@@ -157,7 +191,9 @@ export function CloudDictPage() {
       dataIndex: 'cloud_name',
       key: 'cloud_name',
       width: 200,
-      render: (v: string) => <EllipsisText>{v}</EllipsisText>,
+      render: (v: string, r: CloudDict) => (
+        <EllipsisText>{`${v}${dictionaryNameSuffix(dictionaryStatusOf(r))}`}</EllipsisText>
+      ),
     },
     {
       title: '云类型',
@@ -182,37 +218,69 @@ export function CloudDictPage() {
       render: (v?: string) => (v ? <EllipsisText>{v}</EllipsisText> : '—'),
     },
     {
-      title: '启用状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 110,
-      render: (v: boolean) =>
-        v ? <Badge status="success" text="已启用" /> : <Badge status="default" text="已停用" />,
+      title: '引用数',
+      dataIndex: 'reference_count',
+      key: 'reference_count',
+      width: 90,
+      render: (v?: number) => <Text type={v ? undefined : 'secondary'}>{v ?? 0}</Text>,
     },
-    // 普通用户不渲染操作列：只读展示（D37 admin 只增维护）。
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 130,
+      render: (_: unknown, r: CloudDict) => (
+        <DictionaryStatusBadge status={dictionaryStatusOf(r)} mergedInto={r.merged_into} />
+      ),
+    },
+    // 普通用户不渲染操作列：只读展示（D37 admin 维护）。
     ...(isAdmin
       ? [
           {
             title: '操作',
             key: 'action',
-            width: 100,
+            width: 220,
             fixed: 'right' as const,
-            render: (_: unknown, record: CloudDict) =>
-              record.enabled ? (
-                <Popconfirm
-                  title="停用后该云编码不可再用于新建网域"
-                  description="已引用该编码的历史数据不受影响；停用不删除。"
-                  okText="确认停用"
-                  cancelText="取消"
-                  onConfirm={() => void handleDisable(record.cloud_code)}
-                >
-                  <Button type="link" danger loading={disablingCode === record.cloud_code}>
-                    停用
-                  </Button>
-                </Popconfirm>
-              ) : (
-                <span style={{ color: '#86909C' }}>—</span>
-              ),
+            render: (_: unknown, record: CloudDict) => {
+              const status = dictionaryStatusOf(record)
+              const terminal = isDictionaryTerminal(status)
+              const mergeOptions = list
+                .filter((item) => dictionaryStatusOf(item) === 'enabled' && item.cloud_code !== record.cloud_code)
+                .map((item) => ({ code: item.cloud_code, name: item.cloud_name }))
+              return (
+                <Space size={0} wrap>
+                  {!terminal && record.enabled && (
+                    <Popconfirm
+                      title="停用后该云编码不可再用于新建网域"
+                      description="已引用该编码的历史数据不受影响；停用不删除。"
+                      okText="确认停用"
+                      cancelText="取消"
+                      onConfirm={() => void handleDisable(record.cloud_code)}
+                    >
+                      <Button type="link" danger loading={disablingCode === record.cloud_code}>
+                        停用
+                      </Button>
+                    </Popconfirm>
+                  )}
+                  <DictionaryRevokeButton
+                    name={record.cloud_name}
+                    status={status}
+                    referenceCount={record.reference_count ?? 0}
+                    onRevoke={() => cloudDictApi.revoke(record.cloud_code)}
+                    onDone={() => void load()}
+                  />
+                  <DictionaryMergeButton
+                    name={record.cloud_name}
+                    status={status}
+                    referenceCount={record.reference_count ?? 0}
+                    options={mergeOptions}
+                    onMerge={(targetCode) => cloudDictApi.merge(record.cloud_code, targetCode)}
+                    onDone={() => void load()}
+                  />
+                  {terminal && <Text type="secondary">—</Text>}
+                </Space>
+              )
+            },
           },
         ]
       : []),
@@ -225,6 +293,7 @@ export function CloudDictPage() {
           title="云字典"
           extra={
             <Space>
+              <Button onClick={() => setAuditOpen(true)}>变更日志</Button>
               {isAdmin && (
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                   新增云
@@ -236,13 +305,14 @@ export function CloudDictPage() {
             </Space>
           }
         >
+          <DictLifecycleNotice />
           <Alert
             type="info"
             showIcon
             message={
               isAdmin
-                ? '云字典由管理员维护：仅支持新增与停用，编码创建后不可修改、条目不可删除。'
-                : '云字典为只读视图：新增与停用由平台管理员操作。'
+                ? '云字典由管理员维护：支持新增、停用、零引用撤销与错建合并；编码创建后不可修改、条目不可删除。'
+                : '云字典为只读视图：新增、停用、撤销与合并由平台管理员操作。'
             }
             description={
               isAdmin
@@ -265,15 +335,42 @@ export function CloudDictPage() {
               style={{ marginBottom: 16 }}
             />
           )}
+          <FilterBar>
+            <FilterItem label="范围" width={200}>
+              <Segmented
+                value={scope}
+                onChange={(v) => setScope(v as 'active' | 'all')}
+                options={[
+                  { value: 'active', label: '有效条目' },
+                  { value: 'all', label: '全部' },
+                ]}
+              />
+            </FilterItem>
+            <FilterItem label="关键字" width={260}>
+              <Input.Search
+                allowClear
+                placeholder="搜索云编码 / 名称 / 描述"
+                style={{ width: 220 }}
+                value={keyword}
+                onSearch={(v) => setKeyword(v)}
+                onChange={(e) => e.target.value === '' && setKeyword('')}
+              />
+            </FilterItem>
+          </FilterBar>
           <Table<CloudDict>
             rowKey="cloud_code"
-            dataSource={list}
+            dataSource={filtered}
             loading={loading}
             columns={columns}
             size="small"
             scroll={TABLE_SCROLL_X}
             locale={{ emptyText: <Empty description="暂无云字典条目" /> }}
             pagination={{ ...TABLE_PAGINATION }}
+          />
+          <DictionaryAuditDrawer
+            dictionaryType="cloud"
+            open={auditOpen}
+            onClose={() => setAuditOpen(false)}
           />
         </Card>
 

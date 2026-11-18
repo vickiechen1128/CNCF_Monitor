@@ -159,6 +159,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
             <Form.Item
               label="默认端口"
               name="default_port"
+              extra="默认兜底端口：资源实例上设置了「采集端口」时以实例为准（资源管理 → 编辑资源 → 采集端口）"
               rules={[
                 { required: true, message: '请输入默认端口' },
                 { type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' },

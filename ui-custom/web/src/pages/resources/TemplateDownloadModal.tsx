@@ -16,9 +16,9 @@ const { Text } = Typography
  * F-22：原先五类共用一句「所属业务（必填）、所属应用（可选）」，而后端必填口径按 category
  * 分化（validate.go 的 validateHost/validateDatabase/validateMiddleware/validateApplication/
  * validateGenericTarget，以及 excel.go 导入侧分类别 switch），该句对 5 类中的 4 类均失准。
- * 此处按后端真实口径逐类改写：业务可空后补的是 host/database/middleware；必填应用的是
- * database/middleware/application；必填业务的是 application；业务与应用二选一的是
- * generic_target；平台一律可空。
+ * 此处按后端真实口径逐类改写：业务可空后补的是 host/database/middleware/application；
+ * 必填应用的是 database/middleware/application/interface_service；仅接口服务必填业务；
+ * 业务与应用二选一的是 generic_target；平台一律可空。
  */
 const FILLING_TIPS: Record<ResourceCategory, string[]> = {
   host: [
@@ -40,8 +40,8 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
   ],
   application: [
     '必填：服务名（service_name）、健康检查地址（health_check_url，blackbox 拨测地址）',
-    '必填：所属业务（biz_code）、所属应用（app_code）、所属集群（cluster）',
-    '可留空：采集地址主机（endpoint）、采集端口（port，用于 standard 指标采集）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
+    '必填：所属应用（app_code）、所属集群（cluster）',
+    '可留空：所属业务（biz_code，上线后再补）、采集地址主机（endpoint）、采集端口（port，用于 standard 指标采集）、协议（protocol）、所属平台（platform_code，留空按所属应用的默认平台归属）',
     '可留空：负责人（owner）、负责人1及联系方式、负责人2及联系方式、运维人员及联系方式（ops_person / ops_person_contact）、应用上线时间（go_live_at，RFC3339 或 YYYY-MM-DD）',
   ],
   generic_target: [
@@ -67,7 +67,7 @@ const DICT_SCOPE_HINTS: Record<ResourceCategory, string> = {
   host: '业务列和应用列都能留空，留空的资源导入后再补归属。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   database: '应用列必填，业务列能留空（导入后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   middleware: '应用列必填，业务列能留空（导入后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
-  application: '业务列和应用列都必填，只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
+  application: '应用列必填，业务列能留空（上线后再补归属）。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   generic_target: '业务列和应用列二选一，至少填一个。填了的话只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
   interface_service: '业务列和应用列都必填，只能填已启用的条目——下方是当前已启用的清单，清单里没有的可在导入文件里附「业务声明」表 /「应用声明」表一次声明。',
 }

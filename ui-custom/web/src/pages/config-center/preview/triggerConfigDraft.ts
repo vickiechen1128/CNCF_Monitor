@@ -9,8 +9,8 @@
  * 以缩短 watcher 最长 30s 的轮询等待；该端点已在 v3 删除。
  */
 
-/** 配置快照页路由（保留给既有保存动线跳转引用） */
-export const CONFIG_PREVIEW_PATH = '/config-preview'
+/** 配置快照页路由（2026-11-17 起为合并后的单页路由；旧 /config-preview 仍可重定向到达） */
+export const CONFIG_PREVIEW_PATH = '/config-snapshots'
 
 export interface TriggerDraftOptions {
   /** 历史参数：点击成功提示时跳转；v3 自动同步后不再使用 */

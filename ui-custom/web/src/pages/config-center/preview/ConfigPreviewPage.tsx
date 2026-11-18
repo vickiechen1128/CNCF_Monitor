@@ -1,75 +1,165 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Button,
   Card,
   ConfigProvider,
   Empty,
+  Input,
   Select,
   Space,
   Table,
   Tag,
   Tooltip,
   Typography,
+  message,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
 import type { ColumnsType } from 'antd/es/table'
-import { EyeOutlined, ReloadOutlined } from '@ant-design/icons'
-import type { ConfigSnapshot } from '../../../types/config-center'
+import { DownloadOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons'
+import type {
+  ConfigArtifactType,
+  ConfigSnapshotHistoryRow,
+  SnapshotValidationStatus,
+} from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatLocalTime } from '../configCenterConstants'
 import { shortChecksum } from '../../../utils/shortChecksum'
+import { triggerBlobDownload } from '../../../utils/triggerBlobDownload'
+import { getStoredUser, isApiError } from '../../../api/client'
+import { configArtifactApi } from '../../../api/configCenter'
 import { SnapshotDetailDrawer } from './SnapshotDetailDrawer'
 import {
+  ARTIFACT_TYPE_COLOR,
+  ARTIFACT_TYPE_LABEL,
   SNAPSHOT_GENERATOR_LABEL,
   SNAPSHOT_STATUS_COLOR,
   SNAPSHOT_STATUS_LABEL,
 } from './snapshotHelpers'
-import { useConfigSnapshots } from './useConfigSnapshots'
+import { useConfigArtifacts } from './useConfigArtifacts'
 
 const { Text } = Typography
 
+type StatusFilter = SnapshotValidationStatus | 'all'
+type TypeFilter = ConfigArtifactType | 'all'
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: '全部校验状态' },
+  { value: 'passed', label: '成功' },
+  { value: 'failed', label: '失败' },
+]
+
+const TYPE_FILTER_OPTIONS: { value: TypeFilter; label: string }[] = [
+  { value: 'all', label: '全部产物类型' },
+  { value: 'domain', label: '采集配置' },
+  { value: 'center', label: '中心规则' },
+  { value: 'alertmanager', label: '告警配置' },
+]
+
+const DEFAULT_PAGE_SIZE = 20
+
 /**
- * 配置快照页（原「配置变更确认」页，Module_09 v3 契约 §4）。
+ * 统一配置产物历史页（Module_09 SRS v1.5 FR-13 / FR-13.1 / FR-13.2）。
  *
- * v3 删除草稿 / 人工确认 / 重校 / 废弃 / 回滚：配置变更即自动同步，快照为自动生成的历史记录。
- * 本页只读：选择网域 → 查看该网域快照列表 → 点行查看详情（校验归因 + 校验明细），
- * admin 可在详情抽屉下载快照内容。
- * 覆盖：加载 / 空态 / 网域列表失败 / 接口错误 / 权限不足。
+ * 三类产物同页：网域采集配置、中心规则、告警配置；只读，无下发 / 回滚。
+ * admin 可在详情抽屉预览内容并导出可直接落盘的配置包/文件，也可导出中心一体化恢复包。
  */
 export function ConfigPreviewPage() {
+  const [searchParams] = useSearchParams()
+  // 深链预筛（采集节点状态页「查看下发」等入口带 ?network_domain=<id>）
+  const initialDomainId = searchParams.get('network_domain') ?? undefined
   const {
-    snapshots,
+    rows,
     loading,
     error,
     permissionDenied,
+    partialErrors,
     domains,
     domainsLoading,
     domainError,
-    domainId,
-    setDomainId,
+    domainFilter,
+    setDomainFilter,
     reload,
-  } = useConfigSnapshots()
-  const [detail, setDetail] = useState<ConfigSnapshot | null>(null)
+  } = useConfigArtifacts({ initialDomainId })
+
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [detail, setDetail] = useState<ConfigSnapshotHistoryRow | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const isAdmin = getStoredUser()?.role === 'admin'
 
-  const domainName = useMemo(
-    () => domains.find((d) => d.id === domainId)?.name,
-    [domains, domainId],
-  )
+  const filteredRows = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase()
+    return rows.filter((row) => {
+      const rowType = row.artifact_type ?? 'domain'
+      if (typeFilter !== 'all' && rowType !== typeFilter) return false
+      if (statusFilter !== 'all' && row.validation_status !== statusFilter) return false
+      if (normalizedKeyword) {
+        const versionMatched = row.version.toLowerCase().includes(normalizedKeyword)
+        const checksumMatched = (row.checksum ?? '').toLowerCase().includes(normalizedKeyword)
+        if (!versionMatched && !checksumMatched) return false
+      }
+      return true
+    })
+  }, [rows, typeFilter, statusFilter, keyword])
 
-  const openDetail = (record: ConfigSnapshot) => {
+  const maxPage = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const currentPage = Math.min(page, maxPage)
+
+  const openDetail = (record: ConfigSnapshotHistoryRow) => {
     setDetail(record)
     setDetailOpen(true)
   }
 
-  const columns: ColumnsType<ConfigSnapshot> = [
+  const handleRecoveryBundle = async () => {
+    try {
+      const { blob, filename } = await configArtifactApi.recoveryBundle()
+      triggerBlobDownload(blob, filename)
+      message.success('中心一体化恢复包已开始下载')
+    } catch (e) {
+      if (isApiError(e) && e.code === 401) {
+        message.error('登录已过期，请重新登录后再下载')
+      } else if (isApiError(e) && (e.code === 403 || e.errorType === 'forbidden')) {
+        message.error('当前账号无导出中心恢复包的权限，请联系管理员开通')
+      } else {
+        message.error(e instanceof Error ? e.message : '中心恢复包导出失败，请稍后重试')
+      }
+    }
+  }
+
+  const columns: ColumnsType<ConfigSnapshotHistoryRow> = [
+    {
+      title: '类型',
+      dataIndex: 'artifact_type',
+      key: 'artifact_type',
+      width: 110,
+      fixed: 'left',
+      render: (value: ConfigArtifactType | undefined) => {
+        const type = value ?? 'domain'
+        return <Tag color={ARTIFACT_TYPE_COLOR[type]}>{ARTIFACT_TYPE_LABEL[type]}</Tag>
+      },
+    },
+    {
+      title: '网域 / 范围',
+      dataIndex: 'network_domain_name',
+      key: 'network_domain_name',
+      fixed: 'left',
+      width: 160,
+      render: (name: string, record: ConfigSnapshotHistoryRow) => (
+        <Tooltip title={record.network_domain_id || '平台级产物'}>
+          <Text>{name || record.network_domain_id || '中心'}</Text>
+        </Tooltip>
+      ),
+    },
     {
       title: '版本',
       dataIndex: 'version',
       key: 'version',
-      fixed: 'left',
       width: 180,
       render: (version: string) => <Text code>{version}</Text>,
     },
@@ -78,7 +168,7 @@ export function ConfigPreviewPage() {
       dataIndex: 'validation_status',
       key: 'validation_status',
       width: 100,
-      render: (status: ConfigSnapshot['validation_status']) => (
+      render: (status: ConfigSnapshotHistoryRow['validation_status']) => (
         <Tag color={SNAPSHOT_STATUS_COLOR[status]}>{SNAPSHOT_STATUS_LABEL[status]}</Tag>
       ),
     },
@@ -122,7 +212,7 @@ export function ConfigPreviewPage() {
       key: 'actions',
       fixed: 'right',
       width: 90,
-      render: (_: unknown, record: ConfigSnapshot) => (
+      render: (_: unknown, record: ConfigSnapshotHistoryRow) => (
         <Button
           size="small"
           type="link"
@@ -138,105 +228,183 @@ export function ConfigPreviewPage() {
     },
   ]
 
-  return (
-    <MainLayout>
-      <ConfigProvider locale={config}>
-        {permissionDenied ? (
+  if (permissionDenied) {
+    return (
+      <MainLayout>
+        <ConfigProvider locale={config}>
           <Card>
             <Empty description="当前账号无此页面查看权限" />
           </Card>
-        ) : (
-          <Card
-            title="配置快照"
-            extra={
-              <Space wrap>
-                <Select
-                  placeholder="选择网域"
-                  style={{ minWidth: 220 }}
-                  loading={domainsLoading}
-                  value={domainId}
-                  onChange={(value: string) => setDomainId(value)}
-                  options={domains.map((d) => ({ value: d.id, label: d.name }))}
-                />
-                <Tooltip title="重新加载网域与快照列表">
-                  <Button icon={<ReloadOutlined />} onClick={reload}>
-                    刷新
-                  </Button>
-                </Tooltip>
+        </ConfigProvider>
+      </MainLayout>
+    )
+  }
+
+  const emptyText = (() => {
+    if (loading) return '加载中…'
+    if (domainError) return '网域列表加载失败，请点击上方「重新加载」重试'
+    if (rows.length > 0 && filteredRows.length === 0) return '没有匹配的配置产物'
+    if (domainFilter) return '该网域暂无采集配置快照'
+    if (domains.length === 0) return '暂无配置产物（尚未纳管网域，或中心规则/告警配置尚未生成）'
+    return '暂无配置产物'
+  })()
+
+  return (
+    <MainLayout>
+      <ConfigProvider locale={config}>
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="配置产物加载失败，请稍后重试"
+            description={error}
+            action={
+              <Button size="small" onClick={reload}>
+                重新加载
+              </Button>
+            }
+          />
+        )}
+        {domainError && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="网域列表加载失败"
+            description="无法获取已纳管网域，快照列表可能不完整。"
+            action={
+              <Button size="small" onClick={reload}>
+                重新加载
+              </Button>
+            }
+          />
+        )}
+        {partialErrors.length > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={`部分网域快照加载失败（${partialErrors.length} 个）`}
+            description={
+              <Space direction="vertical" size={2}>
+                {partialErrors.map((failure) => (
+                  <span key={failure.domain_id}>
+                    {failure.network_domain_name}（{failure.domain_id}）：{failure.message}
+                  </span>
+                ))}
               </Space>
             }
-          >
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="配置快照由系统在配置变更后自动生成，仅供历史追溯。v3 变更即自动同步，无草稿、无人工确认、无回滚。"
-            />
-
-            {domainError && (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="网域列表加载失败"
-                description="无法获取已纳管网域，请稍后重试。"
-                action={
-                  <Button size="small" onClick={reload}>
-                    重新加载
-                  </Button>
-                }
-              />
-            )}
-            {error && (
-              <Alert
-                type="error"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="快照列表加载失败，请稍后重试"
-                description={error}
-                action={
-                  <Button size="small" onClick={reload}>
-                    重新加载
-                  </Button>
-                }
-              />
-            )}
-
-            {loading || domainsLoading ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <Text type="secondary">加载中…</Text>
-              </div>
-            ) : domains.length === 0 ? (
-              domainError ? (
-                <Empty description="网域列表加载失败，请点击上方「重新加载」重试" />
-              ) : (
-                <Empty description="暂无已纳管网域，请先在「网域纳管」完成纳管" />
-              )
-            ) : snapshots.length === 0 ? (
-              <Empty description="该网域暂无配置快照" />
-            ) : (
-              <Table<ConfigSnapshot>
-                rowKey="id"
-                dataSource={snapshots}
-                columns={columns}
-                scroll={{ ...TABLE_SCROLL_X, x: 'max-content' }}
-                pagination={{ ...TABLE_PAGINATION, total: snapshots.length }}
-                onRow={(record) => ({
-                  onClick: () => openDetail(record),
-                  style: { cursor: 'pointer' },
-                })}
-              />
-            )}
-          </Card>
+          />
         )}
+
+        <Card
+          title="配置产物历史"
+          extra={
+            <Space>
+              {isAdmin && (
+                <Tooltip title="导出中心侧一体化恢复包（Prometheus / rules / Alertmanager / targets）">
+                  <Button icon={<DownloadOutlined />} onClick={() => void handleRecoveryBundle()}>
+                    导出中心恢复包
+                  </Button>
+                </Tooltip>
+              )}
+              <Tooltip title="重新加载网域与配置产物列表">
+                <Button icon={<ReloadOutlined />} onClick={reload}>
+                  刷新
+                </Button>
+              </Tooltip>
+            </Space>
+          }
+        >
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="网域采集配置、中心规则、告警配置三类产物按生成时间倒序展示；历史只读，不提供下发或回滚。admin 可在详情中预览内容并导出可直接落盘的配置包/文件；告警配置由 M08 提供，M08 不可用时该类型不展示。"
+          />
+
+          <Space wrap style={{ marginBottom: 16 }}>
+            <Select
+              allowClear
+              placeholder="全部网域"
+              style={{ minWidth: 200 }}
+              loading={domainsLoading}
+              value={domainFilter}
+              onChange={(value: string | undefined) => {
+                setDomainFilter(value)
+                setPage(1)
+              }}
+              options={domains.map((d) => ({ value: d.id, label: d.name }))}
+            />
+            <Select<StatusFilter>
+              style={{ width: 150 }}
+              value={statusFilter}
+              onChange={(value) => {
+                setStatusFilter(value)
+                setPage(1)
+              }}
+              options={STATUS_FILTER_OPTIONS}
+            />
+            <Select<TypeFilter>
+              style={{ width: 150 }}
+              value={typeFilter}
+              onChange={(value) => {
+                setTypeFilter(value)
+                setPage(1)
+              }}
+              options={TYPE_FILTER_OPTIONS}
+            />
+            <Input
+              allowClear
+              placeholder="搜索版本或校验值"
+              style={{ width: 240 }}
+              value={keyword}
+              onChange={(event) => {
+                setKeyword(event.target.value)
+                setPage(1)
+              }}
+            />
+          </Space>
+
+          <Table<ConfigSnapshotHistoryRow>
+            rowKey={(record) => `${record.artifact_type ?? 'domain'}-${record.id}`}
+            size="small"
+            loading={loading}
+            dataSource={filteredRows}
+            columns={columns}
+            scroll={{ ...TABLE_SCROLL_X, x: 'max-content' }}
+            pagination={{
+              ...TABLE_PAGINATION,
+              current: currentPage,
+              pageSize,
+              total: filteredRows.length,
+              onChange: (nextPage, nextPageSize) => {
+                setPage(nextPage)
+                setPageSize(nextPageSize)
+              },
+            }}
+            onRow={(record) => ({
+              onClick: () => openDetail(record),
+              style: { cursor: 'pointer' },
+            })}
+            locale={{
+              emptyText: (
+                <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ),
+            }}
+          />
+        </Card>
 
         <SnapshotDetailDrawer
           open={detailOpen}
           snapshot={detail}
-          domainName={domainName}
+          domainName={detail?.network_domain_name}
           onClose={() => setDetailOpen(false)}
         />
       </ConfigProvider>
     </MainLayout>
   )
 }
+
+export default ConfigPreviewPage

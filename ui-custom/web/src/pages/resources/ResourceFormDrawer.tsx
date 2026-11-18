@@ -23,6 +23,7 @@ import { RESOURCE_TYPE_MAP, SOURCE_TYPE_MAP } from './resourceMeta'
 import { ENV_VALUES, buildCreateInput, buildUpdateInput, recordToFormValues } from './resourceFormMappers'
 import { optionalPortRules, renderResourceSharedFields, renderResourceTypeFields } from './resourceFormFields'
 import type { ResourceFormFieldsContext } from './resourceFormFields'
+import { BusinessDomainDrawer } from './BusinessDomainDrawer'
 
 const { Text } = Typography
 
@@ -32,7 +33,7 @@ const { Text } = Typography
  * - Drawer 复用新增/编辑两种模式：新增态走 resourceApi.create（resource_id 由后端生成不展示）；
  *   编辑态预填 row 走 resourceApi.update（resource_id/resource_category/source_type 只读展示、§5.2 不可改）。
  * - 表单字段按 resource_category 差异化渲染（§5.6~§5.9 字段表，字段标签用 PRD「UI 展示名」）。
- * - biz_code 必填下拉（businessDomainApi.list 仅启用项，停用不可选）；network_domain 下拉（networkDomainApi.list）。
+ * - biz_code 下拉：仅接口服务必填，其余类型可留空后补；仅启用业务可选，停用不可选；
  * - 校验错误置于字段下方（antd Form rules）；提交按钮 loading+disabled 防重复；
  *   提交失败透传后端错误 Alert（尤其 403/400 场景）；成功后回刷列表（onSuccess）。
  *
@@ -54,7 +55,7 @@ interface ResourceFormDrawerProps {
 /**
  * 资源新增/编辑抽屉（Module_07 §11.2）。
  * - 新增态：create，resource_id 由后端生成不展示；编辑态：update，resource_id/资源类别/数据来源只读展示（§5.2 不可改）。
- * - biz_code 必填下拉仅启用业务可选；network_domain 下拉来自 M06 网域清单；停用业务不可选。
+ * - biz_code 下拉仅启用业务可选；仅接口服务必填，其余类型可留空；network_domain 下拉来自 M06 网域清单；停用业务不可选。
  * - 校验错误置于字段下方（antd Form rules）；提交按钮 loading+disabled 防重复；
  *   提交失败透传后端错误 Alert（尤其 403/400）；成功后回刷列表（onSuccess）。
  */
@@ -74,6 +75,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  /** 资源表单内「登记业务」快捷入口（登记成功后自动回填并刷新下拉） */
+  const [businessDrawerOpen, setBusinessDrawerOpen] = useState(false)
 
   /** 存量环境值（dev/test/staging/prod）不在新枚举内：不迁移，编辑时清空并提示重新选择 */
   const legacyEnv = record?.env && !ENV_VALUES.includes(record.env) ? record.env : undefined
@@ -97,6 +100,12 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   // 刻意与 appCodeRequired 解耦——interface_service 要求 app_code 但不要求 cluster。
   const clusterRequired =
     displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
+  /**
+   * 业务必填口径（决策 93 / M07 SRS v2.0）：仅接口服务必填；
+   * host / database / middleware / application 可留空后补，generic_target 与应用二选一。
+   * 业务是治理维度，不是资源登记的前置条件——空值不注入 biz 标签，后续可批量改归属。
+   */
+  const bizCodeRequired = displayCategory === 'interface_service'
 
   /**
    * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）**。
@@ -180,6 +189,14 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       .then((res) => setAppPlatformRels(res.data?.list ?? []))
       .catch(() => setAppPlatformRels([]))
   }, [open, mode, record, form])
+
+  /** 快捷登记业务后刷新下拉；失败不阻塞资源表单，沿用 dictError 提示 */
+  const reloadBusinessDomains = () => {
+    businessDomainApi
+      .list()
+      .then((res) => setBusinessDomains(res.data?.list ?? []))
+      .catch((err: Error) => setDictError(err.message))
+  }
 
   const handleSubmit = async () => {
     let values: Record<string, unknown>
@@ -276,6 +293,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     legacyEnv,
     appCodeRequired,
     clusterRequired,
+    bizCodeRequired,
+    onCreateBusiness: () => setBusinessDrawerOpen(true),
     osOptions,
     handlePlatformChange,
     scrapePortField,
@@ -283,7 +302,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   }
 
   return (
-    <Drawer
+    <>
+      <Drawer
       title={
         mode === 'create'
           ? `新增资源（${RESOURCE_TYPE_MAP[category]}）`
@@ -326,7 +346,20 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
         {renderResourceSharedFields(fieldsContext)}
         {renderResourceTypeFields(fieldsContext)}
       </Form>
-    </Drawer>
+      </Drawer>
+      <BusinessDomainDrawer
+        open={businessDrawerOpen}
+        record={null}
+        onCancel={() => setBusinessDrawerOpen(false)}
+        onSuccess={(created) => {
+          setBusinessDrawerOpen(false)
+          if (created?.code) {
+            form.setFieldsValue({ biz_code: created.code })
+          }
+          reloadBusinessDomains()
+        }}
+      />
+    </>
   )
 }
 

@@ -26,6 +26,8 @@ vi.mock('../../api/alertmanager', async (importOriginal) => {
       getVersion: vi.fn().mockResolvedValue({ data: { content: '' } }),
       getCurrent: (...a: unknown[]) => getCurrentMock(...a),
       getVersions: (...a: unknown[]) => getVersionsMock(...a),
+      getReloadLogs: vi.fn().mockResolvedValue({ data: { items: [], total: 0 } }),
+      reload: vi.fn().mockResolvedValue({ data: { status: 'succeeded', duration_ms: 1 } }),
       submit: vi.fn().mockResolvedValue({ status: 'success', data: { id: 'x' } }),
     },
   }
@@ -55,10 +57,9 @@ describe('AlertConfigPage 分页：每页条数 20→10 应真正生效', () => 
         (_, i) => ({
           id: `acv-${params.page}-${i}`,
           checksum: 'abc',
-          applied_at: undefined,
-          applied_by: undefined,
-          status: 'applied',
-          source_change_no: undefined,
+          generated_at: undefined,
+          generated_by: undefined,
+          is_current: false,
           created_at: undefined,
         }),
       )

@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  Badge,
   Button,
   Card,
-  Drawer,
   Empty,
-  Form,
   Input,
   Popconfirm,
+  Segmented,
   Space,
-  Switch,
   Table,
-  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -25,14 +21,21 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { DictLifecycleNotice } from './DictLifecycleNotice'
+import { BusinessDomainDrawer } from './BusinessDomainDrawer'
+import {
+  DictionaryAuditDrawer,
+  DictionaryMergeButton,
+  DictionaryRevokeButton,
+  DictionaryStatusBadge,
+} from './DictionaryLifecycleActions'
+import {
+  DICTIONARY_ACTIVE_STATUSES,
+  dictionaryNameSuffix,
+  dictionaryStatusOf,
+  isDictionaryTerminal,
+} from './dictionaryLifecycle'
 
 const { Text } = Typography
-
-/** 业务编码规范（决策 48：小写字母 / 数字 / 连字符，≤ 64，创建后不可改） */
-const BIZ_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
-
-/** infra 兜底条目（无业务归属设备，禁止停用，决策 48 红线） */
-const INFRA_CODE = 'infra'
 
 /** 业务分组字典维护页（Module_07 §3.1 / §5.18 / §11.1/§11.2，决策 48，M07-OPS-10）。 */
 export function BusinessDomainPage() {
@@ -40,8 +43,10 @@ export function BusinessDomainPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState('')
+  const [scope, setScope] = useState<'active' | 'all'>('active')
   const [drawer, setDrawer] = useState<{ open: boolean; record: BusinessDomain | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  const [auditOpen, setAuditOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -63,14 +68,17 @@ export function BusinessDomainPage() {
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
-    if (!kw) return list
-    return list.filter(
-      (d) =>
+    return list.filter((d) => {
+      const status = dictionaryStatusOf(d)
+      if (scope === 'active' && !DICTIONARY_ACTIVE_STATUSES.includes(status)) return false
+      if (!kw) return true
+      return (
         d.code.toLowerCase().includes(kw) ||
         d.name.toLowerCase().includes(kw) ||
-        (d.description ?? '').toLowerCase().includes(kw),
-    )
-  }, [list, keyword])
+        (d.description ?? '').toLowerCase().includes(kw)
+      )
+    })
+  }, [list, keyword, scope])
 
   const toggleEnabled = useCallback(
     async (record: BusinessDomain, enabled: boolean) => {
@@ -105,9 +113,10 @@ export function BusinessDomainPage() {
       dataIndex: 'name',
       key: 'name',
       width: 200,
-      // 决策 22 / §11.1：「停用业务以『业务名（已停用）』标识」
-      render: (v: string, r: BusinessDomain) =>
-        r.enabled ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
+      // 决策 22 / §11.1：停用业务以「业务名（已停用）」标识；终态另有后缀
+      render: (v: string, r: BusinessDomain) => (
+        <EllipsisText>{`${v}${dictionaryNameSuffix(dictionaryStatusOf(r))}`}</EllipsisText>
+      ),
     },
     {
       title: '描述',
@@ -117,49 +126,70 @@ export function BusinessDomainPage() {
       render: (v?: string) => (v ? <EllipsisText>{v}</EllipsisText> : <Text type="secondary">-</Text>),
     },
     {
+      title: '引用数',
+      dataIndex: 'reference_count',
+      key: 'reference_count',
+      width: 90,
+      render: (v?: number) => <Text type={v ? undefined : 'secondary'}>{v ?? 0}</Text>,
+    },
+    {
       title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 100,
-      render: (v: boolean) =>
-        v ? <Badge status="success" text="已启用" /> : <Badge status="default" text="已停用" />,
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (_: unknown, r: BusinessDomain) => (
+        <DictionaryStatusBadge status={dictionaryStatusOf(r)} mergedInto={r.merged_into} />
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 160,
+      width: 260,
       render: (_: unknown, r: BusinessDomain) => {
-        const infra = r.code === INFRA_CODE
+        const status = dictionaryStatusOf(r)
+        const terminal = isDictionaryTerminal(status)
+        const mergeOptions = list
+          .filter((item) => dictionaryStatusOf(item) === 'enabled' && item.code !== r.code)
+          .map((item) => ({ code: item.code, name: item.name }))
         return (
-          <Space size={0}>
-            <Button type="link" size="small" onClick={() => openEdit(r)}>
+          <Space size={0} wrap>
+            <Button type="link" size="small" disabled={terminal} onClick={() => openEdit(r)}>
               编辑
             </Button>
-            <Popconfirm
-              title={r.enabled ? '停用业务分组' : '启用业务分组'}
-              description={
-                r.enabled
-                  ? `停用后「${r.name}」不再可供新资源选用，存量资源保留历史值。`
-                  : `启用后「${r.name}」恢复为新资源可选用。`
-              }
-              okText={r.enabled ? '确认停用' : '确认启用'}
-              okButtonProps={r.enabled ? { danger: true } : undefined}
-              cancelText="取消"
-              disabled={infra && r.enabled}
-              onConfirm={() => void toggleEnabled(r, !r.enabled)}
-            >
-              <Tooltip title={infra && r.enabled ? 'infra 为无业务归属设备的兜底分组，不可停用' : undefined}>
-                <Button
-                  type="link"
-                  size="small"
-                  loading={actingCode === r.code}
-                  disabled={infra && r.enabled}
-                >
+            {!terminal && (
+              <Popconfirm
+                title={r.enabled ? '停用业务分组' : '启用业务分组'}
+                description={
+                  r.enabled
+                    ? `停用后「${r.name}」不再可供新资源选用，存量资源保留历史值。`
+                    : `启用后「${r.name}」恢复为新资源可选用。`
+                }
+                okText={r.enabled ? '确认停用' : '确认启用'}
+                okButtonProps={r.enabled ? { danger: true } : undefined}
+                cancelText="取消"
+                onConfirm={() => void toggleEnabled(r, !r.enabled)}
+              >
+                <Button type="link" size="small" loading={actingCode === r.code}>
                   {r.enabled ? '停用' : '启用'}
                 </Button>
-              </Tooltip>
-            </Popconfirm>
+              </Popconfirm>
+            )}
+            <DictionaryRevokeButton
+              name={r.name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              onRevoke={() => businessDomainApi.revoke(r.code)}
+              onDone={() => void load()}
+            />
+            <DictionaryMergeButton
+              name={r.name}
+              status={status}
+              referenceCount={r.reference_count ?? 0}
+              options={mergeOptions}
+              onMerge={(targetCode) => businessDomainApi.merge(r.code, targetCode)}
+              onDone={() => void load()}
+            />
           </Space>
         )
       },
@@ -171,6 +201,7 @@ export function BusinessDomainPage() {
       <Card
         extra={
           <Space>
+            <Button onClick={() => setAuditOpen(true)}>变更日志</Button>
             <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
               刷新
             </Button>
@@ -197,6 +228,16 @@ export function BusinessDomainPage() {
           />
         )}
         <FilterBar>
+          <FilterItem label="范围" width={200}>
+            <Segmented
+              value={scope}
+              onChange={(v) => setScope(v as 'active' | 'all')}
+              options={[
+                { value: 'active', label: '有效条目' },
+                { value: 'all', label: '全部' },
+              ]}
+            />
+          </FilterItem>
           <FilterItem label="关键字" width={260}>
             <Input.Search
               allowClear
@@ -227,153 +268,13 @@ export function BusinessDomainPage() {
             void load()
           }}
         />
+        <DictionaryAuditDrawer
+          dictionaryType="business"
+          open={auditOpen}
+          onClose={() => setAuditOpen(false)}
+        />
       </Card>
     </MainLayout>
-  )
-}
-
-interface BusinessDomainDrawerProps {
-  open: boolean
-  /** 编辑态为行 record；登记态为 null */
-  record: BusinessDomain | null
-  onCancel: () => void
-  onSuccess: () => void
-}
-
-interface BusinessDomainFormValues {
-  code?: string
-  name: string
-  description?: string
-  enabled?: boolean
-}
-
-/** 业务分组登记 / 受限编辑抽屉（决策 48）：登记含编码规范校验；编辑仅开放名称/描述/状态 */
-export function BusinessDomainDrawer({ open, record, onCancel, onSuccess }: BusinessDomainDrawerProps) {
-  const [form] = Form.useForm<BusinessDomainFormValues>()
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-  const isEdit = !!record
-
-  useEffect(() => {
-    if (!open) return
-    form.resetFields()
-    // 编辑回显：编码只读展示（提交载荷不含 code，决策 48）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSubmitError(null)
-    if (record) {
-      form.setFieldsValue({
-        code: record.code,
-        name: record.name,
-        description: record.description,
-        enabled: record.enabled,
-      })
-    } else {
-      form.setFieldsValue({ enabled: true })
-    }
-  }, [open, record, form])
-
-  const handleSubmit = async () => {
-    let values: BusinessDomainFormValues
-    // antd 校验拒签属预期（字段内联报错由 Form 自展示）；捕获后直接返回，
-    // 避免 `void handleSubmit()` 下的 Unhandled Rejection（决策 48 编码规范校验用例）
-    try {
-      values = await form.validateFields()
-    } catch {
-      return
-    }
-    setSubmitting(true)
-    setSubmitError(null)
-    try {
-      if (record) {
-        await businessDomainApi.update(record.code, {
-          name: values.name,
-          description: values.description,
-          enabled: values.enabled ?? true,
-        })
-        message.success('业务分组已更新')
-      } else {
-        await businessDomainApi.create({
-          code: values.code!,
-          name: values.name,
-          description: values.description,
-        })
-        message.success('业务分组已登记')
-      }
-      onSuccess()
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : '保存失败，请稍后重试')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <Drawer
-      title={isEdit ? '编辑业务分组' : '登记业务分组'}
-      open={open}
-      onClose={submitting ? undefined : onCancel}
-      width={460}
-      // forceRender：Form 常驻挂载，首次打开即正确回显（#19 同源问题）
-      forceRender
-      footer={
-        <div style={{ textAlign: 'right' }}>
-          <Space>
-            <Button onClick={onCancel} disabled={submitting}>
-              取消
-            </Button>
-            <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>
-              {isEdit ? '保存' : '提交'}
-            </Button>
-          </Space>
-        </div>
-      }
-    >
-      {submitError && (
-        <Alert type="error" showIcon message="保存失败" description={submitError} style={{ marginBottom: 16 }} />
-      )}
-      <Alert
-        type="info"
-        showIcon
-        message={isEdit ? '仅可修改业务名称、描述与启用状态' : '编码创建后不可改'}
-        description={
-          isEdit
-            ? `业务编码「${record?.code}」创建后不可修改；修改展示名不影响存量资源与监控配置。`
-            : '业务编码用于资源归属的不可变键（如 payment、data-api），登记后不可修改。'
-        }
-        style={{ marginBottom: 16 }}
-      />
-      <Form form={form} layout="vertical" requiredMark>
-        <Form.Item
-          name="code"
-          label="业务编码"
-          rules={[
-            { required: true, message: '请输入业务编码' },
-            {
-              pattern: BIZ_CODE_PATTERN,
-              message: '编码仅允许小写字母、数字、连字符（≤ 64 字符）',
-            },
-          ]}
-          extra="小写字母 / 数字 / 连字符，≤ 64；创建后不可改"
-        >
-          <Input placeholder="如 payment、data-api" disabled={isEdit} />
-        </Form.Item>
-        <Form.Item
-          name="name"
-          label="业务名称"
-          rules={[{ required: true, whitespace: true, message: '请输入业务名称' }]}
-        >
-          <Input placeholder="如 支付业务、数据接口业务" />
-        </Form.Item>
-        <Form.Item name="description" label="描述">
-          <Input.TextArea rows={3} placeholder="业务分组用途说明（可选）" />
-        </Form.Item>
-        {isEdit && (
-          <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
-          </Form.Item>
-        )}
-      </Form>
-    </Drawer>
   )
 }
 

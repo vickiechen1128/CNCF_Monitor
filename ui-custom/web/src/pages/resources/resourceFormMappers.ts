@@ -28,7 +28,7 @@ export function buildCreateInput(
   return {
     resource_category: category,
     network_domain_id: String(values.network_domain_id),
-    biz_code: String(values.biz_code),
+    biz_code: values.biz_code ? String(values.biz_code) : '',
     app_code: values.app_code ? String(values.app_code) : undefined,
     // {v2026-09-28 决策 110} 平台归属（资源行一等字段）：留空则不下发该键（undefined），
     // 由服务端按所属应用主平台兜底；不传空串，避免被当作显式取值。
@@ -53,7 +53,7 @@ export function buildUpdateInput(
   return {
     resource_category: category,
     network_domain_id: String(values.network_domain_id),
-    biz_code: String(values.biz_code),
+    biz_code: values.biz_code ? String(values.biz_code) : '',
     app_code: values.app_code ? String(values.app_code) : undefined,
     // {v2026-09-28 决策 110} 平台归属：编辑态**显式给出**——选中传编码、
     // 清空传 null（表达「取消平台归属」），undefined 会导致「清空后不提交 → 平台残留」。

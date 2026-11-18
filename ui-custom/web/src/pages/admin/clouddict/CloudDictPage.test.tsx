@@ -3,18 +3,27 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { CloudDictPage } from './CloudDictPage'
+import { DICT_LIFECYCLE_NOTICE } from '../../resources/DictLifecycleNotice'
 import { setupAntdTest } from '../../../test/antdTestUtils'
 import type { CloudDict } from '../../../types/resource'
 
 const listMock = vi.fn()
 const createMock = vi.fn()
 const disableMock = vi.fn()
+const revokeMock = vi.fn()
+const mergeMock = vi.fn()
+const auditListMock = vi.fn()
 
 vi.mock('../../../api/resources', () => ({
   cloudDictApi: {
     list: (...a: unknown[]) => listMock(...a),
     create: (...a: unknown[]) => createMock(...a),
     disable: (...a: unknown[]) => disableMock(...a),
+    revoke: (...a: unknown[]) => revokeMock(...a),
+    merge: (...a: unknown[]) => mergeMock(...a),
+  },
+  dictionaryAuditApi: {
+    list: (...a: unknown[]) => auditListMock(...a),
   },
 }))
 
@@ -58,6 +67,8 @@ const cloudRow = (over: Partial<CloudDict> = {}): CloudDict => ({
   cloud_type: 'PUB',
   carrier: 'TX',
   enabled: true,
+  status: 'enabled',
+  reference_count: 0,
   ...over,
 })
 
@@ -82,6 +93,18 @@ describe('CloudDictPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     disableMock.mockReset()
+    revokeMock.mockReset()
+    mergeMock.mockReset()
+    auditListMock.mockReset()
+    auditListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    revokeMock.mockResolvedValue({
+      status: 'success',
+      data: cloudRow({ enabled: false, status: 'revoked' }),
+    })
+    mergeMock.mockResolvedValue({
+      status: 'success',
+      data: { source: 'PUB-TX', target: 'PUB-ALI', moved_references: 0 },
+    })
   })
 
   it('渲染云字典列表并完成云类型 / 云载体中文映射', async () => {
@@ -114,8 +137,8 @@ describe('CloudDictPage', () => {
     // 描述列（D37 读视图补充字段），空值回退 —
     expect(screen.getByText('预置条目')).toBeInTheDocument()
 
-    // 启用状态列
-    expect(screen.getAllByText('已启用').length).toBe(2)
+    // 四态状态列（共享 DictionaryStatusBadge）
+    expect(screen.getAllByText('启用').length).toBe(2)
   })
 
   it('未收录的云类型 / 云载体编码回退展示原码（不隐藏未知值）', async () => {
@@ -127,6 +150,7 @@ describe('CloudDictPage', () => {
           cloud_type: 'PRI',
           carrier: 'HW',
           enabled: false,
+          status: 'disabled',
         }),
       ]),
     )
@@ -136,8 +160,9 @@ describe('CloudDictPage', () => {
     // 已知类型命中映射，未知载体回退原码
     expect(screen.getByText('私有云')).toBeInTheDocument()
     expect(screen.getByText('HW')).toBeInTheDocument()
-    // 停用条目展示「已停用」
-    expect(screen.getByText('已停用')).toBeInTheDocument()
+    // 停用条目：名称加「（已停用）」后缀，状态列展示「停用」
+    expect(screen.getByText('私有云（华为）（已停用）')).toBeInTheDocument()
+    expect(screen.getByText('停用')).toBeInTheDocument()
   })
 
   it('普通用户只读：不提供新增 / 编辑 / 删除 / 停用入口', async () => {
@@ -154,19 +179,21 @@ describe('CloudDictPage', () => {
     // 仅保留只读刷新入口
     expect(screen.getByRole('button', { name: /刷新/ })).toBeInTheDocument()
     expect(
-      screen.getByText('云字典为只读视图：新增与停用由平台管理员操作。'),
+      screen.getByText('云字典为只读视图：新增、停用、撤销与合并由平台管理员操作。'),
     ).toBeInTheDocument()
   })
 
-  it('管理员可见「新增云」与行内「停用」入口，并展示只增维护说明', async () => {
+  it('管理员可见「新增云」与行内生命周期入口，并展示维护说明', async () => {
     listMock.mockResolvedValue(result([cloudRow()]))
     renderPage()
 
     expect(await screen.findByText('PUB-TX')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /新增云/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '停用' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '合并' })).toBeInTheDocument()
     expect(
-      screen.getByText('云字典由管理员维护：仅支持新增与停用，编码创建后不可修改、条目不可删除。'),
+      screen.getByText('云字典由管理员维护：支持新增、停用、零引用撤销与错建合并；编码创建后不可修改、条目不可删除。'),
     ).toBeInTheDocument()
   })
 
@@ -210,9 +237,11 @@ describe('CloudDictPage', () => {
     // 复合码预览由两个 Select 派生
     expect(screen.getByDisplayValue('IND-CM')).toBeInTheDocument()
 
-    // AntD 为两字中文按钮插入空格：新增 → 新 增；页面顶部也有「新增云」，
-    // 因此把查找范围限定在新增弹窗内。
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /新\s*增/ }))
+    // AntD 为两字中文按钮插入空格：新增 → 新 增；变更日志 Drawer 也带 dialog role，
+    // 因此把查找范围限定在新增 Modal 内。
+    await user.click(
+      within(document.querySelector('.ant-modal') as HTMLElement).getByRole('button', { name: /新\s*增/ }),
+    )
 
     await waitFor(() =>
       expect(createMock).toHaveBeenCalledWith({
@@ -229,8 +258,11 @@ describe('CloudDictPage', () => {
   it('停用云：二次确认后调用 disable 并刷新列表', async () => {
     listMock
       .mockResolvedValueOnce(result([cloudRow()]))
-      .mockResolvedValue(result([cloudRow({ enabled: false })]))
-    disableMock.mockResolvedValue({ status: 'success', data: cloudRow({ enabled: false }) })
+      .mockResolvedValue(result([cloudRow({ enabled: false, status: 'disabled' })]))
+    disableMock.mockResolvedValue({
+      status: 'success',
+      data: cloudRow({ enabled: false, status: 'disabled' }),
+    })
     const user = userEvent.setup()
     renderPage()
     await screen.findByText('PUB-TX')
@@ -240,7 +272,7 @@ describe('CloudDictPage', () => {
     await user.click(screen.getByRole('button', { name: '确认停用' }))
 
     await waitFor(() => expect(disableMock).toHaveBeenCalledWith('PUB-TX'))
-    expect(await screen.findByText('已停用')).toBeInTheDocument()
+    expect(await screen.findByText('停用')).toBeInTheDocument()
   })
 
   it('列表为空时展示空态', async () => {
@@ -268,5 +300,87 @@ describe('CloudDictPage', () => {
 
     expect(container.querySelector('.ant-table-cell-fix-left')).not.toBeNull()
     expect(container.querySelector('.ant-table-cell-fix-right')).not.toBeNull()
+  })
+
+  it('展示生命周期说明；展示引用数，有引用条目撤销禁用、零引用条目可撤销', async () => {
+    listMock.mockResolvedValue(
+      result([
+        cloudRow({ cloud_code: 'PUB-TX', reference_count: 3 }),
+        cloudRow({
+          cloud_code: 'GM-CU',
+          cloud_name: '政务云（联通）',
+          cloud_type: 'GM',
+          carrier: 'CU',
+          reference_count: 0,
+        }),
+      ]),
+    )
+    renderPage()
+    await screen.findByText('PUB-TX')
+
+    expect(screen.getByText(DICT_LIFECYCLE_NOTICE)).toBeInTheDocument()
+    const referencedRow = screen.getByText('PUB-TX').closest('tr')!
+    expect(within(referencedRow).getByText('3')).toBeInTheDocument()
+    expect(within(referencedRow).getByRole('button', { name: '撤销' })).toBeDisabled()
+
+    const freeRow = screen.getByText('GM-CU').closest('tr')!
+    await userEvent.click(within(freeRow).getByRole('button', { name: '撤销' }))
+    await userEvent.click(await screen.findByRole('button', { name: /确认撤销/ }))
+    await waitFor(() => expect(revokeMock).toHaveBeenCalledWith('GM-CU'))
+  })
+
+  it('合并弹窗提交源云编码与目标云编码（target_code）', async () => {
+    listMock.mockResolvedValue(
+      result([
+        cloudRow(),
+        cloudRow({ cloud_code: 'PUB-ALI', cloud_name: '阿里云', carrier: 'ALI' }),
+      ]),
+    )
+    renderPage()
+    await screen.findByText('PUB-TX')
+
+    const sourceRow = screen.getByText('PUB-TX').closest('tr')!
+    await userEvent.click(within(sourceRow).getByRole('button', { name: '合并' }))
+    expect(await screen.findByText('合并会迁移引用，历史监控数据不追溯改写')).toBeInTheDocument()
+
+    const mergeModal = screen.getByText('合并「腾讯云」').closest('.ant-modal') as HTMLElement
+    fireEvent.mouseDown(mergeModal.querySelector('.ant-select-selector') as HTMLElement)
+    fireEvent.click(await screen.findByText('阿里云（PUB-ALI）', { selector: '.ant-select-item-option-content' }))
+    await userEvent.click(screen.getByRole('button', { name: /确认合并/ }))
+    await waitFor(() => expect(mergeMock).toHaveBeenCalledWith('PUB-TX', 'PUB-ALI'))
+  })
+
+  it('终态条目默认隐藏；切到「全部」后展示合并目标且不再提供撤销 / 合并', async () => {
+    listMock.mockResolvedValue(
+      result([
+        cloudRow(),
+        cloudRow({ cloud_code: 'GM-CU', cloud_name: '政务云（联通）', status: 'merged', merged_into: 'PUB-TX', enabled: false }),
+        cloudRow({ cloud_code: 'PRI-HW', cloud_name: '私有云（华为）', status: 'revoked', enabled: false }),
+      ]),
+    )
+    renderPage()
+    await screen.findByText('PUB-TX')
+    expect(screen.queryByText('政务云（联通）（已合并）')).toBeNull()
+    expect(screen.queryByText('私有云（华为）（已撤销）')).toBeNull()
+
+    await userEvent.click(screen.getByText('全部'))
+    expect(await screen.findByText('政务云（联通）（已合并）')).toBeInTheDocument()
+    expect(screen.getByText('已合并 → PUB-TX')).toBeInTheDocument()
+    const mergedRow = screen.getByText('政务云（联通）（已合并）').closest('tr')!
+    expect(within(mergedRow).queryByRole('button', { name: '撤销' })).toBeNull()
+    expect(within(mergedRow).queryByRole('button', { name: '合并' })).toBeNull()
+    expect(screen.getByText('私有云（华为）（已撤销）')).toBeInTheDocument()
+  })
+
+  it('变更日志按 cloud 类型拉取审计日志', async () => {
+    listMock.mockResolvedValue(result([cloudRow()]))
+    renderPage()
+    await screen.findByText('PUB-TX')
+
+    await userEvent.click(screen.getByRole('button', { name: '变更日志' }))
+    expect(await screen.findByText('字典变更日志')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(auditListMock).toHaveBeenCalledWith({ dictionary_type: 'cloud', limit: 100 }),
+    )
   })
 })

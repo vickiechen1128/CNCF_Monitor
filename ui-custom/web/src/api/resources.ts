@@ -14,8 +14,11 @@ import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
   AppPlatformRel,
   ApplicationDict,
+  BulkReassignInput,
+  BulkReassignResult,
   BusinessDomain,
   CloudDict,
+  DictionaryAuditLog,
   ImportMode,
   ImportRecord,
   ImportResult,
@@ -392,6 +395,20 @@ export const resourceApi = {
       `/api/v3/platform/resources/${encodeURIComponent(resourceId)}/referenced-by`,
     )
   },
+  /** 批量改归属（POST /resources/bulk-reassign，M07 SRS v2.0 FR-28）：
+   *  单事务提交，任一资源失败整体回滚；失败明细在 400 响应 data.failures。 */
+  bulkReassign(input: BulkReassignInput): Promise<ApiResponse<BulkReassignResult>> {
+    return apiClient.post<BulkReassignResult>('/api/v3/platform/resources/bulk-reassign', {
+      body: input,
+    })
+  },
+  /** 批量设置实例级采集端口（M01 端口解析链最高优先级） */
+  bulkSetScrapePort(resourceIDs: string[], scrapePort: number): Promise<ApiResponse<{ updated_count: number; scrape_port: number }>> {
+    return apiClient.post<{ updated_count: number; scrape_port: number }>(
+      '/api/v3/platform/resources/bulk-scrape-port',
+      { body: { resource_ids: resourceIDs, scrape_port: scrapePort } },
+    )
+  },
   /** 下载 xlsx 模板（固定列头，可直接导入），返回 Blob 供前端触发下载 */
   template(type: ResourceCategory): Promise<Blob> {
     return downloadBlob(
@@ -476,6 +493,51 @@ export const businessDomainApi = {
       { body: input },
     )
   },
+  /** 零引用撤销（POST :code/revoke，M07 SRS v2.0 FR-26）：编码永久保留、不可重新登记 */
+  revoke(code: string): Promise<ApiResponse<BusinessDomain>> {
+    return apiClient.post<BusinessDomain>(
+      `/api/v3/platform/business-domains/${encodeURIComponent(code)}/revoke`,
+      {},
+    )
+  },
+  /** 错建 / 重码合并（POST :code/merge，M07 SRS v2.0 FR-27） */
+  merge(code: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
+    return apiClient.post<DictionaryMergeResult>(
+      `/api/v3/platform/business-domains/${encodeURIComponent(code)}/merge`,
+      { body: { target_code: targetCode } },
+    )
+  },
+}
+
+/** 字典合并输入（M07 SRS v2.0 §6.3） */
+export interface DictionaryMergeInput {
+  target_code: string
+}
+
+/** 字典合并结果：被迁移的引用数 */
+export interface DictionaryMergeResult {
+  source: string
+  target: string
+  moved_references: number
+}
+
+/** 字典审计日志响应（GET /dictionary-audit-logs） */
+export interface DictionaryAuditLogsResponse {
+  list: DictionaryAuditLog[]
+  total: number
+}
+
+/** 字典生命周期审计日志（M07 SRS v2.0 §6.4） */
+export const dictionaryAuditApi = {
+  list(params?: {
+    dictionary_type?: 'business' | 'application' | 'platform' | 'cloud' | 'zone'
+    code?: string
+    limit?: number
+  }): Promise<ApiResponse<DictionaryAuditLogsResponse>> {
+    return apiClient.get<DictionaryAuditLogsResponse>('/api/v3/platform/dictionary-audit-logs', {
+      params,
+    })
+  },
 }
 
 /** 应用字典响应（GET /application-dict，非分页信封 {list,total}，§5.19 / 决策 92） */
@@ -530,6 +592,20 @@ export const applicationDictApi = {
       { body: input },
     )
   },
+  /** 零引用撤销（POST :app_code/revoke，M07 SRS v2.0 FR-26） */
+  revoke(appCode: string): Promise<ApiResponse<ApplicationDict>> {
+    return apiClient.post<ApplicationDict>(
+      `/api/v3/platform/application-dict/${encodeURIComponent(appCode)}/revoke`,
+      {},
+    )
+  },
+  /** 错建 / 重码合并（POST :app_code/merge，M07 SRS v2.0 FR-27） */
+  merge(appCode: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
+    return apiClient.post<DictionaryMergeResult>(
+      `/api/v3/platform/application-dict/${encodeURIComponent(appCode)}/merge`,
+      { body: { target_code: targetCode } },
+    )
+  },
 }
 
 /** 平台字典响应（GET /platform-dict，非分页信封 {list,total}，§5.21 / 契约快照 §5C） */
@@ -569,6 +645,20 @@ export const platformDictApi = {
     return apiClient.put<PlatformDict>(
       `/api/v3/platform/platform-dict/${encodeURIComponent(platformCode)}`,
       { body: input },
+    )
+  },
+  /** 零引用撤销（POST :platform_code/revoke，M07 SRS v2.0 FR-26） */
+  revoke(platformCode: string): Promise<ApiResponse<PlatformDict>> {
+    return apiClient.post<PlatformDict>(
+      `/api/v3/platform/platform-dict/${encodeURIComponent(platformCode)}/revoke`,
+      {},
+    )
+  },
+  /** 错建 / 重码合并（POST :platform_code/merge，M07 SRS v2.0 FR-27） */
+  merge(platformCode: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
+    return apiClient.post<DictionaryMergeResult>(
+      `/api/v3/platform/platform-dict/${encodeURIComponent(platformCode)}/merge`,
+      { body: { target_code: targetCode } },
     )
   },
 }
@@ -663,6 +753,20 @@ export const cloudDictApi = {
     return apiClient.put<CloudDict>(
       `/api/v3/platform/cloud-dict/${encodeURIComponent(code)}`,
       { body: { enabled: false } },
+    )
+  },
+  /** 零引用撤销（POST :cloud_code/revoke）：编码永久保留、不可重新登记 */
+  revoke(code: string): Promise<ApiResponse<CloudDict>> {
+    return apiClient.post<CloudDict>(
+      `/api/v3/platform/cloud-dict/${encodeURIComponent(code)}/revoke`,
+      {},
+    )
+  },
+  /** 错建 / 重码合并（POST :cloud_code/merge）：引用迁移到目标云编码 */
+  merge(code: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
+    return apiClient.post<DictionaryMergeResult>(
+      `/api/v3/platform/cloud-dict/${encodeURIComponent(code)}/merge`,
+      { body: { target_code: targetCode } },
     )
   },
 }

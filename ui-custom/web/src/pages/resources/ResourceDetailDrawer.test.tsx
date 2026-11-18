@@ -87,8 +87,8 @@ function domainsWith(over: Partial<NetworkDomain>): NetworkDomain[] {
 }
 
 const businessDomains: BusinessDomain[] = [
-  { code: 'infra', name: '公共基础设施', description: '', enabled: true },
-  { code: 'legacy', name: '停用业务', description: '', enabled: false },
+  { code: 'infra', name: '公共基础设施', description: '', enabled: true, status: 'enabled', reference_count: 0 },
+  { code: 'legacy', name: '停用业务', description: '', enabled: false, status: 'disabled', reference_count: 0 },
 ]
 
 /** application 资源行（可打 user 标签） */
@@ -303,7 +303,7 @@ describe('ResourceDetailDrawer', () => {
   it('shows applicable default template with name + id and navigates on click', async () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     renderDrawer({ record: appRecord() })
-    const templateLink = await screen.findByText('应用默认模板（5）')
+    const templateLink = await screen.findByText('应用默认模板（lt-5）')
     expect(templateLink).toBeInTheDocument()
     fireEvent.click(templateLink)
     expect(await screen.findByText('label-templates-page')).toBeInTheDocument()
@@ -394,7 +394,7 @@ describe('ResourceDetailDrawer', () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     renderDrawer({ record: appRecord() })
     // 等待适用模板加载完成（冲突判定依赖 template 状态）
-    await screen.findByText('应用默认模板（5）')
+    await screen.findByText('应用默认模板（lt-5）')
     const keyInput = await screen.findByPlaceholderText('标签 Key，如 team')
     fireEvent.change(keyInput, { target: { value: 'app' } })
     fireEvent.change(screen.getByPlaceholderText('标签值'), { target: { value: 'x' } })
@@ -409,7 +409,7 @@ describe('ResourceDetailDrawer', () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     createLabelMock.mockResolvedValue({ status: 'success', data: labelItem({ id: 'label-10', key: 'app' }) })
     renderDrawer({ record: appRecord() })
-    await screen.findByText('应用默认模板（5）')
+    await screen.findByText('应用默认模板（lt-5）')
     const keyInput = await screen.findByPlaceholderText('标签 Key，如 team')
     fireEvent.change(keyInput, { target: { value: 'app' } })
     fireEvent.change(screen.getByPlaceholderText('标签值'), { target: { value: 'x' } })
@@ -423,7 +423,7 @@ describe('ResourceDetailDrawer', () => {
   it('navigates to label templates page from conflict dialog', async () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     renderDrawer({ record: appRecord() })
-    await screen.findByText('应用默认模板（5）')
+    await screen.findByText('应用默认模板（lt-5）')
     const keyInput = await screen.findByPlaceholderText('标签 Key，如 team')
     fireEvent.change(keyInput, { target: { value: 'app' } })
     fireEvent.change(screen.getByPlaceholderText('标签值'), { target: { value: 'x' } })
@@ -438,7 +438,7 @@ describe('ResourceDetailDrawer', () => {
     listTemplateMock.mockResolvedValue(templateListResponse([defaultTemplate()]))
     labelsMock.mockResolvedValue(labelsResponse([labelItem({ id: 'label-2', key: 'app', value: 'old' })]))
     renderDrawer({ record: appRecord() })
-    await screen.findByText('应用默认模板（5）')
+    await screen.findByText('应用默认模板（lt-5）')
     fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
     // 编辑 key 命中模板映射 → 弹确认，不直接 updateLabel（§3.3/§5.3）

@@ -7,8 +7,6 @@ import {
   channelLabel,
   channelTip,
   deriveRegistrationStatus,
-  domainTypeColor,
-  domainTypeLabel,
   formatRelativeTime,
   monitoredStatusColor,
   monitoredStatusLabel,
@@ -24,18 +22,19 @@ interface NetworkDomainDetailDrawerProps {
   onClose: () => void
 }
 
-/** 配置字段值：仅 agent_pull 展示，local 恒 '-'（契约 §10，C1/C2 占位） */
-function ConfigValue({ channel, value }: { channel: NetworkDomain['channel']; value?: string }) {
-  if (channel !== 'agent_pull' || !value) {
+/** 配置字段值：空值统一展示 '-'（v3 只有采集节点域，无需按通道裁剪） */
+function ConfigValue({ value }: { value?: string }) {
+  if (!value) {
     return <Text type="secondary">-</Text>
   }
   return <Text code style={{ fontSize: 12, wordBreak: 'break-all' }}>{value}</Text>
 }
 
 /**
- * 网域详情抽屉（Module_09 契约 §3 / 决策 36-1）。
+ * 网域详情抽屉（Module_09 契约 §3）。
  * 配置字段（中心接入地址 / 指标回传地址（Remote Write URL）/ Agent 类型 / 描述）入 Drawer；
- * 行政字段（名称/租户/类型/网络区域类型）由 M06 维护，只读展示。
+ * 行政字段（名称 / 租户 / 网络区域类型）由 M06 维护，只读展示。
+ * v3 只有采集节点域一种类型，故不再展示「域类型」行，也不出现「中心直连域」概念（SRS NFR-02）。
  */
 export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDomainDetailDrawerProps) {
   return (
@@ -46,9 +45,6 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           <Descriptions.Item label="网域名称">{domain.name}</Descriptions.Item>
           <Descriptions.Item label="网域 ID">
             <Text code>{domain.id}</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="域类型">
-            <Tag color={domainTypeColor[domain.domain_type]}>{domainTypeLabel[domain.domain_type]}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="归属租户">{domain.tenant_id || <Text type="secondary">-</Text>}</Descriptions.Item>
           <Descriptions.Item label="云归属">
@@ -68,19 +64,19 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
             </Tooltip>
           </Descriptions.Item>
           <Descriptions.Item label="指标回传地址">
-            <ConfigValue channel={domain.channel} value={domain.remote_write_url} />
+            <ConfigValue value={domain.remote_write_url} />
           </Descriptions.Item>
           {/* F-42：网域级回传参数（随配置包下发生效）；未配置时采集节点按 env > 内置兜底 2GB 解析 */}
           <Descriptions.Item label="回传积压磁盘上限">
-            <ConfigValue channel={domain.channel} value={domain.max_disk_usage_per_url} />
-            {domain.channel === 'agent_pull' && !domain.max_disk_usage_per_url && (
+            <ConfigValue value={domain.max_disk_usage_per_url} />
+            {!domain.max_disk_usage_per_url && (
               <Tooltip title="未配置时采集节点按环境变量 > 内置兜底（2GB）解析">
                 <Text type="secondary" style={{ fontSize: 12 }}>（未配置，节点按默认兜底）</Text>
               </Tooltip>
             )}
           </Descriptions.Item>
           <Descriptions.Item label="指标采集器类型">
-            {domain.channel === 'agent_pull' && domain.agent_type ? (
+            {domain.agent_type ? (
               <Tag color="blue">{agentTypeLabel[domain.agent_type]}</Tag>
             ) : (
               <Text type="secondary">-</Text>
@@ -109,7 +105,7 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
               </Tooltip>
             }
           >
-            {domain.channel === 'agent_pull' && domain.monitored_status ? (
+            {domain.monitored_status ? (
               <Tag color={monitoredStatusColor[domain.monitored_status]}>
                 {monitoredStatusLabel[domain.monitored_status]}
               </Tag>
@@ -118,14 +114,14 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
             )}
           </Descriptions.Item>
           <Descriptions.Item label="采集节点版本">
-            {domain.channel === 'agent_pull' && domain.agent_version ? (
+            {domain.agent_version ? (
               <Text code style={{ fontSize: 12, wordBreak: 'break-all' }}>{domain.agent_version}</Text>
             ) : (
               <Text type="secondary">-</Text>
             )}
           </Descriptions.Item>
           <Descriptions.Item label="最近心跳">
-            {domain.channel === 'agent_pull' && domain.last_heartbeat ? (
+            {domain.last_heartbeat ? (
               formatRelativeTime(domain.last_heartbeat)
             ) : (
               <Text type="secondary">-</Text>

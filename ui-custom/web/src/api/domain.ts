@@ -7,6 +7,7 @@
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
+import type { DictionaryMergeResult } from './resources'
 export { isApiError } from './client'
 import type {
   DomainStatus,
@@ -98,13 +99,25 @@ export interface NetworkDomainUpdateInput {
 }
 
 /**
- * 区域类型字典（部署级只读，仅消费启用项做下拉）。
- * v3 契约：`GET /api/v3/platform/zone-types` 返回分页信封 `{list,total}`。
+ * 区域类型字典（部署预置，消费启用项做下拉；撤销 / 合并由 admin 在维护页操作）。
+ * v3 契约：`GET /api/v3/platform/zone-types` 返回分页信封 `{list,total}`；
+ * 生命周期端点为 `POST /zone-types/:code/revoke` 与 `POST /zone-types/:code/merge`。
  */
 export const zoneTypeApi = {
   async list(): Promise<ApiResponse<ZoneType[]>> {
     const res = await apiClient.get<{ list?: ZoneType[]; total?: number }>('/api/v3/platform/zone-types')
     return { ...res, data: res.data?.list ?? [] }
+  },
+  /** 零引用撤销（POST :code/revoke）：编码永久保留、不可重新登记 */
+  revoke(code: string): Promise<ApiResponse<ZoneType>> {
+    return apiClient.post<ZoneType>(`/api/v3/platform/zone-types/${encodeURIComponent(code)}/revoke`, {})
+  },
+  /** 错建 / 重码合并（POST :code/merge）：引用迁移到目标区域类型编码 */
+  merge(code: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
+    return apiClient.post<DictionaryMergeResult>(
+      `/api/v3/platform/zone-types/${encodeURIComponent(code)}/merge`,
+      { body: { target_code: targetCode } },
+    )
   },
 }
 

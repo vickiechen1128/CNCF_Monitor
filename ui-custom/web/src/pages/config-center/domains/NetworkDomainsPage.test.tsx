@@ -5,6 +5,13 @@ import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { NetworkDomainsPage } from './NetworkDomainsPage'
 import type { NetworkDomain } from '../../../types/config-center'
 
+const navigateMock = vi.fn()
+// 仅桩替换 navigate，保留 MemoryRouter / useSearchParams 等真实实现
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => navigateMock }
+})
+
 const useNetworkDomainsMock = vi.fn()
 const monitorApiMock = vi.fn()
 const resetTokenApiMock = vi.fn()
@@ -91,6 +98,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
 
   beforeEach(() => {
     useNetworkDomainsMock.mockReset()
+    navigateMock.mockReset()
     monitorApiMock.mockReset()
     monitorApiMock.mockResolvedValue({ status: 'success', data: null })
     resetTokenApiMock.mockReset()
@@ -107,7 +115,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
       result({
         data: {
           items: [
-            domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
+            domainRow('default', '默认域', { is_monitored: false }),
             domainRow('mc-a', '政务网A区', { zone_type: 'internet' }),
           ],
           total: 2,
@@ -123,16 +131,16 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(screen.queryByText('internet')).not.toBeInTheDocument()
     // 保留 5 列中的「采集节点在线」列头（Tooltip+Space 包裹会产生多处文本节点，用 getAllByText）
     expect(screen.getAllByText('采集节点在线').length).toBeGreaterThanOrEqual(1)
-    // local 通道行不展示 agent_pull 专属字段（采集节点在线/凭据恒 '-'）
+    // 未纳管 / 无心跳 / 无脱敏 Token 的行：采集节点在线与凭据列恒 '-'
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('采集节点在线列：列头 tooltip 存在；agent_pull+monitored_status 渲染状态与心跳，local 恒显 -', async () => {
+  it('采集节点在线列：列头 tooltip 存在；有 monitored_status 渲染状态与心跳，无则恒显 -', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
         data: {
           items: [
-            domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
+            domainRow('default', '默认域', { is_monitored: false }),
             domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'normal', last_heartbeat: '2026-08-21T00:00:00Z' }),
           ],
           total: 2,
@@ -149,14 +157,18 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     // agent_pull + monitored_status → 状态 Tag（在线）+ 最后心跳相对时间
     expect(screen.getByText('在线')).toBeInTheDocument()
     expect(screen.getAllByText(/· .*(刚刚|分钟前|小时前|天前)/).length).toBeGreaterThanOrEqual(1)
-    // local 通道行在「采集节点在线」列恒显 '-'
+    // 无运行态的行在「采集节点在线」列恒显 '-'
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('空态：无网域时给出「先去网域管理登记」引导', async () => {
+  it('空态：无网域时按钮直达 M06 网域管理（不再是 disabled 占位）', async () => {
     useNetworkDomainsMock.mockReturnValue(result())
     renderPage()
     expect(await screen.findByText(/暂无网域/)).toBeInTheDocument()
+    const btn = screen.getByRole('button', { name: /去网域管理登记/ })
+    expect(btn).toBeEnabled()
+    fireEvent.click(btn)
+    expect(navigateMock).toHaveBeenCalledWith('/admin/domains')
   })
 
   it('接口错误：显示 Alert 且重新加载触发 reload', async () => {
@@ -179,8 +191,8 @@ describe('NetworkDomainsPage（网域纳管）', () => {
       result({
         data: {
           items: [
-            domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
-            domainRow('mc-b', '医院专网', { is_monitored: true, channel: 'agent_pull' }),
+            domainRow('default', '默认域', { is_monitored: false }),
+            domainRow('mc-b', '医院专网', { is_monitored: true }),
           ],
           total: 2,
         },
@@ -188,16 +200,16 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     )
     renderPage()
     expect(await screen.findByText('医院专网')).toBeInTheDocument()
-    // default(local, 未纳管) → 纳管；mc-b(已纳管) → 退纳管（v3 不再提供监控参数编辑）
+    // 未纳管行 → 纳管；已纳管行 → 退纳管（v3 不再提供监控参数编辑）
     expect(screen.getAllByRole('button', { name: /纳管/ }).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByRole('button', { name: /退纳管/ })).toBeInTheDocument()
   })
 
-  it('仅 agent_pull 已纳管行展示「更多/重置 Token」', async () => {
+  it('已纳管行展示「更多/重置 Token」', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
         data: {
-          items: [domainRow('mc-c', '核心生产网', { is_monitored: true, channel: 'agent_pull' })],
+          items: [domainRow('mc-c', '核心生产网', { is_monitored: true })],
           total: 1,
         },
       }),
@@ -253,38 +265,42 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(await screen.findByText('mock-edge-package-panel')).toBeInTheDocument()
   })
 
-  it('F-33 中心直连域（local）行不出现下载入口；页面级已无常驻「下载安装包」按钮', async () => {
+  it('下载入口不再按网域类型裁剪：未纳管行同样有「更多 → 下载安装包」', async () => {
     useNetworkDomainsMock.mockReturnValue(
-      result({
-        data: {
-          items: [domainRow('default', '默认域', { channel: 'local', domain_type: 'management' })],
-          total: 1,
-        },
-      }),
+      result({ data: { items: [domainRow('mc-idle', '待纳管网域', { is_monitored: false })], total: 1 } }),
     )
     renderPage()
-    expect(await screen.findByText('默认域')).toBeInTheDocument()
-    // local 通道无「更多」下拉，故整行不出现任何下载入口
-    expect(screen.queryByRole('button', { name: /更多/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /下载安装包/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('待纳管网域')).toBeInTheDocument()
+    // v3 只有采集节点域，所有网域都需要安装包（不再有「中心直连域无需部署」分支）
+    expect(screen.getByRole('button', { name: /更多/ })).toBeInTheDocument()
+    // 未纳管时不提供「重置 Token」（没有可重置的凭据）
+    fireEvent.mouseOver(screen.getByRole('button', { name: /更多/ }))
+    expect(await screen.findByText('下载安装包')).toBeInTheDocument()
+    expect(screen.queryByText('重置 Token')).not.toBeInTheDocument()
+    // 页面级已无常驻「下载安装包」主按钮
+    expect(screen.queryByRole('button', { name: /^下载安装包$/ })).not.toBeInTheDocument()
   })
 
-  it('F-33 直连域提示常驻折叠区外（无需展开指引即可见），折叠标题限定为采集节点域', async () => {
+  it('常驻提示改为「所有网域均为采集节点域」，页面不再出现中心直连域相关说明', async () => {
     useNetworkDomainsMock.mockReturnValue(result())
     const { container } = renderPage()
     // 常驻提示在折叠面板之外：折叠面板默认收起，提示文案仍可见
-    expect(await screen.findByText(/无需部署采集节点/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/所有网域均为采集节点域：平台只负责管理与存储/),
+    ).toBeInTheDocument()
     expect(container.querySelector('.ant-collapse-content')).toBeNull()
-    // 折叠标题改名，直连域用户不会被「新网域接入操作流程」误导点开
-    expect(screen.getByText(/采集节点域接入操作流程（安装指引）/)).toBeInTheDocument()
-    expect(screen.queryByText(/新网域接入操作流程/)).not.toBeInTheDocument()
+    // 折叠标题直述本区内容（装的是采集节点，不是「网域」）
+    expect(screen.getByText(/采集节点接入操作流程（安装指引）/)).toBeInTheDocument()
+    // v3 取消中心直连域：整页不出现该概念（SRS NFR-02）
+    expect(screen.queryByText(/中心直连域/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/无需部署采集节点/)).not.toBeInTheDocument()
   })
 
   it('F-30 安装指引新增「复制并保存接入 Token」为第 1 步，并展示普通用户文案', async () => {
     useNetworkDomainsMock.mockReturnValue(result())
     renderPage()
     // 指引默认收起，点击 label 展开
-    fireEvent.click(await screen.findByText(/采集节点域接入操作流程（安装指引）/))
+    fireEvent.click(await screen.findByText(/采集节点接入操作流程（安装指引）/))
     expect(await screen.findByText('复制并保存接入 Token')).toBeInTheDocument()
     expect(screen.getByText(/接入密码/)).toBeInTheDocument()
     expect(screen.getByText(/重置后旧 Token 立即失效/)).toBeInTheDocument()
@@ -292,11 +308,11 @@ describe('NetworkDomainsPage（网域纳管）', () => {
 
   it('MEDIUM-1 纳管 agent_pull 域成功后弹一次性明文 Token 展示', async () => {
     useNetworkDomainsMock.mockReturnValue(
-      result({ data: { items: [domainRow('mc-e', '政务云B区', { channel: 'agent_pull' })], total: 1 } }),
+      result({ data: { items: [domainRow('mc-e', '政务云B区')], total: 1 } }),
     )
     monitorApiMock.mockResolvedValue({
       status: 'success',
-      data: { ...domainRow('mc-e', '政务云B区', { channel: 'agent_pull' }), is_monitored: true, token: 'plain-abc', token_masked: TOKEN_MASK_CHARS },
+      data: { ...domainRow('mc-e', '政务云B区'), is_monitored: true, token: 'plain-abc', token_masked: TOKEN_MASK_CHARS },
     })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /纳管/ }))
@@ -305,15 +321,15 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(screen.getByRole('button', { name: /复制明文/ })).toBeInTheDocument()
   })
 
-  it('MEDIUM-1 default(local) 域纳管成功不弹明文 Token', async () => {
+  it('MEDIUM-1 纳管响应无明文 Token 时不弹展示 Modal', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
-        data: { items: [domainRow('default', '默认域', { channel: 'local', domain_type: 'management' })], total: 1 },
+        data: { items: [domainRow('mc-nosecret', '政务网C区', { is_monitored: false })], total: 1 },
       }),
     )
     monitorApiMock.mockResolvedValue({
       status: 'success',
-      data: { ...domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }), is_monitored: true },
+      data: { ...domainRow('mc-nosecret', '政务网C区', { is_monitored: false }), is_monitored: true },
     })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /纳管/ }))
@@ -326,7 +342,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
   it('LOW-1 重置 Token 成功弹一次性明文 Modal 而非 toast 暴露明文', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
-        data: { items: [domainRow('mc-r', '核心生产网', { is_monitored: true, channel: 'agent_pull' })], total: 1 },
+        data: { items: [domainRow('mc-r', '核心生产网', { is_monitored: true })], total: 1 },
       }),
     )
     resetTokenApiMock.mockResolvedValue({

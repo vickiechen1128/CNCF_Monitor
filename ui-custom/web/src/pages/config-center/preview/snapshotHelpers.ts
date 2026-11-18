@@ -2,7 +2,20 @@
  * Module_09 配置快照页共享展示逻辑（v3 契约 §4）。
  * 仅含纯函数 / 常量，供配置快照页与快照历史页复用并便于单测。
  */
-import type { ConfigSnapshot, SnapshotValidationStatus } from '../../../types/config-center'
+import type { ConfigArtifactType, ConfigSnapshot, SnapshotValidationStatus } from '../../../types/config-center'
+
+/** 配置产物类型文案（SRS v1.5 FR-13） */
+export const ARTIFACT_TYPE_LABEL: Record<ConfigArtifactType, string> = {
+  domain: '采集配置',
+  center: '中心规则',
+  alertmanager: '告警配置',
+}
+
+export const ARTIFACT_TYPE_COLOR: Record<ConfigArtifactType, string> = {
+  domain: 'blue',
+  center: 'purple',
+  alertmanager: 'orange',
+}
 
 /** 快照校验状态用户文案（v3 仅 passed / failed） */
 export const SNAPSHOT_STATUS_LABEL: Record<SnapshotValidationStatus, string> = {

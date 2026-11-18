@@ -98,7 +98,7 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     expect(screen.getAllByText(/崩溃回环/).length).toBeGreaterThanOrEqual(1)
   })
 
-  it('配置同步 out_of_sync + pending_draft：显示引导按钮并跳转 /config-preview', async () => {
+  it('配置同步 out_of_sync + pending_draft：显示引导按钮并跳转合并后的 /config-snapshots', async () => {
     listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(
       baseAgent({
@@ -108,8 +108,8 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
       }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /前往配置确认/ }))
-    expect(navigateMock).toHaveBeenCalledWith('/config-preview')
+    fireEvent.click(screen.getByRole('button', { name: /查看配置快照/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/config-snapshots')
   })
 
   it('配置同步 out_of_sync + pull_pending：显示「同步中」并保留心跳拉取提示（F-16）', async () => {

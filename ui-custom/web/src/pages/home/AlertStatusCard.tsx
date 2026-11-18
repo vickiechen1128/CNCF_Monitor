@@ -28,7 +28,7 @@
  * - 取数上限为接口单页上限 100 条；超出时按钮下方提示「仅展示最近 100 条」。
  * 「查看全部 →」指向 /alert-status 兜底；卡内不再重复「查看告警中心」入口（用户反馈 2026-09-14）。
  *
- * 口径（M08 event 表单一事实源：/alert-events/stats + /alert-events?status=open）：
+ * 口径（M08 event 表单一事实源：/alert-events/stats + /alert-events/current）：
  * - 四格 = 今日告警 / 今日恢复 / 历史遗留告警 / 历史遗留今日恢复，任何数据状态下都保留；
  * - 历史遗留告警 = 今天 0 点前触发，且当前未关闭或今天关闭；历史遗留今日恢复是其中今天关闭的子集；
  * - 今日恢复 / 历史遗留今日恢复悬浮提示拆分为「真实恢复 + 恢复时间未知」；
@@ -84,7 +84,7 @@ interface AlertStatusCardProps {
   /** 当前未结告警（HomePage 已分页取满全部，按 starts_at 倒序） */
   latestAlerts: AlertEventItem[]
   loading?: boolean
-  /** 当前告警链路错误（M08 /alert-events?status=open） */
+  /** 当前告警链路错误（M08 /alert-events/current） */
   currentError?: string | null
   /**
    * 历史告警统计链路错误（GET /alert-events/stats）。

@@ -79,6 +79,9 @@ export interface ScrapeJobV3 {
   exporter_template_name: string
   network_domain_id: string
   network_domain_name: string
+  /** 所属监控任务组（空 = 传统单域 Job） */
+  job_group_id?: string
+  job_group_name?: string
   instance_selection_mode: 'manual' | 'filter'
   selected_instance_ids: string[]
   selected_instance_count: number
@@ -130,6 +133,8 @@ export interface JobInstanceV3 {
   display_name: string
   instance_ip: string
   port: number
+  /** 生效端口来源：instance / mapping / template / business / default / unresolved */
+  port_source?: string
   status: string
   target_address: string
   installation: InstallationV3 | null

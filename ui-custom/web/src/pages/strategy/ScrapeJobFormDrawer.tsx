@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Drawer,
   Form,
   Input,
@@ -27,18 +26,18 @@ import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { blackboxModuleApi, type BlackboxModule } from '../../api/blackboxModules'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
+import type { CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
 import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import {
-  SCRAPE_PARAM_FIELDS,
   MONITOR_TYPE_CASCADE,
   MONITOR_TYPE_MAP,
   CATEGORY_MAP,
   BLACKBOX_CATEGORIES,
   BLACKBOX_TARGET_FIELD_LABEL,
 } from './strategyConstants'
+import { AuthTlsFields, ScrapeParamFields } from './JobParamsFields'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
@@ -160,7 +159,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   // Q1a：登记采集器仅在「已选监控对象类型但无默认采集器」的空态展示（PRD §3.1 采集器选择器空态引导，L83）
   const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
-  const authType = (Form.useWatch('auth_type', form) as AuthType | undefined) ?? 'none'
 
   // F1-8：监控对象类型候选 = 按已选资源类别过滤（两级级联）
   const categoryTypes = useMemo<MonitorType[]>(() => {
@@ -642,103 +640,13 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                     <Input disabled placeholder="默认采集器（切换监控类型自动带出）" />
                   </Form.Item>
                 )}
-                <Row gutter={12}>
-                  {SCRAPE_PARAM_FIELDS.map((f) => {
-                    // application_http：采集地址来自资源台账「端点 + 端口」，指标路径无通用默认值，
-                    // 必须显式填写（后端留空返回 bad_request）；其它 monitor_type 保持「留空=继承」。
-                    const isAppMetricsPath = monitorType === 'application_http' && f.field === 'metrics_path'
-                    return (
-                      <Col span={12} key={f.field}>
-                        {/* F-28：参数默认不必填；placeholder 展示继承链下层生效值（留空=继承） */}
-                        <Form.Item
-                          name={f.field as never}
-                          label={f.label}
-                          rules={
-                            isAppMetricsPath
-                              ? [{ required: true, message: '应用采集必须填写采集路径，例如 /actuator/prometheus' }]
-                              : undefined
-                          }
-                        >
-                          <Input
-                            placeholder={
-                              isAppMetricsPath
-                                ? '请填写应用指标路径，例如 /actuator/prometheus（留空无法采集）'
-                                : paramPlaceholders[f.field]
-                            }
-                            maxLength={64}
-                            allowClear
-                          />
-                        </Form.Item>
-                      </Col>
-                    )
-                  })}
-                </Row>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  采集参数留空 = 继承默认采集配置 / 采集器默认值；填写 = 覆盖并保存为本 Job 快照。
-                </Text>
-                {monitorType === 'application_http' && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    应用采集地址来自资源台账的『端点 + 端口』；指标路径需按应用实际暴露情况填写（Spring Boot Actuator
-                    默认 /actuator/prometheus），没有通用默认值，不能留空。
-                  </Text>
-                )}
+                <ScrapeParamFields monitorType={monitorType} paramPlaceholders={paramPlaceholders} />
               </Space>
             </Card>
 
             {renderLabelTemplateSection()}
 
-            <Collapse ghost>
-              <Collapse.Panel header="认证与 TLS" key="auth">
-                <Row gutter={16}>
-                  <Col span={8}>
-                    <Form.Item label="认证类型" name="auth_type" rules={[{ required: true }]}>
-                      <Select>
-                        <Select.Option value="none">无</Select.Option>
-                        <Select.Option value="basic">用户名密码</Select.Option>
-                        <Select.Option value="bearer">Bearer Token</Select.Option>
-                      </Select>
-                    </Form.Item>
-                  </Col>
-                  {authType !== 'none' && (
-                    <Col span={16}>
-                      {authType === 'basic' ? (
-                        <Row gutter={12}>
-                          <Col span={12}>
-                            <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-                              <Input placeholder="用户名" maxLength={64} />
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-                              <Input.Password placeholder="密文仅存储，不回显" maxLength={128} />
-                            </Form.Item>
-                          </Col>
-                        </Row>
-                      ) : (
-                        <Form.Item name="token" label="Token" rules={[{ required: true, message: '请输入 Token' }]}>
-                          <Input.Password placeholder="密文仅存储，不回显" maxLength={256} />
-                        </Form.Item>
-                      )}
-                    </Col>
-                  )}
-                </Row>
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item label="跳过 TLS 校验" name="tls_skip_verify">
-                      <Radio.Group size="small">
-                        <Radio.Button value={false as never}>否</Radio.Button>
-                        <Radio.Button value={true as never}>是</Radio.Button>
-                      </Radio.Group>
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="ca_file" label="CA 证书路径">
-                      <Input placeholder="可选" maxLength={256} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Collapse.Panel>
-            </Collapse>
+            <AuthTlsFields />
 
             <Card size="small" title="选择实例" style={{ marginBottom: 12 }}>
               <InstanceSelector monitorType={monitorType} networkDomainId={networkDomainId} selectedIds={selectedIds} onChange={setSelectedIds} />

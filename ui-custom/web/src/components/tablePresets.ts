@@ -21,6 +21,9 @@ export const MAX_COLUMN_WIDTH = 800
 /** 未单独登记默认宽度的列使用的兜底值（与既有 15 列宽表观感一致） */
 export const DEFAULT_COLUMN_WIDTH = 140
 
+/** 资源列表行勾选列宽（M07 FR-28 批量改归属）；计入 scroll.x 以免压缩业务列 */
+export const ROW_SELECTION_COLUMN_WIDTH = 40
+
 export const TABLE_PAGINATION = {
   pageSize: 20,
   showSizeChanger: true,

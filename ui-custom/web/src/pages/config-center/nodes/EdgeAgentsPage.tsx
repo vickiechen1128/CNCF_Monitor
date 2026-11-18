@@ -76,7 +76,8 @@ function componentColumn(agent: AgentView, type: 'collector' | 'blackbox_exporte
 /**
  * 采集节点状态页（Module_09 §11.1 / M11 契约 §1 — P0 完整页）。
  * 消费 GET /edge-agents：顶部三档聚合统计 + 平铺节点表，含组件/配置同步/回传积压诊断。
- * 覆盖：加载 / 接口错误 / 空态三支（筛选后空、暂无采集节点、中心直连域）/ 权限不足 / 五维筛选 / 详情抽屉。
+ * 覆盖：加载 / 接口错误 / 空态两支（筛选后空、尚未接入采集节点）/ 权限不足 / 五维筛选 / 详情抽屉。
+ * v3 所有网域都是采集节点域，不再有「中心直连域（无需 Agent）」这一空态分支（SRS NFR-02）。
  */
 export function EdgeAgentsPage() {
   const navigate = useNavigate()
@@ -379,18 +380,9 @@ export function EdgeAgentsPage() {
     },
   ]
 
-  /** 空态三支判定：筛选后空 / 中心直连域 / 暂无采集节点 */
+  /** 空态两支判定：筛选后空 / 尚未接入采集节点（v3 无「中心直连域」免部署分支） */
   const noAgents = rawAgents.length === 0
-  const hasAgentPullDomain = domains.some((d) => d.channel === 'agent_pull')
-
-  let emptyTitle: ReactNode = '暂无采集节点'
-  if (hasActiveFilter) {
-    emptyTitle = '无匹配的采集节点'
-  } else if (noAgents && !hasAgentPullDomain) {
-    emptyTitle = '暂无 agent_pull 网域（中心直连域）'
-  } else if (noAgents) {
-    emptyTitle = '尚未接入采集节点'
-  }
+  const emptyTitle: ReactNode = hasActiveFilter ? '无匹配的采集节点' : '尚未接入采集节点'
 
   return (
     <MainLayout>
@@ -502,9 +494,25 @@ export function EdgeAgentsPage() {
                     description={emptyTitle}
                   >
                     {!hasActiveFilter && noAgents && (
-                      <Button type="primary" icon={<CloudServerOutlined />} onClick={() => navigate('/domain-onboarding')}>
-                        去网域纳管
-                      </Button>
+                      // 空态出口按前置条件分流：一个网域都没登记 → 先去 M06 登记；
+                      // 有网域但都没有采集节点 → 去 M09 纳管并部署采集节点。
+                      domains.length === 0 ? (
+                        <Button
+                          type="primary"
+                          icon={<CloudServerOutlined />}
+                          onClick={() => navigate('/admin/domains')}
+                        >
+                          去网域管理登记
+                        </Button>
+                      ) : (
+                        <Button
+                          type="primary"
+                          icon={<CloudServerOutlined />}
+                          onClick={() => navigate('/domain-onboarding')}
+                        >
+                          去网域纳管
+                        </Button>
+                      )
                     )}
                   </Empty>
                 ) : (

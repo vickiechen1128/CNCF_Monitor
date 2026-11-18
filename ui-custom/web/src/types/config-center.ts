@@ -11,16 +11,19 @@ export interface PaginatedItems<T> {
   total: number
 }
 
-/** 下发通道（决策 31/32/33）：default=local，其他=agent_pull */
-export type Channel = 'local' | 'agent_pull'
+/**
+ * 下发通道：v3 仅 `agent_pull`（采集节点主动拉取配置包）。
+ * 原 `local`（中心同机写盘）随「中心直连域」一并取消，见 Module_09 SRS §3.2 / NFR-02。
+ */
+export type Channel = 'agent_pull'
 
 /** Agent 类型：MVP 前端仅 vmagent */
 export type AgentType = 'vmagent' | 'prometheus-agent'
 
-/** 域类型（M06 行政字段，M09 只读引用） */
-export type DomainType = 'management' | 'edge'
+/** 域类型（M06 行政字段，M09 只读引用）：v3 只有采集节点域，`management`（中心直连域）已取消 */
+export type DomainType = 'edge'
 
-/** 网域运行态（agent_pull 心跳更新；MVP local 恒空） */
+/** 网域运行态（按采集节点心跳聚合） */
 export type MonitoredStatus = 'normal' | 'partial' | 'offline' | 'unknown'
 
 /** 行政启用态（M06；disabled=冻结域） */
@@ -36,13 +39,13 @@ export interface NetworkDomain {
   domain_type: DomainType
   zone_type?: string
   tenant_id: string
-  /** 下发通道：default 固定 local；其他固定 agent_pull */
+  /** 下发通道：v3 固定 agent_pull */
   channel: Channel
-  /** MVP 固定 vmagent；agent_pull 必填，local 空 */
+  /** MVP 固定 vmagent */
   agent_type?: AgentType
   /** 中心接入地址；{v0.4+} 网闸映射场景预留，当前实现不消费（心跳地址走安装时 CENTER_ENDPOINT 环境变量） */
   center_endpoint?: string
-  /** agent_pull 必填；local 空 */
+  /** 指标回传地址（采集节点侧可达） */
   remote_write_url?: string
   /** vmagent 持久队列磁盘上限（F-42，网域级回传参数）；空 = 未配置，agent 按 env > 硬兜底解析 */
   max_disk_usage_per_url?: string
@@ -52,7 +55,7 @@ export interface NetworkDomain {
   token_masked?: string
   /** 已纳管监控标记（M09 写）；派生注册态 monitored/created */
   is_monitored: boolean
-  /** 运行态，agent_pull 心跳更新；MVP local 恒空 */
+  /** 运行态，按采集节点心跳聚合 */
   monitored_status?: MonitoredStatus
   last_heartbeat?: string
   agent_version?: string
@@ -204,8 +207,51 @@ export interface ConfigSnapshotListResponse {
   total: number
 }
 
-/** 快照历史页聚合行：v3 无全局快照列表，跨网域合并后附带网域名 */
-export interface ConfigSnapshotHistoryRow extends ConfigSnapshot {
+/** 配置产物类型（SRS v1.5 FR-13）：网域采集配置 / 中心规则 / 告警配置 */
+export type ConfigArtifactType = 'domain' | 'center' | 'alertmanager'
+
+/**
+ * 统一配置产物（SRS v1.5 FR-13/13.1）。
+ * 三类产物共用一张历史表；artifact_type 区分来源，network_domain_id 仅 domain 类型有值。
+ */
+export interface ConfigArtifact {
+  id: number
+  /** 旧接口/测试兼容：缺省按 domain 处理 */
+  artifact_type?: ConfigArtifactType
+  network_domain_id: string
+  version: string
+  checksum: string
+  validation_status: SnapshotValidationStatus
+  validation_cause: SnapshotValidationCause
+  validation_details: unknown
+  is_current: boolean
+  generated_by: string
+  generated_at?: string
+  created_at: string
+  /** 历史内容是否仍可预览/导出 */
+  content_available?: boolean
+}
+
+/** 统一配置产物列表信封（最新在前） */
+export interface ConfigArtifactListResponse {
+  list: ConfigArtifact[]
+  total: number
+}
+
+/** 详情抽屉中的单个配置文件 */
+export interface ConfigArtifactFile {
+  name: string
+  content: string
+}
+
+/** 配置产物内容预览（admin） */
+export interface ConfigArtifactPreview {
+  artifact: ConfigArtifact
+  files: ConfigArtifactFile[]
+}
+
+/** 统一历史页聚合行：附带展示名（网域名 / 中心规则 / 告警配置） */
+export interface ConfigSnapshotHistoryRow extends ConfigArtifact {
   network_domain_name: string
 }
 

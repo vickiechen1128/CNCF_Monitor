@@ -1,7 +1,7 @@
 /**
- * Module_08 告警配置页数据 Hook（只读历史与当前生效，决策 59/60）。
- * 权威契约：docs/05-execution-records/module-08/api-contract-snapshot.md（§3）。
- * 消费 GET /config/current、GET /config/versions。
+ * Module_08 告警配置页数据 Hook（v3：当前生效 + 只读历史 + 最近 reload）。
+ * 权威契约：docs/05-execution-records/rewrite/v2.0/modules/module-08/api-contract-snapshot-v3.md。
+ * 消费 GET /config、GET /config/versions、GET /config/reload-logs。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足。
  *
  * 2026-10-22：本页删除「导入整份配置文件」能力（路由在「路由规则」页直接配置），
@@ -16,8 +16,20 @@ import type {
   PaginatedItems,
 } from '../../types/alertmanager'
 
+/** 最近一次 reload 尝试（只读展示；失败不阻断页面）。 */
+export interface LastReload {
+  id: string
+  status: string
+  trigger: string
+  started_at: string
+  duration_ms: number
+  error?: string
+}
+
 export interface UseAlertConfigResult {
   current: AlertmanagerConfigVersion | null
+  /** 最近一次 reload 记录；无记录 / 无权限时为 null */
+  lastReload: LastReload | null
   versions: AlertmanagerConfigVersionListItem[]
   total: number
   loading: boolean
@@ -34,6 +46,7 @@ const EMPTY_PAGE: PaginatedItems<AlertmanagerConfigVersionListItem> = { items: [
 
 export function useAlertConfig(): UseAlertConfigResult {
   const [current, setCurrent] = useState<AlertmanagerConfigVersion | null>(null)
+  const [lastReload, setLastReload] = useState<LastReload | null>(null)
   const [versions, setVersions] = useState<PaginatedItems<AlertmanagerConfigVersionListItem>>(EMPTY_PAGE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,12 +64,14 @@ export function useAlertConfig(): UseAlertConfigResult {
 
   const load = useCallback(async () => {
     try {
-      const [cur, ver] = await Promise.all([
+      const [cur, ver, logs] = await Promise.all([
         alertmanagerConfigApi.getCurrent(),
         alertmanagerConfigApi.getVersions({ page, page_size: pageSize }),
+        alertmanagerConfigApi.getReloadLogs({ page: 1, page_size: 1 }).catch(() => null),
       ])
       setCurrent(cur.data)
       setVersions(ver.data)
+      setLastReload(logs?.data?.items?.[0] ?? null)
       setError(null)
       setPermissionDenied(false)
     } catch (e) {
@@ -84,6 +99,7 @@ export function useAlertConfig(): UseAlertConfigResult {
 
   return {
     current,
+    lastReload,
     versions: versions.items,
     total: versions.total,
     page,

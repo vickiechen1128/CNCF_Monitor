@@ -111,6 +111,10 @@ export interface ResourceFormFieldsContext {
   legacyEnv?: string
   appCodeRequired: boolean
   clusterRequired: boolean
+  /** 业务是否必填（仅接口服务为 true；其余类型可留空后补，M07 SRS v2.0 / 决策 93） */
+  bizCodeRequired: boolean
+  /** 打开「登记业务」快捷入口（登记成功后自动回填并刷新下拉） */
+  onCreateBusiness: () => void
   osOptions: OSOption[]
   handlePlatformChange: () => void
   /** host / database / middleware 共用的「采集端口（选填）」表单项（由 Drawer 构造） */
@@ -133,6 +137,7 @@ export interface ResourceFormFieldsContext {
  */
 export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): ReactNode {
   const {
+    form,
     category,
     networkDomains,
     enabledBizDomains,
@@ -142,12 +147,31 @@ export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): Reac
     legacyEnv,
     appCodeRequired,
     clusterRequired,
+    bizCodeRequired,
+    onCreateBusiness,
     handlePlatformChange,
     derivedPlatformLabel,
   } = ctx
   const isInterface = category === 'interface_service'
   /** {D43} 组成型资源：平台归属由所属应用的主平台派生，不单独填写。 */
   const isComposed = category === 'application'
+  /**
+   * 业务必填仅接口服务；generic_target 维持后端「业务或应用至少其一」约束，
+   * 其余类型可留空后补。空值不注入 biz 标签。
+   */
+  const bizRules = bizCodeRequired
+    ? [{ required: true, message: '请选择业务' }]
+    : category === 'generic_target'
+      ? [
+          {
+            validator: (_: unknown, value?: string) => {
+              if (value) return Promise.resolve()
+              const app = form.getFieldValue('app_code')
+              return app ? Promise.resolve() : Promise.reject(new Error('所属业务与所属应用至少填写一个'))
+            },
+          },
+        ]
+      : []
   return (
     <>
       <Row gutter={16}>
@@ -216,10 +240,24 @@ export function renderResourceSharedFields(ctx: ResourceFormFieldsContext): Reac
           <Form.Item
             label="业务"
             name="biz_code"
-            extra="仅启用业务可选；停用业务不可选"
-            rules={[{ required: true, message: '请选择业务' }]}
+            extra={
+              <span>
+                {bizCodeRequired ? '接口服务必须归属业务；' : '可留空，后续在资源列表批量改业务；'}
+                仅启用业务可选；停用业务不可选。
+                <Typography.Link onClick={onCreateBusiness} style={{ marginInlineStart: 4 }}>
+                  登记业务
+                </Typography.Link>
+              </span>
+            }
+            rules={bizRules}
+            dependencies={category === 'generic_target' ? ['app_code'] : undefined}
           >
-            <Select showSearch optionFilterProp="label" placeholder="请选择业务">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={bizCodeRequired ? '请选择业务' : '未归属业务（可留空）'}
+            >
               {enabledBizDomains.map((d) => (
                 <Select.Option key={d.code} value={d.code} label={`${d.name} (${d.code})`}>
                   {d.name} ({d.code})
