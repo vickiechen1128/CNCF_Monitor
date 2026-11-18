@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/service"
 )
 

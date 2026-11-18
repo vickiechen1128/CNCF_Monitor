@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dashboard "github.com/metriccenter/metriccenter/platform/dashboard"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/repository"
 )
@@ -360,7 +360,7 @@ func TestBuildSummaryPlatformTopNAndOther(t *testing.T) {
 }
 
 // sumCells adds the host counts of one matrix row (row total === cell sum).
-func sumCells(cells []dashboard.PlatformAppCell) int {
+func sumCells(cells []dto.PlatformAppCell) int {
 	total := 0
 	for _, cell := range cells {
 		total += cell.HostCount

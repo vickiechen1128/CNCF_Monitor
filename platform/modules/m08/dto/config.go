@@ -72,5 +72,4 @@ type SaveResult struct {
 	ConfigVersion   string        `json:"config_version"`
 	PendingSections []string      `json:"pending_sections"`
 	Reload          *ReloadSummary `json:"reload,omitempty"`
-	SnapshotSynced  bool          `json:"snapshot_synced"`
 }

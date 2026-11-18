@@ -33,12 +33,15 @@ func (r *GORMSnapshotRepository) CreateCurrent(ctx context.Context, snapshot *do
 		keep = 20
 	}
 	rec := &snapshotRecord{
+		Scope: alertmanagerSnapshotScope, ScopeKey: alertmanagerSnapshotScopeKey,
 		Version: snapshot.Version, Checksum: snapshot.Checksum, Content: snapshot.Content,
 		RouteTree: snapshot.RouteTree, IsCurrent: true, GeneratedBy: snapshot.GeneratedBy,
 		GeneratedAt: snapshot.GeneratedAt,
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&snapshotRecord{}).Where("is_current = ?", true).
+		if err := tx.Model(&snapshotRecord{}).
+			Where("scope = ? AND scope_key = ? AND is_current = ?",
+				alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey, true).
 			Update("is_current", false).Error; err != nil {
 			return err
 		}
@@ -48,17 +51,23 @@ func (r *GORMSnapshotRepository) CreateCurrent(ctx context.Context, snapshot *do
 		snapshot.ID = rec.ID
 		snapshot.CreatedAt = rec.CreatedAt
 		snapshot.IsCurrent = true
-		return tx.Exec(`DELETE FROM m08_config_snapshots
-			WHERE is_current = ? AND id NOT IN (
-				SELECT id FROM m08_config_snapshots ORDER BY id DESC LIMIT ?
-			)`, false, keep).Error
+		return tx.Exec(`DELETE FROM config_snapshots
+			WHERE scope = ? AND scope_key = ? AND is_current = ? AND id NOT IN (
+				SELECT id FROM config_snapshots
+				WHERE scope = ? AND scope_key = ? ORDER BY id DESC LIMIT ?
+			)`,
+			alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey, false,
+			alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey, keep).Error
 	})
 }
 
 // Current returns the current snapshot.
 func (r *GORMSnapshotRepository) Current(ctx context.Context) (*domain.Snapshot, error) {
 	var rec snapshotRecord
-	if err := r.db.WithContext(ctx).Where("is_current = ?", true).First(&rec).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ? AND is_current = ?",
+			alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey, true).
+		First(&rec).Error; err != nil {
 		if isNotFound(err) {
 			return nil, notFound("config snapshot", "current")
 		}
@@ -70,7 +79,9 @@ func (r *GORMSnapshotRepository) Current(ctx context.Context) (*domain.Snapshot,
 // Get loads one snapshot by id.
 func (r *GORMSnapshotRepository) Get(ctx context.Context, id int64) (*domain.Snapshot, error) {
 	var rec snapshotRecord
-	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&rec).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ? AND id = ?", alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey, id).
+		First(&rec).Error; err != nil {
 		if isNotFound(err) {
 			return nil, notFound("config snapshot", idString(id))
 		}
@@ -82,12 +93,16 @@ func (r *GORMSnapshotRepository) Get(ctx context.Context, id int64) (*domain.Sna
 // List returns a page of snapshots, newest first (content included).
 func (r *GORMSnapshotRepository) List(ctx context.Context, page, pageSize int) ([]*domain.Snapshot, int64, error) {
 	page, pageSize = normalizePage(page, pageSize)
+	scopeQuery := r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ?", alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey)
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&snapshotRecord{}).Count(&total).Error; err != nil {
+	if err := scopeQuery.Model(&snapshotRecord{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var recs []snapshotRecord
-	if err := paginate(r.db.WithContext(ctx).Order("id DESC"), page, pageSize).Find(&recs).Error; err != nil {
+	if err := paginate(r.db.WithContext(ctx).
+		Where("scope = ? AND scope_key = ?", alertmanagerSnapshotScope, alertmanagerSnapshotScopeKey).
+		Order("id DESC"), page, pageSize).Find(&recs).Error; err != nil {
 		return nil, 0, err
 	}
 	out := make([]*domain.Snapshot, 0, len(recs))

@@ -46,6 +46,9 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		// M09/M11 v3 has not landed: the default no-op retirer reports
 		// monitoring_available=false (D19). Tests may inject a fake.
 		opts.Monitoring,
+		// Count live M01 scrape jobs so domain deletion surfaces job references
+		// in the impact view instead of relying on the database NO ACTION FK.
+		references.NewGORMScrapeJobCounter(db),
 	)
 	userSvc := service.NewUserService(repository.NewGORMUserRepository(db))
 	loginLogSvc := service.NewLoginLogService(repository.NewGORMLoginLogRepository(db))

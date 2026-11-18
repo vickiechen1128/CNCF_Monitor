@@ -6,8 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"gorm.io/gorm"
 )
 
@@ -48,7 +47,7 @@ func ListChannelsHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		// 路由引用数用于前端提示「渠道建了但没被任何路由使用」；读取失败仅降级为 0，不阻断列表。
-		refs, _ := route.ReferencedReceiverNames(db)
+		refs, _ := referencedReceiverNames(db)
 		items := make([]ChannelView, 0, len(rows))
 		for i := range rows {
 			items = append(items, toChannelViewWithRouteRefs(&rows[i], refs))
@@ -82,7 +81,7 @@ func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			respondChannelError(c, err)
 			return
 		}
-		refs, _ := route.ReferencedReceiverNames(db)
+		refs, _ := referencedReceiverNames(db)
 		response.OK(c, toChannelViewWithRouteRefs(ch, refs))
 	}
 }
@@ -117,7 +116,7 @@ func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			respondChannelError(c, err)
 			return
 		}
-		refs, _ := route.ReferencedReceiverNames(db)
+		refs, _ := referencedReceiverNames(db)
 		response.OK(c, toChannelViewWithRouteRefs(ch, refs))
 	}
 }

@@ -77,20 +77,17 @@ func newNetworkDomainTestRouter(t *testing.T, user *models.User, monitoring refe
 		Code: "beijing", DisplayName: "北京分区", Enabled: true,
 	}).Error)
 
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: "mc-existing", Name: "已有采集域", Description: "含资源",
-		DomainType: models.DomainTypeEdge, ZoneType: "beijing", CloudCode: "aliyun",
-		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
-		Channel: models.ChannelTypeAgentPull, Status: models.DomainStatusEnabled,
-	}).Error)
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: "mc-empty", Name: "空采集域", Description: "可删除",
-		DomainType: models.DomainTypeEdge, ZoneType: "beijing", CloudCode: "aliyun",
-		TenantID:            models.PlatformAdminTenantID,
-		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID, "tenant-a"},
-		Channel:             models.ChannelTypeAgentPull, Token: "secret-token",
-		Status: models.DomainStatusEnabled,
-	}).Error)
+	// V3-only: insert the administrative columns directly. models.NetworkDomain
+	// still declares the legacy columns dropped by migration 0014, so GORM
+	// Create would emit INSERTs referencing them.
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, description, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+		VALUES ('mc-existing', '已有采集域', '含资源', 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'enabled')`,
+		`["platform_admin"]`).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, description, domain_type, zone_type, cloud_code, tenant_id, authorized_tenant_ids, status)
+		VALUES ('mc-empty', '空采集域', '可删除', 'edge', 'beijing', 'aliyun', 'platform_admin', ?, 'enabled')`,
+		`["platform_admin","tenant-a"]`).Error)
 
 	require.NoError(t, gormDB.Exec(`INSERT INTO resources
 		(resource_id, resource_category, tenant_id, network_domain_id, env, status, source_type, dedup_key)
@@ -316,8 +313,9 @@ func TestNetworkDomainDelete(t *testing.T) {
 	var deleted models.NetworkDomain
 	require.NoError(t, gormDB.Unscoped().Where("id = ?", "mc-empty").First(&deleted).Error)
 	assert.True(t, deleted.DeletedAt.Valid)
-	assert.Empty(t, deleted.Token)
-	assert.Equal(t, models.RegistrationStatusRetired, deleted.RegistrationStatus)
+	// Legacy onboarding state (token / registration_status) no longer lives on
+	// network_domains; M09 owns it in network_domain_access and the FK CASCADE
+	// handles its cleanup. There is no retired state to assert here.
 
 	code, out = doRequest(t, router, http.MethodDelete, "/api/v3/platform/network-domains/mc-empty", "")
 	assert.Equal(t, http.StatusNotFound, code)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/foundation/httpapi"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/service"

@@ -34,10 +34,7 @@ type Options struct {
 	ReloadURL *url.URL
 	// BridgeBaseURL is the absolute base used in generated receiver URLs.
 	BridgeBaseURL string
-	// CenterDomainID tags the M09 snapshot; empty skips the sync (D-M08-01).
-	CenterDomainID   string
-	Sink             references.AlertmanagerSnapshotSink
-	DomainReader     references.DomainReader
+	// DomainAuthorizer is the M06 read port used by silence/inhibition guards.
 	DomainAuthorizer references.DomainAuthorizer
 	ResourceNamer    references.ResourceNamer
 	// Checker overrides the amtool checker (tests).
@@ -84,8 +81,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	applier := apply.New(opts.ConfigDir, reloader, reloadLogs)
 
 	configSvc := service.NewConfigService(snapshots, channels, ruleRepo, service.ConfigOptions{
-		Checker: checker, Applier: applier, Sink: opts.Sink, SinkDomainID: opts.CenterDomainID,
-		DomainReader: opts.DomainReader, BridgeBaseURL: opts.BridgeBaseURL,
+		Checker: checker, Applier: applier, BridgeBaseURL: opts.BridgeBaseURL,
 		ReloadLogs: reloadLogs,
 	})
 	eventSvc := service.NewEventService(events, service.EventOptions{

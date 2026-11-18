@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	dashboard "github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/repository"
 )
 
@@ -96,7 +96,7 @@ type summaryInput struct {
 
 // Build returns the homepage summary. Slice fields are always non-nil (an empty
 // database yields []), matching the frontend contract.
-func (s *SummaryService) Build(ctx context.Context) (*dashboard.Summary, error) {
+func (s *SummaryService) Build(ctx context.Context) (*dto.Summary, error) {
 	input, err := s.load(ctx)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (s *SummaryService) Build(ctx context.Context) (*dashboard.Summary, error) 
 	if s.health != nil {
 		if idx, err := s.health.UpHealth(ctx); err == nil {
 			if counts := domain.ClassifyUpHealth(dispatched, idx); counts != nil {
-				summary.CollectionHealth = &dashboard.CollectionHealth{
+				summary.CollectionHealth = &dto.CollectionHealth{
 					DispatchedCount:        counts.Total,
 					CollectingCount:        counts.Collecting,
 					PartialCollectingCount: counts.Partial,
@@ -278,13 +278,13 @@ type cloudAgg struct {
 // assembleSummary turns the read model into the response payload. It also
 // returns the dispatched (monitored ∩ live) resource IDs, the denominator of
 // collection_health.
-func assembleSummary(in *summaryInput) (*dashboard.Summary, []string) {
-	summary := &dashboard.Summary{
-		ByCategory:    []dashboard.CategorySummary{},
-		ByApp:         []dashboard.AppSummary{},
-		ProbeTargets:  []dashboard.ProbeTargetItem{},
-		ByPlatformApp: []dashboard.PlatformAppSummary{},
-		ByCloud:       []dashboard.CloudSummary{},
+func assembleSummary(in *summaryInput) (*dto.Summary, []string) {
+	summary := &dto.Summary{
+		ByCategory:    []dto.CategorySummary{},
+		ByApp:         []dto.AppSummary{},
+		ProbeTargets:  []dto.ProbeTargetItem{},
+		ByPlatformApp: []dto.PlatformAppSummary{},
+		ByCloud:       []dto.CloudSummary{},
 	}
 
 	// Live resource index: a selected ID only counts as monitored while its
@@ -402,12 +402,12 @@ func assembleSummary(in *summaryInput) (*dashboard.Summary, []string) {
 
 // buildCategorySummary assembles the six fixed by_category rows. Missing
 // categories still produce a zero-valued row (the frontend renders six cards).
-func buildCategorySummary(cats map[string]*categoryAgg) []dashboard.CategorySummary {
-	out := make([]dashboard.CategorySummary, 0, len(resourceCategories))
+func buildCategorySummary(cats map[string]*categoryAgg) []dto.CategorySummary {
+	out := make([]dto.CategorySummary, 0, len(resourceCategories))
 	for _, category := range resourceCategories {
-		row := dashboard.CategorySummary{
+		row := dto.CategorySummary{
 			ResourceCategory: category,
-			BySubtype:        []dashboard.SubtypeSummary{},
+			BySubtype:        []dto.SubtypeSummary{},
 		}
 		if agg := cats[category]; agg != nil {
 			row.ResourceCount = agg.resourceCount
@@ -421,7 +421,7 @@ func buildCategorySummary(cats map[string]*categoryAgg) []dashboard.CategorySumm
 			sort.Strings(subtypes)
 			for _, subtype := range subtypes {
 				sub := agg.subtypes[subtype]
-				row.BySubtype = append(row.BySubtype, dashboard.SubtypeSummary{
+				row.BySubtype = append(row.BySubtype, dto.SubtypeSummary{
 					Subtype:        subtype,
 					ResourceCount:  sub.resourceCount,
 					MonitoredCount: sub.monitoredCount,
@@ -436,8 +436,8 @@ func buildCategorySummary(cats map[string]*categoryAgg) []dashboard.CategorySumm
 // buildAppSummary assembles by_app rows: app_name from the application
 // dictionary (fallback app_code), biz attribution by majority with a
 // deterministic tie-break (smaller biz code wins, as in v2).
-func buildAppSummary(apps map[string]*appAgg, appNames, bizNames map[string]string) []dashboard.AppSummary {
-	out := make([]dashboard.AppSummary, 0, len(apps))
+func buildAppSummary(apps map[string]*appAgg, appNames, bizNames map[string]string) []dto.AppSummary {
+	out := make([]dto.AppSummary, 0, len(apps))
 	for code, agg := range apps {
 		var bizCode string
 		bestCount := 0
@@ -453,7 +453,7 @@ func buildAppSummary(apps map[string]*appAgg, appNames, bizNames map[string]stri
 				bizName = bizCode
 			}
 		}
-		out = append(out, dashboard.AppSummary{
+		out = append(out, dto.AppSummary{
 			AppCode:        code,
 			AppName:        resolveAppName(code, appNames),
 			BizCode:        bizCode,
@@ -493,7 +493,7 @@ func buildPlatformAppSummary(
 	hostCells map[string]map[string]int,
 	platformNames map[string]string,
 	appNames map[string]string,
-) []dashboard.PlatformAppSummary {
+) []dto.PlatformAppSummary {
 	platformTotals := make(map[string]int, len(hostCells))
 	for platformCode, row := range hostCells {
 		total := 0
@@ -516,7 +516,7 @@ func buildPlatformAppSummary(
 		return codes[i] < codes[j]
 	})
 
-	out := make([]dashboard.PlatformAppSummary, 0, len(codes)+2)
+	out := make([]dto.PlatformAppSummary, 0, len(codes)+2)
 	otherRow := make(map[string]int)
 	for rank, code := range codes {
 		if rank >= platformAppTopPlatforms {
@@ -542,7 +542,7 @@ func platformAppRow(
 	row map[string]int,
 	platformNames map[string]string,
 	appNames map[string]string,
-) dashboard.PlatformAppSummary {
+) dto.PlatformAppSummary {
 	appCodes := make([]string, 0, len(row))
 	total := 0
 	for appCode, count := range row {
@@ -556,15 +556,15 @@ func platformAppRow(
 		return appCodes[i] < appCodes[j]
 	})
 
-	cells := make([]dashboard.PlatformAppCell, 0, len(appCodes))
+	cells := make([]dto.PlatformAppCell, 0, len(appCodes))
 	for _, appCode := range appCodes {
-		cells = append(cells, dashboard.PlatformAppCell{
+		cells = append(cells, dto.PlatformAppCell{
 			AppCode:   appCode,
 			AppName:   resolveAppName(appCode, appNames),
 			HostCount: row[appCode],
 		})
 	}
-	return dashboard.PlatformAppSummary{
+	return dto.PlatformAppSummary{
 		PlatformCode: platformCode,
 		PlatformName: resolvePlatformName(platformCode, platformNames),
 		Cells:        cells,
@@ -612,7 +612,7 @@ func accumulateCloudCell(aggs map[string]*cloudAgg, cloudCode string, monitored 
 
 // buildCloudSummary assembles by_cloud（与 v2 同规则）：分组轴只有 cloud_code，
 // 按主机台数降序，「未指定云」恒排末位、存在才输出；coverage_rate 为整数除法。
-func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) []dashboard.CloudSummary {
+func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) []dto.CloudSummary {
 	codes := make([]string, 0, len(aggs))
 	for code := range aggs {
 		if code != "" {
@@ -626,7 +626,7 @@ func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) 
 		return codes[i] < codes[j]
 	})
 
-	out := make([]dashboard.CloudSummary, 0, len(codes)+1)
+	out := make([]dto.CloudSummary, 0, len(codes)+1)
 	for _, code := range codes {
 		out = append(out, cloudSummaryRow(code, aggs[code], cloudNames))
 	}
@@ -637,8 +637,8 @@ func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) 
 }
 
 // cloudSummaryRow renders one by_cloud row (coverage_rate guards division by 0).
-func cloudSummaryRow(code string, agg *cloudAgg, cloudNames map[string]string) dashboard.CloudSummary {
-	row := dashboard.CloudSummary{
+func cloudSummaryRow(code string, agg *cloudAgg, cloudNames map[string]string) dto.CloudSummary {
+	row := dto.CloudSummary{
 		CloudCode:      code,
 		CloudName:      resolveCloudName(code, cloudNames),
 		ResourceCount:  agg.resourceCount,
@@ -667,8 +667,8 @@ func resolveCloudName(code string, cloudNames map[string]string) string {
 // interface_service / application 资源的目标；地址取 api_url / health_check_url，
 // 展示名取 api_name / 应用字典名。status 恒为空串（"unknown" 口径）、
 // last_probe_at 恒 nil、异常数恒 0：v3 尚未接 probe_success 查询，宁缺不臆造。
-func buildProbeTargets(in *summaryInput, live map[string]repository.ResourceRow) []dashboard.ProbeTargetItem {
-	items := make([]dashboard.ProbeTargetItem, 0)
+func buildProbeTargets(in *summaryInput, live map[string]repository.ResourceRow) []dto.ProbeTargetItem {
+	items := make([]dto.ProbeTargetItem, 0)
 
 	domainNames := make(map[string]string, len(in.domains))
 	for _, domain := range in.domains {
@@ -690,7 +690,7 @@ func buildProbeTargets(in *summaryInput, live map[string]repository.ResourceRow)
 			if !ok {
 				continue // 资源已软删：不计入拨测目标
 			}
-			item := dashboard.ProbeTargetItem{
+			item := dto.ProbeTargetItem{
 				ResourceCategory:  res.ResourceCategory,
 				NetworkDomainID:   job.NetworkDomainID,
 				NetworkDomainName: domainName,

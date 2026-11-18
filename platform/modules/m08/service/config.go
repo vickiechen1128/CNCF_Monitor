@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m08/apply"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/configgen"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/domain"
-	"github.com/metriccenter/metriccenter/platform/modules/m08/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/repository"
 )
 
@@ -21,11 +19,11 @@ type SaveOutcome struct {
 	Version         string
 	PendingSections []string
 	Reload          apply.Result
-	SnapshotSynced  bool
 }
 
 // ConfigService owns the generated alertmanager.yml lifecycle: generate →
-// validate → apply → persist → sync to M09 (FR-02..FR-08).
+// validate → apply → persist. The snapshot is the single authoritative history;
+// M09 reads it for the unified config-artifact view (no second copy).
 type ConfigService struct {
 	snapshots   repository.SnapshotRepository
 	channels    repository.ChannelRepository
@@ -33,9 +31,6 @@ type ConfigService struct {
 	checker     ConfigChecker
 	applier     *apply.Applier
 	reloadLogs  repository.ReloadLogRepository
-	sink        references.AlertmanagerSnapshotSink
-	sinkDomain  string
-	domain      references.DomainReader
 	bridgeBase  string
 	keepHistory int
 	now         func() time.Time
@@ -46,9 +41,6 @@ type ConfigService struct {
 type ConfigOptions struct {
 	Checker       ConfigChecker
 	Applier       *apply.Applier
-	Sink          references.AlertmanagerSnapshotSink
-	SinkDomainID  string
-	DomainReader  references.DomainReader
 	BridgeBaseURL string
 	KeepHistory   int
 	ReloadLogs    repository.ReloadLogRepository
@@ -67,9 +59,8 @@ func NewConfigService(
 	}
 	return &ConfigService{
 		snapshots: snapshots, channels: channels, inhibitions: inhibitions,
-		checker: opts.Checker, applier: opts.Applier, sink: opts.Sink,
+		checker: opts.Checker, applier: opts.Applier,
 		reloadLogs: opts.ReloadLogs,
-		sinkDomain: opts.SinkDomainID, domain: opts.DomainReader,
 		bridgeBase: opts.BridgeBaseURL, keepHistory: keep,
 		now: func() time.Time { return time.Now().UTC() },
 	}
@@ -222,36 +213,10 @@ func (s *ConfigService) save(
 	if err := s.snapshots.CreateCurrent(ctx, snapshot, s.keepHistory); err != nil {
 		return nil, err
 	}
-	synced := s.syncSink(ctx, snapshot, operator)
 	return &SaveOutcome{
 		Checksum: snapshot.Checksum, Version: snapshot.Version,
-		PendingSections: pending, Reload: reloaded, SnapshotSynced: synced,
+		PendingSections: pending, Reload: reloaded,
 	}, nil
-}
-
-// syncSink pushes the snapshot to M09 for read-only history (D31). Failures are
-// logged and never fail the save; an unconfigured/invalid center domain skips it
-// with a warning (D-M08-01).
-func (s *ConfigService) syncSink(ctx context.Context, snapshot *domain.Snapshot, operator string) bool {
-	if s.sink == nil || s.sinkDomain == "" {
-		return false
-	}
-	if s.domain != nil {
-		usable, err := s.domain.Usable(ctx, s.sinkDomain)
-		if err != nil {
-			log.Printf("[m08] center domain check failed, skipping M09 snapshot sync: %v", err)
-			return false
-		}
-		if !usable {
-			log.Printf("[m08] center domain %q missing or disabled, skipping M09 snapshot sync (D-M08-01)", s.sinkDomain)
-			return false
-		}
-	}
-	if err := s.sink.SaveAlertmanagerSnapshot(ctx, s.sinkDomain, snapshot.Content, snapshot.Checksum, operator); err != nil {
-		log.Printf("[m08] M09 snapshot sync failed: %v", err)
-		return false
-	}
-	return true
 }
 
 // generateDefault renders the seed configuration (no channels, no rules).

@@ -107,6 +107,7 @@ type DeleteNetworkDomainResponse struct {
 type ImpactResponse struct {
 	ResourceCount         int64            `json:"resource_count"`
 	SampleResources       []SampleResource `json:"sample_resources"`
+	ScrapeJobCount        int64            `json:"scrape_job_count"`
 	ManagedEdgeAgentCount int64            `json:"managed_edge_agent_count"`
 	HasOnlineAgents       bool             `json:"has_online_agents"`
 	MonitoringAvailable   bool             `json:"monitoring_available"`
@@ -157,6 +158,7 @@ func FromImpact(impact *domain.Impact) ImpactResponse {
 	return ImpactResponse{
 		ResourceCount:         impact.ResourceCount,
 		SampleResources:       samples,
+		ScrapeJobCount:        impact.ScrapeJobCount,
 		ManagedEdgeAgentCount: impact.ManagedEdgeAgentCount,
 		HasOnlineAgents:       impact.HasOnlineAgents,
 		MonitoringAvailable:   impact.MonitoringAvailable,

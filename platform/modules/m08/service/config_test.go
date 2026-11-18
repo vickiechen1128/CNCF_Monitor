@@ -44,26 +44,7 @@ func (s *stubReloader) Reload(context.Context) error {
 
 func (s *stubReloader) Verify(context.Context) error { return s.verifyErr }
 
-type stubSink struct {
-	calls   int
-	content string
-}
-
-func (s *stubSink) SaveAlertmanagerSnapshot(_ context.Context, _ string, content, _ string, _ string) error {
-	s.calls++
-	s.content = content
-	return nil
-}
-
-type stubDomainReader struct{ usable bool }
-
-func (s stubDomainReader) Status(context.Context, string) (string, bool, error) {
-	return "enabled", s.usable, nil
-}
-
-func (s stubDomainReader) Usable(context.Context, string) (bool, error) { return s.usable, nil }
-
-func newConfigService(t *testing.T, checker ConfigChecker) (*ConfigService, *stubReloader, *stubSink, *gorm.DB) {
+func newConfigService(t *testing.T, checker ConfigChecker) (*ConfigService, *stubReloader, *gorm.DB) {
 	t.Helper()
 	g := newTestDB(t)
 	snapshots := repository.NewSnapshotRepository(g)
@@ -72,20 +53,18 @@ func newConfigService(t *testing.T, checker ConfigChecker) (*ConfigService, *stu
 	templates := repository.NewTemplateRepository(g)
 	reloadLogs := repository.NewReloadLogRepository(g)
 	reloader := &stubReloader{}
-	sinkImpl := &stubSink{}
 	applier := apply.New(t.TempDir(), reloader, reloadLogs)
 	svc := NewConfigService(snapshots, channels, rules, ConfigOptions{
-		Checker: checker, Applier: applier, Sink: sinkImpl, SinkDomainID: "mc-a",
-		DomainReader: stubDomainReader{usable: true}, BridgeBaseURL: "http://127.0.0.1:8080",
+		Checker: checker, Applier: applier, BridgeBaseURL: "http://127.0.0.1:8080",
 		ReloadLogs: reloadLogs,
 	})
 	svc.SetClock(func() time.Time { return time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC) })
 	require.NoError(t, Seed(context.Background(), snapshots, templates, rules, svc, SeedOptions{}))
-	return svc, reloader, sinkImpl, g
+	return svc, reloader, g
 }
 
 func TestSeedCreatesCurrentSnapshot(t *testing.T) {
-	svc, _, _, _ := newConfigService(t, &stubChecker{})
+	svc, _, _ := newConfigService(t, &stubChecker{})
 	snapshot, err := svc.Current(context.Background())
 	require.NoError(t, err)
 	assert.True(t, snapshot.IsCurrent)
@@ -95,7 +74,7 @@ func TestSeedCreatesCurrentSnapshot(t *testing.T) {
 }
 
 func TestSaveRoutesAppliesAndPersists(t *testing.T) {
-	svc, reloader, sink, _ := newConfigService(t, &stubChecker{})
+	svc, reloader, _ := newConfigService(t, &stubChecker{})
 	current, err := svc.Current(context.Background())
 	require.NoError(t, err)
 
@@ -107,8 +86,6 @@ func TestSaveRoutesAppliesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, reloader.calls)
 	assert.Contains(t, outcome.PendingSections, string(domain.PendingRouteChanged))
-	assert.True(t, outcome.SnapshotSynced)
-	assert.Equal(t, 1, sink.calls)
 
 	updated, err := svc.Current(context.Background())
 	require.NoError(t, err)
@@ -118,7 +95,7 @@ func TestSaveRoutesAppliesAndPersists(t *testing.T) {
 }
 
 func TestSaveRoutesRejectsStaleChecksum(t *testing.T) {
-	svc, _, _, _ := newConfigService(t, &stubChecker{})
+	svc, _, _ := newConfigService(t, &stubChecker{})
 	_, err := svc.SaveRoutes(context.Background(), "stale-checksum", []domain.RouteNode{{
 		ID: "root", Receiver: "default", Enabled: true,
 	}}, "tester")
@@ -130,7 +107,7 @@ func TestSaveRoutesValidationFailureKeepsCurrent(t *testing.T) {
 	checker := &stubChecker{err: &domain.ConfigValidationError{
 		Cause: domain.ValidationCauseUserConfig, Items: []domain.ValidationIssue{{Line: 3, Message: "bad"}},
 	}}
-	svc, reloader, _, _ := newConfigService(t, checker)
+	svc, reloader, _ := newConfigService(t, checker)
 	current, err := svc.Current(context.Background())
 	require.NoError(t, err)
 	_, err = svc.SaveRoutes(context.Background(), current.Checksum, []domain.RouteNode{{
@@ -145,33 +122,8 @@ func TestSaveRoutesValidationFailureKeepsCurrent(t *testing.T) {
 	assert.Equal(t, current.Checksum, still.Checksum, "current snapshot must not move")
 }
 
-func TestSaveRoutesSkipsSinkWhenDomainUnusable(t *testing.T) {
-	g := newTestDB(t)
-	snapshots := repository.NewSnapshotRepository(g)
-	channels := repository.NewChannelRepository(g)
-	rules := repository.NewInhibitionRepository(g)
-	templates := repository.NewTemplateRepository(g)
-	reloadLogs := repository.NewReloadLogRepository(g)
-	applier := apply.New(t.TempDir(), &stubReloader{}, reloadLogs)
-	sink := &stubSink{}
-	svc := NewConfigService(snapshots, channels, rules, ConfigOptions{
-		Checker: &stubChecker{}, Applier: applier, Sink: sink, SinkDomainID: "missing",
-		DomainReader: stubDomainReader{usable: false}, BridgeBaseURL: "http://127.0.0.1:8080",
-		ReloadLogs: reloadLogs,
-	})
-	require.NoError(t, Seed(context.Background(), snapshots, templates, rules, svc, SeedOptions{}))
-	current, err := svc.Current(context.Background())
-	require.NoError(t, err)
-	outcome, err := svc.SaveRoutes(context.Background(), current.Checksum, []domain.RouteNode{{
-		ID: "root", Receiver: "default", Enabled: true,
-	}}, "tester")
-	require.NoError(t, err)
-	assert.False(t, outcome.SnapshotSynced)
-	assert.Equal(t, 0, sink.calls)
-}
-
 func TestReloadCurrentDoesNotCreateVersion(t *testing.T) {
-	svc, reloader, _, _ := newConfigService(t, &stubChecker{})
+	svc, reloader, _ := newConfigService(t, &stubChecker{})
 	before, err := svc.Current(context.Background())
 	require.NoError(t, err)
 	_, err = svc.ReloadCurrent(context.Background(), "tester")

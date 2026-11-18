@@ -7,16 +7,16 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
-	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"gorm.io/gorm"
 )
 
-// respondTemplateError 将模板服务层错误映射为统一错误响应。校验失败（*config.ErrValidation）
-// 返回 bad_request，data 含 { items, note } 行级错误（复用 config 的校验错误视图）。
+// respondTemplateError 将模板服务层错误映射为统一错误响应。校验失败
+// （*ErrValidation，以及测试注入的 config.ErrValidation）返回 bad_request，
+// data 含 { items, note, cause } 行级错误。
 func respondTemplateError(c *gin.Context, err error) {
-	var valErr *config.ErrValidation
 	var inUse *ErrTemplateInUse
+	items, note, cause, isValidation := validationErrorFields(err)
 	switch {
 	case errors.Is(err, ErrTemplateNotFound):
 		response.NotFound(c, err.Error())
@@ -28,12 +28,12 @@ func respondTemplateError(c *gin.Context, err error) {
 		errors.Is(err, ErrTemplateBuiltinNotDeletable),
 		errors.Is(err, ErrTemplateBuiltinNotEditable):
 		response.BadRequest(c, err)
-	case errors.As(err, &valErr):
+	case isValidation:
 		c.JSON(http.StatusBadRequest, response.Response{
 			Status:    response.StatusError,
 			ErrorType: response.ErrorTypeBadRequest,
 			Error:     "validation failed",
-			Data:      gin.H{"items": valErr.Items, "note": valErr.Note, "cause": string(valErr.Cause)},
+			Data:      gin.H{"items": items, "note": note, "cause": string(cause)},
 		})
 	default:
 		response.InternalServerError(c, err)

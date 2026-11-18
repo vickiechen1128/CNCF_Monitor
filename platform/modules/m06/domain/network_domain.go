@@ -81,6 +81,7 @@ type ResourceSummary struct {
 type Impact struct {
 	ResourceCount         int64
 	SampleResources       []ResourceSummary
+	ScrapeJobCount        int64
 	ManagedEdgeAgentCount int64
 	HasOnlineAgents       bool
 	MonitoringAvailable   bool
@@ -134,7 +135,7 @@ type DomainInUseError struct {
 }
 
 func (e *DomainInUseError) Error() string {
-	if e.Impact == nil || e.Impact.ResourceCount == 0 {
+	if e.Impact == nil || (e.Impact.ResourceCount == 0 && e.Impact.ScrapeJobCount == 0) {
 		return fmt.Sprintf("network domain %q is still referenced", e.DomainID)
 	}
 	samples := make([]string, 0, len(e.Impact.SampleResources))
@@ -142,6 +143,9 @@ func (e *DomainInUseError) Error() string {
 		samples = append(samples, r.ResourceID)
 	}
 	message := fmt.Sprintf("network domain %q is still referenced by %d resource(s)", e.DomainID, e.Impact.ResourceCount)
+	if e.Impact.ScrapeJobCount > 0 {
+		message += fmt.Sprintf(" and %d scrape job(s)", e.Impact.ScrapeJobCount)
+	}
 	if len(samples) > 0 {
 		message += " (e.g. " + strings.Join(samples, ", ") + ")"
 	}

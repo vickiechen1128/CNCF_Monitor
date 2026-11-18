@@ -70,9 +70,18 @@ func (r *templateRecord) toDomain() *domain.Template {
 	}
 }
 
-// snapshotRecord is the m08_config_snapshots row.
+// Alertmanager snapshots live in the 'alertmanager' scope of the unified
+// config_snapshots table (0016).
+const (
+	alertmanagerSnapshotScope    = "alertmanager"
+	alertmanagerSnapshotScopeKey = "alertmanager"
+)
+
+// snapshotRecord is the alertmanager-scoped row of config_snapshots.
 type snapshotRecord struct {
 	ID          int64             `gorm:"column:id;primaryKey"`
+	Scope       string            `gorm:"column:scope"`
+	ScopeKey    string            `gorm:"column:scope_key"`
 	Version     string            `gorm:"column:version;not null"`
 	Checksum    string            `gorm:"column:checksum;not null"`
 	Content     string            `gorm:"column:content;not null"`
@@ -83,8 +92,8 @@ type snapshotRecord struct {
 	CreatedAt   time.Time         `gorm:"column:created_at"`
 }
 
-// TableName pins the v3 table name.
-func (snapshotRecord) TableName() string { return "m08_config_snapshots" }
+// TableName pins the unified v3 table name.
+func (snapshotRecord) TableName() string { return "config_snapshots" }
 
 // reloadLogRecord is the m08_reload_logs row.
 type reloadLogRecord struct {

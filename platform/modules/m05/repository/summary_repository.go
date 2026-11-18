@@ -84,7 +84,9 @@ type SummaryRepository interface {
 	ReadyJobs(ctx context.Context) ([]JobRow, error)
 	// ScrapeJobCounts returns the non-deleted job total and the enabled subset.
 	ScrapeJobCounts(ctx context.Context) (JobCounts, error)
-	// MonitoredDomainCount counts live network domains with is_monitored=true.
+	// MonitoredDomainCount counts live network domains whose M09 access record
+	// is in the monitored registration state (the former is_monitored column
+	// was dropped in V3-only line).
 	MonitoredDomainCount(ctx context.Context) (int64, error)
 	// Domains returns every live network domain (id / name / cloud_code).
 	Domains(ctx context.Context) ([]DomainRow, error)
@@ -215,11 +217,16 @@ func (r *GORMSummaryRepository) ScrapeJobCounts(ctx context.Context) (JobCounts,
 }
 
 // MonitoredDomainCount implements SummaryRepository.
+//
+// V3-only: is_monitored no longer exists on network_domains. The authoritative
+// onboarding state lives in network_domain_access.registration_status (M09), so
+// count live domains through that 1:1 access record.
 func (r *GORMSummaryRepository) MonitoredDomainCount(ctx context.Context) (int64, error) {
+	const query = `SELECT COUNT(*) FROM network_domain_access nda
+		JOIN network_domains nd ON nd.id = nda.domain_id
+		WHERE nda.registration_status = ? AND nd.deleted_at IS NULL`
 	var count int64
-	if err := r.db.WithContext(ctx).Table("network_domains").
-		Where("is_monitored = ? AND deleted_at IS NULL", true).
-		Count(&count).Error; err != nil {
+	if err := r.db.WithContext(ctx).Raw(query, "monitored").Scan(&count).Error; err != nil {
 		return 0, fmt.Errorf("count monitored network domains: %w", err)
 	}
 	return count, nil

@@ -118,12 +118,9 @@ func TestCloudDictDisableGuards(t *testing.T) {
 		code, out := doRequest(t, router, http.MethodPost, "/api/v3/platform/cloud-dict", body)
 		require.Equal(t, http.StatusOK, code, out)
 	}
-	require.NoError(t, gormDB.Create(&models.NetworkDomain{
-		ID: "mc-ref", Name: "引用网域", DomainType: models.DomainTypeEdge,
-		ZoneType: "beijing", CloudCode: "GM-CU",
-		TenantID: models.PlatformAdminTenantID, Channel: models.ChannelTypeAgentPull,
-		Status: models.DomainStatusEnabled,
-	}).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
+		(id, name, domain_type, zone_type, cloud_code, tenant_id, status)
+		VALUES ('mc-ref', '引用网域', 'edge', 'beijing', 'GM-CU', 'platform_admin', 'enabled')`).Error)
 
 	// 被网域引用 → 409
 	code, out := doRequest(t, router, http.MethodPut, "/api/v3/platform/cloud-dict/GM-CU", `{"enabled":false}`)

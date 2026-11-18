@@ -6,11 +6,36 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/domain"
 	"gorm.io/gorm"
 )
+
+// networkDomainRecord maps only the administrative columns that remain on
+// `network_domains` in the V3-only schema. The 11 legacy onboarding columns
+// (channel, token, agent_type, center_endpoint, remote_write_url,
+// max_disk_usage_per_url, monitored_status, last_heartbeat, agent_version,
+// is_monitored, registration_status) were dropped by migration 0014; their
+// authoritative home is `network_domain_access` (M09). Using a dedicated record
+// here prevents GORM from emitting INSERTs that reference removed columns.
+type networkDomainRecord struct {
+	ID                  string              `gorm:"primarykey;size:64"`
+	Name                string              `gorm:"size:100;not null"`
+	Description         string              `gorm:"size:500"`
+	DomainType          models.DomainType   `gorm:"size:20;not null"`
+	ZoneType            string              `gorm:"size:50"`
+	CloudCode           string              `gorm:"size:50"`
+	TenantID            string              `gorm:"size:64;not null"`
+	AuthorizedTenantIDs []string            `gorm:"serializer:json"`
+	Status              models.DomainStatus `gorm:"size:20;not null"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           gorm.DeletedAt `gorm:"index"`
+}
+
+func (networkDomainRecord) TableName() string { return "network_domains" }
 
 // ListNetworkDomainsFilter carries network-domain list filters.
 type ListNetworkDomainsFilter struct {
@@ -47,7 +72,7 @@ func NewGORMNetworkDomainRepository(db *gorm.DB) *GORMNetworkDomainRepository {
 
 // List returns network domains matching the filters in created_at/id order.
 func (r *GORMNetworkDomainRepository) List(ctx context.Context, filter ListNetworkDomainsFilter) ([]*domain.NetworkDomain, int64, error) {
-	query := r.db.WithContext(ctx).Model(&models.NetworkDomain{})
+	query := r.db.WithContext(ctx).Model(&networkDomainRecord{})
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
 	}
@@ -77,7 +102,7 @@ func (r *GORMNetworkDomainRepository) List(ctx context.Context, filter ListNetwo
 	if pageSize < 1 {
 		pageSize = 20
 	}
-	var rows []models.NetworkDomain
+	var rows []networkDomainRecord
 	if err := query.Order("created_at ASC, id ASC").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Find(&rows).Error; err != nil {
@@ -92,7 +117,7 @@ func (r *GORMNetworkDomainRepository) List(ctx context.Context, filter ListNetwo
 
 // Get returns one network domain or domain.NetworkDomainNotFoundError.
 func (r *GORMNetworkDomainRepository) Get(ctx context.Context, id string) (*domain.NetworkDomain, error) {
-	var row models.NetworkDomain
+	var row networkDomainRecord
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, &domain.NetworkDomainNotFoundError{DomainID: id}
@@ -106,7 +131,7 @@ func (r *GORMNetworkDomainRepository) Get(ctx context.Context, id string) (*doma
 // NameExists reports whether another live domain uses the same name
 // (case-insensitive).
 func (r *GORMNetworkDomainRepository) NameExists(ctx context.Context, name, excludeID string) (bool, error) {
-	query := r.db.WithContext(ctx).Model(&models.NetworkDomain{}).Where("lower(name) = lower(?)", name)
+	query := r.db.WithContext(ctx).Model(&networkDomainRecord{}).Where("lower(name) = lower(?)", name)
 	if excludeID != "" {
 		query = query.Where("id <> ?", excludeID)
 	}
@@ -121,7 +146,7 @@ func (r *GORMNetworkDomainRepository) NameExists(ctx context.Context, name, excl
 // rows keep their primary key, so re-registration must return 409.
 func (r *GORMNetworkDomainRepository) IDExistsIncludingDeleted(ctx context.Context, id string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Unscoped().Model(&models.NetworkDomain{}).
+	err := r.db.WithContext(ctx).Unscoped().Model(&networkDomainRecord{}).
 		Where("id = ?", id).Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check network domain id %q: %w", id, err)
@@ -158,7 +183,7 @@ func isUniqueViolation(err error) bool {
 func (r *GORMNetworkDomainRepository) Update(ctx context.Context, id string, input domain.UpdateNetworkDomainInput) (*domain.NetworkDomain, error) {
 	var updated *domain.NetworkDomain
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row models.NetworkDomain
+		var row networkDomainRecord
 		if err := tx.Where("id = ?", id).First(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return &domain.NetworkDomainNotFoundError{DomainID: id}
@@ -196,7 +221,7 @@ func (r *GORMNetworkDomainRepository) Update(ctx context.Context, id string, inp
 
 // UpdateStatus changes the administrative status.
 func (r *GORMNetworkDomainRepository) UpdateStatus(ctx context.Context, id string, status domain.DomainStatus) error {
-	result := r.db.WithContext(ctx).Model(&models.NetworkDomain{}).
+	result := r.db.WithContext(ctx).Model(&networkDomainRecord{}).
 		Where("id = ?", id).Update("status", string(status))
 	if result.Error != nil {
 		return fmt.Errorf("update network domain %q status: %w", id, result.Error)
@@ -210,7 +235,7 @@ func (r *GORMNetworkDomainRepository) UpdateStatus(ctx context.Context, id strin
 // Delete soft-deletes a domain and removes it from tenant caches.
 func (r *GORMNetworkDomainRepository) Delete(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row models.NetworkDomain
+		var row networkDomainRecord
 		if err := tx.Where("id = ?", id).First(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return &domain.NetworkDomainNotFoundError{DomainID: id}
@@ -220,23 +245,10 @@ func (r *GORMNetworkDomainRepository) Delete(ctx context.Context, id string) err
 		if err := tx.Delete(&row).Error; err != nil {
 			return fmt.Errorf("delete network domain %q: %w", id, err)
 		}
-		// Retire the runtime onboarding identity so a future re-registration can
-		// never reuse the old agent token (M09 fields are not exposed by M06 v3).
-		if err := tx.Unscoped().Model(&models.NetworkDomain{}).Where("id = ?", id).
-			Updates(map[string]any{
-				"token":                  "",
-				"agent_type":             "",
-				"remote_write_url":       "",
-				"max_disk_usage_per_url": "",
-				"center_endpoint":        "",
-				"monitored_status":       "",
-				"last_heartbeat":         nil,
-				"agent_version":          "",
-				"is_monitored":           false,
-				"registration_status":    models.RegistrationStatusRetired,
-			}).Error; err != nil {
-			return fmt.Errorf("retire network domain %q runtime state: %w", id, err)
-		}
+		// Legacy onboarding columns were dropped by migration 0014. Runtime
+		// identity now lives exclusively in network_domain_access (M09), whose
+		// ON DELETE CASCADE foreign key handles cleanup on a hard delete; M06
+		// must not write those columns here.
 		return syncTenantCaches(ctx, tx, append(row.AuthorizedTenantIDs, row.TenantID)...)
 	})
 }
@@ -254,7 +266,7 @@ func syncTenantCaches(ctx context.Context, tx *gorm.DB, tenantIDs ...string) err
 		return nil
 	}
 
-	var domains []models.NetworkDomain
+	var domains []networkDomainRecord
 	if err := tx.WithContext(ctx).
 		Select("id", "tenant_id", "authorized_tenant_ids").
 		Find(&domains).Error; err != nil {
@@ -298,7 +310,7 @@ func syncTenantCaches(ctx context.Context, tx *gorm.DB, tenantIDs ...string) err
 	return nil
 }
 
-func toDomainDomain(row *models.NetworkDomain) *domain.NetworkDomain {
+func toDomainDomain(row *networkDomainRecord) *domain.NetworkDomain {
 	return &domain.NetworkDomain{
 		ID:                  row.ID,
 		Name:                row.Name,
@@ -314,8 +326,8 @@ func toDomainDomain(row *models.NetworkDomain) *domain.NetworkDomain {
 	}
 }
 
-func fromDomainDomain(item *domain.NetworkDomain) *models.NetworkDomain {
-	return &models.NetworkDomain{
+func fromDomainDomain(item *domain.NetworkDomain) *networkDomainRecord {
+	return &networkDomainRecord{
 		ID:                  item.ID,
 		Name:                item.Name,
 		Description:         item.Description,
@@ -324,8 +336,6 @@ func fromDomainDomain(item *domain.NetworkDomain) *models.NetworkDomain {
 		CloudCode:           item.CloudCode,
 		TenantID:            item.TenantID,
 		AuthorizedTenantIDs: append([]string(nil), item.AuthorizedTenantIDs...),
-		Channel:             models.ChannelTypeAgentPull,
 		Status:              models.DomainStatus(item.Status),
-		RegistrationStatus:  models.RegistrationStatusCreated,
 	}
 }

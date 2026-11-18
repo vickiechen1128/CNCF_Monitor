@@ -17,19 +17,27 @@ type NetworkDomainService struct {
 	dictionary repository.DictionaryRepository
 	m07        references.M07Reader
 	monitoring references.MonitoringRetirer
+	scrapeJobs references.ScrapeJobCounter
 }
 
 // NewNetworkDomainService constructs the service. Nil ports degrade safely.
+// The optional scrapeJobs port reports M01 job references in the impact view;
+// when omitted it defaults to a no-op counter.
 func NewNetworkDomainService(
 	domains repository.NetworkDomainRepository,
 	dictionary repository.DictionaryRepository,
 	m07 references.M07Reader,
 	monitoring references.MonitoringRetirer,
+	scrapeJobs ...references.ScrapeJobCounter,
 ) *NetworkDomainService {
 	if monitoring == nil {
 		monitoring = references.NoopMonitoring{}
 	}
-	return &NetworkDomainService{domains: domains, dictionary: dictionary, m07: m07, monitoring: monitoring}
+	var jobs references.ScrapeJobCounter = references.NoopScrapeJobCounter{}
+	if len(scrapeJobs) > 0 && scrapeJobs[0] != nil {
+		jobs = scrapeJobs[0]
+	}
+	return &NetworkDomainService{domains: domains, dictionary: dictionary, m07: m07, monitoring: monitoring, scrapeJobs: jobs}
 }
 
 // List returns network domains matching the filters.
@@ -227,8 +235,10 @@ func (s *NetworkDomainService) Impact(ctx context.Context, id string) (*domain.I
 	return s.computeImpact(ctx, id)
 }
 
-// Delete removes a domain when M07 has no references, then retires monitoring
-// state through the M09/M11 port.
+// Delete removes a domain when neither M07 resources nor M01 scrape jobs
+// reference it, then retires monitoring state through the M09/M11 port.
+// Both reference kinds are surfaced in the impact view so the rejection is a
+// friendly 409 with details instead of an opaque database FK error.
 func (s *NetworkDomainService) Delete(ctx context.Context, id string) (*domain.Impact, error) {
 	if _, err := s.domains.Get(ctx, id); err != nil {
 		return nil, err
@@ -237,7 +247,7 @@ func (s *NetworkDomainService) Delete(ctx context.Context, id string) (*domain.I
 	if err != nil {
 		return nil, err
 	}
-	if impact.ResourceCount > 0 {
+	if impact.ResourceCount > 0 || impact.ScrapeJobCount > 0 {
 		return nil, &domain.DomainInUseError{DomainID: id, Impact: impact}
 	}
 	if err := s.monitoring.RetireDomain(ctx, id); err != nil {
@@ -265,6 +275,13 @@ func (s *NetworkDomainService) computeImpact(ctx context.Context, id string) (*d
 		}
 		impact.ResourceCount = count
 		impact.SampleResources = samples
+	}
+	if s.scrapeJobs != nil {
+		count, err := s.scrapeJobs.CountByDomain(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		impact.ScrapeJobCount = count
 	}
 	monitoring, err := s.monitoring.Impact(ctx, id)
 	if err != nil {

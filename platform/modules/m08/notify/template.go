@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -45,9 +44,10 @@ func (e *ErrTemplateInUse) Error() string {
 		len(e.Channels), strings.Join(e.Channels, "、"))
 }
 
-// validateTemplateFn 是模板校验入口：默认复用 config 的 amtool check-config 等价工序
-// （含 Go 模板解析，决策 59/60 纪律：校验失败不落库）。测试可替换以模拟校验通过/失败。
-var validateTemplateFn = config.ValidateTemplate
+// validateTemplateFn 是模板校验入口：默认使用 notify 内联的校验工序
+// （含 Go 模板解析 + amtool check-config，决策 59/60 纪律：校验失败不落库）。
+// 内联避免 v3 二进制链接 legacy config 包；测试可替换以模拟校验通过/失败。
+var validateTemplateFn = validateTemplate
 
 // BuiltinFeishuCardTemplateName 内置默认飞书卡片模板名称。
 const BuiltinFeishuCardTemplateName = "飞书卡片-默认"
@@ -174,7 +174,7 @@ type UpdateTemplateInput struct {
 }
 
 // CreateTemplate 新建一份自定义模板：校验名称 / 渠道类型 / 模板内容后落库。
-// 校验失败返回 *config.ErrValidation，不落库；同渠道类型下名称唯一。
+// 校验失败返回 *ErrValidation，不落库；同渠道类型下名称唯一。
 func CreateTemplate(db *gorm.DB, in CreateTemplateInput) (*models.NotifyTemplate, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {

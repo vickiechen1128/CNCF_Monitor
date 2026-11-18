@@ -6,7 +6,6 @@ import (
 	"text/template"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +25,7 @@ func stubTemplateInvalid(t *testing.T) {
 	t.Helper()
 	orig := validateTemplateFn
 	validateTemplateFn = func(string) error {
-		return &config.ErrValidation{
+		return &ErrValidation{
 			Items: []models.ValidateErrorItem{{File: "template", Message: "模板解析失败: boom"}},
 			Note:  "校验失败未保存",
 		}
@@ -60,7 +59,7 @@ func TestCreateTemplateRejectsValidationFailureNoPersist(t *testing.T) {
 
 	_, err := CreateTemplate(db, CreateTemplateInput{Name: "bad", ChannelType: "feishu", Content: "{{ .Status"})
 	require.Error(t, err)
-	var valErr *config.ErrValidation
+	var valErr *ErrValidation
 	require.ErrorAs(t, err, &valErr)
 	require.NotEmpty(t, valErr.Items)
 
@@ -263,7 +262,7 @@ func TestEnsureBuiltinTemplatesIdempotent(t *testing.T) {
 
 // TestBuiltinFeishuTemplateParses 覆盖内置模板可被共用 FuncMap 解析（渲染前置条件）。
 func TestBuiltinFeishuTemplateParses(t *testing.T) {
-	_, err := template.New("builtin").Funcs(config.TemplateFuncs()).Parse(BuiltinFeishuCardTemplate)
+	_, err := template.New("builtin").Funcs(templateFuncs()).Parse(BuiltinFeishuCardTemplate)
 	require.NoError(t, err)
 }
 

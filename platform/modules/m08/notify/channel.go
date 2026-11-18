@@ -2,7 +2,9 @@
 // 通知渠道（NotifyChannel）CRUD + 通知模板（NotifyTemplate）校验留痕与回滚 +
 // 平台内置渲染端点 POST /api/v1/webhooks/notify（AM 投递 → 按模板渲染 → 转投机器人）。
 // 参见设计提案 docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md
-//   §3.3.2（数据模型）/ §3.3.3（内置渲染端点）/ §3.3.8（接口契约汇总）。
+//
+//	§3.3.2（数据模型）/ §3.3.3（内置渲染端点）/ §3.3.8（接口契约汇总）。
+//
 // 安全口径：桥端点仅接受平台内已登记的 channel ID（目标地址由服务端从 DB 解析，
 // 杜绝 SSRF）；访问控制由部署层（同机 / 内网防火墙）承担；出站 HTTP 客户端统一 CA 配置（client.go）。
 package notify
@@ -16,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/alertmanager/route"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -273,7 +274,7 @@ func DeleteChannel(db *gorm.DB, id uint) error {
 	if err != nil {
 		return err
 	}
-	refs, err := route.ReferencedReceiverNames(db)
+	refs, err := referencedReceiverNames(db)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrChannelReferenceCheckFailed, err)
 	}

@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	dashboard "github.com/metriccenter/metriccenter/platform/dashboard"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -108,8 +108,8 @@ func doJSON(t *testing.T, router http.Handler, method, path, token, body string)
 	return rec.Code, out
 }
 
-// doSummary decodes the summary envelope into the shared dashboard.Summary type.
-func doSummary(t *testing.T, router http.Handler, token string) (int, dashboard.Summary) {
+// doSummary decodes the summary envelope into the shared dto.Summary type.
+func doSummary(t *testing.T, router http.Handler, token string) (int, dto.Summary) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v3/platform/dashboard/summary", nil)
 	if token != "" {
@@ -120,7 +120,7 @@ func doSummary(t *testing.T, router http.Handler, token string) (int, dashboard.
 
 	var envelope struct {
 		Status string            `json:"status"`
-		Data   dashboard.Summary `json:"data"`
+		Data   dto.Summary `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope), rec.Body.String())
 	return rec.Code, envelope.Data
@@ -132,10 +132,14 @@ func seedReferenceData(t *testing.T, gormDB *gorm.DB) {
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id, name, status, is_platform_admin)
 			VALUES ('platform_admin', '平台默认租户', 'active', TRUE)`,
-		`INSERT INTO network_domains(id, name, domain_type, tenant_id, channel, status, cloud_code, is_monitored)
-			VALUES ('dom-1', '生产采集域', 'edge', 'platform_admin', 'agent_pull', 'enabled', 'PUB-TX', TRUE)`,
-		`INSERT INTO network_domains(id, name, domain_type, tenant_id, channel, status, is_monitored)
-			VALUES ('dom-2', '未登记云域', 'edge', 'platform_admin', 'agent_pull', 'enabled', FALSE)`,
+		`INSERT INTO network_domains(id, name, domain_type, tenant_id, status, cloud_code)
+			VALUES ('dom-1', '生产采集域', 'edge', 'platform_admin', 'enabled', 'PUB-TX')`,
+		`INSERT INTO network_domains(id, name, domain_type, tenant_id, status)
+			VALUES ('dom-2', '未登记云域', 'edge', 'platform_admin', 'enabled')`,
+		// V3-only: monitored state lives in the M09 access record, not on the
+		// network_domains row. Only dom-1 is onboarded/monitored.
+		`INSERT INTO network_domain_access(domain_id, token_hash, registration_status)
+			VALUES ('dom-1', 'seed-hash', 'monitored')`,
 		`INSERT INTO cloud_dicts(cloud_code, cloud_name, cloud_type, carrier, enabled)
 			VALUES ('PUB-TX', '腾讯云', 'PUB', 'TX', TRUE)`,
 		`INSERT INTO application_dicts(app_code, app_name, status)
@@ -298,10 +302,10 @@ func TestSummaryAggregatesCoversResourcesJobsAndDictionaries(t *testing.T) {
 	assert.Equal(t, 4, summary.MonitoredCount)
 	assert.Equal(t, 4, summary.ScrapeJobCount)
 	assert.Equal(t, 3, summary.ScrapeJobEnabledCount)
-	assert.Equal(t, 1, summary.DomainCount, "only dom-1 is is_monitored=true")
+	assert.Equal(t, 1, summary.DomainCount, "only dom-1 has a monitored network_domain_access record")
 
 	// by_category: fixed six, subtypes only for the four subtype categories.
-	byCategory := make(map[string]dashboard.CategorySummary, len(summary.ByCategory))
+	byCategory := make(map[string]dto.CategorySummary, len(summary.ByCategory))
 	for _, category := range summary.ByCategory {
 		byCategory[category.ResourceCategory] = category
 	}
@@ -323,7 +327,7 @@ func TestSummaryAggregatesCoversResourcesJobsAndDictionaries(t *testing.T) {
 	assert.Empty(t, byCategory["interface_service"].BySubtype)
 
 	// by_app: dictionary name + majority biz attribution; unclassified bucket.
-	byApp := make(map[string]dashboard.AppSummary, len(summary.ByApp))
+	byApp := make(map[string]dto.AppSummary, len(summary.ByApp))
 	for _, app := range summary.ByApp {
 		byApp[app.AppCode] = app
 	}
@@ -360,7 +364,7 @@ func TestSummaryAggregatesCoversResourcesJobsAndDictionaries(t *testing.T) {
 	// probe_targets: blackbox targets only, status unknown, last_probe_at nil.
 	assert.Equal(t, 2, summary.ProbeTargetCount)
 	assert.Equal(t, 0, summary.ProbeTargetAbnormalCount)
-	byTarget := make(map[string]dashboard.ProbeTargetItem, len(summary.ProbeTargets))
+	byTarget := make(map[string]dto.ProbeTargetItem, len(summary.ProbeTargets))
 	for _, target := range summary.ProbeTargets {
 		byTarget[target.URL] = target
 	}

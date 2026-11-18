@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"text/template"
 	"time"
-
-	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 )
 
 // ErrRenderEmpty 模板渲染结果为空（如模板仅含 {{ define }} 却未在根处调用）。
@@ -123,11 +121,11 @@ func formatLocal(t time.Time, loc *time.Location) string {
 }
 
 // Render 按模板渲染 AM 载荷为出站请求体。模板根内容渲染结果即为出站 body；
-// 校验与渲染共用 config.TemplateFuncs()（「校验即渲染」口径一致）。
+// 校验与渲染共用 templateFuncs()（「校验即渲染」口径一致）。
 // 渲染结果为空（如模板仅含 {{ define }} 却未在根处调用）返回 ErrRenderEmpty，
 // 避免静默发送空体。
 func Render(templateContent string, payload amWebhookPayload, loc *time.Location) ([]byte, error) {
-	tpl, err := template.New("notify").Funcs(config.TemplateFuncs()).Parse(templateContent)
+	tpl, err := template.New("notify").Funcs(templateFuncs()).Parse(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("parse notify template: %w", err)
 	}
