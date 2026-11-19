@@ -99,18 +99,30 @@ describe('metricLibrary API', () => {
     expect(res.data.is_builtin).toBe(false)
   })
 
-  it('update PUTs /:metric_id with builtin-edit restricted fields', async () => {
+  it('update PUTs /:metric_id with edited fields (name/type/labels included)', async () => {
     mockFetch({
       status: 'success',
       data: { id: 1, metric_name: 'mysql_slow_queries_total', metric_type: 'counter', help: 'Updated', enabled: true },
     })
 
-    await metricLibraryApi.update(1, { help: 'Updated', enabled: true })
+    await metricLibraryApi.update(1, {
+      metric_name: 'mysql_slow_queries_total',
+      metric_type: 'counter',
+      labels: ['instance'],
+      help: 'Updated',
+      enabled: true,
+    })
 
     const url = lastUrlInstance()
     expect(url.pathname).toBe('/api/v3/platform/metric-library/1')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toMatchObject({ help: 'Updated', enabled: true, metric_name: 'mysql_slow_queries_total' })
+    expect(lastInitBody()).toMatchObject({
+      help: 'Updated',
+      enabled: true,
+      metric_name: 'mysql_slow_queries_total',
+      metric_type: 'counter',
+      labels: ['instance'],
+    })
   })
 
   it('throws on forbidden error envelope for builtin metric edit', async () => {

@@ -132,3 +132,35 @@ $ vite --port 5199         # GET / → 200
 ```
 
 **偏离 / 待评审**：表格 10 列，超过前端标准「建议 ≤8 列」；技术指标字典需要横向比对元数据，保留 `TABLE_SCROLL_X` 横向滚动与首列固定。若评审要求收敛，可把「标签 / 来源采集器」下沉到后续详情抽屉（当前 MVP 只读、无详情抽屉）。
+
+## 9. 2026-11-19 指标库用户扩展（管理员）+ 监控对象类型写权限收敛（T01-F3）
+
+**需求**：新建监控对象类型后能立即给它挂指标；写入仅管理员；内置指标保持只读 + 用户扩展另存；暂不做规则编辑联动与 `/metrics` 文本导入。
+
+### 9.1 指标库新增/编辑/删除（仅管理员）
+
+- `pages/strategy/MetricLibraryDrawer.tsx`（新增）：用户扩展指标抽屉，字段 = 指标名 / 指标类型 / 「挂接监控对象类型 + 来源采集器」多行 / HELP / 单位 / 标签键 / 语义域 / 启用。
+  - 指标名前端按 `^[a-zA-Z_:][a-zA-Z0-9_:]*$` 预校验（与后端一致）；至少挂接一个监控对象类型。
+  - 打开抽屉时调用 `refreshMonitorTypeCatalog()`：**新建的监控对象类型无需刷新浏览器即可在「挂接类型」中选到**（同一机制也用于筛选下拉）。
+  - `forceRender` 常驻挂载，保证首次打开即正确回显（Web 开发规范 §8）。
+- `pages/strategy/MetricLibraryPage.tsx`：
+  - 管理员：卡片右上「新增指标」；列表新增「操作」列，用户扩展行可编辑/删除（Popconfirm），内置行显示「内置只读」。
+  - 非管理员：不渲染新增按钮与操作列，页面保持只读。
+  - 空态提示改为可行动文案：选中类型无指标时提示「管理员可点『新增指标』创建用户扩展指标并选择该类型」。
+- `api/metricLibrary.ts`：`MetricLibraryUpdateInput` 补 `metric_name` / `metric_type` / `labels`，编辑抽屉可改类型与标签（后端 PUT 已支持）。
+
+### 9.2 监控对象类型写权限收敛
+
+- `pages/strategy/MonitorTypePage.tsx`：非管理员隐藏「新增类型」「编辑」「删除」，启用开关 `disabled`；卡片右上显示「只读：仅管理员可新增/修改类型」；「影响面」保持可读。
+
+### 9.3 测试
+
+- `MetricLibraryPage.test.tsx`（14 项）：新增管理员写入口/内置只读、非管理员无写入口、新增指标（挂接 host_linux）提交载荷、删除确认后调用 `remove`。
+- `MonitorTypePage.test.tsx`（4 项）：默认管理员（既有用例）+ 非管理员只读（无新增/编辑、开关 disabled、影响面可见）。
+- `api/metricLibrary.test.ts`：PUT 支持改 metric_name / metric_type / labels。
+- 验证：`pnpm vitest run src/pages/strategy src/api` → 39 文件 / 303 项通过；`typecheck:test`、`eslint` 通过；`pnpm build` 成功；dev server `GET /` 200。
+
+### 9.4 决策与偏离
+
+- 用户裁定（2026-11-19）：监控对象类型 + 指标库写接口仅管理员；内置指标只读 + 用户扩展另存；规则编辑联动与 `/metrics` 文本导入暂不做。
+- 列表当前 11 列（含「操作」），超出前端标准「建议 ≤8 列」；技术指标字典需横向比对，保留 `TABLE_SCROLL_X` 与首列固定，后续可把「标签 / 来源采集器」下沉详情。

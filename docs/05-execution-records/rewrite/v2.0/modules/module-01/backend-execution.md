@@ -538,3 +538,37 @@ $ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
   - 依赖数组补齐 `catalog`（目录加载完成后下拉重算）；两处「打开抽屉重置表单」的 effect 刻意不纳入 `catalog` 并注明原因——否则目录加载完成会把用户已填内容清空。
 - **验证**：`tsc --noEmit`（应用 + 测试）、`eslint src/pages/strategy` 全通过；`vitest run src/pages/strategy` 20 个文件 / 156 条通过（含新增 `useMonitorTypeCatalog.test.ts` 4 条：回退内置、页面推送的启用类型进入候选、停用类型只保留名称、未知编码不渲染 undefined）；`vite build` 成功。
 - **口径提醒**：下拉只显示**启用**类型；保存默认采集配置时，若采集器的 `supported_monitor_types` 非空且不含该类型，后端会拒绝（`exporter does not support monitor type`），需先在采集器里勾选该类型。
+
+## 15. 2026-11-19 监控对象类型 / 指标库写入权限收口 + 用户扩展指标挂接（增量）
+
+**背景**：新建监控对象类型后需要能立即给它挂指标；用户裁定「监控对象（类型）和指标写入仅管理员」「内置指标只读 + 用户扩展另存」。
+
+### 15.1 权限收口
+
+- `handler/routes.go`：`/monitor-types` 与 `/metric-library` 拆成「读组 + 写组」，写组挂 `auth.RequireAdmin()`。
+  - 读：`GET /monitor-types`、`GET /monitor-types/scope-fields`、`GET /monitor-types/:code`、`GET /monitor-types/:code/impact`、`GET /metric-library`、`GET /metric-library/:id`。
+  - 写（仅 admin）：`POST /monitor-types`、`PUT/DELETE /monitor-types/:code`、`POST /metric-library`、`PUT/DELETE /metric-library/:id`。
+- 已认证普通用户 → 403；匿名 → 由全局 `AuthMiddleware` 401（handler 层测试锁定 403 边界）。
+- 与 M05/M06/M09 的 `RequireAdmin` 口径一致；M03 权限点体系落地后再细化。
+
+### 15.2 指标库写校验（补齐契约缺口）
+
+- `service/metric.go`：
+  - Prometheus 命名校验：`metric_name` 匹配 `^[a-zA-Z_:][a-zA-Z0-9_:]*$`（≤200 字符）；`labels` 每个键匹配 `^[a-zA-Z_][a-zA-Z0-9_]*$`（≤64 个）。
+  - 锚点/标签归一化：去空白、去重、丢弃空锚点。
+  - **(metric_name, monitor_type) 判重**：新增 `repository.HasAnchorConflict`（SQLite `json_each` / Postgres `jsonb_array_elements`），同名 + 任一相同锚点 → 409；内置行与用户行一起参与，避免用户扩展遮蔽内置锚点。锚点是 JSON 数组，无法建唯一索引，暂由应用层保证。
+  - 更新同样校验并排除自身；内置行继续 403。
+- 未新增导入/批量接口（用户裁定暂不做 `/metrics` 文本导入）。
+
+### 15.3 测试
+
+- 新增 `handler/admin_gate_test.go`：
+  - `TestMonitorTypeWritesRequireAdmin` / `TestMetricLibraryWritesRequireAdmin`：普通用户与匿名上下文 403、读 200、管理员 200。
+  - `TestMetricLibraryUserEntryValidation`：同名同锚点 409、同名不同锚点 200、非法指标名/标签键 400。
+- `handler/routes_test.go`：测试路由默认注入管理员上下文（`newTestRouter`），新增 `newTestRouterAs` 支持普通用户/匿名场景。
+- 验证：`go test ./platform/...` 全绿；`go build ./platform/modules/m01/...` 通过。
+
+### 15.4 口径提醒
+
+- 内置指标仍不可覆盖/禁用（保持只读）；「用户扩展另存」= 新增 `is_builtin=false` 行并挂同一/新增锚点，同名同锚点会被 409 拒绝，因此不会产生重复行。
+- 监控对象类型被指标锚点引用时仍禁止删除（已有引用计数保护），停用后不能再挂新指标（锚点校验要求类型 enabled）。

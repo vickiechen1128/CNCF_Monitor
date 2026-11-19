@@ -38,7 +38,8 @@
 
 | 面 | 鉴权 | 说明 |
 |---|---|---|
-| `/api/v3/platform/*` | 全局 `AuthMiddleware` | 匿名 → 401；MVP 登录用户（`platform_admin`）可写；M03 v3 落地后接入模块级权限 |
+| `/api/v3/platform/*` | 全局 `AuthMiddleware` | 匿名 → 401；MVP 登录用户（`platform_admin`）可读；M03 v3 落地后接入模块级权限 |
+| 监控对象类型 / 指标库写接口 | `AuthMiddleware` + `RequireAdmin` | `POST/PUT/DELETE /monitor-types*`、`POST/PUT/DELETE /metric-library*` 仅 `role=admin` 且 active → 200；已认证普通用户 → 403（2026-11-19 裁定，与 M05/M06/M09 管理写接口口径一致） |
 | 跨模块读 | 服务端直接只读 M06/M07 表 | 不信任请求中的租户参数 |
 
 ### 1.5 同步状态对象（`sync`）
@@ -679,9 +680,10 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 ```
 
 - `GET /metric-library`：筛选 `monitor_type` / `resource_category`（资源类别，按 `monitor_types` 锚点归属展开过滤）/ `metric_type` / `category`（语义域，如 cpu / memory）/ `keyword` / `enabled` + 分页。`monitor_type` 与 `resource_category` 同时传入时按 AND 组合；`resource_category` 无对应监控类型（如 `interface_service`）或取值未知时返回空页。
-- `POST`：用户扩展指标，`is_builtin=false`；`metric_name` 重复且同 `monitor_type` 锚点 → 409。
-- `PUT /metric-library/{id}`：可更新 `enabled` / `help` / `unit` / `monitor_types` / `category`；内置行 → 403。
-- `DELETE /metric-library/{id}`：内置行 → 403；用户行软删。
+- `POST`（**仅管理员**）：用户扩展指标，`is_builtin=false`；`metric_name` 须符合 Prometheus 命名 `^[a-zA-Z_:][a-zA-Z0-9_:]*$`（≤200 字符），`labels` 键须符合 `^[a-zA-Z_][a-zA-Z0-9_]*$`（≤64 个），`monitor_types` 必须是存在且启用的类型；`metric_name` 重复且与任一 `monitor_type` 锚点相同 → 409（内置行与用户行一起参与判重）。
+- `PUT /metric-library/{id}`（**仅管理员**）：可更新 `metric_name` / `metric_type` / `help` / `unit` / `labels` / `monitor_types` / `category` / `enabled`；内置行 → 403；改名/改锚点同样走上面的命名与 409 判重（排除自身）。
+- `DELETE /metric-library/{id}`（**仅管理员**）：内置行 → 403；用户行软删。
+- 内置指标保持只读：用户自定义一律另存 `is_builtin=false` 行，不覆盖内置行。
 
 ### 7.2 业务指标（`/business-metrics`）
 

@@ -20,6 +20,7 @@ import {
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import { getStoredUser } from '../../api/client'
 import { monitorTypeApi } from '../../api/monitorTypes'
 import { applyMonitorTypeList } from './useMonitorTypeCatalog'
 import type {
@@ -74,6 +75,8 @@ function valueOptionsFor(field?: ScopeField): { options?: string[]; freeText: bo
  * 不需要改代码或升级版本；规则字段来自服务端白名单，前端不硬编码物理列名。
  */
 export function MonitorTypePage() {
+  // 写操作仅管理员（2026-11-19 用户裁定；后端 monitor-types 写路由挂 RequireAdmin）
+  const isAdmin = getStoredUser()?.role === 'admin'
   const [items, setItems] = useState<MonitorType[]>([])
   const [scopeFields, setScopeFields] = useState<ScopeField[]>([])
   const [loading, setLoading] = useState(true)
@@ -270,6 +273,7 @@ export function MonitorTypePage() {
           checked={enabled}
           checkedChildren="启用"
           unCheckedChildren="停用"
+          disabled={!isAdmin}
           onChange={(next) => void toggleEnabled(record, next)}
         />
       ),
@@ -286,13 +290,15 @@ export function MonitorTypePage() {
       width: 220,
       render: (_, record) => (
         <Space>
-          <Button size="small" onClick={() => openEdit(record)} data-testid={`edit-${record.code}`}>
-            编辑
-          </Button>
+          {isAdmin && (
+            <Button size="small" onClick={() => openEdit(record)} data-testid={`edit-${record.code}`}>
+              编辑
+            </Button>
+          )}
           <Button size="small" onClick={() => void showImpact(record)} data-testid={`impact-${record.code}`}>
             影响面
           </Button>
-          {!record.is_builtin && (
+          {isAdmin && !record.is_builtin && (
             <Button size="small" danger onClick={() => remove(record)} data-testid={`delete-${record.code}`}>
               删除
             </Button>
@@ -308,18 +314,22 @@ export function MonitorTypePage() {
         title="监控对象类型"
         extra={
           <Space>
+            {!isAdmin && <Text type="secondary">只读：仅管理员可新增/修改类型</Text>}
             <Button icon={<ReloadOutlined />} onClick={() => void load()}>
               刷新
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="create-monitor-type">
-              新增类型
-            </Button>
+            {isAdmin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="create-monitor-type">
+                新增类型
+              </Button>
+            )}
           </Space>
         }
       >
         <Paragraph type="secondary">
           监控对象类型由「类型定义 + 推导规则」组成：规则描述如何从资源属性识别该类型。
           新增类型保存即生效，无需改代码或升级版本；同一资源可同时命中多个类型，从而被多个采集器分别采集。
+          保存后即可到「指标库」给该类型挂接指标。
         </Paragraph>
         {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
         <Table

@@ -18,12 +18,43 @@ import (
 	"gorm.io/gorm/logger"
 
 	platformdb "github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/service"
 )
 
+// testAdmin is the authenticated platform admin used by the default test router.
+// TenantID stays empty on purpose: M01 service actor scoping is exercised by the
+// job-group tests, while these handler tests only need admin authorization.
+func testAdmin() *models.User {
+	return &models.User{
+		ID:       "test-admin",
+		Username: "admin",
+		Role:     models.UserRoleAdmin,
+		Status:   models.UserStatusActive,
+	}
+}
+
+// testRegularUser is an authenticated non-admin used to assert RequireAdmin.
+func testRegularUser() *models.User {
+	return &models.User{
+		ID:       "test-user",
+		Username: "operator",
+		Role:     models.UserRoleUser,
+		Status:   models.UserStatusActive,
+	}
+}
+
 func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+	return newTestRouterAs(t, testAdmin())
+}
+
+// newTestRouterAs builds the M01 router with a stubbed authenticated user.
+// Passing nil simulates an unauthenticated context so admin-gated routes 403.
+func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	dsn := filepath.Join(t.TempDir(), "m01_handler.db")
@@ -69,6 +100,12 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
+	if user != nil {
+		group.Use(func(c *gin.Context) {
+			c.Set(auth.ContextUserKey, user)
+			c.Next()
+		})
+	}
 	RegisterRoutes(group,
 		NewExporterTemplateHandler(exporterSvc),
 		NewMappingHandler(mappingSvc),

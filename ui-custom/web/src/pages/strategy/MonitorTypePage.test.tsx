@@ -47,6 +47,39 @@ const SCOPE_FIELDS = [
   { key: 'has_npu', label: '是否带 NPU', kind: 'boolean', categories: ['host'] },
 ]
 
+// vitest jsdom 的 localStorage 不受控，用内存 Map 承载登录态（角色判定走 getStoredUser）。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
+
+const USER_STORAGE_KEY = 'metriccenter:auth:user'
+
+function setRole(role: 'admin' | 'user' | null) {
+  if (!role) {
+    storageMap.delete(USER_STORAGE_KEY)
+    return
+  }
+  storageMap.set(
+    USER_STORAGE_KEY,
+    JSON.stringify({
+      id: 'u1',
+      username: 'u1',
+      display_name: '测试用户',
+      tenant_id: 'platform_admin',
+      role,
+    }),
+  )
+}
+
 beforeEach(() => {
   listMock.mockReset()
   scopeFieldsMock.mockReset()
@@ -54,6 +87,9 @@ beforeEach(() => {
   updateMock.mockReset()
   listMock.mockResolvedValue({ status: 'success', data: { list: [HOST_LINUX, HOST_NPU], total: 2 } })
   scopeFieldsMock.mockResolvedValue({ status: 'success', data: { list: SCOPE_FIELDS, total: 2 } })
+  // 默认管理员：写入口可见；非管理员场景在用例内切换
+  storageMap.clear()
+  setRole('admin')
 })
 
 describe('MonitorTypePage', () => {
@@ -97,5 +133,25 @@ describe('MonitorTypePage', () => {
     fireEvent.click(screen.getByTestId('create-monitor-type'))
     expect(await screen.findByText('新增监控对象类型')).toBeInTheDocument()
     expect(screen.getByTestId('submit-monitor-type')).toBeInTheDocument()
+  })
+
+  it('hides write entries and disables toggles for non-admins', async () => {
+    setRole('user')
+    render(
+      <MemoryRouter>
+        <MonitorTypePage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('host_linux')).toBeInTheDocument()
+
+    expect(screen.queryByTestId('create-monitor-type')).toBeNull()
+    expect(screen.queryByTestId('edit-host_linux')).toBeNull()
+    expect(screen.getByText('只读：仅管理员可新增/修改类型')).toBeInTheDocument()
+    // 影响面是只读能力，非管理员仍可见
+    expect(screen.getByTestId('impact-host_linux')).toBeInTheDocument()
+    // 启用开关不可操作
+    const switches = screen.getAllByRole('switch')
+    expect(switches.length).toBeGreaterThan(0)
+    switches.forEach((node) => expect(node).toBeDisabled())
   })
 })

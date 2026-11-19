@@ -1,6 +1,10 @@
 package handler
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+)
 
 // RegisterRoutes mounts the M01 v3 API under the given platform group
 // (expected prefix: /api/v3/platform).
@@ -15,16 +19,23 @@ import "github.com/gin-gonic/gin"
 func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler, monitorTypes *MonitorTypeHandler) {
 	// Configurable monitor object types (SRS Module_01 v1.3 §5.6). Registered
 	// first because every other M01 resource references a monitor type.
+	//
+	// 读接口对所有登录用户开放；新增/编辑/删除/停用涉及策略基线，仅管理员
+	// （RequireAdmin）可写——与 M05/M06/M09 的管理写接口口径一致。
 	monitorTypeGroup := platform.Group("/monitor-types")
 	{
 		monitorTypeGroup.GET("", monitorTypes.List)
-		monitorTypeGroup.POST("", monitorTypes.Create)
 		// Static routes must be registered before the :code parameter route.
 		monitorTypeGroup.GET("/scope-fields", monitorTypes.ScopeFields)
 		monitorTypeGroup.GET("/:code", monitorTypes.Get)
-		monitorTypeGroup.PUT("/:code", monitorTypes.Update)
-		monitorTypeGroup.DELETE("/:code", monitorTypes.Delete)
 		monitorTypeGroup.GET("/:code/impact", monitorTypes.Impact)
+	}
+	monitorTypeAdmin := platform.Group("/monitor-types")
+	monitorTypeAdmin.Use(auth.RequireAdmin())
+	{
+		monitorTypeAdmin.POST("", monitorTypes.Create)
+		monitorTypeAdmin.PUT("/:code", monitorTypes.Update)
+		monitorTypeAdmin.DELETE("/:code", monitorTypes.Delete)
 	}
 
 	exporterGroup := platform.Group("/exporter-templates")
@@ -77,13 +88,18 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroupGroup.DELETE("/:id", jobGroups.Delete)
 	}
 
+	// 技术指标库：读取对所有登录用户开放；新增/编辑/删除仅管理员。
 	metricGroup := platform.Group("/metric-library")
 	{
 		metricGroup.GET("", metrics.List)
-		metricGroup.POST("", metrics.Create)
 		metricGroup.GET("/:id", metrics.Get)
-		metricGroup.PUT("/:id", metrics.Update)
-		metricGroup.DELETE("/:id", metrics.Delete)
+	}
+	metricAdmin := platform.Group("/metric-library")
+	metricAdmin.Use(auth.RequireAdmin())
+	{
+		metricAdmin.POST("", metrics.Create)
+		metricAdmin.PUT("/:id", metrics.Update)
+		metricAdmin.DELETE("/:id", metrics.Delete)
 	}
 
 	businessGroup := platform.Group("/business-metrics")

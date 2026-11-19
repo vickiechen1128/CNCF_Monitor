@@ -33,6 +33,9 @@ export interface MetricLibraryInput {
 }
 
 export interface MetricLibraryUpdateInput {
+  metric_name?: string
+  metric_type?: MetricType
+  labels?: string[]
   enabled?: boolean
   help?: string
   unit?: string
@@ -80,11 +83,11 @@ export const metricLibraryApi = {
   ): Promise<ApiResponse<ExporterMetricLibraryItem>> {
     const current = await metricApiV3.get(String(metricId))
     const body: MetricInputV3 = {
-      metric_name: current.data.metric_name,
-      metric_type: current.data.metric_type,
+      metric_name: input.metric_name ?? current.data.metric_name,
+      metric_type: input.metric_type ?? current.data.metric_type,
       help: input.help ?? current.data.help,
       unit: input.unit ?? current.data.unit,
-      labels: current.data.labels,
+      labels: input.labels ?? current.data.labels,
       monitor_types: input.monitor_types ?? current.data.monitor_types,
       category: input.category ?? current.data.category,
       exporter_template_id: current.data.exporter_template_id,

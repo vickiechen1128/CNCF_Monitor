@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Badge, Button, Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd'
-import { DatabaseOutlined, LockOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Alert, Badge, Button, Card, Empty, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { DatabaseOutlined, LockOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import { getStoredUser } from '../../api/client'
 import { metricLibraryApi } from '../../api/metricLibrary'
 import type { ExporterMetricLibraryItem, MetricType } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
@@ -11,6 +12,7 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
 import { CATEGORY_MAP, METRIC_TYPE_MAP } from './strategyConstants'
+import { MetricLibraryDrawer } from './MetricLibraryDrawer'
 import { refreshMonitorTypeCatalog, useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 
 const { Text } = Typography
@@ -23,17 +25,20 @@ interface MetricLibraryState {
 const EMPTY_LIBRARY: MetricLibraryState = { list: [], total: 0 }
 
 /**
- * 技术指标库页（Module_01 §3.1/§5.3/§9.1/§11.1，F7，只读列表）。
+ * 技术指标库页（Module_01 §3.1/§5.3/§9.1/§11.1，F7）。
  * - 筛选：资源类别 → 监控对象类型两级 / 指标类型 / 关键字；分页默认 20/页；
  *   监控对象类型下拉读注册表（类型可手动新增/停用），打开下拉时重新拉取，选项随注册表同步更新；
  * - 列名与筛选条件一一对应：资源类别 / 监控对象类型 / 指标类型；其余为指标元数据与来源标注；
+ * - 用户扩展：仅管理员可新增/编辑/删除（内置指标只读），保存后即可为新建的监控对象类型挂指标；
  * - 顶部统计：共 n 个指标（服务端筛选后的总数）；
- * - 加载 / 空态 / 错误态；MVP 内置只读不做编辑/导入 UI（P1）。
+ * - 加载 / 空态 / 错误态。
  */
 export function MetricLibraryPage() {
   const catalog = useMonitorTypeCatalog()
   // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
+  // 指标库写入仅管理员（2026-11-19 用户裁定；后端 Routes 同步挂 RequireAdmin）
+  const isAdmin = getStoredUser()?.role === 'admin'
   const [items, setItems] = useState<MetricLibraryState>(EMPTY_LIBRARY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,6 +49,8 @@ export function MetricLibraryPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [refresh, setRefresh] = useState(0)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editing, setEditing] = useState<ExporterMetricLibraryItem | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -73,6 +80,36 @@ export function MetricLibraryPage() {
   }, [load, refresh])
 
   const reload = useCallback(() => setRefresh((n) => n + 1), [])
+
+  const openCreate = useCallback(() => {
+    setEditing(null)
+    setDrawerOpen(true)
+  }, [])
+
+  const openEdit = useCallback((record: ExporterMetricLibraryItem) => {
+    setEditing(record)
+    setDrawerOpen(true)
+  }, [])
+
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
+
+  const saved = useCallback(() => {
+    setDrawerOpen(false)
+    reload()
+  }, [reload])
+
+  const remove = useCallback(
+    async (record: ExporterMetricLibraryItem) => {
+      try {
+        await metricLibraryApi.remove(record.id)
+        message.success('指标已删除')
+        reload()
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '删除失败，请稍后重试')
+      }
+    },
+    [reload],
+  )
 
   // 资源类别由监控对象类型反查（M07 资源类别），保证「资源类别」筛选与列展示同源
   const categoryText = useCallback(
@@ -184,6 +221,37 @@ export function MetricLibraryPage() {
         <Badge status={r.enabled ? 'success' : 'default'} text={r.enabled ? '启用' : '停用'} />
       ),
     },
+    ...(isAdmin
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            width: 140,
+            fixed: 'right' as const,
+            render: (_: unknown, r: ExporterMetricLibraryItem) =>
+              r.is_builtin ? (
+                <Text type="secondary">内置只读</Text>
+              ) : (
+                <Space size={4}>
+                  <Button size="small" type="link" onClick={() => openEdit(r)} data-testid={`edit-metric-${r.id}`}>
+                    编辑
+                  </Button>
+                  <Popconfirm
+                    title="删除该指标？"
+                    description="删除后将从指标库（用户扩展）中移除，内置指标不受影响。"
+                    okText="删除"
+                    cancelText="取消"
+                    onConfirm={() => void remove(r)}
+                  >
+                    <Button size="small" type="link" danger data-testid={`delete-metric-${r.id}`}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+          },
+        ]
+      : []),
   ]
 
   // 空态按当前筛选项给出可行动说明：新类型无指标时解释「挂接后才有数据」
@@ -197,14 +265,21 @@ export function MetricLibraryPage() {
     <MainLayout>
       <Card
         extra={
-          <Button icon={<ReloadOutlined />} onClick={reload}>
-            刷新
-          </Button>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={reload}>
+              刷新
+            </Button>
+            {isAdmin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} data-testid="create-metric">
+                新增指标
+              </Button>
+            )}
+          </Space>
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          技术指标库（ExporterMetricLibrary）：面向采集目标的标准指标字典，仅供查看；筛选维度为「资源类别 /
-          监控对象类型 / 指标类型」，业务指标库预留后续版本。
+          技术指标库（ExporterMetricLibrary）：面向采集目标的标准指标字典；筛选维度为「资源类别 / 监控对象类型 /
+          指标类型」。内置指标只读，管理员可新增用户扩展指标并挂接到监控对象类型。
         </Typography.Paragraph>
 
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -311,7 +386,7 @@ export function MetricLibraryPage() {
             emptyText: (
               <Empty description={emptyDescription}>
                 {monitorType && (
-                  <Text type="secondary">指标库为平台内置只读字典，监控对象类型挂接指标后才会产生数据</Text>
+                  <Text type="secondary">该类型还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该类型</Text>
                 )}
               </Empty>
             ),
@@ -326,6 +401,10 @@ export function MetricLibraryPage() {
           }}
         />
       </Card>
+
+      {isAdmin && (
+        <MetricLibraryDrawer open={drawerOpen} editing={editing} onClose={closeDrawer} onSaved={saved} />
+      )}
     </MainLayout>
   )
 }

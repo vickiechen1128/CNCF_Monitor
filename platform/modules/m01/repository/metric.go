@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -34,6 +35,11 @@ type MetricRepository interface {
 	List(ctx context.Context, filter MetricFilter) ([]*domain.Metric, int64, error)
 	Update(ctx context.Context, metric *domain.Metric) error
 	SoftDelete(ctx context.Context, id string) error
+	// HasAnchorConflict reports whether another live metric shares metricName
+	// and at least one monitor-type anchor. Anchors live in a JSON array, so the
+	// (name, anchor) uniqueness the v3 contract promises is enforced here in the
+	// application layer rather than by a database index.
+	HasAnchorConflict(ctx context.Context, metricName string, monitorTypes []string, excludeID string) (bool, error)
 }
 
 // GORMMetricRepository is the GORM-backed implementation.
@@ -146,6 +152,25 @@ func (r *GORMMetricRepository) whereMonitorTypeIn(q *gorm.DB, monitorTypes []str
 		"EXISTS (SELECT 1 FROM json_each(monitor_types) AS anchor WHERE json_extract(anchor.value, '$.monitor_type') IN ?)",
 		monitorTypes,
 	)
+}
+
+// HasAnchorConflict reports whether another live metric shares metricName and
+// at least one monitor-type anchor (contract §7.1: same name + same anchor is a
+// 409 conflict). Built-in rows participate as well, so user extensions can never
+// shadow an existing anchor.
+func (r *GORMMetricRepository) HasAnchorConflict(ctx context.Context, metricName string, monitorTypes []string, excludeID string) (bool, error) {
+	if metricName == "" || len(monitorTypes) == 0 {
+		return false, nil
+	}
+	q := r.db.WithContext(ctx).Model(&metricRecord{}).Where("metric_name = ?", metricName)
+	if excludeID != "" {
+		q = q.Where("id <> ?", excludeID)
+	}
+	var count int64
+	if err := r.whereMonitorTypeIn(q, monitorTypes).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check metric anchor conflict: %w", err)
+	}
+	return count > 0, nil
 }
 
 // Update replaces mutable technical metric fields (never is_builtin).

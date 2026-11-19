@@ -6,11 +6,17 @@ import { MetricLibraryPage } from './MetricLibraryPage'
 import { resetMonitorTypeCatalogForTest } from './useMonitorTypeCatalog'
 
 const listMock = vi.fn()
+const createMock = vi.fn()
+const updateMock = vi.fn()
+const removeMock = vi.fn()
 const monitorTypeListMock = vi.fn()
 
 vi.mock('../../api/metricLibrary', () => ({
   metricLibraryApi: {
     list: (...args: unknown[]) => listMock(...args),
+    create: (...args: unknown[]) => createMock(...args),
+    update: (...args: unknown[]) => updateMock(...args),
+    remove: (...args: unknown[]) => removeMock(...args),
   },
 }))
 
@@ -19,6 +25,39 @@ vi.mock('../../api/monitorTypes', () => ({
     list: (...args: unknown[]) => monitorTypeListMock(...args),
   },
 }))
+
+// vitest jsdom 的 localStorage 不受控，用内存 Map 承载登录态（角色判定走 getStoredUser）。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
+
+const USER_STORAGE_KEY = 'metriccenter:auth:user'
+
+function setRole(role: 'admin' | 'user' | null) {
+  if (!role) {
+    storageMap.delete(USER_STORAGE_KEY)
+    return
+  }
+  storageMap.set(
+    USER_STORAGE_KEY,
+    JSON.stringify({
+      id: 'u1',
+      username: 'u1',
+      display_name: '测试用户',
+      tenant_id: 'platform_admin',
+      role,
+    }),
+  )
+}
 
 function metric(id: number, extra: Record<string, unknown> = {}) {
   return {
@@ -40,10 +79,16 @@ function metric(id: number, extra: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   listMock.mockReset()
+  createMock.mockReset()
+  updateMock.mockReset()
+  removeMock.mockReset()
   monitorTypeListMock.mockReset()
   // 默认返回空注册表 → 目录回落到内置常量，保持既有断言稳定
   monitorTypeListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   resetMonitorTypeCatalogForTest()
+  // 默认管理员：既有用例覆盖页面主体，写入口默认可见
+  storageMap.clear()
+  setRole('admin')
 })
 
 /**
@@ -88,7 +133,8 @@ describe('MetricLibraryPage', () => {
     expect(screen.getAllByText('仪表').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Linux 主机').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('node-exporter').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('启用')).toBeInTheDocument()
+    // 抽屉常驻挂载（forceRender）也含「启用」文案，状态断言限定在表格内
+    expect(within(screen.getByRole('table')).getByText('启用')).toBeInTheDocument()
   })
 
   it('shows empty state 暂无指标', async () => {
@@ -296,7 +342,9 @@ describe('MetricLibraryPage', () => {
     fireEvent.click(await screen.findByText('MySQL'))
 
     expect(await screen.findByText('「MySQL」暂无指标')).toBeInTheDocument()
-    expect(screen.getByText('指标库为平台内置只读字典，监控对象类型挂接指标后才会产生数据')).toBeInTheDocument()
+    expect(
+      screen.getByText('该类型还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该类型'),
+    ).toBeInTheDocument()
   })
 
   it('renders top statistics 共 n 个指标 (F4)', async () => {
@@ -312,5 +360,115 @@ describe('MetricLibraryPage', () => {
     )
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
     expect(screen.getByText(/共 1 个指标/)).toBeInTheDocument()
+  })
+
+  it('shows write entries for admins and keeps built-in rows read-only', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [metric(1, { is_builtin: true }), metric(2, { is_builtin: false, metric_name: 'custom_total' })],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('custom_total')).toBeInTheDocument()
+
+    expect(screen.getByTestId('create-metric')).toBeInTheDocument()
+    // 内置行只读，用户扩展行可编辑/删除
+    expect(screen.getByText('内置只读')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-metric-2')).toBeInTheDocument()
+    expect(screen.getByTestId('delete-metric-2')).toBeInTheDocument()
+    expect(screen.queryByTestId('edit-metric-1')).toBeNull()
+  })
+
+  it('hides write entries for non-admins', async () => {
+    setRole('user')
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [metric(2, { is_builtin: false, metric_name: 'custom_total' })], total: 1, page: 1, page_size: 20 },
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('custom_total')).toBeInTheDocument()
+
+    expect(screen.queryByTestId('create-metric')).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: '操作' })).toBeNull()
+    expect(screen.queryByTestId('edit-metric-2')).toBeNull()
+  })
+
+  it('creates a user metric anchored to a monitor type (admin)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
+    })
+    createMock.mockResolvedValue({
+      status: 'success',
+      data: metric(9, { is_builtin: false, metric_name: 'app_payment_success_total' }),
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('create-metric'))
+    expect(await screen.findByText('新增指标（用户扩展）')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('例如 app_payment_success_total'), {
+      target: { value: 'app_payment_success_total' },
+    })
+    // 挂接监控对象类型（下拉选项来自注册表目录）
+    fireEvent.mouseDown(screen.getByText('请选择监控对象类型').closest('.ant-select')!.querySelector('.ant-select-selector')!)
+    const dropdown = document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)') as HTMLElement
+    fireEvent.click(within(dropdown).getByText('Linux 主机'))
+
+    fireEvent.click(screen.getByTestId('submit-metric'))
+
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metric_name: 'app_payment_success_total',
+          metric_type: 'gauge',
+          monitor_types: [{ monitor_type: 'host_linux', source_exporter: undefined }],
+          enabled: true,
+        }),
+      ),
+    )
+  })
+
+  it('deletes a user metric after confirmation (admin)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [metric(2, { is_builtin: false, metric_name: 'custom_total' })], total: 1, page: 1, page_size: 20 },
+    })
+    removeMock.mockResolvedValue({ status: 'success', data: { id: '2' } })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('custom_total')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('delete-metric-2'))
+    const confirm = await screen.findByText('删除该指标？')
+    const popover = confirm.closest('.ant-popover') as HTMLElement
+    // antd 会在两个中文字符的按钮文案间插入空格（「删 除」），用正则匹配
+    fireEvent.click(within(popover).getByRole('button', { name: /删\s*除/ }))
+
+    await waitFor(() => expect(removeMock).toHaveBeenCalledWith(2))
   })
 })
