@@ -104,3 +104,39 @@ func TestImportRejectsUnregisteredAttributeKey(t *testing.T) {
 	assert.Equal(t, "attributes", record.Errors[0].Field)
 	assert.Contains(t, record.Errors[0].Reason, "not registered")
 }
+
+// TestImportRejectsRemovedAttributeKey covers FR-34: a field that left the CI
+// model no longer accepts values through Excel import.
+func TestImportRejectsRemovedAttributeKey(t *testing.T) {
+	svc, gormDB, resourceRepo := newCapabilityImportService(t)
+	ctx := context.Background()
+	attrSvc := NewAttributeService(
+		repository.NewAttributeDefinitionRepository(gormDB),
+		repository.NewResourceAttributeRepository(gormDB),
+		resourceRepo,
+	)
+
+	def, err := attrSvc.CreateDefinition(ctx, &domain.AttributeDefinition{
+		Key: "dpu_model", DisplayName: "DPU 型号", ValueType: domain.AttributeTypeText,
+		ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+
+	// First import creates a value, so the field has a reference.
+	record, err := svc.Import(ctx, domain.CategoryHost, domain.ImportModeCreateOnly,
+		buildCapabilityXLSX(t, "10.0.0.53", "dpu_model=BlueField-3"), "tester")
+	require.NoError(t, err)
+	require.Equal(t, domain.ImportStatusSuccess, record.Status, record.Errors)
+
+	result, err := attrSvc.RemoveDefinition(ctx, def.ID)
+	require.NoError(t, err)
+	require.Equal(t, RemoveModeRemoved, result.Mode)
+
+	record, err = svc.Import(ctx, domain.CategoryHost, domain.ImportModeCreateOnly,
+		buildCapabilityXLSX(t, "10.0.0.54", "dpu_model=BlueField-3"), "tester")
+	require.NoError(t, err)
+	assert.Equal(t, domain.ImportStatusFailed, record.Status)
+	require.Len(t, record.Errors, 1)
+	assert.Contains(t, record.Errors[0].Reason, "removed")
+}
+

@@ -138,12 +138,85 @@ func TestDeleteAttributeDefinitionBlockedWhileUsed(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = svc.DeleteDefinition(ctx, def.ID)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disable it instead")
+	// 有引用：只能移出模型，值保留（FR-34）。
+	result, err := svc.RemoveDefinition(ctx, def.ID)
+	require.NoError(t, err)
+	assert.Equal(t, RemoveModeRemoved, result.Mode)
+	assert.EqualValues(t, 1, result.UsageCount)
 
-	// Clearing the value unblocks deletion.
+	// 已移出字段不再出现在「在模型中」列表。
+	active, err := svc.ListDefinitions(ctx, domain.CategoryHost, domain.AttributeStatusActive)
+	require.NoError(t, err)
+	assert.Empty(t, active)
+
+	// 已移出字段不可再填值。
+	_, err = svc.ReplaceResourceAttributes(ctx, "r-npu", []AttributeValue{
+		{Key: "gpu_memory_gb", Value: "81"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "removed")
+
+	// 历史值仍在。
+	values, err := svc.ListResourceAttributes(ctx, "r-npu")
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+	assert.Equal(t, "80", values[0].Value)
+
+	// 重新登记同名 key：恢复为「在模型中」，不新建记录，历史值自动可用。
+	restored, err := svc.CreateDefinition(ctx, &domain.AttributeDefinition{
+		Key: "gpu_memory_gb", DisplayName: "显存（GB）", ValueType: domain.AttributeTypeNumber,
+		ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, def.ID, restored.ID)
+	assert.Equal(t, domain.AttributeStatusActive, restored.EffectiveStatus())
+	assert.Equal(t, "显存（GB）", restored.DisplayName)
+
+	// 清空值后再次移除：零引用走物理删除。
 	_, err = svc.ReplaceResourceAttributes(ctx, "r-npu", nil)
 	require.NoError(t, err)
-	require.NoError(t, svc.DeleteDefinition(ctx, def.ID))
+	result, err = svc.RemoveDefinition(ctx, def.ID)
+	require.NoError(t, err)
+	assert.Equal(t, RemoveModeDeleted, result.Mode)
+	assert.EqualValues(t, 0, result.UsageCount)
 }
+
+func TestAttributeDefinitionGroupAndOrder(t *testing.T) {
+	svc, _ := newAttributeService(t)
+	ctx := context.Background()
+
+	// 未指定分组时落在「画像信息」，排序默认 0。
+	def, err := svc.CreateDefinition(ctx, &domain.AttributeDefinition{
+		Key: "rack_position", DisplayName: "机柜位置", ValueType: domain.AttributeTypeText,
+		ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, domain.AttributeGroupProfile, def.Group)
+	assert.Equal(t, 0, def.Order)
+
+	// 非法分组被拒绝。
+	_, err = svc.CreateDefinition(ctx, &domain.AttributeDefinition{
+		Key: "bad_group", DisplayName: "坏分组", ValueType: domain.AttributeTypeText,
+		ResourceCategory: domain.CategoryHost, Group: "invented",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "display_group")
+
+	// 编辑可改分组与排序；key 与类别不可改。
+	updated, err := svc.UpdateDefinition(ctx, def.ID, &domain.AttributeDefinition{
+		DisplayName: "机柜位置", ValueType: domain.AttributeTypeText,
+		Group: domain.AttributeGroupCapability, Order: 3,
+	}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AttributeGroupCapability, updated.Group)
+	assert.Equal(t, 3, updated.Order)
+
+	// 排序必须非负。
+	_, err = svc.UpdateDefinition(ctx, def.ID, &domain.AttributeDefinition{
+		DisplayName: "机柜位置", ValueType: domain.AttributeTypeText,
+		Group: domain.AttributeGroupCapability, Order: -1,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "display_order")
+}
+

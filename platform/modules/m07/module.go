@@ -59,6 +59,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		opts.LabelTemplateUsage,
 	)
 	attributeSvc := service.NewAttributeService(attributeDefRepo, attributeRepo, resourceRepo)
+	ciModelSvc := service.NewCIModelService(attributeDefRepo)
 
 	if opts.ChangeNotifier != nil {
 		resourceSvc.SetChangeNotifier(opts.ChangeNotifier)
@@ -73,7 +74,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		labels:         handler.NewLabelHandler(labelSvc),
 		imports:        handler.NewImportHandler(importSvc),
 		labelTemplates: handler.NewLabelTemplateHandler(labelTemplateSvc),
-		attributes:     handler.NewAttributeHandler(attributeSvc),
+		attributes:     handler.NewAttributeHandler(attributeSvc, ciModelSvc),
 	}, nil
 }
 

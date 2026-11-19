@@ -264,9 +264,9 @@ func (s *ImportService) validateImportAttributes(ctx context.Context, category d
 				Message: fmt.Sprintf("attribute %q is not registered for category %q", key, category),
 			}
 		}
-		if !def.Enabled {
+		if def.EffectiveStatus() != domain.AttributeStatusActive {
 			return nil, &domain.ValidationError{
-				Field: "attributes", Message: fmt.Sprintf("attribute %q is disabled", key),
+				Field: "attributes", Message: fmt.Sprintf("attribute %q is removed from the model", key),
 			}
 		}
 		value, err := def.ValidateValue(raw)

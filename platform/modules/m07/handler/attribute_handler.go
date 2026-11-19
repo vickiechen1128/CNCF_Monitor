@@ -12,21 +12,31 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m07/service"
 )
 
-// AttributeHandler exposes the generic capability attribute API
-// (SRS Module_07 v2.1 §5.8 FR-31).
+// AttributeHandler exposes the custom field and CI model API
+// (SRS Module_07 v2.2 §5.8 FR-30~FR-34).
 type AttributeHandler struct {
-	svc *service.AttributeService
+	svc     *service.AttributeService
+	ciModel *service.CIModelService
 }
 
 // NewAttributeHandler constructs the handler.
-func NewAttributeHandler(svc *service.AttributeService) *AttributeHandler {
-	return &AttributeHandler{svc: svc}
+func NewAttributeHandler(svc *service.AttributeService, ciModel *service.CIModelService) *AttributeHandler {
+	return &AttributeHandler{svc: svc, ciModel: ciModel}
 }
 
-// ListDefinitions handles GET /attribute-definitions?resource_category=…
+// ListDefinitions handles GET /attribute-definitions?resource_category=…&status=…
 func (h *AttributeHandler) ListDefinitions(c *gin.Context) {
 	category := domain.Category(strings.TrimSpace(c.Query("resource_category")))
-	defs, err := h.svc.ListDefinitions(c.Request.Context(), category)
+	var statuses []domain.AttributeStatus
+	if raw := strings.TrimSpace(c.Query("status")); raw != "" {
+		status := domain.AttributeStatus(raw)
+		if !status.Valid() {
+			response.BadRequest(c, fmt.Errorf("status must be active/removed"))
+			return
+		}
+		statuses = append(statuses, status)
+	}
+	defs, err := h.svc.ListDefinitions(c.Request.Context(), category, statuses...)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -36,6 +46,31 @@ func (h *AttributeHandler) ListDefinitions(c *gin.Context) {
 		list = append(list, dto.FromAttributeDefinition(def))
 	}
 	response.OK(c, gin.H{"list": list, "total": len(list)})
+}
+
+// ListModels handles GET /ci-models.
+func (h *AttributeHandler) ListModels(c *gin.Context) {
+	models, err := h.ciModel.List(c.Request.Context())
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	list := make([]dto.CIModelResponse, 0, len(models))
+	for _, model := range models {
+		list = append(list, dto.FromCIModel(model.Category, model.CategoryLabel, model.Builtin, model.Custom))
+	}
+	response.OK(c, dto.CIModelListResponse{List: list})
+}
+
+// GetModel handles GET /ci-models/:category.
+func (h *AttributeHandler) GetModel(c *gin.Context) {
+	category := domain.Category(strings.TrimSpace(c.Param("category")))
+	model, err := h.ciModel.Get(c.Request.Context(), category)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, dto.FromCIModel(model.Category, model.CategoryLabel, model.Builtin, model.Custom))
 }
 
 // CreateDefinition handles POST /attribute-definitions.
@@ -65,7 +100,7 @@ func (h *AttributeHandler) UpdateDefinition(c *gin.Context) {
 		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-	def, err := h.svc.UpdateDefinition(c.Request.Context(), id, req.ToDomain(), req.Enabled)
+	def, err := h.svc.UpdateDefinition(c.Request.Context(), id, req.ToDomain(), nil)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -73,14 +108,18 @@ func (h *AttributeHandler) UpdateDefinition(c *gin.Context) {
 	response.OK(c, dto.FromAttributeDefinition(def))
 }
 
-// DeleteDefinition handles DELETE /attribute-definitions/:id.
-func (h *AttributeHandler) DeleteDefinition(c *gin.Context) {
+// RemoveDefinition handles DELETE /attribute-definitions/:id.
+//
+// The system decides the outcome (FR-34): an unused field is deleted; a field
+// still carrying values is removed from the model and keeps its values.
+func (h *AttributeHandler) RemoveDefinition(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
-	if err := h.svc.DeleteDefinition(c.Request.Context(), id); err != nil {
+	result, err := h.svc.RemoveDefinition(c.Request.Context(), id)
+	if err != nil {
 		respondError(c, err)
 		return
 	}
-	response.OK(c, gin.H{"id": id, "deleted": true})
+	response.OK(c, dto.RemoveDefinitionResponse{ID: id, Mode: result.Mode, UsageCount: result.UsageCount})
 }
 
 // ListResourceAttributes handles GET /resources/:resource_id/attributes.

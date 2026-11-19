@@ -31,8 +31,86 @@ func (t AttributeValueType) Valid() bool {
 
 var attributeKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 
-// AttributeDefinition is one long-tail capability key (SRS Module_07 v2.1 §5.8
-// FR-31). Registering a key is a data change: no schema change, no release.
+// AttributeStatus is the lifecycle state of a custom field
+// (SRS Module_07 v2.2 §5.8 FR-34).
+//
+// active  = 在模型中：资源表单渲染、可填值；
+// removed = 已移出：表单不渲染，历史值保留。
+//
+// There is deliberately no "disabled" state: a custom field is either part of
+// the CI model or it has been removed from it.
+type AttributeStatus string
+
+// Custom field lifecycle states.
+const (
+	AttributeStatusActive  AttributeStatus = "active"
+	AttributeStatusRemoved AttributeStatus = "removed"
+)
+
+// Valid reports whether the status is known.
+func (s AttributeStatus) Valid() bool {
+	return s == AttributeStatusActive || s == AttributeStatusRemoved
+}
+
+// AttributeGroup is the display group of a CI field
+// (SRS Module_07 v2.2 §5.8 FR-33). Groups are a fixed enumeration: users pick
+// one when registering a custom field, they never type a free-form group name.
+type AttributeGroup string
+
+// CI field display groups.
+const (
+	AttributeGroupIdentity   AttributeGroup = "identity"   // 身份信息
+	AttributeGroupOwnership  AttributeGroup = "ownership"  // 归属信息
+	AttributeGroupRuntime    AttributeGroup = "runtime"    // 运行信息
+	AttributeGroupCollection AttributeGroup = "collection" // 采集信息
+	AttributeGroupCapability AttributeGroup = "capability" // 能力信息
+	AttributeGroupProfile    AttributeGroup = "profile"    // 画像信息
+)
+
+// ValidAttributeGroups returns the authoritative group list in display order.
+func ValidAttributeGroups() []AttributeGroup {
+	return []AttributeGroup{
+		AttributeGroupIdentity,
+		AttributeGroupOwnership,
+		AttributeGroupRuntime,
+		AttributeGroupCollection,
+		AttributeGroupCapability,
+		AttributeGroupProfile,
+	}
+}
+
+// Valid reports whether the group is a known display group.
+func (g AttributeGroup) Valid() bool {
+	for _, group := range ValidAttributeGroups() {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
+
+// AttributeGroupLabel returns the Chinese display name of a group.
+func AttributeGroupLabel(g AttributeGroup) string {
+	switch g {
+	case AttributeGroupIdentity:
+		return "身份信息"
+	case AttributeGroupOwnership:
+		return "归属信息"
+	case AttributeGroupRuntime:
+		return "运行信息"
+	case AttributeGroupCollection:
+		return "采集信息"
+	case AttributeGroupCapability:
+		return "能力信息"
+	case AttributeGroupProfile:
+		return "画像信息"
+	default:
+		return string(g)
+	}
+}
+
+// AttributeDefinition is one custom CI field (SRS Module_07 v2.2 §5.8 FR-31).
+// Registering a field is a data change: no schema change, no release.
 type AttributeDefinition struct {
 	ID               string
 	Key              string
@@ -41,10 +119,15 @@ type AttributeDefinition struct {
 	ResourceCategory Category
 	EnumOptions      []string
 	Required         bool
-	Enabled          bool
-	Description      string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Enabled is deprecated (v2.2): reads must use Status. It is kept so the
+	// physical column stays readable for historical rows.
+	Enabled     bool
+	Status      AttributeStatus
+	Group       AttributeGroup
+	Order       int
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Validate checks the definition shape.
@@ -62,6 +145,15 @@ func (d AttributeDefinition) Validate() error {
 	if !d.ResourceCategory.Valid() {
 		return newValidationError("resource_category", "must be a known category")
 	}
+	if d.Status != "" && !d.Status.Valid() {
+		return newValidationError("status", "must be active/removed")
+	}
+	if !d.Group.Valid() {
+		return newValidationError("display_group", "must be a known display group")
+	}
+	if d.Order < 0 {
+		return newValidationError("display_order", "must not be negative")
+	}
 	if d.ValueType == AttributeTypeEnum && len(d.EnumOptions) == 0 {
 		return newValidationError("enum_options", "is required for enum attributes")
 	}
@@ -71,6 +163,21 @@ func (d AttributeDefinition) Validate() error {
 		}
 	}
 	return nil
+}
+
+// EffectiveStatus returns Status, falling back to the deprecated Enabled flag
+// for rows written before v2.2.
+func (d AttributeDefinition) EffectiveStatus() AttributeStatus {
+	if d.Status == AttributeStatusRemoved {
+		return AttributeStatusRemoved
+	}
+	if d.Status == AttributeStatusActive {
+		return AttributeStatusActive
+	}
+	if !d.Enabled {
+		return AttributeStatusRemoved
+	}
+	return AttributeStatusActive
 }
 
 // ValidateValue checks and normalizes a user-supplied value against the type.

@@ -72,7 +72,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewLabelHandler(labelSvc),
 		NewImportHandler(importSvc),
 		NewLabelTemplateHandler(labelTemplateSvc),
-		NewAttributeHandler(attributeSvc),
+		NewAttributeHandler(attributeSvc, service.NewCIModelService(repository.NewAttributeDefinitionRepository(gormDB))),
 	)
 	return router, gormDB
 }

@@ -42,13 +42,22 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 		labelTemplateGroup.DELETE("/:id", labelTemplates.Delete)
 	}
 
-	// 通用扩展属性字典（SRS Module_07 v2.1 §5.8 FR-31）：新增能力 key 无需改表或发版。
+	// 自定义字段字典（SRS Module_07 v2.2 §5.8 FR-31/FR-34）：
+	// 新增字段无需改表或发版；移除时由系统按引用数判定删除或移出模型。
 	attributeDefGroup := platform.Group("/attribute-definitions")
 	{
 		attributeDefGroup.GET("", attributes.ListDefinitions)
 		attributeDefGroup.POST("", attributes.CreateDefinition)
 		attributeDefGroup.PUT("/:id", attributes.UpdateDefinition)
-		attributeDefGroup.DELETE("/:id", attributes.DeleteDefinition)
+		attributeDefGroup.DELETE("/:id", attributes.RemoveDefinition)
+	}
+
+	// CI 模型配置（SRS Module_07 v2.2 §5.8 FR-32）：六类 CI 的内置字段只读 +
+	// 在模型中的自定义字段。
+	ciModelGroup := platform.Group("/ci-models")
+	{
+		ciModelGroup.GET("", attributes.ListModels)
+		ciModelGroup.GET("/:category", attributes.GetModel)
 	}
 
 	platform.GET("/business-domains", dictionaries.ListBusinessDomains)

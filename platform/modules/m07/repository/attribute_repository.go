@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,6 +23,9 @@ type attributeDefinitionRecord struct {
 	EnumOptions      []string       `gorm:"column:enum_options;serializer:json;not null"`
 	Required         bool           `gorm:"column:required;not null"`
 	Enabled          bool           `gorm:"column:enabled;not null"`
+	Status           string         `gorm:"column:status;not null"`
+	DisplayGroup     string         `gorm:"column:display_group;not null"`
+	DisplayOrder     int            `gorm:"column:display_order;not null"`
 	Description      string         `gorm:"column:description;not null"`
 	CreatedAt        time.Time      `gorm:"column:created_at"`
 	UpdatedAt        time.Time      `gorm:"column:updated_at"`
@@ -40,6 +44,9 @@ func (r attributeDefinitionRecord) toDomain() *domain.AttributeDefinition {
 		EnumOptions:      nonNilStrings(r.EnumOptions),
 		Required:         r.Required,
 		Enabled:          r.Enabled,
+		Status:           domain.AttributeStatus(r.Status),
+		Group:            domain.AttributeGroup(r.DisplayGroup),
+		Order:            r.DisplayOrder,
 		Description:      r.Description,
 		CreatedAt:        r.CreatedAt,
 		UpdatedAt:        r.UpdatedAt,
@@ -47,6 +54,7 @@ func (r attributeDefinitionRecord) toDomain() *domain.AttributeDefinition {
 }
 
 func attributeDefinitionFromDomain(def *domain.AttributeDefinition) attributeDefinitionRecord {
+	status := string(def.EffectiveStatus())
 	return attributeDefinitionRecord{
 		ID:               def.ID,
 		AttributeKey:     def.Key,
@@ -55,7 +63,10 @@ func attributeDefinitionFromDomain(def *domain.AttributeDefinition) attributeDef
 		ResourceCategory: string(def.ResourceCategory),
 		EnumOptions:      nonNilStrings(def.EnumOptions),
 		Required:         def.Required,
-		Enabled:          def.Enabled,
+		Enabled:          status == string(domain.AttributeStatusActive),
+		Status:           status,
+		DisplayGroup:     string(def.Group),
+		DisplayOrder:     def.Order,
 		Description:      def.Description,
 	}
 }
@@ -84,9 +95,11 @@ func (r resourceAttributeRecord) toDomain() *domain.ResourceAttribute {
 	}
 }
 
-// AttributeDefinitionRepository persists the long-tail capability dictionary.
+// AttributeDefinitionRepository persists the custom field dictionary.
 type AttributeDefinitionRepository interface {
-	List(ctx context.Context, category domain.Category) ([]*domain.AttributeDefinition, error)
+	// List returns definitions of one category (empty category means all).
+	// Optional statuses narrow the result; no status means every state.
+	List(ctx context.Context, category domain.Category, statuses ...domain.AttributeStatus) ([]*domain.AttributeDefinition, error)
 	Get(ctx context.Context, id string) (*domain.AttributeDefinition, error)
 	FindByKey(ctx context.Context, category domain.Category, key string) (*domain.AttributeDefinition, bool, error)
 	Create(ctx context.Context, def *domain.AttributeDefinition) error
@@ -105,14 +118,22 @@ func NewAttributeDefinitionRepository(db *gorm.DB) *GORMAttributeDefinitionRepos
 	return &GORMAttributeDefinitionRepository{db: db}
 }
 
-// List returns the definitions of one category (empty means all).
-func (r *GORMAttributeDefinitionRepository) List(ctx context.Context, category domain.Category) ([]*domain.AttributeDefinition, error) {
+// List returns the definitions of one category (empty means all), optionally
+// narrowed to one or more lifecycle states.
+func (r *GORMAttributeDefinitionRepository) List(ctx context.Context, category domain.Category, statuses ...domain.AttributeStatus) ([]*domain.AttributeDefinition, error) {
 	query := r.db.WithContext(ctx).Model(&attributeDefinitionRecord{})
 	if category != "" {
 		query = query.Where("resource_category = ?", string(category))
 	}
+	if len(statuses) > 0 {
+		values := make([]string, 0, len(statuses))
+		for _, status := range statuses {
+			values = append(values, string(status))
+		}
+		query = query.Where("status IN ?", values)
+	}
 	var recs []attributeDefinitionRecord
-	if err := query.Order("resource_category ASC, attribute_key ASC").Find(&recs).Error; err != nil {
+	if err := query.Order("resource_category ASC, display_group ASC, display_order ASC, attribute_key ASC").Find(&recs).Error; err != nil {
 		return nil, fmt.Errorf("list attribute definitions: %w", err)
 	}
 	out := make([]*domain.AttributeDefinition, 0, len(recs))
@@ -163,16 +184,25 @@ func (r *GORMAttributeDefinitionRepository) Create(ctx context.Context, def *dom
 func (r *GORMAttributeDefinitionRepository) Update(ctx context.Context, def *domain.AttributeDefinition) error {
 	rec := attributeDefinitionFromDomain(def)
 	rec.UpdatedAt = time.Now().UTC()
+	// enum_options carries a json serializer on the record, but map-based
+	// updates bypass it, so serialize explicitly.
+	enumOptions, err := json.Marshal(nonNilStrings(def.EnumOptions))
+	if err != nil {
+		return fmt.Errorf("encode enum options: %w", err)
+	}
 	res := r.db.WithContext(ctx).Model(&attributeDefinitionRecord{}).
 		Where("id = ?", def.ID).
 		Updates(map[string]any{
-			"display_name": rec.DisplayName,
-			"value_type":   rec.ValueType,
-			"enum_options": rec.EnumOptions,
-			"required":     rec.Required,
-			"enabled":      rec.Enabled,
-			"description":  rec.Description,
-			"updated_at":   rec.UpdatedAt,
+			"display_name":  rec.DisplayName,
+			"value_type":    rec.ValueType,
+			"enum_options":  string(enumOptions),
+			"required":      rec.Required,
+			"enabled":       rec.Enabled,
+			"status":        rec.Status,
+			"display_group": rec.DisplayGroup,
+			"display_order": rec.DisplayOrder,
+			"description":   rec.Description,
+			"updated_at":    rec.UpdatedAt,
 		})
 	if res.Error != nil {
 		return mapAttributeWriteError(res.Error)
