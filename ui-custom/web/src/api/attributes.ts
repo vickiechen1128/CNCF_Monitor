@@ -1,21 +1,41 @@
 /**
- * 资源能力属性 API —— 扩展属性字典 + 资源属性值
- *（SRS Module_07 v2.1 §5.8 FR-31，/api/v3/platform/attribute-definitions、
- *  /api/v3/platform/resources/:resource_id/attributes）。
+ * CI 模型与自定义字段 API（SRS Module_07 v2.2 §5.8 FR-30~FR-34）：
+ * - /api/v3/platform/ci-models：六类内置字段 + 在模型中的自定义字段；
+ * - /api/v3/platform/attribute-definitions：自定义字段增删改查。
  */
 import { apiClient } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
   AttributeDefinition,
   AttributeDefinitionInput,
+  AttributeStatus,
+  CIModel,
+  RemoveDefinitionResult,
   ResourceAttributeValue,
 } from '../types/attribute'
+import type { ResourceCategory } from '../types/resource'
+
+export const ciModelApi = {
+  list(): Promise<ApiResponse<{ list: CIModel[] }>> {
+    return apiClient.get<{ list: CIModel[] }>('/api/v3/platform/ci-models')
+  },
+
+  get(category: ResourceCategory): Promise<ApiResponse<CIModel>> {
+    return apiClient.get<CIModel>(`/api/v3/platform/ci-models/${category}`)
+  },
+}
 
 export const attributeDefinitionApi = {
-  list(resourceCategory?: string): Promise<ApiResponse<{ list: AttributeDefinition[]; total: number }>> {
+  list(
+    resourceCategory?: string,
+    status?: AttributeStatus,
+  ): Promise<ApiResponse<{ list: AttributeDefinition[]; total: number }>> {
+    const params: Record<string, string> = {}
+    if (resourceCategory) params.resource_category = resourceCategory
+    if (status) params.status = status
     return apiClient.get<{ list: AttributeDefinition[]; total: number }>(
       '/api/v3/platform/attribute-definitions',
-      { params: resourceCategory ? { resource_category: resourceCategory } : undefined },
+      { params: Object.keys(params).length > 0 ? params : undefined },
     )
   },
 
@@ -27,8 +47,8 @@ export const attributeDefinitionApi = {
     return apiClient.put<AttributeDefinition>(`/api/v3/platform/attribute-definitions/${id}`, { body: input })
   },
 
-  remove(id: string): Promise<ApiResponse<{ id: string; deleted: boolean }>> {
-    return apiClient.delete<{ id: string; deleted: boolean }>(`/api/v3/platform/attribute-definitions/${id}`)
+  remove(id: string): Promise<ApiResponse<RemoveDefinitionResult>> {
+    return apiClient.delete<RemoveDefinitionResult>(`/api/v3/platform/attribute-definitions/${id}`)
   },
 }
 

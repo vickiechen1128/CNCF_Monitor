@@ -1285,8 +1285,8 @@ describe('ResourceFormDrawer', () => {
     database.unmount()
   })
 
-  // FR-31：扩展属性字典里登记的 key，必须直接出现在资源登记抽屉（不是只服务 Excel / 事后抽屉）
-  it('FR-31：扩展属性字典的 key 在新增主机时动态渲染为表单字段，并随创建提交落库', async () => {
+  // FR-31：CI 模型配置里登记的 key，必须直接出现在资源登记抽屉（不是只服务 Excel / 事后抽屉）
+  it('FR-31：CI 模型配置的 key 在新增主机时动态渲染为表单字段，并随创建提交落库', async () => {
     attributeDefinitionListMock.mockResolvedValue({
       status: 'success',
       data: {
@@ -1321,7 +1321,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ mode: 'create', category: 'host' })
 
     // 动态字段出现（含标题说明），证明字典驱动而非写死
-    expect(await screen.findByText('扩展属性（按需填写）')).toBeInTheDocument()
+    expect(await screen.findByText('自定义字段（按需填写）')).toBeInTheDocument()
     expect(screen.getByText('DPU 型号')).toBeInTheDocument()
     expect(screen.getByText('智能网卡')).toBeInTheDocument()
 
@@ -1343,7 +1343,7 @@ describe('ResourceFormDrawer', () => {
     )
   })
 
-  it('FR-31：编辑态回显已保存的扩展属性值，未渲染的历史 key 不被隐式删除', async () => {
+  it('FR-31：编辑态回显已保存的自定义字段值，未渲染的历史 key 不被隐式删除', async () => {
     attributeDefinitionListMock.mockResolvedValue({
       status: 'success',
       data: {

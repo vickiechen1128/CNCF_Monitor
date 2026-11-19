@@ -12,6 +12,7 @@ import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsP
 // 存储与日志管理页（M06 F-41：TSDB 保留策略 + 磁盘/日志轮转展示）
 import StorageLogPage from './pages/admin/storagelog/StorageLogPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
+import CIModelPage from './pages/resources/CIModelPage'
 import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import ApplicationDictPage from './pages/resources/ApplicationDictPage'
 // 平台字典维护页（M07 §5.21 / 决策 104，契约快照 §5C）
@@ -121,6 +122,8 @@ function AppRoutes() {
           {/* 存储与日志管理页（M06 F-41）：TSDB 保留策略 + 磁盘/日志轮转只读展示 */}
           <Route path="/admin/storage-logs" element={<StorageLogPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
+          {/* CI 模型配置（SRS Module_07 v2.2 §5.8 FR-32）：内置字段只读 + 自定义字段 */}
+          <Route path="/ci-models" element={<CIModelPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
           <Route path="/business-domains" element={<BusinessDomainPage />} />
           {/* 应用字典维护页（M07 §5.19 / 决策 92，与业务管理页同构） */}

@@ -17,8 +17,8 @@ interface Props {
 /**
  * 单个资源的扩展能力属性编辑抽屉（SRS Module_07 v2.1 §5.8 FR-31）。
  *
- * 表单字段由扩展属性字典动态生成（布尔 / 数值 / 文本 / 枚举），因此登记新能力 key
- * 后无需改动本页面。has_npu / has_gpu 属于一等能力字段，仍在「编辑资源」表单维护。
+ * 表单字段由「CI 模型配置」登记的自定义字段动态生成（布尔 / 数值 / 文本 / 枚举），
+ * 因此登记新字段后无需改动本页面。has_npu / has_gpu 属于内置能力字段，仍在「编辑资源」表单维护。
  */
 export function ResourceAttributesDrawer({ open, record, onClose, onSaved }: Props) {
   const [definitions, setDefinitions] = useState<AttributeDefinition[]>([])
@@ -33,10 +33,10 @@ export function ResourceAttributesDrawer({ open, record, onClose, onSaved }: Pro
     setError(null)
     try {
       const [defsRes, valuesRes] = await Promise.all([
-        attributeDefinitionApi.list(record.resource_category),
+        attributeDefinitionApi.list(record.resource_category, 'active'),
         resourceAttributeApi.list(record.resource_id),
       ])
-      const activeDefs = (defsRes.data?.list ?? []).filter((def) => def.enabled)
+      const activeDefs = defsRes.data?.list ?? []
       setDefinitions(activeDefs)
       const stored: Record<string, string> = {}
       for (const item of valuesRes.data?.list ?? []) {
@@ -172,7 +172,7 @@ export function ResourceAttributesDrawer({ open, record, onClose, onSaved }: Pro
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
       {definitions.length === 0 && !loading ? (
         <Text type="secondary">
-          该资源类别还没有登记扩展属性。请到「资源管理 → 扩展属性字典」登记能力 key 后再填写。
+          该资源类别还没有登记自定义字段。请到「资源管理 → CI 模型配置」登记字段后再填写。
         </Text>
       ) : (
         <>

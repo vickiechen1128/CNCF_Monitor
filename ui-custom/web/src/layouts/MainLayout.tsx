@@ -22,6 +22,7 @@ import {
   MenuUnfoldOutlined,
   PartitionOutlined,
   PlusOutlined,
+  ProfileOutlined,
   RadarChartOutlined,
   StopOutlined,
   TagsOutlined,
@@ -109,6 +110,8 @@ const MODULES: ModuleDef[] = [
       // 业务分组字典为资源录入/导入的取值权威，与上面组成链正交，置为一组末尾
       { key: '/business-domains', label: '业务管理', icon: <PartitionOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
+      // CI 模型配置（SRS Module_07 v2.2 FR-32）：字段分组与自定义字段维护
+      { key: '/ci-models', label: 'CI 模型配置', icon: <ProfileOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
     ],
   },
@@ -279,6 +282,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     return findModuleByKey('config-center')
   if (
     locationPath.startsWith('/resources') ||
+    locationPath.startsWith('/ci-models') ||
     locationPath.startsWith('/label-templates') ||
     locationPath.startsWith('/business-domains') ||
     locationPath.startsWith('/application-dict') ||

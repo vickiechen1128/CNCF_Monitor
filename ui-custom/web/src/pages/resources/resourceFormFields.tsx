@@ -9,7 +9,8 @@ import type { ReactNode } from 'react'
 import { AutoComplete, Col, DatePicker, Divider, Form, Input, InputNumber, Row, Select, Switch, Typography } from 'antd'
 import type { FormInstance } from 'antd'
 import type { NetworkDomain } from '../../types/domain'
-import type { AttributeDefinition } from '../../types/attribute'
+import type { AttributeDefinition, AttributeGroup } from '../../types/attribute'
+import { FIELD_GROUP_LABEL, FIELD_GROUP_ORDER } from './resourceFieldSchema'
 import type {
   ApplicationDict,
   BusinessDomain,
@@ -693,61 +694,93 @@ export function renderResourceTypeFields(ctx: ResourceFormFieldsContext): ReactN
 }
 
 /**
- * 扩展属性动态字段（SRS Module_07 v2.1 §5.8 FR-31）。
+ * 自定义字段动态渲染（SRS Module_07 v2.2 §5.8 FR-31 / FR-33）。
  *
- * 字段完全由扩展属性字典生成：登记新 key 后，资源登记抽屉下一次打开即出现对应输入项，
- * 无需改前端代码。值以 `extension_attributes.<key>` 挂在表单上，由 Drawer 在提交后落库。
+ * 字段完全由「CI 模型配置」登记的自定义字段生成：登记新 key 后，资源登记抽屉
+ * 下一次打开即出现对应输入项，无需改前端代码。字段按固定分组展示，组内按排序值
+ * 排列；值以 `extension_attributes.<key>` 挂在表单上，由 Drawer 在提交后落库。
  */
 export function renderResourceExtensionAttributes(definitions: AttributeDefinition[]): ReactNode {
   if (definitions.length === 0) return null
+  const groups = groupCustomFields(definitions)
   return (
     <>
       <Divider orientation="left" plain style={{ marginTop: 8 }}>
-        扩展属性（按需填写）
+        自定义字段（按需填写）
       </Divider>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12 }}>
-        由「资源管理 → 扩展属性字典」登记的能力字段，例如 DPU 型号、智能网卡；留空即不记录。
+        由「资源管理 → CI 模型配置」登记的描述性字段，例如 DPU 型号、机柜位置；留空即不记录。
       </Typography.Paragraph>
-      {definitions.map((def) => {
-        const name = ['extension_attributes', def.attribute_key]
-        const rules = def.required ? [{ required: true, message: `请填写${def.display_name}` }] : undefined
-        switch (def.value_type) {
-          case 'boolean':
-            return (
-              <Form.Item
-                key={def.id}
-                label={def.display_name}
-                name={name}
-                valuePropName="checked"
-                extra={def.description}
-              >
-                <Switch checkedChildren="是" unCheckedChildren="否" />
-              </Form.Item>
-            )
-          case 'number':
-            return (
-              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
-                <InputNumber style={{ width: '100%' }} placeholder="数值" />
-              </Form.Item>
-            )
-          case 'enum':
-            return (
-              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
-                <Select
-                  allowClear
-                  placeholder="请选择"
-                  options={(def.enum_options ?? []).map((option) => ({ value: option, label: option }))}
-                />
-              </Form.Item>
-            )
-          default:
-            return (
-              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
-                <Input placeholder="文本" maxLength={500} />
-              </Form.Item>
-            )
-        }
-      })}
+      {groups.map((section) => (
+        <div key={section.group} data-testid={`custom-field-group-${section.group}`}>
+          <Typography.Text strong style={{ display: 'block', margin: '8px 0 12px' }}>
+            {section.label}
+          </Typography.Text>
+          {section.items.map((def) => renderCustomField(def))}
+        </div>
+      ))}
     </>
   )
+}
+
+/** 按固定分组顺序归并自定义字段，组内按排序值、再按 key 稳定排序。 */
+function groupCustomFields(
+  definitions: AttributeDefinition[],
+): { group: AttributeGroup; label: string; items: AttributeDefinition[] }[] {
+  const buckets = new Map<AttributeGroup, AttributeDefinition[]>()
+  for (const def of definitions) {
+    const group = def.display_group ?? 'profile'
+    const bucket = buckets.get(group) ?? []
+    bucket.push(def)
+    buckets.set(group, bucket)
+  }
+  return FIELD_GROUP_ORDER.filter((group) => buckets.has(group)).map((group) => ({
+    group,
+    label: FIELD_GROUP_LABEL[group],
+    items: [...(buckets.get(group) ?? [])].sort(
+      (a, b) => (a.display_order - b.display_order) || a.attribute_key.localeCompare(b.attribute_key),
+    ),
+  }))
+}
+
+/** 单个自定义字段的控件（布尔 / 数值 / 枚举 / 文本）。 */
+function renderCustomField(def: AttributeDefinition): ReactNode {
+  const name = ['extension_attributes', def.attribute_key]
+  const rules = def.required ? [{ required: true, message: `请填写${def.display_name}` }] : undefined
+  switch (def.value_type) {
+    case 'boolean':
+      return (
+        <Form.Item
+          key={def.id}
+          label={def.display_name}
+          name={name}
+          valuePropName="checked"
+          extra={def.description}
+        >
+          <Switch checkedChildren="是" unCheckedChildren="否" />
+        </Form.Item>
+      )
+    case 'number':
+      return (
+        <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+          <InputNumber style={{ width: '100%' }} placeholder="数值" />
+        </Form.Item>
+      )
+    case 'enum':
+      return (
+        <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+          <Select
+            allowClear
+            placeholder="请选择"
+            options={(def.enum_options ?? []).map((option) => ({ value: option, label: option }))}
+          />
+        </Form.Item>
+      )
+    default:
+      return (
+        <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+          <Input placeholder="文本" maxLength={500} />
+        </Form.Item>
+      )
+  }
 }

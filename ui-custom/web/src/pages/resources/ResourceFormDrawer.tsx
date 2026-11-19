@@ -77,7 +77,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  // 扩展属性字典（SRS Module_07 v2.1 FR-31）：按当前资源类别动态渲染登记时即可填写的能力字段
+  // 自定义字段（SRS Module_07 v2.2 FR-31）：按当前资源类别动态渲染登记时即可填写的能力字段
   const [attributeDefs, setAttributeDefs] = useState<AttributeDefinition[]>([])
   // 编辑态已有属性值：字典未覆盖的 key 在保存时原样保留，避免表单「看不见就删掉」。
   // 用 state 而非 ref：值回填必须在字典渲染出字段之后执行（Form preserve={false} 会丢弃未挂载字段的值）。
@@ -195,11 +195,11 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       .list()
       .then((res) => setAppPlatformRels(res.data?.list ?? []))
       .catch(() => setAppPlatformRels([]))
-    // 扩展属性（FR-31）：字典按当前资源类别取；编辑态同时回填已有值。
-    // 加载失败静默降级为「无扩展属性字段」，不阻塞资源本身的登记。
+    // 自定义字段（FR-31）：只取「在模型中」的字段；编辑态同时回填已有值。
+    // 加载失败静默降级为「无自定义字段」，不阻塞资源本身的登记。
     attributeDefinitionApi
-      .list(displayCategory)
-      .then((res) => setAttributeDefs((res.data?.list ?? []).filter((def) => def.enabled)))
+      .list(displayCategory, 'active')
+      .then((res) => setAttributeDefs(res.data?.list ?? []))
       .catch(() => setAttributeDefs([]))
     if (mode === 'edit' && record) {
       resourceAttributeApi
@@ -232,7 +232,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   }
 
   /**
-   * 保存扩展属性值（FR-31）。表单字段名为 `extension_attributes.<key>`：
+   * 保存自定义字段值（FR-31）。表单字段名为 `extension_attributes.<key>`：
    * - 布尔字段始终显式落 true/false，避免「未填」与「false」混淆；
    * - 其余类型空值即「清空该属性」；
    * - 字典中已停用/已删除、表单未渲染的历史 key 原样保留，不做隐式删除。
@@ -275,7 +275,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
         await resourceApi.update(record.resource_id, buildUpdateInput(displayCategory, values))
         message.success('资源已更新')
       }
-      // 扩展属性值（FR-31）：表单里渲染了哪些 key 就提交哪些；字典未覆盖的历史 key 原样保留。
+      // 自定义字段值（FR-31）：表单里渲染了哪些 key 就提交哪些；未覆盖的历史 key 原样保留。
       if (resourceID && attributeDefs.length > 0) {
         await persistExtensionAttributes(resourceID, values)
       }

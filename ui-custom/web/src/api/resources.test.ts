@@ -191,7 +191,7 @@ describe('resources API (v3)', () => {
       network_domain_id: 'default',
       biz_code: 'infra',
       env: 'PRD',
-      attributes: { hostname: 'web-01', instance_ip: '10.0.0.1', os_type: 'Linux' },
+      attributes: { hostname: 'web-01', instance_ip: '10.0.0.1', os_type: 'Linux', has_npu: false, has_gpu: false },
     })
     expect(res.data.instance_name).toBe('web-01')
   })

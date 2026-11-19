@@ -10,8 +10,8 @@ import { useSkin } from '../../skinContext'
 import { useResourceLabels } from './useResourceLabels'
 import { ResourceLabelsTab } from './ResourceLabelsTab'
 import { ResourceAttributesDrawer } from './ResourceAttributesDrawer'
-import { resourceAttributeApi } from '../../api/attributes'
-import type { ResourceAttributeValue } from '../../types/attribute'
+import { attributeDefinitionApi, resourceAttributeApi } from '../../api/attributes'
+import type { AttributeDefinition, ResourceAttributeValue } from '../../types/attribute'
 
 const { Text, Link } = Typography
 
@@ -50,7 +50,9 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
 
   const { tokens } = useSkin()
-  // 能力属性（SRS Module_07 v2.1 §5.8）：扩展属性值与固定能力标记分开展示
+  // 自定义字段（SRS Module_07 v2.2 §5.8）：字段定义（含已移出）+ 资源值分开存，
+  // 用于在详情页区分「在模型中」与「历史字段」。
+  const [fieldDefs, setFieldDefs] = useState<AttributeDefinition[]>([])
   const [extensionAttrs, setExtensionAttrs] = useState<ResourceAttributeValue[]>([])
   const [attrDrawerOpen, setAttrDrawerOpen] = useState(false)
   const isApplication = record?.resource_category === 'application'
@@ -60,6 +62,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     if (!open || !record) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setExtensionAttrs([])
+      setFieldDefs([])
       return
     }
     let cancelled = false
@@ -70,6 +73,15 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       })
       .catch(() => {
         if (!cancelled) setExtensionAttrs([])
+      })
+    // 字段定义包含已移出字段，用于把历史值单独归类展示。
+    void attributeDefinitionApi
+      .list(record.resource_category)
+      .then((res) => {
+        if (!cancelled) setFieldDefs(res.data?.list ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setFieldDefs([])
       })
     return () => {
       cancelled = true
@@ -283,7 +295,16 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       })()
     : []
 
-  /** 能力属性：固定标记（主机）+ 已登记的扩展属性值 */
+  /** 能力属性：固定标记（主机）+ 在模型中的自定义字段值 */
+  /** 自定义字段定义索引：key → 定义（含已移出），用于展示名与状态判定。 */
+  const fieldDefByKey = new Map(fieldDefs.map((def) => [def.attribute_key, def]))
+  const displayNameOf = (key: string) => fieldDefByKey.get(key)?.display_name ?? key
+  const isRemovedField = (key: string) => fieldDefByKey.get(key)?.status === 'removed'
+  /** 在模型中的自定义字段值。 */
+  const activeAttrValues = extensionAttrs.filter((attr) => !isRemovedField(attr.key))
+  /** 已移出字段的历史值：字段不再出现在表单里，但值必须可查（FR-34）。 */
+  const historyAttrValues = extensionAttrs.filter((attr) => isRemovedField(attr.key))
+
   const capabilityItems = record
     ? [
         ...(record.resource_category === 'host'
@@ -300,15 +321,26 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
               },
             ]
           : []),
-        ...(extensionAttrs.length > 0
-          ? extensionAttrs.map((attr) => ({
+        ...(activeAttrValues.length > 0
+          ? activeAttrValues.map((attr) => ({
               key: `attr-${attr.key}`,
-              label: attr.key,
+              label: displayNameOf(attr.key),
               children: attr.value,
             }))
-          : [{ key: 'attr-empty', label: '扩展属性', children: '未登记扩展属性值' }]),
+          : [{ key: 'attr-empty', label: '自定义字段', children: '未登记自定义字段值' }]),
       ]
     : []
+
+  const historyItems = historyAttrValues.map((attr) => ({
+    key: `history-${attr.key}`,
+    label: (
+      <Space size={4}>
+        {displayNameOf(attr.key)}
+        <Tag>已移出模型</Tag>
+      </Space>
+    ),
+    children: attr.value,
+  }))
 
   return (
     <Drawer
@@ -332,14 +364,23 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
             style={{ marginTop: 16 }}
             title={
               <Space>
-                能力属性
+                能力属性与自定义字段
                 <Button size="small" onClick={() => setAttrDrawerOpen(true)} data-testid="edit-resource-attributes">
-                  维护扩展属性
+                  维护自定义字段
                 </Button>
               </Space>
             }
             items={capabilityItems}
           />
+          {historyItems.length > 0 && (
+            <Descriptions
+              column={2}
+              size="small"
+              style={{ marginTop: 16 }}
+              title="历史字段（已移出模型）"
+              items={historyItems}
+            />
+          )}
           <ResourceLabelsTab {...labelsTab} isApplication={isApplication} tokens={tokens} />
           <ResourceAttributesDrawer
             open={attrDrawerOpen}

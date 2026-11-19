@@ -26,7 +26,7 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
     '可留空：所属业务（biz_code，导入后再补）、所属应用（app_code）、所属平台（platform_code，留空按所属应用的默认平台归属）',
     '可留空：主机别名（hostname，与主机名二选一填一个即可）、所属集群（cluster）、负责人（owner）、开通时间（activated_at，RFC3339 或 YYYY-MM-DD）',
     '可留空：是否带 NPU / GPU（has_npu / has_gpu，填 是/否 或 true/false）——与操作系统正交，用于识别 NPU / GPU 监控对象类型',
-    '可留空：扩展属性（attributes，格式 key=value;key2=value2）——key 需先在「资源管理 → 扩展属性字典」登记',
+    '可留空：自定义字段（attributes，格式 key=value;key2=value2）——key 需先在「资源管理 → CI 模型配置」登记',
   ],
   database: [
     '必填：数据库类型（database_type）、IP 地址（instance_ip，填 IPv4）、端口（port）',
