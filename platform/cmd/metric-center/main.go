@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -30,7 +29,7 @@ import (
 var (
 	listenAddr              = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
 	prometheusURL           = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
-	businessDomainsFile     = flag.String("business-domains.file", "platform/legacy/config/business_domains.yaml", "业务分组字典 yaml 路径")
+	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（v3 入口未使用该参数，保留以兼容既有启动脚本）")
 	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（M08 静默代理 + AM 配置下发 reload 目标）")
@@ -151,32 +150,3 @@ func registerSPA(r *gin.Engine, dir string) error {
 	return nil
 }
 
-// buildReloadFunc 返回 reload 回调：POST 到中心 reload 地址。未配置时如实返回
-// 错误而非静默 success（保留供测试与既有脚本语义使用）。
-func buildReloadFunc(reloadURL string) func() error {
-	client := &http.Client{Timeout: 10 * time.Second}
-	return func() error {
-		if reloadURL == "" {
-			return errors.New("config reload url not configured; refusing silent success")
-		}
-		u, err := url.Parse(reloadURL)
-		if err != nil {
-			return fmt.Errorf("parse reload url: %w", err)
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("parse reload url %q: scheme must be http or https", reloadURL)
-		}
-		if u.Host == "" {
-			return fmt.Errorf("parse reload url %q: host must not be empty", reloadURL)
-		}
-		resp, err := client.Post(reloadURL, "application/json", nil)
-		if err != nil {
-			return fmt.Errorf("reload prometheus at %s: %w", reloadURL, err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-			return fmt.Errorf("reload prometheus at %s: unexpected status %d", reloadURL, resp.StatusCode)
-		}
-		return nil
-	}
-}
