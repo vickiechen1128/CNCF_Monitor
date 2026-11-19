@@ -19,7 +19,6 @@ type NetworkDomainResponse struct {
 	Description         string    `json:"description"`
 	DomainType          string    `json:"domain_type"`
 	DomainTypeLabel     string    `json:"domain_type_label"`
-	ZoneType            string    `json:"zone_type"`
 	CloudCode           string    `json:"cloud_code"`
 	TenantID            string    `json:"tenant_id"`
 	AuthorizedTenantIDs []string  `json:"authorized_tenant_ids"`
@@ -35,7 +34,6 @@ type CreateNetworkDomainRequest struct {
 	Name                string   `json:"name"`
 	Description         string   `json:"description"`
 	CloudCode           string   `json:"cloud_code"`
-	ZoneType            string   `json:"zone_type"`
 	DomainCode          string   `json:"domain_code"`
 	DomainType          *string  `json:"domain_type"`
 	AuthorizedTenantIDs []string `json:"authorized_tenant_ids"`
@@ -47,7 +45,6 @@ func (r CreateNetworkDomainRequest) ToDomain() (domain.CreateNetworkDomainInput,
 		Name:                r.Name,
 		Description:         r.Description,
 		CloudCode:           r.CloudCode,
-		ZoneType:            r.ZoneType,
 		DomainCode:          r.DomainCode,
 		AuthorizedTenantIDs: r.AuthorizedTenantIDs,
 	}
@@ -62,12 +59,11 @@ func (r CreateNetworkDomainRequest) ToDomain() (domain.CreateNetworkDomainInput,
 }
 
 // UpdateNetworkDomainRequest is the PUT /network-domains/:id body. Only these
-// four fields are mutable; any other field (cloud_code/tenant_id/domain_type/
+// three fields are mutable; any other field (cloud_code/tenant_id/domain_type/
 // id/status) makes the strict decoder fail with 400.
 type UpdateNetworkDomainRequest struct {
 	Name                *string   `json:"name"`
 	Description         *string   `json:"description"`
-	ZoneType            *string   `json:"zone_type"`
 	AuthorizedTenantIDs *[]string `json:"authorized_tenant_ids"`
 }
 
@@ -76,7 +72,6 @@ func (r UpdateNetworkDomainRequest) ToDomain() domain.UpdateNetworkDomainInput {
 	return domain.UpdateNetworkDomainInput{
 		Name:                r.Name,
 		Description:         r.Description,
-		ZoneType:            r.ZoneType,
 		AuthorizedTenantIDs: r.AuthorizedTenantIDs,
 	}
 }
@@ -132,7 +127,6 @@ func FromNetworkDomain(item *domain.NetworkDomain) NetworkDomainResponse {
 		Description:         item.Description,
 		DomainType:          string(item.DomainType),
 		DomainTypeLabel:     domainTypeLabel,
-		ZoneType:            item.ZoneType,
 		CloudCode:           item.CloudCode,
 		TenantID:            item.TenantID,
 		AuthorizedTenantIDs: tenantIDs,

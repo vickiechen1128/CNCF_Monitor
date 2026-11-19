@@ -11,7 +11,6 @@ const baseDomain: NetworkDomain = {
   tenant_id: '',
   channel: 'agent_pull',
   cloud_code: 'aliyun',
-  zone_type: 'internet',
   is_monitored: false,
   created_at: '2026-09-25T00:00:00Z',
   updated_at: '2026-09-25T00:00:00Z',
@@ -33,13 +32,12 @@ function renderDrawer(domain: NetworkDomain = baseDomain) {
 describe('OnboardDomainDrawer（网域纳管抽屉）', () => {
   setupAntdTest()
 
-  it('只读展示网域行政信息（名称 / ID / 云归属 / 网络区域）', () => {
+  it('只读展示网域行政信息（名称 / ID / 云归属）', () => {
     renderDrawer()
 
     expect(screen.getByText('政务云A区')).toBeInTheDocument()
     expect(screen.getByText('gov-cloud-a')).toBeInTheDocument()
     expect(screen.getByText('aliyun')).toBeInTheDocument()
-    expect(screen.getByText('internet')).toBeInTheDocument()
   })
 
   it('不再渲染可编辑的监控参数表单（v3 纳管无请求体）', () => {

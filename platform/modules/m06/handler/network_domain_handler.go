@@ -62,7 +62,7 @@ func (h *NetworkDomainHandler) Update(c *gin.Context) {
 	}
 	input := req.ToDomain()
 	if !input.HasChanges() {
-		response.BadRequest(c, fmt.Errorf("at least one of name/description/zone_type/authorized_tenant_ids is required"))
+		response.BadRequest(c, fmt.Errorf("at least one of name/description/authorized_tenant_ids is required"))
 		return
 	}
 	item, err := h.svc.Update(c.Request.Context(), c.Param("id"), input)

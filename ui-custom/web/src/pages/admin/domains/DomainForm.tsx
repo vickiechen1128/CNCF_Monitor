@@ -4,12 +4,11 @@ import { InfoCircleFilled } from '@ant-design/icons'
 import {
   networkDomainApi,
   tenantApi,
-  zoneTypeApi,
   type NetworkDomainCreateInput,
   type NetworkDomainUpdateInput,
 } from '../../../api/domain'
 import { cloudDictApi } from '../../../api/resources'
-import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
+import type { NetworkDomain, Tenant } from '../../../types/domain'
 import type { CloudDict } from '../../../types/resource'
 import { FormSection } from '../../../components/FormSection'
 import { Callout } from '../../../components/Callout'
@@ -21,12 +20,8 @@ const CLOUD_CODE_FIELD_HINT =
   '取自云字典（管理员维护、仅含启用项），不开放自由文本；云归属是资源「云」标签的唯一来源，资源侧不再单独维护。'
 /** 编辑态云归属只读说明（MVP 收口：登记后不可编辑） */
 const CLOUD_CODE_READONLY_HINT = '网域云归属登记后不可修改；如需跨云请新登记网域'
-/** 网络分区字段说明（对齐原型 ZONE_TYPE_FIELD_HINT，必填口径去除「可留空」表述） */
-const ZONE_TYPE_FIELD_HINT =
-  '给网域贴的分类标签：政务云环境对应安全分区（如互联网区 / 政务外网区 / 专线区 / DMZ），公有云环境对应地域（region）；分区为隔离边界，AZ 不进分区。取值来自部署级字典，不开放自由文本。'
 /** 字典为空 / 加载失败时的兜底提示 */
 const CLOUD_DICT_EMPTY_HINT = '云字典为空或加载失败，请联系平台管理员预置（不开放自由文本）'
-const ZONE_TYPE_DICT_EMPTY_HINT = '网络区域类型字典为空，请联系平台管理员预置（不开放自由文本）'
 
 interface DomainDrawerProps {
   open: boolean
@@ -46,7 +41,6 @@ interface DomainDrawerProps {
 export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: DomainDrawerProps) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
-  const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
   // 云归属下拉数据源（云字典读接口 GET /api/v3/platform/cloud-dict，仅启用项；写接口在 M06，D37）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
@@ -65,9 +59,8 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
       const { tenant_id: _tenantId, ...editable } = domain
       form.setFieldsValue(editable)
     }
-    Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 }), cloudDictApi.list()])
-      .then(([zt, tn, cd]) => {
-        setZoneTypes(zt.data ?? [])
+    Promise.all([tenantApi.list({ page: 1, page_size: 100 }), cloudDictApi.list()])
+      .then(([tn, cd]) => {
         setTenants(tn.data?.list ?? [])
         setCloudDicts(cd.data?.list ?? [])
         setDictError(null)
@@ -75,7 +68,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
       .catch((err: Error) => setDictError(err.message))
   }, [open, mode, domain, form])
 
-  const enabledZoneTypes = zoneTypes.filter((z) => z.enabled)
   // 云归属仅展示云字典启用条目（value=cloud_code、label=cloud_name，禁止自由文本）
   const enabledClouds = cloudDicts.filter((c) => c.enabled)
   const activeTenants = tenants.filter((t) => t.status === 'active')
@@ -99,7 +91,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         const input: NetworkDomainCreateInput = {
           name: String(values.name),
           cloud_code: String(values.cloud_code),
-          zone_type: String(values.zone_type),
           description: values.description ? String(values.description) : undefined,
           authorized_tenant_ids: (values.authorized_tenant_ids as string[]) || undefined,
         }
@@ -109,7 +100,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         const input: NetworkDomainUpdateInput = {
           name: String(values.name),
           description: values.description ? String(values.description) : undefined,
-          zone_type: values.zone_type ? String(values.zone_type) : undefined,
           authorized_tenant_ids: (values.authorized_tenant_ids as string[]) || undefined,
         }
         await networkDomainApi.update(domain.id, input)
@@ -213,28 +203,6 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
               )}
             </Col>
           </Row>
-        </FormSection>
-
-        <FormSection title="网络与分区">
-          <Form.Item
-            label="网络分区"
-            name="zone_type"
-            rules={[{ required: true, message: '请选择网络分区' }]}
-            extra={enabledZoneTypes.length ? ZONE_TYPE_FIELD_HINT : ZONE_TYPE_DICT_EMPTY_HINT}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="请选择网络分区"
-              disabled={!enabledZoneTypes.length}
-            >
-              {enabledZoneTypes.map((z) => (
-                <Select.Option key={z.code} value={z.code} label={z.display_name}>
-                  {z.display_name}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
         </FormSection>
 
         <FormSection title="授权" description="网域为部署级资源，可授权多个租户共享使用">

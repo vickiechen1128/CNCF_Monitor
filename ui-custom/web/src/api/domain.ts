@@ -7,7 +7,6 @@
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
-import type { DictionaryMergeResult } from './resources'
 export { isApiError } from './client'
 import type {
   DomainStatus,
@@ -17,7 +16,6 @@ import type {
   NetworkDomainStatusResult,
   OnboardingNetworkDomain,
   Tenant,
-  ZoneType,
 } from '../types/domain'
 
 const DOMAINS_PATH = '/api/v3/platform/network-domains'
@@ -30,7 +28,6 @@ export interface ListParams extends Record<string, string | number | boolean | u
   view?: 'onboarding' | 'admin'
   status?: DomainStatus
   registration_status?: string
-  zone_type?: string
   tenant_id?: string
   cloud_code?: string
   /** 网域名称/ID 模糊搜索（v3 参数名为 keyword） */
@@ -53,7 +50,6 @@ function toNetworkDomain(item: OnboardingNetworkDomain): NetworkDomain {
     description: item.description ?? '',
     domain_type: item.domain_type,
     cloud_code: item.cloud_code || undefined,
-    zone_type: item.zone_type ?? '',
     tenant_id: item.tenant_id ?? '',
     authorized_tenant_ids: item.authorized_tenant_ids ?? [],
     channel: 'agent_pull',
@@ -79,8 +75,6 @@ export interface NetworkDomainCreateInput {
   name: string
   /** 云归属（M06 §5.2，必填）：取自云字典启用条目（M07 §5.20），不开放自由文本 */
   cloud_code: string
-  /** 网络分区（M06 §5.2，必填）：取自区域类型字典启用条目，不开放自由文本 */
-  zone_type: string
   description?: string
   authorized_tenant_ids?: string[]
   /** 可选的自定义网域编码；留空由后端生成 */
@@ -93,32 +87,7 @@ export interface NetworkDomainCreateInput {
 export interface NetworkDomainUpdateInput {
   name?: string
   description?: string
-  /** 网络分区（必填维护） */
-  zone_type?: string
   authorized_tenant_ids?: string[]
-}
-
-/**
- * 区域类型字典（部署预置，消费启用项做下拉；撤销 / 合并由 admin 在维护页操作）。
- * v3 契约：`GET /api/v3/platform/zone-types` 返回分页信封 `{list,total}`；
- * 生命周期端点为 `POST /zone-types/:code/revoke` 与 `POST /zone-types/:code/merge`。
- */
-export const zoneTypeApi = {
-  async list(): Promise<ApiResponse<ZoneType[]>> {
-    const res = await apiClient.get<{ list?: ZoneType[]; total?: number }>('/api/v3/platform/zone-types')
-    return { ...res, data: res.data?.list ?? [] }
-  },
-  /** 零引用撤销（POST :code/revoke）：编码永久保留、不可重新登记 */
-  revoke(code: string): Promise<ApiResponse<ZoneType>> {
-    return apiClient.post<ZoneType>(`/api/v3/platform/zone-types/${encodeURIComponent(code)}/revoke`, {})
-  },
-  /** 错建 / 重码合并（POST :code/merge）：引用迁移到目标区域类型编码 */
-  merge(code: string, targetCode: string): Promise<ApiResponse<DictionaryMergeResult>> {
-    return apiClient.post<DictionaryMergeResult>(
-      `/api/v3/platform/zone-types/${encodeURIComponent(code)}/merge`,
-      { body: { target_code: targetCode } },
-    )
-  },
 }
 
 /** 网域管理（行政字段，MVP 登记能力） */

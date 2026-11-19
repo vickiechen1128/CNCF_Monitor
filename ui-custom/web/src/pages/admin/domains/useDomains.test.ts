@@ -27,7 +27,6 @@ describe('useDomains', () => {
       page: 1,
       page_size: 20,
       status: undefined,
-      zone_type: undefined,
       tenant_id: undefined,
       keyword: undefined,
     })
@@ -43,11 +42,11 @@ describe('useDomains', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     act(() => {
-      result.current.setFilters({ status: 'disabled', zone_type: 'internet' })
+      result.current.setFilters({ status: 'disabled', tenant_id: 'tenant-a' })
     })
     await waitFor(() =>
       expect(listMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ page: 1, status: 'disabled', zone_type: 'internet' }),
+        expect.objectContaining({ page: 1, status: 'disabled', tenant_id: 'tenant-a' }),
       ),
     )
   })

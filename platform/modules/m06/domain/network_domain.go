@@ -36,7 +36,6 @@ type NetworkDomain struct {
 	Name                string
 	Description         string
 	DomainType          DomainType
-	ZoneType            string
 	CloudCode           string
 	TenantID            string
 	AuthorizedTenantIDs []string
@@ -50,7 +49,6 @@ type CreateNetworkDomainInput struct {
 	Name                string
 	Description         string
 	CloudCode           string
-	ZoneType            string
 	DomainCode          string
 	DomainType          *DomainType
 	AuthorizedTenantIDs []string
@@ -60,13 +58,12 @@ type CreateNetworkDomainInput struct {
 type UpdateNetworkDomainInput struct {
 	Name                *string
 	Description         *string
-	ZoneType            *string
 	AuthorizedTenantIDs *[]string
 }
 
 // HasChanges reports whether at least one mutable field was supplied.
 func (i UpdateNetworkDomainInput) HasChanges() bool {
-	return i.Name != nil || i.Description != nil || i.ZoneType != nil || i.AuthorizedTenantIDs != nil
+	return i.Name != nil || i.Description != nil || i.AuthorizedTenantIDs != nil
 }
 
 // ResourceSummary is a lightweight reference used by the impact view.

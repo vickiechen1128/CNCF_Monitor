@@ -11,7 +11,6 @@ import (
 // DictionaryRepository reads the reference data used by M06 validation.
 type DictionaryRepository interface {
 	CloudEnabled(ctx context.Context, code string) (bool, error)
-	ZoneTypeExists(ctx context.Context, code string) (bool, error)
 	TenantActive(ctx context.Context, id string) (bool, error)
 }
 
@@ -32,17 +31,6 @@ func (r *GORMDictionaryRepository) CloudEnabled(ctx context.Context, code string
 		Where("cloud_code = ? AND enabled = ?", code, true).Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check cloud %q: %w", code, err)
-	}
-	return count > 0, nil
-}
-
-// ZoneTypeExists reports whether the deployment-level zone type exists.
-func (r *GORMDictionaryRepository) ZoneTypeExists(ctx context.Context, code string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&models.ZoneType{}).
-		Where("code = ?", code).Count(&count).Error
-	if err != nil {
-		return false, fmt.Errorf("check zone type %q: %w", code, err)
 	}
 	return count > 0, nil
 }

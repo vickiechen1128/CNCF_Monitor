@@ -28,7 +28,6 @@ const onboardingSelect = `nm.id AS domain_id,
 	nm.name AS name,
 	COALESCE(nm.description, '') AS description,
 	COALESCE(nm.cloud_code, '') AS cloud_code,
-	COALESCE(nm.zone_type, '') AS zone_type,
 	nm.tenant_id AS tenant_id,
 	COALESCE(nm.authorized_tenant_ids, '[]') AS authorized_tenant_ids_json,
 	nm.status AS admin_status,
@@ -53,7 +52,6 @@ type ListFilter struct {
 	RegistrationStatus string
 	Keyword            string
 	CloudCode          string
-	ZoneType           string
 	TenantID           string
 	// View selects the administrative visibility: empty/onboarding keeps the
 	// monitorable scope (enabled edge domains); admin exposes every edge/
@@ -75,7 +73,6 @@ type DomainOnboarding struct {
 	Name                string
 	Description         string
 	CloudCode           string
-	ZoneType            string
 	TenantID            string
 	AuthorizedTenantIDs []string
 	AdminStatus         string
@@ -326,9 +323,6 @@ func (r *GORMRepository) applyConditions(query *gorm.DB, filter ListFilter) *gor
 	if filter.CloudCode != "" {
 		query = query.Where("nm.cloud_code = ?", filter.CloudCode)
 	}
-	if filter.ZoneType != "" {
-		query = query.Where("nm.zone_type = ?", filter.ZoneType)
-	}
 	if filter.TenantID != "" {
 		query = query.Where("nm.tenant_id = ?", filter.TenantID)
 	}
@@ -351,7 +345,6 @@ func toDomainOnboarding(row *domainOnboardingRow) DomainOnboarding {
 		Name:                row.Name,
 		Description:         row.Description,
 		CloudCode:           row.CloudCode,
-		ZoneType:            row.ZoneType,
 		TenantID:            row.TenantID,
 		AuthorizedTenantIDs: parseStringList(row.AuthorizedTenantIDsJSON),
 		AdminStatus:         row.AdminStatus,

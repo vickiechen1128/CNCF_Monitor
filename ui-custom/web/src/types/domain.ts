@@ -1,10 +1,9 @@
 /**
- * 域对象领域类型：ZoneType / NetworkDomain / Tenant
+ * 域对象领域类型：NetworkDomain / Tenant
  *
  * 与 Module_06 §5（行政）和 Module_09 §5（纳管）对齐。
  * v3 只创建采集节点域（edge）；`collection` 仅读兼容（D16）。
  */
-import type { DictionaryStatus } from './resource'
 
 /** 网域类型：采集节点域 / 历史采集域（只读兼容） */
 export type DomainType = 'edge' | 'collection'
@@ -22,27 +21,6 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 export type RegistrationStatus = 'created' | 'monitored' | 'retired'
 
 /**
- * 区域类型字典条目（部署预置；v3 返回 code/display_name/enabled + 生命周期四态）。
- * `code` 不可变；撤销 / 合并由 M07 v3 字典生命周期接口维护，编码永久保留。
- */
-export interface ZoneType {
-  id?: number
-  code: string
-  display_name: string
-  description?: string
-  enabled: boolean
-  /** 生命周期四态；缺省时由 `dictionaryStatusOf` 按 enabled 回退推导 */
-  status?: DictionaryStatus
-  /** 引用该 zone_type 的网域数（服务端分组查询返回） */
-  reference_count?: number
-  /** 仅 status='merged' 时非空：合并后的目标编码 */
-  merged_into?: string
-  created_at?: string
-  updated_at?: string
-  deleted_at?: string
-}
-
-/**
  * M09 v3 网域 enriched 视图（行政字段 + 运行态，D34）。
  * 列表/详情共用；运行时字段只读。
  */
@@ -56,7 +34,6 @@ export interface OnboardingNetworkDomain {
   authorized_tenant_ids: string[]
   status: DomainStatus
   cloud_code: string
-  zone_type: string
   registration_status: RegistrationStatus
   monitored_at: string | null
   token_masked: string
@@ -83,7 +60,6 @@ export interface NetworkDomain {
    * 取值须为云字典（M07 §5.20）启用条目；资源的 `cloud` label 经所属网域派生注入。
    */
   cloud_code?: string
-  zone_type: string
   tenant_id: string
   authorized_tenant_ids: string[]
   // M09 纳管监控字段（由 enriched 视图派生，只读）

@@ -5,12 +5,10 @@ import { DomainsPage } from './DomainsPage'
 import type { NetworkDomain } from '../../../types/domain'
 
 const useDomainsMock = vi.fn()
-const zoneTypeListMock = vi.fn()
 const tenantListMock = vi.fn()
 const reloadMock = vi.fn()
 
 vi.mock('../../../api/domain', () => ({
-  zoneTypeApi: { list: (...a: unknown[]) => zoneTypeListMock(...a) },
   tenantApi: { list: (...a: unknown[]) => tenantListMock(...a) },
   networkDomainApi: { list: vi.fn() },
 }))
@@ -26,7 +24,6 @@ const domainRow = (id: string, name: string, extra: Partial<NetworkDomain> = {})
   name,
   description: '',
   domain_type: 'edge',
-  zone_type: '',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
   channel: 'local',
@@ -65,10 +62,8 @@ function renderPage() {
 describe('DomainsPage', () => {
   beforeEach(() => {
     useDomainsMock.mockReset()
-    zoneTypeListMock.mockReset()
     tenantListMock.mockReset()
     reloadMock.mockReset()
-    zoneTypeListMock.mockResolvedValue({ status: 'success', data: [] })
     tenantListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
   })
 

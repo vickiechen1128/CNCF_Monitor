@@ -76,7 +76,6 @@ describe('TargetStatusPage', () => {
             network_domain_id: 'default',
             name: '默认域',
             cloud_code: 'aliyun',
-            zone_type: 'internet',
             registration_status: 'monitored',
           },
         ],

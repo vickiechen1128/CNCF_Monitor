@@ -73,9 +73,6 @@ func newNetworkDomainTestRouter(t *testing.T, user *models.User, monitoring refe
 		CloudCode: "disabled-cloud", CloudName: "停用云",
 		CloudType: models.CloudTypePublic, Carrier: models.CloudCarrierTencent, Enabled: false,
 	}).Error)
-	require.NoError(t, gormDB.Create(&models.ZoneType{
-		Code: "beijing", DisplayName: "北京分区", Enabled: true,
-	}).Error)
 
 	// V3-only: insert the administrative columns directly. models.NetworkDomain
 	// still declares the legacy columns dropped by migration 0014, so GORM
@@ -122,7 +119,7 @@ func TestNetworkDomainCreateAndList(t *testing.T) {
 	router, gormDB := newNetworkDomainTestRouter(t, adminUser(), references.NoopMonitoring{})
 
 	code, out := doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains",
-		`{"name":"演示采集域","description":"测试","cloud_code":"aliyun","zone_type":"beijing","domain_code":"demo","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
+		`{"name":"演示采集域","description":"测试","cloud_code":"aliyun","domain_code":"demo","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
 	require.Equal(t, http.StatusOK, code, out)
 	data := out["data"].(map[string]any)
 	assert.Equal(t, "mc-demo", data["id"])
@@ -130,7 +127,6 @@ func TestNetworkDomainCreateAndList(t *testing.T) {
 	assert.Equal(t, "edge", data["domain_type"])
 	assert.Equal(t, "采集节点域", data["domain_type_label"])
 	assert.Equal(t, "aliyun", data["cloud_code"])
-	assert.Equal(t, "beijing", data["zone_type"])
 	assert.Equal(t, models.PlatformAdminTenantID, data["tenant_id"])
 	assert.Equal(t, "enabled", data["status"])
 	assert.Equal(t, []any{"platform_admin", "tenant-a"}, data["authorized_tenant_ids"])
@@ -144,7 +140,7 @@ func TestNetworkDomainCreateAndList(t *testing.T) {
 
 	// Generated domain_code when omitted.
 	code, out = doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains",
-		`{"name":"随机域","cloud_code":"aliyun","zone_type":"beijing"}`)
+		`{"name":"随机域","cloud_code":"aliyun"}`)
 	require.Equal(t, http.StatusOK, code, out)
 	generated := out["data"].(map[string]any)["id"].(string)
 	assert.Regexp(t, regexp.MustCompile(`^mc-[0-9a-f]{8}$`), generated)
@@ -154,29 +150,27 @@ func TestNetworkDomainCreateAndList(t *testing.T) {
 
 	// Name uniqueness is case-insensitive.
 	code, out = doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains",
-		`{"name":"演示采集域","cloud_code":"aliyun","zone_type":"beijing","domain_code":"other"}`)
+		`{"name":"演示采集域","cloud_code":"aliyun","domain_code":"other"}`)
 	assert.Equal(t, http.StatusConflict, code)
 	assert.Equal(t, "conflict", out["errorType"])
 
 	// Reusing an id is a conflict (including ids that only differ by name).
 	code, out = doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains",
-		`{"name":"另一个采集域","cloud_code":"aliyun","zone_type":"beijing","domain_code":"demo"}`)
+		`{"name":"另一个采集域","cloud_code":"aliyun","domain_code":"demo"}`)
 	assert.Equal(t, http.StatusConflict, code)
 	assert.Equal(t, "conflict", out["errorType"])
 
 	invalidBodies := []string{
-		`{"name":"","cloud_code":"aliyun","zone_type":"beijing"}`,
-		`{"name":"缺云","zone_type":"beijing"}`,
-		`{"name":"缺分区","cloud_code":"aliyun"}`,
-		`{"name":"坏云","cloud_code":"nope","zone_type":"beijing"}`,
-		`{"name":"坏分区","cloud_code":"aliyun","zone_type":"nope"}`,
-		`{"name":"停用租户","cloud_code":"aliyun","zone_type":"beijing","authorized_tenant_ids":["tenant-b"]}`,
-		`{"name":"管理域","cloud_code":"aliyun","zone_type":"beijing","domain_type":"management"}`,
-		`{"name":"采集集合域","cloud_code":"aliyun","zone_type":"beijing","domain_type":"collection"}`,
-		`{"name":"坏编码","cloud_code":"aliyun","zone_type":"beijing","domain_code":"Bad_Code"}`,
-		`{"name":"保留编码","cloud_code":"aliyun","zone_type":"beijing","domain_code":"default"}`,
-		`{"name":"客户端归属","cloud_code":"aliyun","zone_type":"beijing","tenant_id":"tenant-a"}`,
-		`{"name":"超长描述","cloud_code":"aliyun","zone_type":"beijing","description":"` + strings.Repeat("x", 501) + `"}`,
+		`{"name":"","cloud_code":"aliyun"}`,
+		`{"name":"缺云"}`,
+		`{"name":"坏云","cloud_code":"nope"}`,
+		`{"name":"停用租户","cloud_code":"aliyun","authorized_tenant_ids":["tenant-b"]}`,
+		`{"name":"管理域","cloud_code":"aliyun","domain_type":"management"}`,
+		`{"name":"采集集合域","cloud_code":"aliyun","domain_type":"collection"}`,
+		`{"name":"坏编码","cloud_code":"aliyun","domain_code":"Bad_Code"}`,
+		`{"name":"保留编码","cloud_code":"aliyun","domain_code":"default"}`,
+		`{"name":"客户端归属","cloud_code":"aliyun","tenant_id":"tenant-a"}`,
+		`{"name":"超长描述","cloud_code":"aliyun","description":"` + strings.Repeat("x", 501) + `"}`,
 	}
 	for _, body := range invalidBodies {
 		code, out = doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains", body)
@@ -203,7 +197,7 @@ func TestNetworkDomainUpdate(t *testing.T) {
 	router, gormDB := newNetworkDomainTestRouter(t, adminUser(), references.NoopMonitoring{})
 
 	code, out := doRequest(t, router, http.MethodPut, "/api/v3/platform/network-domains/mc-existing",
-		`{"name":"  重命名域  ","description":"已更新","zone_type":"beijing","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
+		`{"name":"  重命名域  ","description":"已更新","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
 	require.Equal(t, http.StatusOK, code, out)
 	data := out["data"].(map[string]any)
 	assert.Equal(t, "重命名域", data["name"])
@@ -223,7 +217,6 @@ func TestNetworkDomainUpdate(t *testing.T) {
 		`{"domain_type":"edge"}`,
 		`{"id":"mc-x"}`,
 		`{"status":"disabled"}`,
-		`{"zone_type":"nope"}`,
 		`{"authorized_tenant_ids":["tenant-b"]}`,
 	} {
 		code, out = doRequest(t, router, http.MethodPut, "/api/v3/platform/network-domains/mc-existing", body)
@@ -323,7 +316,7 @@ func TestNetworkDomainDelete(t *testing.T) {
 
 	// A soft-deleted id cannot be re-registered.
 	code, out = doRequest(t, router, http.MethodPost, "/api/v3/platform/network-domains",
-		`{"name":"重登记空域","cloud_code":"aliyun","zone_type":"beijing","domain_code":"empty"}`)
+		`{"name":"重登记空域","cloud_code":"aliyun","domain_code":"empty"}`)
 	assert.Equal(t, http.StatusConflict, code)
 	assert.Equal(t, "conflict", out["errorType"])
 
@@ -345,7 +338,7 @@ func TestNetworkDomainReadsAllowUsersButMutationsRequireAdmin(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{http.MethodPost, "/api/v3/platform/network-domains", `{"name":"x","cloud_code":"aliyun","zone_type":"beijing"}`},
+		{http.MethodPost, "/api/v3/platform/network-domains", `{"name":"x","cloud_code":"aliyun"}`},
 		{http.MethodPut, "/api/v3/platform/network-domains/mc-existing", `{"name":"x"}`},
 		{http.MethodPatch, "/api/v3/platform/network-domains/mc-existing/status", `{"status":"disabled"}`},
 		{http.MethodDelete, "/api/v3/platform/network-domains/mc-empty", ""},

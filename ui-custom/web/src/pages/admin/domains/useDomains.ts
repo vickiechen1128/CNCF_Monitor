@@ -5,7 +5,7 @@ import type { Paginated } from '../../../types/api'
 import type { NetworkDomain } from '../../../types/domain'
 
 /** 网域列表筛选参数（Module_06 §6.2 / §11.1；v3 搜索参数名为 keyword） */
-export type DomainFilters = Pick<ListParams, 'status' | 'zone_type' | 'tenant_id' | 'keyword'>
+export type DomainFilters = Pick<ListParams, 'status' | 'tenant_id' | 'keyword'>
 
 /** 默认空分页（避免未加载完成时空指针） */
 const EMPTY_PAGE: Paginated<NetworkDomain> = { list: [], total: 0, page: 1, page_size: 20 }
@@ -46,7 +46,6 @@ export function useDomains(): UseDomainsResult {
         page,
         page_size: pageSize,
         status: filters.status,
-        zone_type: filters.zone_type,
         tenant_id: filters.tenant_id,
         keyword: filters.keyword,
       })

@@ -25,7 +25,6 @@ type networkDomainRecord struct {
 	Name                string              `gorm:"size:100;not null"`
 	Description         string              `gorm:"size:500"`
 	DomainType          models.DomainType   `gorm:"size:20;not null"`
-	ZoneType            string              `gorm:"size:50"`
 	CloudCode           string              `gorm:"size:50"`
 	TenantID            string              `gorm:"size:64;not null"`
 	AuthorizedTenantIDs []string            `gorm:"serializer:json"`
@@ -42,7 +41,6 @@ type ListNetworkDomainsFilter struct {
 	Status    string
 	Keyword   string
 	CloudCode string
-	ZoneType  string
 	TenantID  string
 	Page      int
 	PageSize  int
@@ -78,9 +76,6 @@ func (r *GORMNetworkDomainRepository) List(ctx context.Context, filter ListNetwo
 	}
 	if filter.CloudCode != "" {
 		query = query.Where("cloud_code = ?", filter.CloudCode)
-	}
-	if filter.ZoneType != "" {
-		query = query.Where("zone_type = ?", filter.ZoneType)
 	}
 	if filter.TenantID != "" {
 		query = query.Where("tenant_id = ?", filter.TenantID)
@@ -197,13 +192,10 @@ func (r *GORMNetworkDomainRepository) Update(ctx context.Context, id string, inp
 		if input.Description != nil {
 			row.Description = *input.Description
 		}
-		if input.ZoneType != nil {
-			row.ZoneType = strings.TrimSpace(*input.ZoneType)
-		}
 		if input.AuthorizedTenantIDs != nil {
 			row.AuthorizedTenantIDs = append([]string(nil), (*input.AuthorizedTenantIDs)...)
 		}
-		if err := tx.Model(&row).Select("name", "description", "zone_type", "authorized_tenant_ids").
+		if err := tx.Model(&row).Select("name", "description", "authorized_tenant_ids").
 			Updates(&row).Error; err != nil {
 			return fmt.Errorf("update network domain %q: %w", id, err)
 		}
@@ -316,7 +308,6 @@ func toDomainDomain(row *networkDomainRecord) *domain.NetworkDomain {
 		Name:                row.Name,
 		Description:         row.Description,
 		DomainType:          domain.DomainType(row.DomainType),
-		ZoneType:            row.ZoneType,
 		CloudCode:           row.CloudCode,
 		TenantID:            row.TenantID,
 		AuthorizedTenantIDs: append([]string(nil), row.AuthorizedTenantIDs...),
@@ -332,7 +323,6 @@ func fromDomainDomain(item *domain.NetworkDomain) *networkDomainRecord {
 		Name:                item.Name,
 		Description:         item.Description,
 		DomainType:          models.DomainType(item.DomainType),
-		ZoneType:            item.ZoneType,
 		CloudCode:           item.CloudCode,
 		TenantID:            item.TenantID,
 		AuthorizedTenantIDs: append([]string(nil), item.AuthorizedTenantIDs...),

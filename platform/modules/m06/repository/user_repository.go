@@ -218,30 +218,8 @@ func (r *GORMUserRepository) CountActiveAdmins(ctx context.Context, excludeUserI
 	return count, nil
 }
 
-// SessionRepository removes sessions when access is revoked. It is exposed for
-// M03 reuse; GORMUserRepository performs the same cleanup transactionally.
-type SessionRepository interface {
-	DeleteByUserID(ctx context.Context, userID string) error
-}
-
-// GORMSessionRepository is the GORM-backed session repository.
-type GORMSessionRepository struct {
-	db *gorm.DB
-}
-
-// NewGORMSessionRepository constructs a session repository.
-func NewGORMSessionRepository(db *gorm.DB) *GORMSessionRepository {
-	return &GORMSessionRepository{db: db}
-}
-
-// DeleteByUserID removes every session of a user.
-func (r *GORMSessionRepository) DeleteByUserID(ctx context.Context, userID string) error {
-	if err := deleteSessionsByUserID(r.db.WithContext(ctx), userID); err != nil {
-		return err
-	}
-	return nil
-}
-
+// deleteSessionsByUserID removes every session of a user. GORMUserRepository
+// calls it inside its own transactions when access is revoked.
 func deleteSessionsByUserID(tx *gorm.DB, userID string) error {
 	if err := tx.Where("user_id = ?", userID).Delete(&models.Session{}).Error; err != nil {
 		return fmt.Errorf("delete sessions of user %q: %w", userID, err)

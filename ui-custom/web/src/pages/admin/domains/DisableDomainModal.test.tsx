@@ -16,7 +16,6 @@ const edgeDomain = (over: Partial<NetworkDomain> = {}): NetworkDomain => ({
   name: '政务网A区',
   description: '',
   domain_type: 'edge',
-  zone_type: '',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
   channel: 'local',

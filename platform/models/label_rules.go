@@ -22,10 +22,8 @@ var PROTECTED_PROMETHEUS_LABELS = map[string]struct{}{
 	"resource_id":         {},
 	"network_domain":      {},
 	"cloud":               {},
-	"zone":                {},
 	"network_domain_name": {},
 	"cloud_name":          {},
-	"zone_name":           {},
 }
 
 // IsProtectedLabel reports whether key is a protected Prometheus label.
@@ -37,7 +35,7 @@ func IsProtectedLabel(key string) bool {
 // IsSystemInjectedLabel 报告由生成器自动注入且禁止模板覆盖的标签。
 func IsSystemInjectedLabel(key string) bool {
 	switch key {
-	case "resource_id", "network_domain", "cloud", "zone", "network_domain_name", "cloud_name", "zone_name":
+	case "resource_id", "network_domain", "cloud", "network_domain_name", "cloud_name":
 		return true
 	}
 	return false

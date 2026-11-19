@@ -22,7 +22,6 @@ type OnboardingResponse struct {
 	AuthorizedTenantIDs []string   `json:"authorized_tenant_ids"`
 	Status              string     `json:"status"`
 	CloudCode           string     `json:"cloud_code"`
-	ZoneType            string     `json:"zone_type"`
 	RegistrationStatus  string     `json:"registration_status"`
 	MonitoredAt         *time.Time `json:"monitored_at"`
 	TokenMasked         string     `json:"token_masked"`
@@ -88,7 +87,6 @@ func FromOnboarding(item *repository.DomainOnboarding) OnboardingResponse {
 		AuthorizedTenantIDs: item.AuthorizedTenantIDs,
 		Status:              item.AdminStatus,
 		CloudCode:           item.CloudCode,
-		ZoneType:            item.ZoneType,
 		RegistrationStatus:  item.RegistrationStatus,
 		MonitoredAt:         item.MonitoredAt,
 		TokenMasked:         item.TokenMasked,

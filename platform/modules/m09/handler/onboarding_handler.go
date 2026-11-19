@@ -63,7 +63,6 @@ func (h *OnboardingHandler) List(c *gin.Context) {
 		RegistrationStatus: status,
 		Keyword:            strings.TrimSpace(c.Query("keyword")),
 		CloudCode:          strings.TrimSpace(c.Query("cloud_code")),
-		ZoneType:           strings.TrimSpace(c.Query("zone_type")),
 		TenantID:           strings.TrimSpace(c.Query("tenant_id")),
 		View:               view,
 		Status:             adminStatus,

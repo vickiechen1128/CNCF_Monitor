@@ -2,19 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DomainDrawer } from './DomainForm'
-import type { NetworkDomain, ZoneType } from '../../../types/domain'
+import type { NetworkDomain } from '../../../types/domain'
 import type { CloudDict } from '../../../types/resource'
 import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 
 const createMock = vi.fn()
 const updateMock = vi.fn()
-const zoneTypeListMock = vi.fn()
 const tenantListMock = vi.fn()
 const cloudDictListMock = vi.fn()
 
 vi.mock('../../../api/domain', () => ({
   networkDomainApi: { create: (...a: unknown[]) => createMock(...a), update: (...a: unknown[]) => updateMock(...a) },
-  zoneTypeApi: { list: (...a: unknown[]) => zoneTypeListMock(...a) },
   tenantApi: { list: (...a: unknown[]) => tenantListMock(...a) },
 }))
 
@@ -22,12 +20,6 @@ vi.mock('../../../api/domain', () => ({
 vi.mock('../../../api/resources', () => ({
   cloudDictApi: { list: (...a: unknown[]) => cloudDictListMock(...a) },
 }))
-
-const zoneType: ZoneType = {
-  code: 'internet',
-  display_name: '互联网区',
-  enabled: true,
-}
 
 const enabledCloudTx: CloudDict = {
   cloud_code: 'PUB-TX',
@@ -58,7 +50,6 @@ const editDomain: NetworkDomain = {
   description: '旧描述',
   domain_type: 'edge',
   cloud_code: 'PUB-TX',
-  zone_type: 'internet',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
   channel: 'agent_pull',
@@ -108,12 +99,10 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
   beforeEach(() => {
     createMock.mockReset()
     updateMock.mockReset()
-    zoneTypeListMock.mockReset()
     tenantListMock.mockReset()
     cloudDictListMock.mockReset()
     cancelMock.mockReset()
     successMock.mockReset()
-    zoneTypeListMock.mockResolvedValue({ status: 'success', data: [zoneType] })
     tenantListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
     cloudDictListMock.mockResolvedValue({
       status: 'success',
@@ -128,21 +117,19 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     expect(screen.getByRole('button', { name: /确认登记/ })).toBeEnabled()
   })
 
-  it('提交登记：携带 cloud_code / zone_type，不含 tenant_id / domain_type / ip_cidrs', async () => {
+  it('提交登记：携带 cloud_code，不含 tenant_id / domain_type / ip_cidrs', async () => {
     createMock.mockResolvedValue({ status: 'success', data: editDomain })
     renderDrawer()
     fireEvent.change(await screen.findByPlaceholderText('例如：政务网 A 区'), {
       target: { value: '政务网A区' },
     })
     await pickOption('云归属', '腾讯云')
-    await pickOption('网络分区', '互联网区')
     fireEvent.click(screen.getByRole('button', { name: /确认登记/ }))
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const input = createMock.mock.calls[0][0]
     expect(input).toEqual({
       name: '政务网A区',
       cloud_code: 'PUB-TX',
-      zone_type: 'internet',
       authorized_tenant_ids: ['platform_admin'],
     })
     expect(input).not.toHaveProperty('tenant_id')
@@ -169,20 +156,8 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     fireEvent.change(await screen.findByPlaceholderText('例如：政务网 A 区'), {
       target: { value: '政务网A区' },
     })
-    await pickOption('网络分区', '互联网区')
     fireEvent.click(screen.getByRole('button', { name: /确认登记/ }))
     expect(await screen.findByText('请选择云归属')).toBeInTheDocument()
-    expect(createMock).not.toHaveBeenCalled()
-  })
-
-  it('网络分区为必填：未选择时提交被拦截，不发起创建请求', async () => {
-    renderDrawer()
-    fireEvent.change(await screen.findByPlaceholderText('例如：政务网 A 区'), {
-      target: { value: '政务网A区' },
-    })
-    await pickOption('云归属', '腾讯云')
-    fireEvent.click(screen.getByRole('button', { name: /确认登记/ }))
-    expect(await screen.findByText('请选择网络分区')).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
   })
 
@@ -220,18 +195,17 @@ describe('DomainDrawer（网域登记/编辑抽屉）', () => {
     expect(modal.confirm).not.toHaveBeenCalled()
   })
 
-  it('抽屉分组：授权独立成组、网络分区归「网络与分区」、云归属留在「行政信息」', async () => {
+  it('抽屉分组：授权独立成组、云归属留在「行政信息」', async () => {
     renderDrawer({ mode: 'edit', domain: editDomain })
     await screen.findByPlaceholderText('例如：政务网 A 区')
 
     const sections = formSections()
-    expect(sections.map((s) => s.title)).toEqual(['行政信息', '网络与分区', '授权', '描述'])
+    expect(sections.map((s) => s.title)).toEqual(['行政信息', '授权', '描述'])
     expect(screen.queryByText('授权与分区')).toBeNull()
     expect(screen.queryByText('网络与描述')).toBeNull()
 
     const byTitle = (t: string) => sections.find((s) => s.title === t)!.root
     expect(within(byTitle('行政信息')).getByDisplayValue('腾讯云')).toBeInTheDocument()
-    expect(within(byTitle('网络与分区')).getByLabelText('网络分区')).toBeInTheDocument()
     expect(within(byTitle('授权')).getByLabelText('授权租户')).toBeInTheDocument()
     expect(within(byTitle('描述')).getByLabelText('描述')).toBeInTheDocument()
   })

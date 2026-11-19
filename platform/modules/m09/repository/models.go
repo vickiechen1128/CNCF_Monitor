@@ -30,7 +30,6 @@ type domainOnboardingRow struct {
 	Name                    string     `gorm:"column:name"`
 	Description             string     `gorm:"column:description"`
 	CloudCode               string     `gorm:"column:cloud_code"`
-	ZoneType                string     `gorm:"column:zone_type"`
 	TenantID                string     `gorm:"column:tenant_id"`
 	AuthorizedTenantIDsJSON string     `gorm:"column:authorized_tenant_ids_json"`
 	AdminStatus             string     `gorm:"column:admin_status"`

@@ -9,26 +9,22 @@ import (
 )
 
 // CoreV3 seeds the minimal reference data a standalone v3 database needs:
-// the platform_admin tenant, zone/cloud/business dictionaries and the initial
+// the platform_admin tenant, cloud/business dictionaries and the initial
 // admin user.
 //
 // It is intentionally a subset of Run (which also seeds legacy M01/M08/M09
-// data). Every step is idempotent; existing rows are never overwritten except
-// for the deployment-level zone dictionary, whose enabled flags are aligned on
-// every boot (same behaviour as Run).
+// data). Every step is idempotent.
 //
 // v3 no longer pre-provisions a center-direct (`default`/management) domain:
 // every network domain must be registered through M06 and onboarded through a
-// collection node (M06 SRS v1.0 / NFR-02).
+// collection node (M06 SRS v1.0 / NFR-02). The zone-type dictionary is also
+// gone in v3: network partitions are not an administrative field any more.
 func CoreV3(db *gorm.DB, businessDomainsPath string) error {
 	if db == nil {
 		return fmt.Errorf("seed v3 core: nil database connection")
 	}
 	if err := runTenantAndDomain(db); err != nil {
 		return fmt.Errorf("seed v3 core tenant: %w", err)
-	}
-	if err := runZoneTypes(db); err != nil {
-		return fmt.Errorf("seed v3 core zone types: %w", err)
 	}
 	if err := runCloudDicts(db); err != nil {
 		return fmt.Errorf("seed v3 core cloud dict: %w", err)

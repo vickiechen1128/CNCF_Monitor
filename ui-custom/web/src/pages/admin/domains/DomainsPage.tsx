@@ -23,8 +23,8 @@ import {
   StopOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { networkDomainApi, tenantApi, zoneTypeApi } from '../../../api/domain'
-import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
+import { networkDomainApi, tenantApi } from '../../../api/domain'
+import type { NetworkDomain, Tenant } from '../../../types/domain'
 import { useDomains } from './useDomains'
 import { DomainDrawer } from './DomainForm'
 import { DisableDomainModal } from './DisableDomainModal'
@@ -164,7 +164,6 @@ export function DomainsPage() {
     reload,
   } = useDomains()
 
-  const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -175,9 +174,8 @@ export function DomainsPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 })])
-      .then(([zt, tn]) => {
-        setZoneTypes(zt.data ?? [])
+    tenantApi.list({ page: 1, page_size: 100 })
+      .then((tn) => {
         setTenants(tn.data?.list ?? [])
       })
       .catch(() => {
@@ -185,9 +183,7 @@ export function DomainsPage() {
       })
   }, [])
 
-  const enabledZoneTypes = zoneTypes.filter((z) => z.enabled)
   const tenantNameOf = (id: string) => tenants.find((t) => t.id === id)?.name ?? id
-  const zoneTypeLabel = (code: string) => zoneTypes.find((z) => z.code === code)?.display_name ?? code
 
   const showCreate = () => {
     setFormMode('create')
@@ -216,7 +212,7 @@ export function DomainsPage() {
     navigate(`/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`)
   }
 
-  // 列集合对齐原型 v2.14 的 8 列治理：网域名称/接入方式/接入进度/状态/登记归属/授权租户/网络分区/操作。
+  // 列集合对齐原型 v2.14 的列数治理：网域名称/接入方式/接入进度/状态/登记归属/授权租户/操作。
   // 网域 ID / 授权租户全量 / 网段 / 描述 / 创建更新时间下沉详情抽屉（§9 列数治理）。
   const columns: ColumnsType<NetworkDomain> = [
     {
@@ -311,14 +307,6 @@ export function DomainsPage() {
           </Space>
         )
       },
-    },
-    {
-      // 决策 76：zone_type UI 展示名「网络分区（可选）」——纯分类标签，不影响行为
-      title: '网络分区（可选）',
-      dataIndex: 'zone_type',
-      key: 'zone_type',
-      width: 150,
-      render: (value: string) => (value ? <Tag>{zoneTypeLabel(value)}</Tag> : <Text type="secondary">未设置</Text>),
     },
     {
       // T4：操作列三重层次——主操作（接入下一步，唯一主按钮）+ 编辑 + 更多（禁用/启用、删除）
@@ -425,7 +413,7 @@ export function DomainsPage() {
                     size="small"
                     current={-1}
                     items={[
-                      { title: '登记网域', description: '行政信息登记（名称/云归属/网络分区/授权租户）' },
+                      { title: '登记网域', description: '行政信息登记（名称/云归属/授权租户）' },
                       { title: '纳管取凭据', description: '由配置中心-网域纳管下发接入信息' },
                       { title: '安装采集节点', description: '在该网域一台常开机器上安装节点' },
                       { title: '配置采集出数据', description: '为网域下资源配置采集任务' },
@@ -464,23 +452,6 @@ export function DomainsPage() {
               style={{ width: 180 }}
               onSearch={(v) => setFilters({ ...filters, keyword: v || undefined })}
             />
-          </FilterItem>
-          <FilterItem label="网络区域" width={260}>
-            <Select
-              placeholder="全部"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 180 }}
-              value={filters.zone_type}
-              onChange={(v) => setFilters({ ...filters, zone_type: v })}
-            >
-              {enabledZoneTypes.map((z) => (
-                <Select.Option key={z.code} value={z.code} label={z.display_name}>
-                  {z.display_name}
-                </Select.Option>
-              ))}
-            </Select>
           </FilterItem>
           <FilterItem label="状态" width={200}>
             <Select
@@ -622,11 +593,6 @@ export function DomainsPage() {
                     (detailTarget.authorized_tenant_ids ?? []).length === 0
                       ? '未授权'
                       : detailTarget.authorized_tenant_ids!.map((id) => tenantNameOf(id)).join('、'),
-                },
-                {
-                  key: 'zone',
-                  label: '网络分区',
-                  children: detailTarget.zone_type ? zoneTypeLabel(detailTarget.zone_type) : '未设置',
                 },
                 {
                   key: 'status',

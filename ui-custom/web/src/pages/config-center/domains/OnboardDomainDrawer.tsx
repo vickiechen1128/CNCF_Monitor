@@ -55,7 +55,6 @@ export function OnboardDomainDrawer({ open, domain, submitting, onSubmit, onClos
           <Text code>{domain?.id ?? '-'}</Text>
         </Descriptions.Item>
         <Descriptions.Item label="云归属">{domain?.cloud_code || '-'}</Descriptions.Item>
-        <Descriptions.Item label="网络区域类型">{domain?.zone_type || '-'}</Descriptions.Item>
       </Descriptions>
 
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 16 }}>

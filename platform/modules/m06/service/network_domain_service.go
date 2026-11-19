@@ -52,9 +52,9 @@ func (s *NetworkDomainService) Get(ctx context.Context, id string) (*domain.Netw
 
 // Create registers a new edge network domain.
 //
-// Tenant ownership is always platform_admin; cloud_code/zone_type are
-// immutable after creation. The authorized tenant list is the authoritative
-// grant and the tenant cache is synchronized in the same transaction.
+// Tenant ownership is always platform_admin; cloud_code is immutable after
+// creation. The authorized tenant list is the authoritative grant and the
+// tenant cache is synchronized in the same transaction.
 func (s *NetworkDomainService) Create(ctx context.Context, input domain.CreateNetworkDomainInput) (*domain.NetworkDomain, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -76,22 +76,11 @@ func (s *NetworkDomainService) Create(ctx context.Context, input domain.CreateNe
 			Message: "v3.0 only creates edge domains; collection domains are reserved",
 		}
 	}
-	zoneType := strings.TrimSpace(input.ZoneType)
-	if zoneType == "" {
-		return nil, &domain.ValidationError{Field: "zone_type", Message: "is required"}
-	}
-	ok, err := s.dictionary.ZoneTypeExists(ctx, zoneType)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, &domain.ValidationError{Field: "zone_type", Message: fmt.Sprintf("zone_type %q is not registered", zoneType)}
-	}
 	cloudCode := strings.TrimSpace(input.CloudCode)
 	if cloudCode == "" {
 		return nil, &domain.ValidationError{Field: "cloud_code", Message: "is required"}
 	}
-	ok, err = s.dictionary.CloudEnabled(ctx, cloudCode)
+	ok, err := s.dictionary.CloudEnabled(ctx, cloudCode)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +123,6 @@ func (s *NetworkDomainService) Create(ctx context.Context, input domain.CreateNe
 		Name:                name,
 		Description:         strings.TrimSpace(input.Description),
 		DomainType:          domain.DomainTypeEdge,
-		ZoneType:            zoneType,
 		CloudCode:           cloudCode,
 		TenantID:            models.PlatformAdminTenantID,
 		AuthorizedTenantIDs: tenantIDs,
@@ -151,7 +139,7 @@ func (s *NetworkDomainService) Update(ctx context.Context, id string, input doma
 	if !input.HasChanges() {
 		return nil, &domain.ValidationError{
 			Field:   "body",
-			Message: "at least one of name/description/zone_type/authorized_tenant_ids is required",
+			Message: "at least one of name/description/authorized_tenant_ids is required",
 		}
 	}
 	if _, err := s.domains.Get(ctx, id); err != nil {
@@ -176,20 +164,6 @@ func (s *NetworkDomainService) Update(ctx context.Context, id string, input doma
 	}
 	if input.Description != nil && len([]rune(*input.Description)) > 500 {
 		return nil, &domain.ValidationError{Field: "description", Message: "must be at most 500 characters"}
-	}
-	if input.ZoneType != nil {
-		zoneType := strings.TrimSpace(*input.ZoneType)
-		if zoneType == "" {
-			return nil, &domain.ValidationError{Field: "zone_type", Message: "must not be empty"}
-		}
-		ok, err := s.dictionary.ZoneTypeExists(ctx, zoneType)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, &domain.ValidationError{Field: "zone_type", Message: fmt.Sprintf("zone_type %q is not registered", zoneType)}
-		}
-		input.ZoneType = &zoneType
 	}
 	if input.AuthorizedTenantIDs != nil {
 		tenantIDs, err := s.normalizeTenantIDs(ctx, *input.AuthorizedTenantIDs)

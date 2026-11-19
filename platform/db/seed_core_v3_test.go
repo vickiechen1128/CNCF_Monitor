@@ -49,7 +49,7 @@ func TestCoreV3SeedIdempotent(t *testing.T) {
 
 	var zoneTypeCount int64
 	require.NoError(t, gormDB.Model(&models.ZoneType{}).Count(&zoneTypeCount).Error)
-	assert.Positive(t, zoneTypeCount)
+	assert.Zero(t, zoneTypeCount, "v3 不再预置区域类型字典（M06 SRS v1.3）")
 
 	var cloudDictCount int64
 	require.NoError(t, gormDB.Model(&models.CloudDict{}).Count(&cloudDictCount).Error)

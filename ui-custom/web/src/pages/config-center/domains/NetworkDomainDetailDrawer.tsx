@@ -33,7 +33,7 @@ function ConfigValue({ value }: { value?: string }) {
 /**
  * 网域详情抽屉（Module_09 契约 §3）。
  * 配置字段（中心接入地址 / 指标回传地址（Remote Write URL）/ Agent 类型 / 描述）入 Drawer；
- * 行政字段（名称 / 租户 / 网络区域类型）由 M06 维护，只读展示。
+ * 行政字段（名称 / 租户 / 云归属）由 M06 维护，只读展示。
  * v3 只有采集节点域一种类型，故不再展示「域类型」行，也不出现「中心直连域」概念（SRS NFR-02）。
  */
 export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDomainDetailDrawerProps) {
@@ -49,9 +49,6 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           <Descriptions.Item label="归属租户">{domain.tenant_id || <Text type="secondary">-</Text>}</Descriptions.Item>
           <Descriptions.Item label="云归属">
             {domain.cloud_code ? <Tag>{domain.cloud_code}</Tag> : <Text type="secondary">-</Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="网络区域类型">
-            {domain.zone_type ? <Tag>{domain.zone_type}</Tag> : <Text type="secondary">-</Text>}
           </Descriptions.Item>
           <Descriptions.Item label="纳管状态">
             <Tag color={registrationStatusColor[deriveRegistrationStatus(domain)]}>
