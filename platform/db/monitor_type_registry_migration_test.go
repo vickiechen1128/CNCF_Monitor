@@ -68,8 +68,10 @@ func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
 		VALUES ('ra2','h1','dpu_model','duplicate')`)
 	require.Error(t, err, "duplicate resource attribute key must fail")
 
-	// 0021 renames legacy npu rows to host_npu. Roll it back, write legacy rows
-	// the way the previous build did, then re-apply and assert the rewrite.
+	// 0021 renames legacy npu rows to host_npu. Roll back 0022 (CI model fields)
+	// and 0021 first, write legacy rows the way the previous build did, then
+	// re-apply both and assert the rewrite.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0022 ci model fields")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0021 npu rename")
 	_, err = sqlDB.Exec(`INSERT INTO m01_scrape_jobs(id,job_name,resource_category,network_domain_id,monitor_type)
 		VALUES ('job-legacy','npu-prod','host','d1','npu')`)
@@ -80,7 +82,7 @@ func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
 		VALUES ('exp-legacy','npu-exporter','1.0',9101,'/metrics','http','["npu","host_linux"]',
 		'linux','amd64','','','','',FALSE,'official')`)
 	require.NoError(t, err)
-	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply 0021 npu rename")
+	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply 0021 npu rename + 0022 ci model fields")
 
 	var jobMonitorType string
 	require.NoError(t, sqlDB.QueryRow(`SELECT monitor_type FROM m01_scrape_jobs WHERE id = 'job-legacy'`).Scan(&jobMonitorType))
@@ -90,8 +92,10 @@ func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
 	require.Contains(t, supported, `"host_npu"`)
 	require.NotContains(t, supported, `"npu"`)
 
-	// Rollback both capability/registry migrations and re-apply.
+	// Rollback 0022 / 0021 / 0020 / 0019 and re-apply.
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0022 ci model fields")
+	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0021 npu rename")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0020 monitor type registry")
 	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0019 resource capabilities")
-	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply both migrations")
+	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply all four migrations")
 }
