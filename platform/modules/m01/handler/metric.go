@@ -27,12 +27,14 @@ func NewMetricHandler(svc *service.MetricService) *MetricHandler {
 func (h *MetricHandler) List(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.MetricFilter{
-		MetricType: domain.MetricType(strings.TrimSpace(c.Query("metric_type"))),
-		Category:   strings.TrimSpace(c.Query("category")),
-		Enabled:    boolQuery(c, "enabled"),
-		Keyword:    strings.TrimSpace(c.Query("keyword")),
-		Page:       page,
-		PageSize:   pageSize,
+		MetricType:       domain.MetricType(strings.TrimSpace(c.Query("metric_type"))),
+		MonitorType:      strings.TrimSpace(c.Query("monitor_type")),
+		ResourceCategory: domain.ResourceCategory(strings.TrimSpace(c.Query("resource_category"))),
+		Category:         strings.TrimSpace(c.Query("category")),
+		Enabled:          boolQuery(c, "enabled"),
+		Keyword:          strings.TrimSpace(c.Query("keyword")),
+		Page:             page,
+		PageSize:         pageSize,
 	}
 	items, total, err := h.svc.List(c.Request.Context(), filter)
 	if err != nil {

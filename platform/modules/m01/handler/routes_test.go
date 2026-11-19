@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -63,6 +64,8 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		repository.NewJobGroupRepository(gormDB), jobSvc,
 		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB),
 	)
+	monitorTypeSvc := service.NewMonitorTypeService(repository.NewMonitorTypeRepository(gormDB))
+	require.NoError(t, monitorTypeSvc.Refresh(context.Background()))
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -75,6 +78,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewBusinessMetricHandler(businessSvc),
 		NewProbeModuleHandler(probeSvc),
 		NewJobGroupHandler(jobGroupSvc),
+		NewMonitorTypeHandler(monitorTypeSvc),
 	)
 	return router, gormDB
 }

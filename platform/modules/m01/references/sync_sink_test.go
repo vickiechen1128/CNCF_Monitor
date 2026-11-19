@@ -147,3 +147,16 @@ func TestSyncSinkBatchesUpdatesPerMessage(t *testing.T) {
 	}))
 	assert.Equal(t, 2, counter.updateCount(), "one UPDATE per outcome group instead of one per job")
 }
+
+func TestPostgresUpdatedAfterUsesWallClock(t *testing.T) {
+	// Postgres returns a server-local wall clock (16:08) with a UTC location,
+	// while generatedAt is UTC (08:08). The job was edited at 15:18 local,
+	// before the sync started, so it must be updated.
+	row := time.Date(2026, 11, 18, 15, 18, 0, 0, time.UTC)
+	generated := time.Date(2026, 11, 18, 8, 8, 0, 0, time.UTC)
+	assert.False(t, postgresUpdatedAfter(row, generated))
+
+	// A real edit after the sync start (17:00 local) keeps pending.
+	newer := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
+	assert.True(t, postgresUpdatedAfter(newer, generated))
+}

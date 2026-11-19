@@ -12,11 +12,18 @@ import (
 // MetricFilter filters technical metric listings.
 type MetricFilter struct {
 	MetricType domain.MetricType
-	Category   string
-	Enabled    *bool
-	Keyword    string
-	Page       int
-	PageSize   int
+	// MonitorType matches metrics carrying the anchor inside monitor_types.
+	MonitorType string
+	// ResourceCategory is the coarse M07 category; it is expanded to the
+	// category's monitor types and matched against the monitor_types anchors.
+	ResourceCategory domain.ResourceCategory
+	// Category is the metric semantic domain (cpu / memory / ...), not the
+	// coarse resource category.
+	Category string
+	Enabled  *bool
+	Keyword  string
+	Page     int
+	PageSize int
 }
 
 // MetricRepository persists the technical metric catalogue.
@@ -90,6 +97,12 @@ func (r *GORMMetricRepository) List(ctx context.Context, filter MetricFilter) ([
 		if filter.MetricType != "" {
 			q = q.Where("metric_type = ?", string(filter.MetricType))
 		}
+		if filter.MonitorType != "" {
+			q = r.whereMonitorTypeIn(q, []string{filter.MonitorType})
+		}
+		if filter.ResourceCategory != "" {
+			q = r.whereMonitorTypeIn(q, domain.MonitorTypesForCategory(filter.ResourceCategory))
+		}
 		if filter.Category != "" {
 			q = q.Where("category = ?", filter.Category)
 		}
@@ -112,6 +125,27 @@ func (r *GORMMetricRepository) List(ctx context.Context, filter MetricFilter) ([
 		out = append(out, rec.toDomain())
 	}
 	return out, total, nil
+}
+
+// whereMonitorTypeIn keeps rows whose monitor_types anchor array contains at
+// least one of the given monitor types. An empty set matches nothing, which
+// lets an unknown resource category return an empty page instead of all rows.
+func (r *GORMMetricRepository) whereMonitorTypeIn(q *gorm.DB, monitorTypes []string) *gorm.DB {
+	if len(monitorTypes) == 0 {
+		return q.Where("1 = 0")
+	}
+	if r.db.Dialector.Name() == "postgres" {
+		return q.Where(
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(monitor_types) AS anchor WHERE anchor->>'monitor_type' IN ?)",
+			monitorTypes,
+		)
+	}
+	// SQLite stores the serializer:json column as TEXT; json_each is built into
+	// modern SQLite (JSON1) and matches the PostgreSQL semantics above.
+	return q.Where(
+		"EXISTS (SELECT 1 FROM json_each(monitor_types) AS anchor WHERE json_extract(anchor.value, '$.monitor_type') IN ?)",
+		monitorTypes,
+	)
 }
 
 // Update replaces mutable technical metric fields (never is_builtin).

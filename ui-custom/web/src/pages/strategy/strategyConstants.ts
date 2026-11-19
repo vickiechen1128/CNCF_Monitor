@@ -12,7 +12,7 @@ import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 export const MONITOR_TYPE_MAP: Record<MonitorType, string> = {
   host_linux: 'Linux 主机',
   host_windows: 'Windows 主机',
-  npu: 'NPU',
+  host_npu: 'NPU 主机',
   mysql: 'MySQL',
   redis: 'Redis',
   kafka: 'Kafka',
@@ -34,7 +34,7 @@ export const CATEGORY_MAP: Record<ResourceCategory, string> = {
 
 /** 资源类别 → 细粒度 monitor_type 级联（§9 MONITOR_TYPE_DERIVATION_MAP） */
 export const MONITOR_TYPE_CASCADE: { category: ResourceCategory; types: MonitorType[] }[] = [
-  { category: 'host', types: ['host_linux', 'host_windows', 'npu'] },
+  { category: 'host', types: ['host_linux', 'host_windows', 'host_npu'] },
   { category: 'database', types: ['mysql', 'redis'] },
   { category: 'middleware', types: ['kafka', 'elasticsearch', 'nginx'] },
   { category: 'application', types: ['application_http'] },

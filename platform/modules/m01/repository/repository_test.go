@@ -309,6 +309,122 @@ func TestMetricRepository(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+func TestMetricRepositoryMonitorTypeAndResourceCategoryFilters(t *testing.T) {
+	gormDB := openTestDB(t)
+	repo := NewMetricRepository(gormDB)
+	ctx := context.Background()
+
+	metrics := []*domain.Metric{
+		{
+			MetricName:   "host_cpu_usage",
+			MetricType:   domain.MetricGauge,
+			MonitorTypes: []domain.MetricAnchor{{MonitorType: "host_linux", SourceExporter: "node-exporter"}},
+			Enabled:      true,
+		},
+		{
+			MetricName:   "windows_cpu_usage",
+			MetricType:   domain.MetricGauge,
+			MonitorTypes: []domain.MetricAnchor{{MonitorType: "host_windows", SourceExporter: "windows-exporter"}},
+			Enabled:      true,
+		},
+		{
+			MetricName:   "mysql_connections",
+			MetricType:   domain.MetricGauge,
+			MonitorTypes: []domain.MetricAnchor{{MonitorType: "mysql", SourceExporter: "mysqld-exporter"}},
+			Enabled:      true,
+		},
+		{
+			// Multi-anchor metric must match either of its monitor types and is
+			// counted once even when several anchors fall in the same category.
+			MetricName: "shared_requests_total",
+			MetricType: domain.MetricCounter,
+			MonitorTypes: []domain.MetricAnchor{
+				{MonitorType: "host_linux", SourceExporter: "node-exporter"},
+				{MonitorType: "application_http", SourceExporter: "app-exporter"},
+			},
+			Enabled: true,
+		},
+	}
+	for _, metric := range metrics {
+		require.NoError(t, repo.Create(ctx, metric))
+	}
+
+	cases := []struct {
+		name   string
+		filter MetricFilter
+		total  int64
+		names  []string
+	}{
+		{
+			name:   "monitor type matches one anchor",
+			filter: MetricFilter{MonitorType: "mysql"},
+			total:  1,
+			names:  []string{"mysql_connections"},
+		},
+		{
+			name:   "monitor type matches multi-anchor metric once",
+			filter: MetricFilter{MonitorType: "host_linux"},
+			total:  2,
+			names:  []string{"host_cpu_usage", "shared_requests_total"},
+		},
+		{
+			name:   "resource category expands to host monitor types",
+			filter: MetricFilter{ResourceCategory: domain.CategoryHost},
+			total:  3,
+			names:  []string{"host_cpu_usage", "shared_requests_total", "windows_cpu_usage"},
+		},
+		{
+			name:   "resource category expands to database monitor types",
+			filter: MetricFilter{ResourceCategory: domain.CategoryDatabase},
+			total:  1,
+			names:  []string{"mysql_connections"},
+		},
+		{
+			name:   "monitor type and resource category combine with AND",
+			filter: MetricFilter{MonitorType: "host_linux", ResourceCategory: domain.CategoryApplication},
+			total:  1,
+			names:  []string{"shared_requests_total"},
+		},
+		{
+			name:   "mismatched monitor type and resource category",
+			filter: MetricFilter{MonitorType: "mysql", ResourceCategory: domain.CategoryHost},
+			total:  0,
+		},
+		{
+			name:   "category without monitor types matches nothing",
+			filter: MetricFilter{ResourceCategory: domain.CategoryInterfaceService},
+			total:  0,
+		},
+		{
+			name:   "unknown resource category matches nothing",
+			filter: MetricFilter{ResourceCategory: "unknown"},
+			total:  0,
+		},
+		{
+			name:   "semantic category filter stays independent",
+			filter: MetricFilter{ResourceCategory: domain.CategoryHost, MetricType: domain.MetricCounter},
+			total:  1,
+			names:  []string{"shared_requests_total"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			list, total, err := repo.List(ctx, tc.filter)
+			require.NoError(t, err)
+			assert.Equal(t, tc.total, total)
+			names := make([]string, 0, len(list))
+			for _, item := range list {
+				names = append(names, item.MetricName)
+			}
+			if tc.total == 0 {
+				assert.Empty(t, names)
+				return
+			}
+			assert.ElementsMatch(t, tc.names, names)
+		})
+	}
+}
+
 func TestBusinessMetricRepository(t *testing.T) {
 	gormDB := openTestDB(t)
 	repo := NewBusinessMetricRepository(gormDB)

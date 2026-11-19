@@ -24,6 +24,14 @@ vi.mock('./RuleMountDrawer', () => ({
     open ? <div data-testid="rule-mount-drawer">mount</div> : <button onClick={onCancel}>noop</button>,
 }))
 
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDraftsForAllDomains: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('./useSyncPolling', () => ({
+  useSyncPolling: () => vi.fn(),
+}))
+
 function rule(id: number, extra: Record<string, unknown> = {}) {
   return {
     id,

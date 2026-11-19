@@ -25,10 +25,12 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { CONTENT_MODE_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import SyncStatusTag from './SyncStatusTag'
 import { aggregateJobSyncStatus } from './syncStatus'
 import { RuleMountDrawer } from './RuleMountDrawer'
+import { useSyncPolling } from './useSyncPolling'
 import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
 const { Text } = Typography
@@ -64,6 +66,7 @@ const EMPTY_RULES: RulesState = { list: [], total: 0 }
  * - 保存成功提示 M09 变更引导 + 乐观待下发；加载 / 空态「暂无规则」/ 错误态。
  */
 export function RulesPage() {
+  const catalog = useMonitorTypeCatalog()
   const navigate = useNavigate()
   const [rules, setRules] = useState<RulesState>(EMPTY_RULES)
   const [loading, setLoading] = useState(true)
@@ -78,9 +81,11 @@ export function RulesPage() {
   const [editingRule, setEditingRule] = useState<MonitoringRule | null>(null)
   const [detail, setDetail] = useState<MonitoringRule | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const res = await monitoringRuleApi.list({
         keyword,
@@ -91,10 +96,12 @@ export function RulesPage() {
       })
       setRules(res.data ?? EMPTY_RULES)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '规则加载失败，请稍后重试')
-      setRules(EMPTY_RULES)
+      if (!silent) {
+        setError(e instanceof Error ? e.message : '规则加载失败，请稍后重试')
+        setRules(EMPTY_RULES)
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [keyword, enabled, monitorType, page, pageSize])
 
@@ -105,9 +112,14 @@ export function RulesPage() {
   }, [load, refresh])
 
   const reload = useCallback(() => setRefresh((n) => n + 1), [])
+  const startSyncPolling = useSyncPolling(
+    useCallback(() => {
+      void load(true)
+    }, [load]),
+  )
 
-  // 规则为全局 scope（central/both），保存后对全部已纳管网域同步触发变更单生成
-  // （best-effort；失败/漏触发由 30s 自动检测兜底，决策 42-1 幂等保活）。
+  // 规则为全局 scope（central/both），保存后 best-effort 即时触发中心规则重算；
+  // 失败由 30s watcher 兜底。
   const notifyChangeGuide = useCallback(() => {
     void triggerConfigDraftsForAllDomains({ onNavigate: () => navigate('/config-preview') })
   }, [navigate])
@@ -136,11 +148,12 @@ export function RulesPage() {
         })
         notifyChangeGuide()
         reload()
+        startSyncPolling()
       } catch (e) {
         message.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
       }
     },
-    [notifyChangeGuide, reload],
+    [notifyChangeGuide, reload, startSyncPolling],
   )
 
   const removeRule = useCallback(
@@ -149,11 +162,12 @@ export function RulesPage() {
         await monitoringRuleApi.remove(rule.id)
         notifyChangeGuide()
         reload()
+        startSyncPolling()
       } catch (e) {
         message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
       }
     },
-    [notifyChangeGuide, reload],
+    [notifyChangeGuide, reload, startSyncPolling],
   )
 
   const columns: ColumnsType<MonitoringRule> = useMemo(() => {
@@ -179,7 +193,7 @@ export function RulesPage() {
         key: 'monitor_type',
         width: 130,
         render: (v: string) =>
-          v ? MONITOR_TYPE_MAP[v as keyof typeof MONITOR_TYPE_MAP] ?? v : <Text type="secondary">-</Text>,
+          v ? catalog.nameOf(v) : <Text type="secondary">-</Text>,
       },
       {
         title: '规则条数',
@@ -261,7 +275,7 @@ export function RulesPage() {
         },
       },
     ]
-  }, [toggleEnabled, removeRule, openEdit])
+  }, [toggleEnabled, removeRule, openEdit, catalog])
 
   return (
     <MainLayout>
@@ -331,9 +345,9 @@ export function RulesPage() {
               setPage(1)
             }}
           >
-            {MONITOR_TYPE_CASCADE.flatMap((g) => g.types).map((t) => (
+            {catalog.allCodes().map((t) => (
               <Select.Option key={t} value={t}>
-                {MONITOR_TYPE_MAP[t]}
+                {catalog.nameOf(t)}
               </Select.Option>
             ))}
           </Select>
@@ -378,6 +392,7 @@ export function RulesPage() {
         }}
         onSuccess={() => {
           reload()
+          startSyncPolling()
           // 抽屉内部决定何时关闭：干净保存在保存分支直接 onCancel；
           // 存在规则 job 引用提示（决策 66）时保持抽屉打开供阅读，用户手动关闭。
         }}
@@ -409,7 +424,7 @@ export function RulesPage() {
               </Text>
               <Text>
                 {detail.monitor_type
-                  ? MONITOR_TYPE_MAP[detail.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? detail.monitor_type
+                  ? catalog.nameOf(detail.monitor_type)
                   : '-'}
               </Text>
               <Text strong style={{ marginLeft: 16 }}>

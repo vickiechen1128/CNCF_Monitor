@@ -13,7 +13,7 @@ import {
   message,
 } from 'antd'
 import { exporterTemplateApi, type ExporterTemplateInput } from '../../api/exporterTemplates'
-import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import type { ExporterTemplate, MonitorType } from '../../types/strategy'
 
 const { TextArea } = Input
@@ -43,6 +43,7 @@ const SOURCE_OPTIONS = [
  * 任何来源登记均须提供 default_port/metrics_path/scheme（入库需完整采集参数）；登记即入池。
  */
 export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonitorTypes }: ExporterTemplateDrawerProps) {
+  const catalog = useMonitorTypeCatalog()
   const [form] = Form.useForm<ExporterTemplateInput>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -143,13 +144,11 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
           <Col span={12}>
             <Form.Item label="支持监控类型" name="supported_monitor_types">
               <Select mode="multiple" allowClear placeholder="关联的监控对象类型">
-                {MONITOR_TYPE_CASCADE.flatMap((g) =>
-                  g.types.map((t) => (
-                    <Select.Option key={t} value={t}>
-                      {MONITOR_TYPE_MAP[t]}
-                    </Select.Option>
-                  )),
-                )}
+                {catalog.allCodes().map((t) => (
+                  <Select.Option key={t} value={t}>
+                    {catalog.nameOf(t)}
+                  </Select.Option>
+                ))}
               </Select>
             </Form.Item>
           </Col>

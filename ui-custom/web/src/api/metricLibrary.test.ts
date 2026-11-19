@@ -35,7 +35,7 @@ describe('metricLibrary API', () => {
     return text ? JSON.parse(text) : undefined
   }
 
-  it('list sends monitor_type/metric_type/category/keyword/page params', async () => {
+  it('list sends resource_category/monitor_type/metric_type/category/keyword/page params', async () => {
     mockFetch({
       status: 'success',
       data: {
@@ -46,10 +46,19 @@ describe('metricLibrary API', () => {
       },
     })
 
-    await metricLibraryApi.list({ monitor_type: 'host_linux', metric_type: 'gauge', category: 'cpu', keyword: 'cpu', page: 2, page_size: 20 })
+    await metricLibraryApi.list({
+      resource_category: 'host',
+      monitor_type: 'host_linux',
+      metric_type: 'gauge',
+      category: 'cpu',
+      keyword: 'cpu',
+      page: 2,
+      page_size: 20,
+    })
 
     const url = lastUrlInstance()
     expect(url.pathname).toBe('/api/v3/platform/metric-library')
+    expect(url.searchParams.get('resource_category')).toBe('host')
     expect(url.searchParams.get('monitor_type')).toBe('host_linux')
     expect(url.searchParams.get('metric_type')).toBe('gauge')
     expect(url.searchParams.get('category')).toBe('cpu')

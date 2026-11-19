@@ -53,6 +53,7 @@ func Run(db *gorm.DB) error {
 	mappings := repository.NewMappingRepository(db)
 	metrics := repository.NewMetricRepository(db)
 	probes := repository.NewProbeModuleRepository(db)
+	monitorTypes := repository.NewMonitorTypeRepository(db)
 
 	if err := seedExporters(ctx, exporters); err != nil {
 		return fmt.Errorf("seed m01 exporter templates: %w", err)
@@ -65,6 +66,27 @@ func Run(db *gorm.DB) error {
 	}
 	if err := seedProbeModules(ctx, probes); err != nil {
 		return fmt.Errorf("seed m01 probe modules: %w", err)
+	}
+	if err := seedMonitorTypes(ctx, monitorTypes); err != nil {
+		return fmt.Errorf("seed m01 monitor types: %w", err)
+	}
+	return nil
+}
+
+// seedMonitorTypes inserts the built-in monitor types (SRS Module_01 v1.3
+// §5.6 FR-21). It is create-only: a type the user has edited or disabled is
+// never overwritten on restart, so the registry stays user-owned data
+// (NFR-11 idempotent seed).
+func seedMonitorTypes(ctx context.Context, repo repository.MonitorTypeRepository) error {
+	for _, entry := range domain.BuiltinMonitorTypeEntries() {
+		if _, found, err := repo.Get(ctx, entry.Definition.Code); err != nil {
+			return err
+		} else if found {
+			continue
+		}
+		if err := repo.Create(ctx, entry); err != nil {
+			return fmt.Errorf("create built-in monitor type %q: %w", entry.Definition.Code, err)
+		}
 	}
 	return nil
 }

@@ -62,6 +62,14 @@ vi.mock('../../api/query', () => ({
 vi.mock('./ScrapeJobFormDrawer', () => ({
   ScrapeJobFormDrawer: () => <div data-testid="job-form-drawer" />,
 }))
+
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDrafts: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('./useSyncPolling', () => ({
+  useSyncPolling: () => vi.fn(),
+}))
 vi.mock('./ScrapeJobDetailDrawer', () => ({
   ScrapeJobDetailDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="job-detail-drawer">detail</div> : null,

@@ -48,6 +48,8 @@ const resourceSelect = `r.resource_id AS resource_id,
 	COALESCE(h.hostname, '') AS hostname,
 	COALESCE(h.os_type, '') AS os_type,
 	COALESCE(h.os_version, '') AS os_version,
+	COALESCE(h.has_npu, false) AS has_npu,
+	COALESCE(h.has_gpu, false) AS has_gpu,
 	h.activated_at AS activated_at,
 	COALESCE(d.database_type, '') AS database_type,
 	COALESCE(d.version, '') AS database_version,
@@ -101,6 +103,8 @@ type resourceRow struct {
 	Hostname         string `gorm:"column:hostname"`
 	OSType           string `gorm:"column:os_type"`
 	OSVersion        string `gorm:"column:os_version"`
+	HasNPU           bool   `gorm:"column:has_npu"`
+	HasGPU           bool   `gorm:"column:has_gpu"`
 	// ActivatedAt / GoLiveAt are nullable timestamps; both drivers scan into
 	// *time.Time, and RFC3339 formatting stays in Go for portability.
 	ActivatedAt       *time.Time `gorm:"column:activated_at"`
@@ -163,6 +167,8 @@ func (row resourceRow) toDomain() domain.ResourceRef {
 		Hostname:          row.Hostname,
 		OSType:            row.OSType,
 		OSVersion:         row.OSVersion,
+		HasNPU:            row.HasNPU,
+		HasGPU:            row.HasGPU,
 		ActivatedAt:       formatResourceTime(row.ActivatedAt),
 		DatabaseType:      row.DatabaseType,
 		DatabaseVersion:   row.DatabaseVersion,
@@ -233,7 +239,13 @@ func (r *GORMResourceReader) ListCandidates(ctx context.Context, query domain.Ca
 // QueryCandidates builds the candidate query from the composable filters.
 func (r *GORMResourceReader) QueryCandidates(ctx context.Context, query domain.CandidateQuery) (domain.CandidatePage, error) {
 	out := domain.CandidatePage{}
-	category, subtypeColumn, subtypeValues, subtypeLike, err := candidateScope(query.MonitorType, query.Category)
+	category, filters, logic, err := candidateScope(query.MonitorType, query.Category)
+	if err != nil {
+		return out, err
+	}
+	// The monitor type scope is derived from its configurable rules and compiled
+	// once per query; every builder closure below reuses the same predicate.
+	predicate, predicateArgs, err := scopePredicate(filters, logic, r.db.Dialector.Name())
 	if err != nil {
 		return out, err
 	}
@@ -244,21 +256,8 @@ func (r *GORMResourceReader) QueryCandidates(ctx context.Context, query domain.C
 			Table(resourceJoins).
 			Where("r.deleted_at IS NULL").
 			Where("r.resource_category = ?", string(category))
-		if subtypeColumn != "" && len(subtypeValues) > 0 {
-			if subtypeLike {
-				// OS 家族：大小写不敏感的子串匹配（字典关键字 + 家族 token）
-				clauses := make([]string, 0, len(subtypeValues))
-				args := make([]any, 0, len(subtypeValues))
-				for _, keyword := range subtypeValues {
-					clauses = append(clauses, "LOWER("+subtypeColumn+") LIKE ?")
-					args = append(args, likeKeywordPattern(keyword))
-				}
-				q = q.Where("("+strings.Join(clauses, " OR ")+")", args...)
-			} else if len(subtypeValues) == 1 {
-				q = q.Where(subtypeColumn+" = ?", subtypeValues[0])
-			} else {
-				q = q.Where(subtypeColumn+" IN ?", subtypeValues)
-			}
+		if predicate != "" {
+			q = q.Where(predicate, predicateArgs...)
 		}
 		if len(query.TenantIDs) > 0 {
 			q = q.Where("r.tenant_id IN ?", query.TenantIDs)
@@ -379,39 +378,168 @@ func (r *GORMResourceReader) GetMany(ctx context.Context, resourceIDs []string) 
 	return out, nil
 }
 
-func candidateScope(monitorType string, category domain.ResourceCategory) (domain.ResourceCategory, string, []string, bool, error) {
+// candidateScope resolves the M07 resource category and the derivation filters
+// of a monitor type.
+//
+// The monitor type is configuration (SRS Module_01 v1.3 §5.6): the scope comes
+// from the registry snapshot, not from a hard-coded switch. ”always” rules
+// produce no filter, which is how category-wide types such as application_http
+// keep matching every resource of their category.
+func candidateScope(monitorType string, category domain.ResourceCategory) (domain.ResourceCategory, []domain.ScopeFilter, domain.RuleLogic, error) {
+	monitorType = strings.TrimSpace(monitorType)
 	if monitorType == "" {
 		if category == domain.CategoryInterfaceService || category == domain.CategoryApplication {
-			return category, "", nil, false, nil
+			return category, nil, domain.RuleLogicAll, nil
 		}
-		return "", "", nil, false, domain.NewValidationError("monitor_type", "is required for standard jobs")
+		return "", nil, domain.RuleLogicAll,
+			domain.NewValidationError("monitor_type", "is required for standard jobs")
 	}
-	switch monitorType {
-	case domain.MonitorTypeHostLinux:
-		// OS 家族关键字来自内置 OS 字典（Ubuntu / RedHat Enterprise Linux / CentOS …），
-		// 不能再写死 'linux' —— 否则规范化后的 os_type 永远匹配不到（v3 修复）。
-		return domain.CategoryHost, "h.os_type", models.OSKeywordsForLinux(), true, nil
-	case domain.MonitorTypeHostWindows:
-		return domain.CategoryHost, "h.os_type", models.OSKeywordsForWindows(), true, nil
-	case domain.MonitorTypeNPU:
-		return domain.CategoryHost, "", nil, false, nil
-	case domain.MonitorTypeMySQL:
-		return domain.CategoryDatabase, "d.database_type", []string{"mysql"}, false, nil
-	case domain.MonitorTypeRedis:
-		return domain.CategoryDatabase, "d.database_type", []string{"redis"}, false, nil
-	case domain.MonitorTypeKafka:
-		return domain.CategoryMiddleware, "m.middleware_type", []string{"kafka"}, false, nil
-	case domain.MonitorTypeElasticsearch:
-		return domain.CategoryMiddleware, "m.middleware_type", []string{"elasticsearch"}, false, nil
-	case domain.MonitorTypeNginx:
-		return domain.CategoryMiddleware, "m.middleware_type", []string{"nginx"}, false, nil
-	case domain.MonitorTypeApplicationHTTP:
-		return domain.CategoryApplication, "", nil, false, nil
-	case domain.MonitorTypeSNMP:
-		return domain.CategoryGenericTarget, "", nil, false, nil
+	scope, ok := domain.MonitorTypeScopeFor(monitorType)
+	if !ok {
+		return "", nil, domain.RuleLogicAll,
+			domain.NewValidationErrorf("monitor_type", "unknown monitor type %q", monitorType)
+	}
+	if category != "" && category != scope.Category {
+		return "", nil, domain.RuleLogicAll,
+			domain.NewValidationErrorf("monitor_type",
+				"monitor type %q belongs to resource category %q, not %q",
+				monitorType, scope.Category, category)
+	}
+	return scope.Category, scope.Filters, scope.Logic, nil
+}
+
+// scopePredicate compiles scope filters into a single SQL predicate plus its
+// bound arguments. Field keys are resolved through the domain whitelist, so user
+// input never reaches the column list (NFR-11 / FR-22).
+func scopePredicate(filters []domain.ScopeFilter, logic domain.RuleLogic, dialect string) (string, []any, error) {
+	if len(filters) == 0 {
+		return "", nil, nil
+	}
+	parts := make([]string, 0, len(filters))
+	args := make([]any, 0, len(filters))
+	for _, filter := range filters {
+		clause, clauseArgs, err := scopeFilterClause(filter, dialect)
+		if err != nil {
+			return "", nil, err
+		}
+		if clause == "" {
+			continue
+		}
+		parts = append(parts, clause)
+		args = append(args, clauseArgs...)
+	}
+	switch len(parts) {
+	case 0:
+		return "", nil, nil
+	case 1:
+		return parts[0], args, nil
+	}
+	joiner := " AND "
+	if logic == domain.RuleLogicAny {
+		joiner = " OR "
+	}
+	return "(" + strings.Join(parts, joiner) + ")", args, nil
+}
+
+// scopeFilterClause compiles one derivation rule.
+func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any, error) {
+	spec, ok := domain.ScopeFieldSpecFor(filter.Field)
+	if !ok {
+		return "", nil, domain.NewValidationErrorf("monitor_type", "unknown scope field %q", filter.Field)
+	}
+	values := filter.Values
+	if filter.Operator == domain.RuleOpAlways {
+		return "", nil, nil
+	}
+	if len(values) == 0 {
+		return "", nil, domain.NewValidationErrorf("monitor_type",
+			"scope field %q has no value", filter.Field)
+	}
+	switch spec.Kind {
+	case domain.ScopeFieldOSFamily:
+		// Virtual field: expand the OS family into the built-in dictionary
+		// keywords so canonical names ("Ubuntu", "RedHat Enterprise Linux")
+		// match through a case-insensitive substring comparison.
+		keywords := make([]string, 0, len(values)*4)
+		for _, value := range values {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case models.OSFamilyLinux:
+				keywords = append(keywords, models.OSKeywordsForLinux()...)
+			case models.OSFamilyWindows:
+				keywords = append(keywords, models.OSKeywordsForWindows()...)
+			default:
+				return "", nil, domain.NewValidationErrorf("monitor_type",
+					"os_family takes linux or windows, got %q", value)
+			}
+		}
+		return containsAnyClause("h.os_type", keywords)
+	case domain.ScopeFieldBoolean:
+		bools := make([]bool, 0, len(values))
+		for _, value := range values {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "true":
+				bools = append(bools, true)
+			case "false":
+				bools = append(bools, false)
+			default:
+				return "", nil, domain.NewValidationErrorf("monitor_type",
+					"field %q takes true or false, got %q", filter.Field, value)
+			}
+		}
+		if len(bools) == 1 {
+			return spec.Column + " = ?", []any{bools[0]}, nil
+		}
+		return spec.Column + " IN ?", []any{bools}, nil
+	}
+
+	switch filter.Operator {
+	case domain.RuleOpEq:
+		return spec.Column + " = ?", []any{values[0]}, nil
+	case domain.RuleOpIn:
+		return spec.Column + " IN ?", []any{values}, nil
+	case domain.RuleOpContains:
+		return "LOWER(" + spec.Column + ") LIKE ?", []any{likeKeywordPattern(values[0])}, nil
+	case domain.RuleOpContainsAny:
+		return containsAnyClause(spec.Column, values)
+	case domain.RuleOpRegexp:
+		if dialect != "postgres" {
+			return "", nil, domain.NewValidationErrorf("monitor_type",
+				"operator regexp requires the postgres driver (current: %s)", dialect)
+		}
+		return spec.Column + " ~* ?", []any{values[0]}, nil
 	default:
-		return "", "", nil, false, domain.NewValidationErrorf("monitor_type", "unknown monitor type %q", monitorType)
+		return "", nil, domain.NewValidationErrorf("monitor_type",
+			"unsupported operator %q", filter.Operator)
 	}
+}
+
+// containsAnyClause builds “(LOWER(col) LIKE ? OR ...)“ for a keyword set.
+func containsAnyClause(column string, keywords []string) (string, []any, error) {
+	clauses := make([]string, 0, len(keywords))
+	args := make([]any, 0, len(keywords))
+	for _, keyword := range keywords {
+		clauses = append(clauses, "LOWER("+column+") LIKE ?")
+		args = append(args, likeKeywordPattern(keyword))
+	}
+	if len(clauses) == 0 {
+		return "", nil, nil
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")", args, nil
+}
+
+// CountCandidates returns how many resources a monitor type currently matches.
+// It powers the change-impact preview (FR-24) and reuses the candidate query so
+// the preview can never drift from what the job form shows.
+func (r *GORMResourceReader) CountCandidates(ctx context.Context, monitorType string) (int64, error) {
+	page, err := r.QueryCandidates(ctx, domain.CandidateQuery{
+		MonitorType: monitorType,
+		IDsOnly:     true,
+		MaxIDs:      1,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return page.Total, nil
 }
 
 // likeKeywordPattern builds a LIKE pattern for a lowercased substring match.

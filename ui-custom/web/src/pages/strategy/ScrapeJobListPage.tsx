@@ -36,7 +36,10 @@ import type { JobType, MonitorType, ScrapeJob } from '../../types/strategy'
 import type { ScrapeJobV3 } from '../../types/strategyV3'
 import { useScrapeJobs } from './useScrapeJobs'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
-import { JOB_TYPE_MAP, MONITOR_TYPE_MAP, MONITOR_TYPE_CASCADE } from './strategyConstants'
+import { useSyncPolling } from './useSyncPolling'
+import { JOB_TYPE_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import SyncStatusTag from './SyncStatusTag'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
@@ -84,6 +87,8 @@ export function ScrapeJobListPage() {
 }
 
 function JobsTab() {
+  // 监控对象类型目录（SRS Module_01 v1.3 §5.6）：类型已配置化，筛选与列展示均取自注册表
+  const catalog = useMonitorTypeCatalog()
   const [keyword, setKeyword] = useState('')
   const [monitorType, setMonitorType] = useState<MonitorType | undefined>()
   const [jobType, setJobType] = useState<JobType | undefined>()
@@ -105,17 +110,23 @@ function JobsTab() {
     onPageChange: onJobsPageChange,
   } = useScrapeJobs({ ungrouped: true, keyword: keyword || undefined, monitor_type: monitorType, job_type: jobType, network_domain_id: domainFilter })
 
-  const loadGroups = useCallback(() => {
-    setGroupsLoading(true)
-    setGroupsError(null)
+  const loadGroups = useCallback((silent = false) => {
+    if (!silent) {
+      setGroupsLoading(true)
+      setGroupsError(null)
+    }
     jobGroupApi
       .list({ keyword: keyword || undefined, page: groupsPage, page_size: 20 })
       .then((res) => {
         setGroups(res.data.list ?? [])
         setGroupsTotal(res.data.total ?? 0)
       })
-      .catch((err) => setGroupsError(err instanceof Error ? err.message : '任务加载失败'))
-      .finally(() => setGroupsLoading(false))
+      .catch((err) => {
+        if (!silent) setGroupsError(err instanceof Error ? err.message : '任务加载失败')
+      })
+      .finally(() => {
+        if (!silent) setGroupsLoading(false)
+      })
   }, [keyword, groupsPage])
 
   // 首屏与筛选变化时拉取组（单域任务由 hook 自行触发）
@@ -131,6 +142,14 @@ function JobsTab() {
     loadGroups()
     reloadJobs()
   }, [loadGroups, reloadJobs])
+
+  // 保存 / 启停 / 删除后短暂轮询当前页，让 M09 回写的 synced/failed 及时可见。
+  const startSyncPolling = useSyncPolling(
+    useCallback(() => {
+      loadGroups(true)
+      reloadJobs({ silent: true })
+    }, [loadGroups, reloadJobs]),
+  )
 
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<JobGroup | null>(null)
@@ -202,6 +221,8 @@ function JobsTab() {
       message.success(`已删除任务「${group.name}」`)
       setDetailGroup(null)
       reload()
+      void triggerConfigDrafts(group.domains.map((domain) => domain.network_domain_id))
+      startSyncPolling()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '删除失败')
     }
@@ -211,6 +232,8 @@ function JobsTab() {
       await scrapeJobApi.remove(job.id)
       message.success('已删除任务')
       reload()
+      void triggerConfigDrafts([job.network_domain_id])
+      startSyncPolling()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '删除失败')
     }
@@ -224,6 +247,8 @@ function JobsTab() {
         resource_category: job.resource_category as never,
       } as never)
       reload()
+      void triggerConfigDrafts([job.network_domain_id])
+      startSyncPolling()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败')
     }
@@ -290,7 +315,7 @@ function JobsTab() {
       render: (_: unknown, row: TaskRow) => {
         const value = row.kind === 'group' ? row.group.monitor_type : row.job.monitor_type
         if (!value) return row.kind === 'group' && row.group.blackbox_module ? row.group.blackbox_module : '-'
-        return MONITOR_TYPE_MAP[value as keyof typeof MONITOR_TYPE_MAP] ?? value
+        return catalog.nameOf(value)
       },
     },
     {
@@ -488,9 +513,7 @@ function JobsTab() {
               style={{ width: 180 }}
               value={monitorType}
               onChange={(value) => setMonitorType(value as MonitorType | undefined)}
-              options={MONITOR_TYPE_CASCADE.flatMap((item) =>
-                item.types.map((type) => ({ value: type, label: MONITOR_TYPE_MAP[type] })),
-              )}
+              options={catalog.allCodes().map((type) => ({ value: type, label: catalog.nameOf(type) }))}
             />
           </FilterItem>
           <FilterItem label="网域" width={180}>
@@ -594,7 +617,10 @@ function JobsTab() {
           setEditingGroup(null)
           setAdoptJobID(null)
         }}
-        onSaved={reload}
+        onSaved={() => {
+          reload()
+          startSyncPolling()
+        }}
       />
 
       <ScrapeJobFormDrawer
@@ -604,6 +630,7 @@ function JobsTab() {
         onSuccess={() => {
           setFormOpen(false)
           reload()
+          startSyncPolling()
         }}
       />
 

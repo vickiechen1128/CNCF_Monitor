@@ -12,7 +12,21 @@ import "github.com/gin-gonic/gin"
 //
 // Pending: /monitoring-rules (B5), /metric-library, /business-metrics and
 // /blackbox-modules (B6).
-func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler, monitorTypes *MonitorTypeHandler) {
+	// Configurable monitor object types (SRS Module_01 v1.3 §5.6). Registered
+	// first because every other M01 resource references a monitor type.
+	monitorTypeGroup := platform.Group("/monitor-types")
+	{
+		monitorTypeGroup.GET("", monitorTypes.List)
+		monitorTypeGroup.POST("", monitorTypes.Create)
+		// Static routes must be registered before the :code parameter route.
+		monitorTypeGroup.GET("/scope-fields", monitorTypes.ScopeFields)
+		monitorTypeGroup.GET("/:code", monitorTypes.Get)
+		monitorTypeGroup.PUT("/:code", monitorTypes.Update)
+		monitorTypeGroup.DELETE("/:code", monitorTypes.Delete)
+		monitorTypeGroup.GET("/:code/impact", monitorTypes.Impact)
+	}
+
 	exporterGroup := platform.Group("/exporter-templates")
 	{
 		exporterGroup.GET("", exporters.List)

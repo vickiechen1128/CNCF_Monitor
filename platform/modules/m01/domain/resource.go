@@ -30,9 +30,14 @@ type ResourceRef struct {
 	Owner        string
 
 	// Host fields.
-	Hostname    string
-	OSType      string
-	OSVersion   string
+	Hostname  string
+	OSType    string
+	OSVersion string
+	// HasNPU / HasGPU are M07 capability flags (SRS Module_07 v2.1 §5.8
+	// FR-30). They let a derivation rule target host hardware that is
+	// orthogonal to the operating system (SRS Module_01 v1.3 FR-10).
+	HasNPU      bool
+	HasGPU      bool
 	ActivatedAt string
 
 	// Database / middleware fields.

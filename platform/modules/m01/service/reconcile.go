@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
@@ -13,13 +14,14 @@ import (
 const DefaultReconcileInterval = 60 * time.Second
 
 // ReconcileService removes selected instances that no longer exist in M07 (or
-// moved to another domain). M07 never calls M01; the pull loop is the only
-// cleanup path (D40).
+// moved to another domain). The 60s pull loop remains the fallback; M07 change
+// notifications may also invoke ReconcileOnce best-effort.
 type ReconcileService struct {
 	jobs      repository.JobRepository
 	resources ResourceReader
 	domains   DomainReader
 	interval  time.Duration
+	mu        sync.Mutex
 }
 
 // NewReconcileService constructs the service. A nil domains reader disables the
@@ -48,6 +50,9 @@ func (s *ReconcileService) Run(ctx context.Context) {
 
 // ReconcileOnce removes stale instance references and returns the changed jobs.
 func (s *ReconcileService) ReconcileOnce(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	jobs, err := s.jobs.ListAll(ctx)
 	if err != nil {
 		return 0, err

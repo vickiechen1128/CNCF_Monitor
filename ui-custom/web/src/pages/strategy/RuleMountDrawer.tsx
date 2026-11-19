@@ -7,7 +7,8 @@ import type { JobRefIssue, PromQLCheckResult, RuleInspectResult } from '../../ap
 import { isApiError } from '../../api/client'
 import type { ResourceCategory } from '../../types/resource'
 import type { MonitorType, MonitoringRule } from '../../types/strategy'
-import { CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { CATEGORY_MAP } from './strategyConstants'
+import { currentMonitorTypeCatalog, useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import { validateYamlClient } from './rulesYaml'
 import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
@@ -55,7 +56,7 @@ type InspectState = 'idle' | 'loading' | 'done' | 'failed'
 /** 由监控对象类型反推资源类别（编辑回显级联选择器用） */
 function categoryOfType(t?: string): ResourceCategory | undefined {
   if (!t) return undefined
-  return MONITOR_TYPE_CASCADE.find((g) => g.types.includes(t as MonitorType))?.category
+  return currentMonitorTypeCatalog().categoryFor(t)
 }
 
 /**
@@ -206,6 +207,7 @@ function RuleInspectPanel({
 }
 
 export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: RuleMountDrawerProps) {
+  const catalog = useMonitorTypeCatalog()
   const navigate = useNavigate()
   const [form] = Form.useForm<MountFormValues>()
   const [submitting, setSubmitting] = useState(false)
@@ -293,8 +295,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
   // 已选类别时类型候选按类别收敛；未选类别时平铺全部类型（monitor_type 可空，类别仅作辅助）。
   const resourceCategory = Form.useWatch('resource_category', form)
   const monitorTypeOptions = resourceCategory
-    ? MONITOR_TYPE_CASCADE.find((g) => g.category === resourceCategory)?.types ?? []
-    : MONITOR_TYPE_CASCADE.flatMap((g) => g.types)
+    ? catalog.optionsForCategory(resourceCategory)
+    : catalog.allCodes()
 
   useEffect(() => {
     if (!open) return
@@ -475,7 +477,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
             allowClear
             data-testid="rule-resource-category"
             placeholder="全部类别"
-            options={MONITOR_TYPE_CASCADE.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
+            options={catalog.cascade.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
             onChange={() => form.setFieldsValue({ monitor_type: undefined })}
           />
         </Form.Item>
@@ -488,7 +490,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
             allowClear
             data-testid="rule-monitor-type"
             placeholder="请选择监控对象类型"
-            options={monitorTypeOptions.map((t) => ({ value: t, label: MONITOR_TYPE_MAP[t] }))}
+            options={monitorTypeOptions.map((t) => ({ value: t, label: catalog.nameOf(t) }))}
           />
         </Form.Item>
         <Form.Item label="内容形态" extra="当前版本仅支持文件透传（yaml_passthrough）">

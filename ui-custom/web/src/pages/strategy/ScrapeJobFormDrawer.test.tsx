@@ -44,7 +44,7 @@ vi.mock('../../api/blackboxModules', () => ({
 }))
 
 vi.mock('../../api/configCenter', () => ({
-  configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
+  configSyncTriggerApi: { trigger: vi.fn().mockResolvedValue({ status: 'success', data: { accepted: true } }) },
 }))
 
 // 实例选择器独立测试（F5），抽屉内直接 stub
@@ -452,9 +452,10 @@ describe('ScrapeJobFormDrawer', () => {
 
   it('offers NPU under the host category without application-specific path requirements', async () => {
     renderDrawer()
-    await selectCategoryAndType('主机', 'NPU')
+    // npu 已更名为 host_npu、展示名「NPU 主机」（M01 SRS v1.3）
+    await selectCategoryAndType('主机', 'NPU 主机')
 
-    expect(screen.getAllByText('NPU').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/NPU/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
     expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
   })

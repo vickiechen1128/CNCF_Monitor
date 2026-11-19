@@ -37,8 +37,10 @@ import { getStoredUser } from '../../api/client'
 import type { InstanceCandidateV3, JobInstanceV3, ResourceCategory } from '../../types/strategyV3'
 import type { MonitorType } from '../../types/strategy'
 import type { CandidateFilterField, DomainHit, FilterCondition, JobGroup } from '../../types/jobGroup'
-import { BLACKBOX_CATEGORIES, CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { BLACKBOX_CATEGORIES, CATEGORY_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import { JobParamsFields } from './JobParamsFields'
+import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 
 const { Text, Title } = Typography
 
@@ -62,11 +64,6 @@ const DEFAULT_CONDITIONS: FilterCondition[] = [
   { id: 'status-default', field: 'status', op: 'in', values: ['online'] },
 ]
 
-const CATEGORY_OF_TYPE = new Map<MonitorType, ResourceCategory>()
-for (const item of MONITOR_TYPE_CASCADE) {
-  for (const type of item.types) CATEGORY_OF_TYPE.set(type, item.category)
-}
-
 const PORT_SOURCE_LABEL: Record<string, { text: string; color: string }> = {
   instance: { text: '实例覆盖', color: 'green' },
   mapping: { text: '类型默认', color: 'blue' },
@@ -85,6 +82,8 @@ function toPayloadFilters(conditions: FilterCondition[]) {
 
 export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSaved }: JobGroupWizardDrawerProps) {
   const isEdit = Boolean(record)
+  // 监控对象类型目录（SRS Module_01 v1.3 §5.6）：类型已配置化，禁止再用前端写死列表
+  const catalog = useMonitorTypeCatalog()
   const [schema, setSchema] = useState<CandidateFilterField[]>([])
   const [fieldOptions, setFieldOptions] = useState<Record<string, Option[]>>({})
   // 未选类型前不发候选查询：避免"默认 Linux 主机"静默过滤导致怀疑数据丢失
@@ -305,11 +304,11 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
   // 候选查询（条件变化即重查，短防抖）；标准任务未选对象类型时不查询
   const typeMissing = jobType === 'standard' && !monitorType
   const currentCategory = resourceCategory
-  const categoryTypeOptions = MONITOR_TYPE_CASCADE.find((item) => item.category === resourceCategory)?.types ?? []
+  const categoryTypeOptions = catalog.optionsForCategory(resourceCategory)
   const categoryOptions =
     jobType === 'blackbox'
       ? BLACKBOX_CATEGORIES.map((category) => ({ value: category, label: CATEGORY_MAP[category] }))
-      : MONITOR_TYPE_CASCADE.map((item) => ({ value: item.category, label: CATEGORY_MAP[item.category] }))
+      : catalog.cascade.map((item) => ({ value: item.category, label: CATEGORY_MAP[item.category] }))
   useEffect(() => {
     if (!open || typeMissing) return
     let cancelled = false
@@ -425,7 +424,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
             const row = rows.find((item) => item.resource_id === id)
             next[id] = row ?? {
               resource_id: id,
-              resource_category: CATEGORY_OF_TYPE.get(monitorType as MonitorType) ?? 'host',
+              resource_category: catalog.categoryFor(monitorType) ?? 'host',
               monitor_type: monitorType,
               display_name: id,
               instance_ip: '',
@@ -503,14 +502,18 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
       }
       if (adoptJobId) {
         await jobGroupApi.adoptFromJob(adoptJobId, payload)
-        message.success(`已保存任务，覆盖 ${selectedDomainCount} 个网域；最长 30s 内自动下发`)
+        message.success(`已保存任务，覆盖 ${selectedDomainCount} 个网域；正在同步配置`)
       } else if (isEdit && record) {
         await jobGroupApi.update(record.id, payload)
-        message.success(`已更新采集任务，覆盖 ${selectedDomainCount} 个网域；最长 30s 内自动下发`)
+        message.success(`已更新采集任务，覆盖 ${selectedDomainCount} 个网域；正在同步配置`)
       } else {
         await jobGroupApi.create(payload)
-        message.success(`已创建采集任务，覆盖 ${selectedDomainCount} 个网域；最长 30s 内自动下发`)
+        message.success(`已创建采集任务，覆盖 ${selectedDomainCount} 个网域；正在同步配置`)
       }
+      // 保存后 best-effort 即时触发本次涉及的网域；失败由 30s watcher 兜底。
+      void triggerConfigDrafts(
+        Array.from(new Set(selectedList.map((item) => item.network_domain_id).filter(Boolean))),
+      )
       onSaved()
       handleClose()
     } catch (err) {
@@ -633,7 +636,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                 showSearch
                 optionFilterProp="label"
                 value={monitorType || undefined}
-                options={categoryTypeOptions.map((type) => ({ value: type, label: MONITOR_TYPE_MAP[type] }))}
+                options={categoryTypeOptions.map((type) => ({ value: type, label: catalog.nameOf(type) }))}
                 onChange={(value) => {
                   setMonitorType(value as MonitorType)
                   setSelected({})
@@ -809,7 +812,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       当前条件：{jobType === 'blackbox'
                         ? `拨测 / ${blackboxCategory === 'application' ? '应用服务' : '接口服务'}`
-                        : `采集 / ${MONITOR_TYPE_MAP[monitorType as MonitorType] ?? monitorType}`}
+                        : `采集 / ${catalog.nameOf(monitorType)}`}
                       {conditions
                         .filter((condition) => condition.values.length > 0)
                         .map((condition) => {

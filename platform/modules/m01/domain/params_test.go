@@ -80,7 +80,7 @@ func TestValidateMetricsPathAndPort(t *testing.T) {
 
 func TestMonitorTypeHelpers(t *testing.T) {
 	assert.True(t, ValidMonitorType("host_linux"))
-	assert.True(t, ValidMonitorType("npu"))
+	assert.True(t, ValidMonitorType("host_npu"))
 	assert.False(t, ValidMonitorType("unknown"))
 	assert.False(t, ValidMonitorType(""))
 

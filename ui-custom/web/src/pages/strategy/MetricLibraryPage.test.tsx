@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { MetricLibraryPage } from './MetricLibraryPage'
@@ -33,6 +33,14 @@ function metric(id: number, extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   listMock.mockReset()
 })
+
+/** 打开 FilterItem 标签对应的 antd Select（标签文案在筛选区唯一）。 */
+function openFilterSelect(label: string) {
+  const select = screen.getByText(label).closest('.ant-col')?.querySelector<HTMLElement>('.ant-select')
+  const selector = select?.querySelector<HTMLElement>('.ant-select-selector')
+  if (!selector) throw new Error(`未找到筛选「${label}」下拉`)
+  fireEvent.mouseDown(selector)
+}
 
 describe('MetricLibraryPage', () => {
   setupAntdTest()
@@ -128,6 +136,50 @@ describe('MetricLibraryPage', () => {
     const groupCard = linuxHosts[1]?.closest('.ant-card') ?? linuxHosts[0].closest('.ant-card')
     expect(groupCard).toBeTruthy()
     expect(within(groupCard as HTMLElement).getAllByText('内置').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('sends resource_category when 资源类别 changes', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
+
+    openFilterSelect('资源类别')
+    fireEvent.click(await screen.findByText('数据库'))
+
+    await waitFor(() =>
+      expect(listMock).toHaveBeenCalledWith(
+        expect.objectContaining({ resource_category: 'database', monitor_type: undefined, page: 1 }),
+      ),
+    )
+  })
+
+  it('sends monitor_type when 监控类型 changes', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
+
+    openFilterSelect('监控类型')
+    fireEvent.click(await screen.findByText('MySQL'))
+
+    await waitFor(() =>
+      expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ monitor_type: 'mysql', page: 1 })),
+    )
   })
 
   it('renders top statistics 共 n 个指标（内置 x / 用户扩展 y）按 n 个 CI 类型组织 (F4)', async () => {

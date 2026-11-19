@@ -5,8 +5,9 @@ import { exporterTemplateApi } from '../../api/exporterTemplates'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
-import type { CITypeExporterMapping, ExporterTemplate, MonitorType } from '../../types/strategy'
-import { CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import type { CITypeExporterMapping, ExporterTemplate } from '../../types/strategy'
+import { CATEGORY_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import { LabelTemplatePreview } from './LabelTemplatePreview'
 
 const { Text } = Typography
@@ -29,6 +30,7 @@ interface LabelTemplateSelectDrawerProps {
  * - 提交仅发送 label_template_id（后端 §4 部分更新）。
  */
 export function LabelTemplateSelectDrawer({ open, mode, record, onCancel, onSuccess }: LabelTemplateSelectDrawerProps) {
+  const catalog = useMonitorTypeCatalog()
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
   const [exporterTemplates, setExporterTemplates] = useState<ExporterTemplate[]>([])
   const [value, setValue] = useState<string | undefined>()
@@ -61,7 +63,7 @@ export function LabelTemplateSelectDrawer({ open, mode, record, onCancel, onSucc
   // 顶层 record 可能为 null（父组件以 open 联动传入）；未就绪则不挂载内容
   if (!record) return null
 
-  const resourceCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(record.monitor_type as MonitorType))?.category as
+  const resourceCategory = catalog.categoryFor(record.monitor_type) as
     | ResourceCategory
     | undefined
   const categoryLabelTemplates = labelTemplates.filter((t) => t.resource_category === resourceCategory)
@@ -69,7 +71,7 @@ export function LabelTemplateSelectDrawer({ open, mode, record, onCancel, onSucc
   const exporterName =
     exporterTemplates.find((t) => String(t.id) === String(record.exporter_template_id))?.name ??
     (record.exporter_template_id ? `#${record.exporter_template_id}` : '-')
-  const monitorTypeLabel = MONITOR_TYPE_MAP[record.monitor_type as MonitorType] ?? record.monitor_type
+  const monitorTypeLabel = catalog.nameOf(record.monitor_type)
   const categoryLabel = resourceCategory ? CATEGORY_MAP[resourceCategory] : '-'
   // 「更换」需显性回显当前已选模板（PRD L241）
   const currentLabel = labelTemplates.find((t) => String(t.id) === String(record.label_template_id))

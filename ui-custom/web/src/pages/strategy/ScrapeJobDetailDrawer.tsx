@@ -10,7 +10,8 @@ import { targetsApi } from '../../api/targets'
 import { queryApi } from '../../api/query'
 import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeExporterMapping } from '../../types/strategy'
 import type { PromVectorItem, TargetItem } from '../../types/query'
-import { MONITOR_TYPE_MAP, SCRAPE_PARAM_FIELDS } from './strategyConstants'
+import { SCRAPE_PARAM_FIELDS } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 import { probeQueryForJob, probeStatusOfTarget, type ProbeTarget } from './upStatus'
 
@@ -225,6 +226,8 @@ export function ScrapeJobDetailDrawer({
   resolveLabelTemplateName,
   getDefaultMapping,
 }: ScrapeJobDetailDrawerProps) {
+  // 监控对象类型展示名取自注册表（类型已配置化，内置常量仅作降级）
+  const catalog = useMonitorTypeCatalog()
   const { tokens } = useSkin()
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
@@ -381,7 +384,7 @@ export function ScrapeJobDetailDrawer({
               {job.job_type === 'blackbox' || !job.monitor_type ? (
                 <Text type="secondary">-</Text>
               ) : (
-                <Tag color="blue">{MONITOR_TYPE_MAP[job.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? job.monitor_type}</Tag>
+                <Tag color="blue">{catalog.nameOf(job.monitor_type)}</Tag>
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Exporter / Module">

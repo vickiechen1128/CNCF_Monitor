@@ -3,13 +3,17 @@
  * 页面沿用 legacy 视图类型；ID 为字符串 UUID。
  */
 import type { ApiResponse, Paginated } from '../types/api'
+import type { ResourceCategory } from '../types/resource'
 import type { ExporterMetricLibraryItem, MetricType } from '../types/strategy'
 import { metricApiV3 } from './strategyV3'
 import type { MetricInputV3 } from './strategyV3'
 
 export interface MetricLibraryListParams extends Record<string, string | number | boolean | undefined> {
   monitor_type?: string
+  /** 粗粒度资源类别，后端按 monitor_types 锚点归属展开过滤 */
+  resource_category?: ResourceCategory
   metric_type?: MetricType
+  /** 指标语义域（cpu / memory / ...），非资源类别 */
   category?: string
   keyword?: string
   page?: number

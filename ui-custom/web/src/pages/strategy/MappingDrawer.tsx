@@ -15,7 +15,8 @@ import {
 } from 'antd'
 import { ciExporterMappingApi, type CITypeExporterMappingInput } from '../../api/ciExporterMappings'
 import { exporterTemplateApi } from '../../api/exporterTemplates'
-import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, CATEGORY_MAP } from './strategyConstants'
+import { CATEGORY_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import type { ResourceCategory } from '../../types/resource'
 import type { ExporterTemplate } from '../../types/strategy'
 import type { CITypeExporterMapping } from '../../types/strategy'
@@ -44,9 +45,11 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
 
   const isEdit = !!record
+  // 监控对象类型候选来自注册表（M01 SRS v1.3 §5.6）：新建类型后无需改前端即可选到
+  const catalog = useMonitorTypeCatalog()
   // F1-8：监控对象类型候选 = 按已选资源类别过滤（两级级联）
   const resourceCategory = Form.useWatch('resource_category', form) as ResourceCategory | undefined
-  const categoryTypes = (resourceCategory ? MONITOR_TYPE_CASCADE.find((g) => g.category === resourceCategory)?.types : []) ?? []
+  const categoryTypes = catalog.optionsForCategory(resourceCategory)
   const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
   const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
 
@@ -74,7 +77,7 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
     if (record) {
       form.resetFields()
       // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
-      const echoedCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(record.monitor_type as MonitorType))?.category
+      const echoedCategory = catalog.categoryFor(record.monitor_type)
       form.setFieldsValue({
         resource_category: echoedCategory,
         monitor_type: record.monitor_type,
@@ -97,6 +100,8 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
         } as CITypeExporterMappingInput)
       }
     }
+    // catalog 仅用于编辑态类别反查；目录加载完成后重跑会重置表单，故不纳入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, record, initialTemplate, form])
 
   // F-28：当前选中采集器（决定各参数字段 placeholder 展示的继承默认值）
@@ -198,7 +203,7 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
               <Select
                 placeholder="请选择"
                 disabled={isEdit}
-                options={MONITOR_TYPE_CASCADE.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
+                options={catalog.cascade.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
                 // F-10：切换资源类别后原监控对象类型候选失效，需同步清空
                 onChange={() => form.setFieldsValue({ monitor_type: undefined })}
               />
@@ -209,7 +214,7 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
               <Select
                 placeholder={categoryTypes.length > 0 ? '请选择监控对象类型' : '请先选择资源类别'}
                 disabled={isEdit}
-                options={categoryTypes.map((t) => ({ value: t, label: MONITOR_TYPE_MAP[t] }))}
+                options={categoryTypes.map((t) => ({ value: t, label: catalog.nameOf(t) }))}
               />
             </Form.Item>
           </Col>

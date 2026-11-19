@@ -38,10 +38,6 @@ func (c ResourceCategory) Valid() bool {
 	}
 }
 
-// ProbeCategories returns the resource categories allowed for blackbox jobs.
-func ProbeCategories() []ResourceCategory {
-	return []ResourceCategory{CategoryInterfaceService, CategoryApplication}
-}
 
 // AuthType is the optional scrape authentication mode.
 type AuthType string

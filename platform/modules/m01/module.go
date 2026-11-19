@@ -33,6 +33,9 @@ type Repositories struct {
 	ProbeModules    repository.ProbeModuleRepository
 	// JobGroups persists monitoring intents (SRS JG v1.0).
 	JobGroups repository.JobGroupRepository
+	// MonitorTypes persists the configurable monitor-object-type registry
+	// (SRS Module_01 v1.3 §5.6).
+	MonitorTypes repository.MonitorTypeRepository
 }
 
 // Options carries M01 background-loop tuning.
@@ -53,6 +56,8 @@ type Module struct {
 	probes         *handler.ProbeModuleHandler
 	jobGroups      *service.JobGroupService
 	jobGroupAPI    *handler.JobGroupHandler
+	monitorTypes   *service.MonitorTypeService
+	monitorTypeAPI *handler.MonitorTypeHandler
 	labelTemplates service.LabelTemplateResolver
 	labelUsage     *references.LabelTemplateUsageChecker
 	syncSink       *references.SyncSink
@@ -74,16 +79,22 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		Installations:   repository.NewInstallationRepository(db),
 		ProbeModules:    repository.NewProbeModuleRepository(db),
 		JobGroups:       repository.NewJobGroupRepository(db),
+		MonitorTypes:    repository.NewMonitorTypeRepository(db),
 	}
 	// D-3 resolved: M07 now owns m07_label_templates; M01 reads it read-only.
 	labelReader := references.NewLabelTemplateReader(db)
 	labelUsage := references.NewLabelTemplateUsageChecker(db)
 	syncSink := references.NewSyncSink(db)
+	// One M07 resource reader is shared by candidates, job groups, the reconcile
+	// loop and the monitor-type impact preview.
+	resourceReader := references.NewResourceReader(db)
+	monitorTypeSvc := service.NewMonitorTypeService(repos.MonitorTypes)
+	monitorTypeSvc.SetCandidateCounter(resourceReader)
 	exporterSvc := service.NewExporterTemplateService(repos.Exporters, repos.Mappings)
 	mappingSvc := service.NewMappingService(repos.Mappings, repos.Exporters, repos.Jobs, labelReader)
 	jobSvc := service.NewJobService(
 		repos.Jobs, repos.Exporters, repos.Mappings, repos.ProbeModules, repos.Installations,
-		references.NewResourceReader(db), references.NewDomainReader(db), labelReader,
+		resourceReader, references.NewDomainReader(db), labelReader,
 	)
 	// 任务组名解析：Job 列表需要暴露 job_group_id / job_group_name（合并任务列表的前置）
 	jobSvc.SetJobGroupResolver(repos.JobGroups)
@@ -92,10 +103,10 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 	businessSvc := service.NewBusinessMetricService(repos.BusinessMetrics)
 	probeSvc := service.NewProbeModuleService(repos.ProbeModules, repos.Jobs)
 	jobGroupSvc := service.NewJobGroupService(
-		repos.JobGroups, jobSvc, references.NewResourceReader(db), references.NewDomainReader(db),
+		repos.JobGroups, jobSvc, resourceReader, references.NewDomainReader(db),
 	)
 	reconcileSvc := service.NewReconcileService(
-		repos.Jobs, references.NewResourceReader(db), references.NewDomainReader(db), opts.ReconcileInterval,
+		repos.Jobs, resourceReader, references.NewDomainReader(db), opts.ReconcileInterval,
 	)
 
 	return &Module{
@@ -109,6 +120,8 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		probes:         handler.NewProbeModuleHandler(probeSvc),
 		jobGroups:      jobGroupSvc,
 		jobGroupAPI:    handler.NewJobGroupHandler(jobGroupSvc),
+		monitorTypes:   monitorTypeSvc,
+		monitorTypeAPI: handler.NewMonitorTypeHandler(monitorTypeSvc),
 		labelTemplates: labelReader,
 		labelUsage:     labelUsage,
 		syncSink:       syncSink,
@@ -122,16 +135,30 @@ func (m *Module) Name() string { return "m01" }
 // RegisterRoutes mounts M01 v3 under the given platform group
 // (expected prefix: /api/v3/platform).
 func (m *Module) RegisterRoutes(platform *gin.RouterGroup) error {
-	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules, m.metrics, m.business, m.probes, m.jobGroupAPI)
+	handler.RegisterRoutes(platform, m.exporters, m.mappings, m.jobs, m.rules, m.metrics, m.business, m.probes, m.jobGroupAPI, m.monitorTypeAPI)
 	return nil
 }
 
 // Repositories exposes the persistence adapters for later services and tests.
 func (m *Module) Repositories() Repositories { return m.repos }
 
+// MonitorTypeService exposes the configurable monitor type registry.
+func (m *Module) MonitorTypeService() *service.MonitorTypeService { return m.monitorTypes }
+
 // JobGroupService exposes the job-group use cases (HTTP wiring lands with the
 // job-group handler; the service is already wired for tests and callers).
 func (m *Module) JobGroupService() *service.JobGroupService { return m.jobGroups }
+
+// ReconcileNow runs one M07-resource reconciliation pass. M07 change
+// notifications use it to reclaim stale selected_instance_ids before M09
+// regenerates the affected domain.
+func (m *Module) ReconcileNow(ctx context.Context) error {
+	if m.reconcile == nil {
+		return nil
+	}
+	_, err := m.reconcile.ReconcileOnce(ctx)
+	return err
+}
 
 // LabelTemplateResolver exposes the read-only label template port for job
 // creation later (B3).
@@ -146,6 +173,25 @@ func (m *Module) LabelTemplateUsageChecker() *references.LabelTemplateUsageCheck
 // SyncResultSink exposes the M09 writeback port. M09 calls it after generating
 // a domain snapshot so jobs can move from pending to synced/failed.
 func (m *Module) SyncResultSink() *references.SyncSink { return m.syncSink }
+
+// Bootstrap loads the persisted monitor type registry into memory.
+//
+// It is deliberately separate from NewModule: construction stays free of I/O so
+// wiring tests can build the module with a placeholder handle, and the boot
+// sequence decides when the registry snapshot is loaded (SRS Module_01 v1.3
+// §5.6). If it is never called, the built-in snapshot stays active.
+func (m *Module) Bootstrap(ctx context.Context) error {
+	if m.monitorTypes == nil {
+		return nil
+	}
+	if err := m.monitorTypes.EnsureBuiltins(ctx); err != nil {
+		return fmt.Errorf("m01: seed built-in monitor types: %w", err)
+	}
+	if err := m.monitorTypes.Refresh(ctx); err != nil {
+		return fmt.Errorf("m01: load monitor type registry: %w", err)
+	}
+	return nil
+}
 
 // StartBackground launches M01 maintenance loops (D40 reconciliation). It is
 // called only for a cancellable production context.

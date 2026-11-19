@@ -200,7 +200,7 @@ func (s *MappingService) SetLabelTemplate(ctx context.Context, id, labelTemplate
 }
 
 func (s *MappingService) normalizeAndValidate(ctx context.Context, mapping *domain.Mapping) (*domain.ExporterTemplate, error) {
-	mapping.MonitorType = strings.TrimSpace(mapping.MonitorType)
+	mapping.MonitorType = domain.NormalizeMonitorTypeCode(mapping.MonitorType)
 	mapping.ExporterTemplateID = strings.TrimSpace(mapping.ExporterTemplateID)
 	mapping.MetricsPath = strings.TrimSpace(mapping.MetricsPath)
 	if mapping.MetricsPath == "" {

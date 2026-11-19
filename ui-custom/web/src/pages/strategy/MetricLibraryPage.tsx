@@ -10,7 +10,8 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
-import { CATEGORY_MAP, METRIC_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { CATEGORY_MAP, METRIC_TYPE_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 
 const { Text } = Typography
 
@@ -36,6 +37,7 @@ const GROUP_PAGE_SIZE = 100
  * - 加载骨架 / 空态 / 错误态；MVP 内置只读不做编辑/导入 UI（P1）。
  */
 export function MetricLibraryPage() {
+  const catalog = useMonitorTypeCatalog()
   // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
   const [items, setItems] = useState<MetricLibraryState>(EMPTY_LIBRARY)
@@ -59,6 +61,7 @@ export function MetricLibraryPage() {
     setError(null)
     try {
       const res = await metricLibraryApi.list({
+        resource_category: category,
         monitor_type: monitorType,
         metric_type: metricType,
         keyword,
@@ -72,7 +75,7 @@ export function MetricLibraryPage() {
     } finally {
       setLoading(false)
     }
-  }, [monitorType, metricType, keyword, page, pageSize])
+  }, [category, monitorType, metricType, keyword, page, pageSize])
 
   // E3/F1-7/F4：分组与顶部统计依赖全量数据（受当前筛选影响），契约上限内拉取；
   // 仅在分组视图时需要全量（统计/分组），列表视图仅分页，避免多余请求。
@@ -80,6 +83,7 @@ export function MetricLibraryPage() {
     setAggLoading(true)
     try {
       const res = await metricLibraryApi.list({
+        resource_category: category,
         monitor_type: monitorType,
         metric_type: metricType,
         keyword,
@@ -95,7 +99,7 @@ export function MetricLibraryPage() {
     } finally {
       setAggLoading(false)
     }
-  }, [monitorType, metricType, keyword])
+  }, [category, monitorType, metricType, keyword])
 
   useEffect(() => {
     // 异步请求回调内 setState；沿用本模块既有抓取 effect 模式
@@ -122,7 +126,7 @@ export function MetricLibraryPage() {
   const groupedData = useMemo(() => {
     const groups = new Map<string, ExporterMetricLibraryItem[]>()
     // 按级联顺序稳定输出分组
-    const ordered = MONITOR_TYPE_CASCADE.flatMap((g) => g.types)
+    const ordered = catalog.allCodes()
     aggItems.forEach((m) => {
       const anchors = m.monitor_types ?? []
       if (anchors.length === 0) return
@@ -133,10 +137,10 @@ export function MetricLibraryPage() {
       })
     })
     return ordered.filter((t) => groups.has(t)).map((t) => ({ monitorType: t, metrics: groups.get(t)! }))
-  }, [aggItems])
+  }, [aggItems, catalog])
 
   // 当前类别下的细粒度类型（列表 / 分组视图共用筛选）
-  const currentTypes = MONITOR_TYPE_CASCADE.find((g) => g.category === category)?.types ?? []
+  const currentTypes = catalog.optionsForCategory(category)
 
   const columns: ColumnsType<ExporterMetricLibraryItem> = [
     {
@@ -186,7 +190,7 @@ export function MetricLibraryPage() {
       key: 'monitor_types',
       width: 140,
       render: (_: unknown, r: ExporterMetricLibraryItem) => (
-        <EllipsisText>{r.monitor_types.map((m) => MONITOR_TYPE_MAP[m.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? m.monitor_type).join(', ')}</EllipsisText>
+        <EllipsisText>{r.monitor_types.map((m) => catalog.nameOf(m.monitor_type)).join(', ')}</EllipsisText>
       ),
     },
     {
@@ -281,7 +285,7 @@ export function MetricLibraryPage() {
               setPage(1)
             }}
           >
-            {MONITOR_TYPE_CASCADE.map((g) => (
+            {catalog.cascade.map((g) => (
               <Select.Option key={g.category} value={g.category}>
                 {CATEGORY_MAP[g.category]}
               </Select.Option>
@@ -299,9 +303,9 @@ export function MetricLibraryPage() {
               setPage(1)
             }}
           >
-            {(currentTypes.length > 0 ? currentTypes : MONITOR_TYPE_CASCADE.flatMap((g) => g.types)).map((t) => (
+            {(currentTypes.length > 0 ? currentTypes : catalog.allCodes()).map((t) => (
               <Select.Option key={t} value={t}>
-                {MONITOR_TYPE_MAP[t]}
+                {catalog.nameOf(t)}
               </Select.Option>
             ))}
           </Select>
@@ -349,7 +353,7 @@ export function MetricLibraryPage() {
               size="small"
               title={
                 <Space wrap size={6}>
-                  <Text strong>{MONITOR_TYPE_MAP[group.monitorType as keyof typeof MONITOR_TYPE_MAP] ?? group.monitorType}</Text>
+                  <Text strong>{catalog.nameOf(group.monitorType)}</Text>
                   <Badge count={group.metrics.length} color={tokens.colorPrimary} overflowCount={999} />
                 </Space>
               }

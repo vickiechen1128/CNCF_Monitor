@@ -31,12 +31,11 @@ import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import {
-  MONITOR_TYPE_CASCADE,
-  MONITOR_TYPE_MAP,
   CATEGORY_MAP,
   BLACKBOX_CATEGORIES,
   BLACKBOX_TARGET_FIELD_LABEL,
 } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import { AuthTlsFields, ScrapeParamFields } from './JobParamsFields'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
@@ -120,6 +119,7 @@ interface ScrapeJobFormDrawerProps {
  */
 export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: ScrapeJobFormDrawerProps) {
   const navigate = useNavigate()
+  const catalog = useMonitorTypeCatalog()
   const [form] = Form.useForm<ScrapeJobFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -163,8 +163,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   // F1-8：监控对象类型候选 = 按已选资源类别过滤（两级级联）
   const categoryTypes = useMemo<MonitorType[]>(() => {
     if (!resourceCategorySelected) return []
-    return MONITOR_TYPE_CASCADE.find((g) => g.category === resourceCategorySelected)?.types ?? []
-  }, [resourceCategorySelected])
+    return catalog.optionsForCategory(resourceCategorySelected)
+  }, [resourceCategorySelected, catalog])
 
   // F1-4：按当前资源类别过滤可选的标签模板（卡片式）。
   // 采集 Job 由 monitor_type 推导类别；拨测 Job 没有 monitor_type，类别取 resource_type
@@ -172,8 +172,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const resourceCategory = useMemo<ResourceCategory | undefined>(() => {
     if (jobType === 'blackbox') return blackboxCategory
     if (!monitorType) return undefined
-    return MONITOR_TYPE_CASCADE.find((g) => g.types.includes(monitorType))?.category
-  }, [jobType, blackboxCategory, monitorType])
+    return catalog.categoryFor(monitorType)
+  }, [jobType, blackboxCategory, monitorType, catalog])
   const filteredLabelTemplates = useMemo(
     () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
     [labelTemplates, resourceCategory],
@@ -208,7 +208,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
       // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
-      const echoedCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(record.monitor_type as MonitorType))?.category
+      const echoedCategory = catalog.categoryFor(record.monitor_type)
       form.setFieldsValue({
         job_name: record.job_name,
         job_type: record.job_type,
@@ -240,6 +240,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       setSelectedIds([])
       form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: '' } as Partial<ScrapeJobInput>)
     }
+    // catalog 仅提供类别反查；目录加载完成后不应重跑「重置表单」逻辑，否则会清掉用户已填内容
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, record, form])
 
   useEffect(() => {
@@ -570,7 +572,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 <Form.Item label="资源类别" name="resource_category" rules={[{ required: true, message: '请选择资源类别' }]}>
                   <Select
                     placeholder="请选择"
-                    options={MONITOR_TYPE_CASCADE.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
+                    options={catalog.cascade.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
                     // 换类别 → 监控对象类型与已选标签模板都不再适用，一并清空；
                     // 新类别的默认模板加载后由 effect 自动选中其 ID
                     onChange={() => form.setFieldsValue({ monitor_type: undefined, label_template_id: '' })}
@@ -580,7 +582,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   <Select
                     placeholder={categoryTypes.length > 0 ? '请选择监控对象类型' : '请先选择资源类别'}
                     disabled={categoryTypes.length === 0}
-                    options={categoryTypes.map((t) => ({ value: t, label: MONITOR_TYPE_MAP[t] ?? t }))}
+                    options={categoryTypes.map((t) => ({ value: t, label: catalog.nameOf(t) }))}
                     onChange={(v) => void handleMonitorTypeChange(v as MonitorType | undefined)}
                   />
                 </Form.Item>

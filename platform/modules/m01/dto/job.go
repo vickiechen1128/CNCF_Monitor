@@ -67,13 +67,6 @@ func (r JobRequest) ToDomain() *domain.Job {
 	return job
 }
 
-// EnabledOrDefault resolves the tri-state enabled field.
-func (r JobRequest) EnabledOrDefault(fallback bool) bool {
-	if r.Enabled == nil {
-		return fallback
-	}
-	return *r.Enabled
-}
 
 // SyncResponse is the inline sync projection.
 type SyncResponse struct {

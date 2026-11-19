@@ -607,7 +607,7 @@ func (s *JobService) prepare(ctx context.Context, job *domain.Job, existing *dom
 
 func normalizeJob(job *domain.Job) {
 	job.JobName = strings.TrimSpace(job.JobName)
-	job.MonitorType = strings.TrimSpace(job.MonitorType)
+	job.MonitorType = domain.NormalizeMonitorTypeCode(job.MonitorType)
 	job.ExporterTemplateID = strings.TrimSpace(job.ExporterTemplateID)
 	job.NetworkDomainID = strings.TrimSpace(job.NetworkDomainID)
 	job.LabelTemplateID = strings.TrimSpace(job.LabelTemplateID)

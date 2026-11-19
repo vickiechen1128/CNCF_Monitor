@@ -7,8 +7,6 @@ import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
 // 云字典维护页（D37：admin 维护；读视图由 M07 提供）
 import CloudDictPage from './pages/admin/clouddict/CloudDictPage'
-// 区域类型字典维护页（M07 v3 字典生命周期：撤销 / 合并）
-import ZoneTypePage from './pages/admin/zonetype/ZoneTypePage'
 // 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
 // 存储与日志管理页（M06 F-41：TSDB 保留策略 + 磁盘/日志轮转展示）
@@ -73,6 +71,10 @@ const NotifyTemplatesPage = lazy(() =>
 const RoutesPage = lazy(() =>
   import('./pages/alerts/RoutesPage').then((m) => ({ default: m.RoutesPage })),
 )
+
+const MonitorTypePage = lazy(() =>
+  import('./pages/strategy/MonitorTypePage').then((m) => ({ default: m.MonitorTypePage })),
+)
 const InhibitionsPage = lazy(() => import('./pages/alerts/InhibitionsPage'))
 
 /**
@@ -113,8 +115,6 @@ function AppRoutes() {
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
           {/* 云字典维护页（D37：admin 维护；读视图由 M07 提供） */}
           <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
-          {/* 区域类型字典维护页（M07 v3 字典生命周期：撤销 / 合并） */}
-          <Route path="/admin/zone-types" element={<ZoneTypePage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
           <Route path="/admin/dashboard-panels" element={<DashboardPanelsPage />} />
           <Route path="/dashboard/panels/:id" element={<DashboardPanelPage />} />
@@ -131,6 +131,8 @@ function AppRoutes() {
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/metric-library" element={<MetricLibraryPage />} />
+          {/* 监控对象类型配置化（SRS Module_01 v1.3 §5.6）：新增类型无需改代码 */}
+          <Route path="/monitor-types" element={<MonitorTypePage />} />
           <Route path="/domain-onboarding" element={<NetworkDomainsPage />} />
           <Route path="/node-status" element={<EdgeAgentsPage />} />
           <Route path="/config-snapshots" element={<ConfigPreviewPage />} />

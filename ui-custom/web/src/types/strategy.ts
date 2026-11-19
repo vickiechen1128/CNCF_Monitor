@@ -164,17 +164,14 @@ export interface BlackboxTarget {
  * 监控对象类型（MONITOR_TYPE_DERIVATION_MAP 推导，§9）。
  * 两级级联：资源类别（host/database/middleware/application/generic_target）→ 细粒度。
  */
-export type MonitorType =
-  | 'host_linux'
-  | 'host_windows'
-  | 'npu'
-  | 'mysql'
-  | 'redis'
-  | 'kafka'
-  | 'elasticsearch'
-  | 'nginx'
-  | 'application_http'
-  | 'snmp'
+/**
+ * 监控对象类型编码。
+ *
+ * 类型集合已配置化（M01 SRS v1.3 §5.6）：后端可新增任意类型，因此这里是开放字符串，
+ * 不再使用闭集联合类型。内置编码见后端 `domain.BuiltinMonitorTypeEntries()`；
+ * 前端下拉一律经 `useMonitorTypeCatalog()` 从注册表取数，禁止再写死列表。
+ */
+export type MonitorType = string
 
 /** 拨测模块（blackbox.yml 模块名，§9） */
 export type BlackboxModule = 'http_2xx' | 'icmp_ping' | 'tcp_connect' | 'dns_query'

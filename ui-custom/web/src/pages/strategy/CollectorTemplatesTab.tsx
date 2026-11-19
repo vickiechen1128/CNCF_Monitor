@@ -39,7 +39,7 @@ import type { CITypeExporterMapping } from '../../types/strategy'
 import type { ExporterTemplate } from '../../types/strategy'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
-import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 import { MappingDrawer } from './MappingDrawer'
 import { LabelTemplateSelectDrawer } from './LabelTemplateSelectDrawer'
@@ -114,6 +114,7 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
  * - 模板行展示 安装指南/下载/文档（Popover 图标链，F1-6）；空态内联登记（A9）；模板行「去配置」（F1-5）+ 自建模板「删除」（F-27 A）；
  */
 export function CollectorTemplatesTab() {
+  const catalog = useMonitorTypeCatalog()
   const { tokens } = useSkin()
   const navigate = useNavigate()
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
@@ -296,7 +297,7 @@ export function CollectorTemplatesTab() {
       key: 'monitor_type',
       render: (_, row) => {
         if (row.kind === 'template') return <Text type="secondary">-</Text>
-        return MONITOR_TYPE_MAP[row.mapping.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? row.mapping.monitor_type
+        return catalog.nameOf(row.mapping.monitor_type)
       },
     },
     {
@@ -589,10 +590,10 @@ export function CollectorTemplatesTab() {
             value={filters.monitor_type}
             onChange={(v) => setFilters({ ...filters, monitor_type: v ?? undefined })}
           >
-            {MONITOR_TYPE_CASCADE.map((g) =>
+            {catalog.cascade.map((g) =>
               g.types.map((t) => (
                 <Select.Option key={t} value={t}>
-                  {MONITOR_TYPE_MAP[t]}
+                  {catalog.nameOf(t)}
                 </Select.Option>
               )),
             )}
@@ -692,7 +693,7 @@ export function CollectorTemplatesTab() {
               {viewTemplate.supported_monitor_types?.length ? (
                 <Space size={4} wrap>
                   {viewTemplate.supported_monitor_types.map((t) => (
-                    <Tag key={t}>{MONITOR_TYPE_MAP[t as keyof typeof MONITOR_TYPE_MAP] ?? t}</Tag>
+                    <Tag key={t}>{catalog.nameOf(t)}</Tag>
                   ))}
                 </Space>
               ) : (
@@ -759,7 +760,7 @@ export function CollectorTemplatesTab() {
             )}
             <div>
               <Text type="secondary">监控类型</Text>
-              <div>{MONITOR_TYPE_MAP[previewMapping.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? previewMapping.monitor_type}</div>
+              <div>{catalog.nameOf(previewMapping.monitor_type)}</div>
             </div>
             <div>
               <Text type="secondary">说明</Text>
