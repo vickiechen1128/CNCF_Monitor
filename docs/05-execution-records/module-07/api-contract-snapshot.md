@@ -238,6 +238,54 @@
 >
 > **组合字段语义**：模板 API 只保存映射规则（`source_field=instance_ip:port`、`source_type=composite`），不保存任何实例值；`instance` 标签出值由 Module_09 生成配置时拼接（§5.12）。
 
+## 8A. CI 模型与自定义字段 API（v2.2 FR-30~FR-34，新增）
+
+| 方法 | 路径 | 请求体 / 参数 | 响应 data | 业务错误 | PRD 源 |
+|------|------|--------------|-----------|----------|--------|
+| GET | `/ci-models` | — | `{list: CIModel[]}`，六类固定顺序 | — | §5.8 FR-32 |
+| GET | `/ci-models/:category` | — | `CIModel` | `bad_request`：未知 category | §5.8 FR-32 |
+| GET | `/attribute-definitions` | `resource_category?`、`status?`（`active` / `removed`） | `{list: AttributeDefinition[], total}` | `bad_request`：status 非法 | §5.8 FR-31 |
+| POST | `/attribute-definitions` | `AttributeDefinitionInput` | `AttributeDefinition` | `bad_request`：key 重复（active）/ 校验失败 | §5.8 FR-31 |
+| PUT | `/attribute-definitions/:id` | `AttributeDefinitionInput` | `AttributeDefinition` | `bad_request`：已移出字段不可编辑 / 校验失败；`not_found` | §5.8 FR-31 |
+| DELETE | `/attribute-definitions/:id` | — | `{id, mode: "deleted"\|"removed", usage_count}` | `not_found` | §5.8 FR-34 |
+
+**CIModel**：
+
+```json
+{
+  "resource_category": "host",
+  "category_label": "主机",
+  "builtin_fields": [
+    {
+      "key": "instance_name", "label": "实例名",
+      "display_group": "identity", "display_group_label": "身份信息",
+      "display_order": 0, "value_type": "text", "required": true, "immutable": true
+    }
+  ],
+  "custom_fields": [ /* AttributeDefinition[]，仅 status=active */ ],
+  "available_groups": [{ "value": "identity", "label": "身份信息" }]
+}
+```
+
+**AttributeDefinition**：
+
+```json
+{
+  "id": "…", "attribute_key": "rack_position", "display_name": "机柜位置",
+  "value_type": "text | number | boolean | enum",
+  "resource_category": "host",
+  "enum_options": ["…"], "required": false,
+  "status": "active | removed", "enabled": true,
+  "display_group": "identity | ownership | runtime | collection | capability | profile",
+  "display_group_label": "画像信息", "display_order": 0,
+  "description": "…", "created_at": "…", "updated_at": "…"
+}
+```
+
+**移除语义**：`DELETE` 不区分删除与移出——引用数为 0 返回 `mode=deleted`；引用数 > 0 返回 `mode=removed` 且字段值保留。重新 `POST` 同名 key 时，已移出字段恢复为 `active` 并返回原 `id`。
+
+**兼容字段**：响应保留 `enabled`（`status=active` 时为 true），旧调用方可继续按该字段过滤；请求体不再接收 `enabled`（无停用语义）。
+
 ## 9. 枚举字典
 
 | 枚举 | 取值 | 说明 |
