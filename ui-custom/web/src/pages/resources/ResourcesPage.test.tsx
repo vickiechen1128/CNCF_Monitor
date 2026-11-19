@@ -1053,7 +1053,7 @@ describe('ResourcesPage', () => {
     networkDomainListMock.mockResolvedValue({
       status: 'success',
       data: {
-        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX', zone_type: 'public' }],
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX' }],
         total: 1,
         page: 1,
         page_size: 100,
@@ -1078,7 +1078,7 @@ describe('ResourcesPage', () => {
     networkDomainListMock.mockResolvedValue({
       status: 'success',
       data: {
-        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX', zone_type: 'public' }],
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PUB-TX' }],
         total: 1,
         page: 1,
         page_size: 100,
@@ -1105,7 +1105,7 @@ describe('ResourcesPage', () => {
     networkDomainListMock.mockResolvedValue({
       status: 'success',
       data: {
-        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PRI-TX', zone_type: 'private' }],
+        list: [{ id: 'mc-a', name: '电商网域', cloud_code: 'PRI-TX' }],
         total: 1,
         page: 1,
         page_size: 100,
@@ -1835,9 +1835,9 @@ describe('ResourcesPage', () => {
         status: 'success',
         data: {
           list: [
-            { id: 'mc-tx', name: '腾讯云网域', cloud_code: 'PUB-TX', zone_type: 'public' },
-            { id: 'mc-cu', name: '政务云网域', cloud_code: 'GM-CU', zone_type: 'public' },
-            { id: 'mc-none', name: '未归属云网域', zone_type: 'private' },
+            { id: 'mc-tx', name: '腾讯云网域', cloud_code: 'PUB-TX' },
+            { id: 'mc-cu', name: '政务云网域', cloud_code: 'GM-CU' },
+            { id: 'mc-none', name: '未归属云网域' },
           ],
           total: 3,
           page: 1,
@@ -2022,7 +2022,7 @@ describe('ResourcesPage', () => {
     networkDomainListMock.mockResolvedValue({
       status: 'success',
       data: {
-        list: [{ id: 'mc-a', name: '政务网A区', cloud_code: '', zone_type: 'internet' }],
+        list: [{ id: 'mc-a', name: '政务网A区', cloud_code: '' }],
         total: 1,
         page: 1,
         page_size: 100,

@@ -30,11 +30,15 @@ type resourceRecord struct {
 func (resourceRecord) TableName() string { return "resources" }
 
 type hostRecord struct {
-	ResourceID  string     `gorm:"column:resource_id;primaryKey"`
-	Hostname    string     `gorm:"column:hostname;not null"`
-	InstanceIP  string     `gorm:"column:instance_ip;not null"`
-	OSType      string     `gorm:"column:os_type;not null"`
-	OSVersion   *string    `gorm:"column:os_version"`
+	ResourceID string  `gorm:"column:resource_id;primaryKey"`
+	Hostname   string  `gorm:"column:hostname;not null"`
+	InstanceIP string  `gorm:"column:instance_ip;not null"`
+	OSType     string  `gorm:"column:os_type;not null"`
+	OSVersion  *string `gorm:"column:os_version"`
+	// HasNPU / HasGPU are first-class capability flags (SRS Module_07 v2.1
+	// §5.8 FR-30); long-tail capabilities live in m07_resource_attributes.
+	HasNPU      bool       `gorm:"column:has_npu;not null;default:false"`
+	HasGPU      bool       `gorm:"column:has_gpu;not null;default:false"`
 	ActivatedAt *time.Time `gorm:"column:activated_at"`
 }
 

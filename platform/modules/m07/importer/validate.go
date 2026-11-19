@@ -10,6 +10,9 @@ import (
 type ValidatedRow struct {
 	RowNumber int
 	Resource  *domain.Resource
+	// Attributes are the parsed "attributes" column pairs, still unvalidated
+	// against the capability dictionary (the importer service owns that check).
+	Attributes map[string]string
 }
 
 // ValidateRows converts rows to domain resources and collects row-level errors.
@@ -22,7 +25,12 @@ func ValidateRows(rows []Row) ([]ValidatedRow, []domain.ImportErrorDetail) {
 			errs = append(errs, rowErrorDetail(rows[i], err))
 			continue
 		}
-		valid = append(valid, ValidatedRow{RowNumber: rows[i].RowNumber, Resource: resource})
+		pairs, err := rows[i].AttributePairs()
+		if err != nil {
+			errs = append(errs, rowErrorDetail(rows[i], err))
+			continue
+		}
+		valid = append(valid, ValidatedRow{RowNumber: rows[i].RowNumber, Resource: resource, Attributes: pairs})
 	}
 	return valid, errs
 }

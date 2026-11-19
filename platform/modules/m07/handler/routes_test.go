@@ -46,7 +46,6 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
 		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',1)`,
 		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,description,enabled) VALUES ('PUB-TX','腾讯云','PUB','TX','预置',1)`,
-		`INSERT INTO zone_types(code,display_name,enabled) VALUES ('internet','互联网区',1)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -59,6 +58,11 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	refs := references.NewGORMReader(gormDB)
 	importSvc := service.NewImportService(resourceRepo, repository.NewGORMImportRepository(gormDB), dictionarySvc, dictionarySvc)
 	labelTemplateSvc := service.NewLabelTemplateService(repository.NewLabelTemplateRepository(gormDB), nil)
+	attributeSvc := service.NewAttributeService(
+		repository.NewAttributeDefinitionRepository(gormDB),
+		repository.NewResourceAttributeRepository(gormDB),
+		resourceRepo,
+	)
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -68,6 +72,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		NewLabelHandler(labelSvc),
 		NewImportHandler(importSvc),
 		NewLabelTemplateHandler(labelTemplateSvc),
+		NewAttributeHandler(attributeSvc),
 	)
 	return router, gormDB
 }
@@ -418,26 +423,22 @@ func TestV3DictionaryLifecycleRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code, out)
 }
 
-// TestV3CloudZoneLifecycleRoutes covers the cloud/zone extension of the
-// dictionary lifecycle (migration 0018): zero-reference revoke, referenced
-// revoke rejection, merge with authoritative-label migration and audit logs.
-func TestV3CloudZoneLifecycleRoutes(t *testing.T) {
+// TestV3CloudLifecycleRoutes covers the cloud extension of the dictionary
+// lifecycle (migration 0018): zero-reference revoke, referenced revoke
+// rejection, merge with authoritative-label migration and audit logs.
+func TestV3CloudLifecycleRoutes(t *testing.T) {
 	router, gormDB := newTestRouter(t)
 
-	// Seed merge targets (M06 owns cloud/zone creation; tests insert directly).
+	// Seed merge targets (M06 owns cloud creation; tests insert directly).
 	require.NoError(t, gormDB.Exec(`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled)
 		VALUES ('PUB-ALI','阿里云','PUB','ALI',1)`).Error)
-	require.NoError(t, gormDB.Exec(`INSERT INTO zone_types(code,display_name,enabled)
-		VALUES ('dmz','隔离区',1)`).Error)
-	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains(id,name,domain_type,tenant_id,cloud_code,zone_type,status)
-		VALUES ('dom-a','测试域','edge','platform_admin','PUB-TX','internet','enabled')`).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains(id,name,domain_type,tenant_id,cloud_code,status)
+		VALUES ('dom-a','测试域','edge','platform_admin','PUB-TX','enabled')`).Error)
 
 	// 1. Referenced revoke → 409 with the reference count in the message.
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-TX/revoke", "")
 	assert.Equal(t, http.StatusConflict, code, out)
 	assert.Contains(t, out["error"], "1")
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/zone-types/internet/revoke", "")
-	assert.Equal(t, http.StatusConflict, code, out)
 
 	// 2. Merge migrates network_domains labels and returns the shared response.
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-TX/merge", `{"target_code":"PUB-ALI"}`)
@@ -446,15 +447,10 @@ func TestV3CloudZoneLifecycleRoutes(t *testing.T) {
 	assert.Equal(t, "PUB-ALI", out["data"].(map[string]any)["target"])
 	assert.Equal(t, float64(1), out["data"].(map[string]any)["moved_references"])
 
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/zone-types/internet/merge", `{"target_code":"dmz"}`)
-	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, float64(1), out["data"].(map[string]any)["moved_references"])
-
-	var cloudCode, zoneType string
-	require.NoError(t, gormDB.Raw(`SELECT cloud_code, zone_type FROM network_domains WHERE id = 'dom-a'`).
-		Row().Scan(&cloudCode, &zoneType))
+	var cloudCode string
+	require.NoError(t, gormDB.Raw(`SELECT cloud_code FROM network_domains WHERE id = 'dom-a'`).
+		Row().Scan(&cloudCode))
 	assert.Equal(t, "PUB-ALI", cloudCode)
-	assert.Equal(t, "dmz", zoneType)
 
 	// 3. Source dictionaries are terminal and expose merged_into in the list view.
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/cloud-dict", "")
@@ -467,21 +463,16 @@ func TestV3CloudZoneLifecycleRoutes(t *testing.T) {
 		}
 	}
 
-	// 4. Audit logs accept the two new dictionary_type values.
+	// 4. Audit logs accept the dictionary_type value.
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/dictionary-audit-logs?dictionary_type=cloud&code=PUB-TX", "")
 	require.Equal(t, http.StatusOK, code, out)
 	logs := out["data"].(map[string]any)["list"].([]any)
 	require.Len(t, logs, 1)
 	assert.Equal(t, "merge", logs[0].(map[string]any)["action"])
-	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/dictionary-audit-logs?dictionary_type=zone&code=internet", "")
-	require.Equal(t, http.StatusOK, code, out)
-	require.Len(t, out["data"].(map[string]any)["list"].([]any), 1)
 
 	// 5. Zero-reference dictionaries revoke successfully and become terminal.
 	require.NoError(t, gormDB.Exec(`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled)
 		VALUES ('PUB-ZERO','空闲云','PUB','ZZ',1)`).Error)
-	require.NoError(t, gormDB.Exec(`INSERT INTO zone_types(code,display_name,enabled)
-		VALUES ('isolated','空闲区',1)`).Error)
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-ZERO/revoke", "")
 	require.Equal(t, http.StatusOK, code, out)
 	revoked := out["data"].(map[string]any)
@@ -489,18 +480,13 @@ func TestV3CloudZoneLifecycleRoutes(t *testing.T) {
 	assert.Equal(t, false, revoked["enabled"])
 	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-ZERO/revoke", "")
 	assert.Equal(t, http.StatusConflict, code)
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/zone-types/isolated/revoke", "")
-	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, "revoked", out["data"].(map[string]any)["status"])
 
 	// 6. Self-merge is rejected as a bad request.
-	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/zone-types/dmz/merge", `{"target_code":"dmz"}`)
+	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-ALI/merge", `{"target_code":"PUB-ALI"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
 	// 7. Unknown code → 404.
 	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/missing/revoke", "")
-	assert.Equal(t, http.StatusNotFound, code)
-	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/zone-types/missing/merge", `{"target_code":"dmz"}`)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 

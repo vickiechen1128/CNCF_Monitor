@@ -35,8 +35,6 @@ export interface UseResourceDictionariesResult {
   domainNameOf: (id: string) => string
   /** 网域 ID → 云编码（决策 103 scheme-B：云归属由所属网域派生，资源侧只读） */
   cloudCodeOf: (domainId: string) => string | undefined
-  /** 网域 ID → 网络分区编码（决策 103 scheme-B：分区由所属网域派生，资源侧只读） */
-  zoneTypeOf: (domainId: string) => string | undefined
   /** 业务编码 → biz_name，空值 '-'、缺条目回退编码 */
   resolveBizName: (code?: string) => string
   /** 业务是否停用（停用业务以「业务名（已停用）」标识） */
@@ -138,11 +136,6 @@ export function useResourceDictionaries(platformCode?: string): UseResourceDicti
     const domain = networkDomains.find((d) => d.id === domainId)
     return domain?.cloud_code || undefined
   }
-  /** 网域 ID → 网络分区编码（v3 资源不再内联 zone_type，分区由所属网域只读派生） */
-  const zoneTypeOf = (domainId: string) => {
-    const domain = networkDomains.find((d) => d.id === domainId)
-    return domain?.zone_type || undefined
-  }
   /** 业务编码 → biz_name（Module_07 §11.2 业务列展示 biz_name） */
   const resolveBizName = (code?: string) => {
     if (!code) return '-'
@@ -202,7 +195,6 @@ export function useResourceDictionaries(platformCode?: string): UseResourceDicti
     filterAppOptions,
     domainNameOf,
     cloudCodeOf,
-    zoneTypeOf,
     resolveBizName,
     isBizDisabled,
     resolveAppName,

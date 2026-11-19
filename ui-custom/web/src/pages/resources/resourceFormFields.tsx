@@ -6,9 +6,10 @@
  * 表单值 ↔ 请求体映射见 `resourceFormMappers.ts`。
  */
 import type { ReactNode } from 'react'
-import { AutoComplete, Col, DatePicker, Form, Input, InputNumber, Row, Select, Typography } from 'antd'
+import { AutoComplete, Col, DatePicker, Divider, Form, Input, InputNumber, Row, Select, Switch, Typography } from 'antd'
 import type { FormInstance } from 'antd'
 import type { NetworkDomain } from '../../types/domain'
+import type { AttributeDefinition } from '../../types/attribute'
 import type {
   ApplicationDict,
   BusinessDomain,
@@ -407,6 +408,28 @@ export function renderResourceTypeFields(ctx: ResourceFormFieldsContext): ReactN
             </Col>
           </Row>
           <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="NPU 芯片"
+                name="has_npu"
+                valuePropName="checked"
+                extra="与操作系统正交：勾选后该主机可同时被 NPU 监控类型采集"
+              >
+                <Switch checkedChildren="有" unCheckedChildren="无" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="GPU 芯片"
+                name="has_gpu"
+                valuePropName="checked"
+                extra="供 GPU 等附加采集能力推导监控对象类型"
+              >
+                <Switch checkedChildren="有" unCheckedChildren="无" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>{scrapePortField}</Col>
             <Col span={12}>
               <Form.Item label="开通时间" name="activated_at">
@@ -667,4 +690,64 @@ export function renderResourceTypeFields(ctx: ResourceFormFieldsContext): ReactN
         </>
       )
   }
+}
+
+/**
+ * 扩展属性动态字段（SRS Module_07 v2.1 §5.8 FR-31）。
+ *
+ * 字段完全由扩展属性字典生成：登记新 key 后，资源登记抽屉下一次打开即出现对应输入项，
+ * 无需改前端代码。值以 `extension_attributes.<key>` 挂在表单上，由 Drawer 在提交后落库。
+ */
+export function renderResourceExtensionAttributes(definitions: AttributeDefinition[]): ReactNode {
+  if (definitions.length === 0) return null
+  return (
+    <>
+      <Divider orientation="left" plain style={{ marginTop: 8 }}>
+        扩展属性（按需填写）
+      </Divider>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12 }}>
+        由「资源管理 → 扩展属性字典」登记的能力字段，例如 DPU 型号、智能网卡；留空即不记录。
+      </Typography.Paragraph>
+      {definitions.map((def) => {
+        const name = ['extension_attributes', def.attribute_key]
+        const rules = def.required ? [{ required: true, message: `请填写${def.display_name}` }] : undefined
+        switch (def.value_type) {
+          case 'boolean':
+            return (
+              <Form.Item
+                key={def.id}
+                label={def.display_name}
+                name={name}
+                valuePropName="checked"
+                extra={def.description}
+              >
+                <Switch checkedChildren="是" unCheckedChildren="否" />
+              </Form.Item>
+            )
+          case 'number':
+            return (
+              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+                <InputNumber style={{ width: '100%' }} placeholder="数值" />
+              </Form.Item>
+            )
+          case 'enum':
+            return (
+              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+                <Select
+                  allowClear
+                  placeholder="请选择"
+                  options={(def.enum_options ?? []).map((option) => ({ value: option, label: option }))}
+                />
+              </Form.Item>
+            )
+          default:
+            return (
+              <Form.Item key={def.id} label={def.display_name} name={name} rules={rules} extra={def.description}>
+                <Input placeholder="文本" maxLength={500} />
+              </Form.Item>
+            )
+        }
+      })}
+    </>
+  )
 }

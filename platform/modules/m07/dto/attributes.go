@@ -8,10 +8,14 @@ import (
 
 // HostAttributes is the host attributes payload.
 type HostAttributes struct {
-	Hostname    string     `json:"hostname"`
-	InstanceIP  string     `json:"instance_ip"`
-	OSType      string     `json:"os_type"`
-	OSVersion   string     `json:"os_version,omitempty"`
+	Hostname   string `json:"hostname"`
+	InstanceIP string `json:"instance_ip"`
+	OSType     string `json:"os_type"`
+	OSVersion  string `json:"os_version,omitempty"`
+	// HasNPU / HasGPU 是主机能力标记（SRS Module_07 v2.1 FR-30），
+	// 与操作系统正交，供 M01 推导监控对象类型。
+	HasNPU      bool       `json:"has_npu,omitempty"`
+	HasGPU      bool       `json:"has_gpu,omitempty"`
 	ActivatedAt *time.Time `json:"activated_at,omitempty"`
 }
 
@@ -22,6 +26,8 @@ func (a HostAttributes) ToDomain() domain.HostAttributes {
 		InstanceIP:  a.InstanceIP,
 		OSType:      a.OSType,
 		OSVersion:   a.OSVersion,
+		HasNPU:      a.HasNPU,
+		HasGPU:      a.HasGPU,
 		ActivatedAt: a.ActivatedAt,
 	}
 }

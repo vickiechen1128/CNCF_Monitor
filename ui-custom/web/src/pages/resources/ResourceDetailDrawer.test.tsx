@@ -14,7 +14,6 @@ const updateLabelMock = vi.fn()
 const removeLabelMock = vi.fn()
 const listTemplateMock = vi.fn()
 const cloudDictListMock = vi.fn()
-const zoneTypeListMock = vi.fn()
 // 决策 110：详情「平台」展示经平台字典解析展示名
 // mock 一律声明为无参 vi.fn()，默认返回值在 beforeEach 里 mockResolvedValue 给出——
 // 若用 `vi.fn(() => Promise.resolve(...))` 声明，TS 会把 mock 推断成零参函数，
@@ -36,13 +35,6 @@ vi.mock('../../api/resources', () => ({
   // 不再消费应用字典（其单值 platform_code 已废弃，决策 111 M:N / 118-3）。
   platformDictApi: {
     list: (...args: unknown[]) => platformDictListMock(...args),
-  },
-}))
-
-// 决策 101：详情「网络分区（只读）」经 M06 zone_type 字典解析展示名
-vi.mock('../../api/domain', () => ({
-  zoneTypeApi: {
-    list: (...args: unknown[]) => zoneTypeListMock(...args),
   },
 }))
 
@@ -70,7 +62,6 @@ const networkDomains: NetworkDomain[] = [
     name: '政务网A区',
     description: '',
     domain_type: 'edge',
-    zone_type: 'internet',
     tenant_id: 'platform_admin',
     authorized_tenant_ids: ['platform_admin'],
     channel: 'local',
@@ -81,7 +72,7 @@ const networkDomains: NetworkDomain[] = [
   },
 ]
 
-/** 按需覆盖网域字段（v3 的 cloud_code / zone_type 由所属网域只读派生） */
+/** 按需覆盖网域字段（v3 的 cloud_code 由所属网域只读派生） */
 function domainsWith(over: Partial<NetworkDomain>): NetworkDomain[] {
   return [{ ...networkDomains[0], ...over }]
 }
@@ -206,14 +197,6 @@ describe('ResourceDetailDrawer', () => {
         ],
         total: 2,
       },
-    })
-    zoneTypeListMock.mockReset()
-    zoneTypeListMock.mockResolvedValue({
-      status: 'success',
-      data: [
-        { id: 1, code: 'internet', display_name: '互联网区', description: '', enabled: true, created_at: '', updated_at: '' },
-        { id: 2, code: 'extranet', display_name: '政务外网区', description: '', enabled: true, created_at: '', updated_at: '' },
-      ],
     })
     // 决策 110：平台字典默认空列表，用例内按需覆盖
     platformDictListMock.mockReset()
@@ -482,41 +465,6 @@ describe('ResourceDetailDrawer', () => {
     await screen.findByText('mc-res-1')
     const label = screen.getByText('云').closest('.ant-descriptions-item')
     expect(label).toHaveTextContent('-')
-  })
-
-  // 决策 101：网络分区只读派生（权威 = 所属网域 zone_type），无编辑入口
-  it('决策 101：详情「网络分区」展示 M06 字典展示名并标注继承所属网域', async () => {
-    const rec = hostRecord()
-    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'extranet' }) })
-    expect(await screen.findByText('政务外网区')).toBeInTheDocument()
-    expect(screen.getByText('继承所属网域')).toBeInTheDocument()
-    // 分区无编辑入口（决策 101）
-    const zoneItem = screen.getByText('网络分区').closest('.ant-descriptions-item') as HTMLElement
-    expect(zoneItem.querySelector('input, .ant-select, button')).toBeNull()
-  })
-
-  it('决策 101：网域未设分区时网络分区显示 "-"', async () => {
-    const rec = hostRecord()
-    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: '' }) })
-    await screen.findByText('mc-res-1')
-    const zoneItem = screen.getByText('网络分区').closest('.ant-descriptions-item') as HTMLElement
-    expect(zoneItem).toHaveTextContent('-')
-    expect(zoneItem).toHaveTextContent('继承所属网域')
-  })
-
-  it('决策 101：不出现「请与网域保持一致」类一致性引导文案', async () => {
-    const rec = hostRecord()
-    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'internet' }) })
-    expect(await screen.findByText('互联网区')).toBeInTheDocument()
-    expect(screen.queryByText(/与网域保持一致|^保持一致$|保持一致，/)).toBeNull()
-  })
-
-  it('决策 103 scheme-B：非 host 资源同样渲染「网络分区」项（五类均由网域派生）', async () => {
-    const rec = appRecord()
-    renderDrawer({ record: rec, networkDomains: domainsWith({ zone_type: 'internet' }) })
-    await screen.findByText('mc-app-1')
-    expect(screen.getByText('网络分区')).toBeInTheDocument()
-    expect(screen.getByText('互联网区')).toBeInTheDocument()
   })
 
   it('shows label load error alert and reloads', async () => {

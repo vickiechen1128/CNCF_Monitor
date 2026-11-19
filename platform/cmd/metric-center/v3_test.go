@@ -24,10 +24,9 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 )
 
-// businessDomainsTestPath points at the shared seed template under the v2
-// config tree. That single YAML is still consumed by v3 seed tests, so it is
-// not part of the removable legacy code surface.
-const businessDomainsTestPath = "../../legacy/config/business_domains.yaml"
+// businessDomainsTestPath points at the shared seed template consumed by v3
+// seed tests. It lives in platform/config (a shared config tree, not legacy).
+const businessDomainsTestPath = "../../config/business_domains.yaml"
 
 func TestResolveDatabaseMode(t *testing.T) {
 	t.Setenv("METRIC_CENTER_DB_MODE", "")
@@ -85,6 +84,11 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		{"/api/v3/platform/meta", http.StatusOK},
 		// Business routes stay behind the global auth gate.
 		{"/api/v3/platform/resources", http.StatusUnauthorized},
+		// M01 configurable monitor type registry (SRS Module_01 v1.3 §5.6).
+		{"/api/v3/platform/monitor-types", http.StatusUnauthorized},
+		{"/api/v3/platform/monitor-types/scope-fields", http.StatusUnauthorized},
+		// M07 generic capability attributes (SRS Module_07 v2.1 §5.8).
+		{"/api/v3/platform/attribute-definitions", http.StatusUnauthorized},
 		{"/api/v3/platform/tenants", http.StatusUnauthorized},
 		{"/api/v3/platform/network-domains", http.StatusUnauthorized},
 		// M09 platform routes are behind the same global user-auth gate.
@@ -168,6 +172,41 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// M01 boots the configurable monitor type registry: the built-in types are
+	// ensured on bootstrap and listed through the API (SRS Module_01 v1.3 §5.6).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/monitor-types", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var monitorTypes struct {
+		Data struct {
+			List []struct {
+				Code             string `json:"code"`
+				ResourceCategory string `json:"resource_category"`
+				IsBuiltin        bool   `json:"is_builtin"`
+			} `json:"list"`
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &monitorTypes))
+	assert.NotEmpty(t, monitorTypes.Data.List, "built-in monitor types must be seeded on bootstrap")
+	codes := make([]string, 0, len(monitorTypes.Data.List))
+	for _, item := range monitorTypes.Data.List {
+		codes = append(codes, item.Code)
+		assert.True(t, item.IsBuiltin, "seeded types are built in: %s", item.Code)
+	}
+	assert.Contains(t, codes, "host_linux")
+	assert.Contains(t, codes, "host_npu")
+
+	// M07 exposes the generic capability dictionary (empty until a key is
+	// registered, which must not require a schema change).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/attribute-definitions", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	// A normal user is authenticated but forbidden from the admin surface.
 	rec = httptest.NewRecorder()
@@ -356,7 +395,7 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 	adminToken := v3LoginToken(t, router, "admin", "admin123")
 
 	code, out := doV3JSON(t, router, http.MethodPost, "/api/v3/platform/network-domains", adminToken,
-		`{"name":"端到端采集域","description":"e2e","cloud_code":"PUB-TX","zone_type":"internet","domain_code":"e2e","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
+		`{"name":"端到端采集域","description":"e2e","cloud_code":"PUB-TX","domain_code":"e2e","authorized_tenant_ids":["platform_admin","tenant-a"]}`)
 	require.Equal(t, http.StatusOK, code, out)
 	domainID := out["data"].(map[string]any)["id"].(string)
 	assert.Equal(t, "mc-e2e", domainID)
@@ -473,7 +512,7 @@ func TestV3CloudDictMaintenanceEndToEnd(t *testing.T) {
 
 	// A cloud referenced by a live network domain cannot be disabled.
 	code, out = doV3JSON(t, router, http.MethodPost, "/api/v3/platform/network-domains", adminToken,
-		`{"name":"云字典引用域","cloud_code":"GM-CU","zone_type":"internet","domain_code":"dict-e2e"}`)
+		`{"name":"云字典引用域","cloud_code":"GM-CU","domain_code":"dict-e2e"}`)
 	require.Equal(t, http.StatusOK, code, out)
 	code, out = doV3JSON(t, router, http.MethodPut, "/api/v3/platform/cloud-dict/GM-CU", adminToken,
 		`{"enabled":false}`)

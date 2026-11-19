@@ -60,6 +60,20 @@ vi.mock('../../api/resources', () => ({
   },
 }))
 
+const attributeDefinitionListMock = vi.fn()
+const resourceAttributeListMock = vi.fn()
+const resourceAttributeReplaceMock = vi.fn()
+
+vi.mock('../../api/attributes', () => ({
+  attributeDefinitionApi: {
+    list: (...a: unknown[]) => attributeDefinitionListMock(...a),
+  },
+  resourceAttributeApi: {
+    list: (...a: unknown[]) => resourceAttributeListMock(...a),
+    replace: (...a: unknown[]) => resourceAttributeReplaceMock(...a),
+  },
+}))
+
 vi.mock('../../api/domain', () => ({
   networkDomainApi: {
     list: (...a: unknown[]) => networkDomainListMock(...a),
@@ -74,7 +88,6 @@ const networkDomain: NetworkDomain = {
   name: '政务网A区',
   description: '',
   domain_type: 'edge',
-  zone_type: 'internet',
   tenant_id: 'platform_admin',
   authorized_tenant_ids: ['platform_admin'],
   channel: 'local',
@@ -281,7 +294,13 @@ describe('ResourceFormDrawer', () => {
     cloudDictListMock.mockReset()
     platformDictListMock.mockReset()
     appPlatformRelListMock.mockReset()
+    attributeDefinitionListMock.mockReset()
+    resourceAttributeListMock.mockReset()
+    resourceAttributeReplaceMock.mockReset()
     cancelMock.mockReset()
+    attributeDefinitionListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    resourceAttributeListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    resourceAttributeReplaceMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     successMock.mockReset()
     networkDomainListMock.mockResolvedValue({
       status: 'success',
@@ -1264,5 +1283,111 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByPlaceholderText('请填写集群')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText('集群名（可选）')).toBeNull()
     database.unmount()
+  })
+
+  // FR-31：扩展属性字典里登记的 key，必须直接出现在资源登记抽屉（不是只服务 Excel / 事后抽屉）
+  it('FR-31：扩展属性字典的 key 在新增主机时动态渲染为表单字段，并随创建提交落库', async () => {
+    attributeDefinitionListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          {
+            id: 'ad-1',
+            attribute_key: 'dpu_model',
+            display_name: 'DPU 型号',
+            value_type: 'text',
+            resource_category: 'host',
+            required: false,
+            enabled: true,
+          },
+          {
+            id: 'ad-2',
+            attribute_key: 'smart_nic',
+            display_name: '智能网卡',
+            value_type: 'boolean',
+            resource_category: 'host',
+            required: false,
+            enabled: true,
+          },
+        ],
+        total: 2,
+      },
+    })
+    createMock.mockResolvedValue({
+      status: 'success',
+      data: { resource_id: 'res-created', resource_category: 'host' },
+    })
+
+    renderDrawer({ mode: 'create', category: 'host' })
+
+    // 动态字段出现（含标题说明），证明字典驱动而非写死
+    expect(await screen.findByText('扩展属性（按需填写）')).toBeInTheDocument()
+    expect(screen.getByText('DPU 型号')).toBeInTheDocument()
+    expect(screen.getByText('智能网卡')).toBeInTheDocument()
+
+    await waitForDicts()
+    await fillHostRequiredFields()
+    fireEvent.change(screen.getByLabelText('DPU 型号'), { target: { value: 'BlueField-3' } })
+    // 布尔能力打开「是」
+    const nicSwitch = screen.getByLabelText('智能网卡') as HTMLElement
+    if (nicSwitch.getAttribute('aria-checked') !== 'true') fireEvent.click(nicSwitch)
+
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(resourceAttributeReplaceMock).toHaveBeenCalledWith('res-created', [
+        { key: 'dpu_model', value: 'BlueField-3' },
+        { key: 'smart_nic', value: 'true' },
+      ]),
+    )
+  })
+
+  it('FR-31：编辑态回显已保存的扩展属性值，未渲染的历史 key 不被隐式删除', async () => {
+    attributeDefinitionListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          {
+            id: 'ad-1',
+            attribute_key: 'dpu_model',
+            display_name: 'DPU 型号',
+            value_type: 'text',
+            resource_category: 'host',
+            required: false,
+            enabled: true,
+          },
+        ],
+        total: 1,
+      },
+    })
+    resourceAttributeListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { key: 'dpu_model', value: 'BlueField-2' },
+          // 字典已停用/删除的历史 key：表单不渲染，但保存时必须保留
+          { key: 'legacy_key', value: 'keep-me' },
+        ],
+        total: 2,
+      },
+    })
+    updateMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
+
+    renderDrawer({ mode: 'edit', category: 'host', record: hostRecord() })
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('DPU 型号') as HTMLInputElement).value).toBe('BlueField-2'),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(resourceAttributeReplaceMock).toHaveBeenCalledWith('mc-res-1', [
+        { key: 'legacy_key', value: 'keep-me' },
+        { key: 'dpu_model', value: 'BlueField-2' },
+      ]),
+    )
   })
 })

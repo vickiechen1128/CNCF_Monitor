@@ -89,3 +89,16 @@ func TestImportServiceUpsert(t *testing.T) {
 		assert.Equal(t, domain.StatusMaintenance, resource.Status)
 	}
 }
+
+func TestImportNotifiesAllDomains(t *testing.T) {
+	repo := newFakeRepository()
+	imports := &fakeImportRepository{}
+	notifier := &recordedChangeNotifier{}
+	svc := NewImportService(repo, imports, &fakeDictionary{primary: "ecommerce"})
+	svc.SetChangeNotifier(notifier)
+
+	_, err := svc.Import(context.Background(), domain.CategoryHost, domain.ImportModeCreateOnly,
+		buildHostXLSX(t, "10.0.0.3", "运行中"), "tester")
+	require.NoError(t, err)
+	assert.Equal(t, 1, notifier.allCalls)
+}

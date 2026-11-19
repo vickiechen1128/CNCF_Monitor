@@ -32,16 +32,11 @@ export interface ResourceBaseShape {
    */
   cloud_code?: string
   /**
-   * 网络分区（决策 103 scheme-B）：**只读派生**——值 = 所属网域 `zone_type`，
-   * 六类资源均返回（不再仅限 host）；资源侧无写入口。
-   */
-  zone_type?: string
-  /**
    * 平台归属（决策 110 / §5.24）：`platform` **不是派生标签而是资源行一等业务字段**——
    * 平台归属是登记期第一个确定的业务信息，`platform` 标签取值由本字段唯一确定
    * （经标签模板 `platform_code → platform` 映射注入）；未显式填写时兜底取所属应用主平台
    * （`app_platform_rel.is_primary`），仍未确定则不注入 `platform`。
-   * 可空（六类通用），与只读派生的 `cloud_code` / `zone_type` 不同——创建 / 更新均可显式填写。
+   * 可空（六类通用），与只读派生的 `cloud_code` 不同——创建 / 更新均可显式填写。
    */
   platform_code?: string
   biz_code: string
@@ -187,6 +182,9 @@ export interface ResourceListItem {
   os_type?: string
   os_version?: string
   activated_at?: string
+  /** 主机能力标记（SRS Module_07 v2.1 FR-30）：与操作系统正交，供 M01 推导监控对象类型 */
+  has_npu?: boolean
+  has_gpu?: boolean
   // database / middleware
   database_type?: string
   middleware_type?: string
@@ -255,6 +253,8 @@ export interface HostResourceFields {
   instance_name: string
   instance_ip: string
   os_type?: string
+  has_npu?: boolean
+  has_gpu?: boolean
   /** 主机开通时间（可选，2026-10-29 新增；RFC3339） */
   activated_at?: string
 }
@@ -455,7 +455,7 @@ export interface PlatformDict {
 /** 字典生命周期审计日志（GET /dictionary-audit-logs，M07 SRS v2.0 §6.4） */
 export interface DictionaryAuditLog {
   id: string
-  dictionary_type: 'business' | 'application' | 'platform' | 'cloud' | 'zone'
+  dictionary_type: 'business' | 'application' | 'platform' | 'cloud'
   action: 'enable' | 'disable' | 'revoke' | 'merge'
   source_code: string
   target_code?: string

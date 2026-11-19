@@ -52,6 +52,8 @@ func toExtensionRecord(category domain.Category, resourceID string, attrs domain
 			InstanceIP:  a.InstanceIP,
 			OSType:      a.OSType,
 			OSVersion:   stringPtr(a.OSVersion),
+			HasNPU:      a.HasNPU,
+			HasGPU:      a.HasGPU,
 			ActivatedAt: a.ActivatedAt,
 		}, nil
 	case domain.CategoryDatabase:
@@ -164,6 +166,8 @@ func fromResourceRecord(base *resourceRecord, ext any) (*domain.Resource, error)
 			InstanceIP:  rec.InstanceIP,
 			OSType:      rec.OSType,
 			OSVersion:   derefString(rec.OSVersion),
+			HasNPU:      rec.HasNPU,
+			HasGPU:      rec.HasGPU,
 			ActivatedAt: rec.ActivatedAt,
 		}
 	case domain.CategoryDatabase:

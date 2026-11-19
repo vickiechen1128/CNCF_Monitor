@@ -15,11 +15,18 @@ type Attributes interface {
 }
 
 // HostAttributes contains host-specific fields.
+//
+// HasNPU / HasGPU are first-class capability flags (SRS Module_07 v2.1 §5.8
+// FR-30): they describe a hardware fact that is orthogonal to the operating
+// system, so M01 can derive a separate monitor type from them without any
+// knowledge of OS families.
 type HostAttributes struct {
 	Hostname    string
 	InstanceIP  string
 	OSType      string
 	OSVersion   string
+	HasNPU      bool
+	HasGPU      bool
 	ActivatedAt *time.Time
 }
 

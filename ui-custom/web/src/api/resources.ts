@@ -129,6 +129,11 @@ function attrString(attributes: Record<string, unknown>, key: string): string | 
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
+function attrBool(attributes: Record<string, unknown>, key: string): boolean | undefined {
+  const value = attributes[key]
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function attrNumber(attributes: Record<string, unknown>, key: string): number | undefined {
   const value = attributes[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
@@ -160,6 +165,8 @@ export function v3ResourceToListItem(resource: V3ResourceResponse): ResourceList
       item.instance_ip = attrString(attributes, 'instance_ip')
       item.os_type = attrString(attributes, 'os_type')
       item.os_version = attrString(attributes, 'os_version')
+      item.has_npu = attrBool(attributes, 'has_npu')
+      item.has_gpu = attrBool(attributes, 'has_gpu')
       item.activated_at = attrString(attributes, 'activated_at')
       break
     case 'database':
@@ -214,6 +221,9 @@ export function buildV3Attributes(input: ResourceCreateInput | ResourceUpdateInp
         instance_ip: value.instance_ip,
         os_type: value.os_type,
         activated_at: value.activated_at,
+        // 能力标记（FR-30）：显式布尔，未勾选即 false
+        has_npu: value.has_npu === true,
+        has_gpu: value.has_gpu === true,
       }
     case 'database':
       return {
@@ -530,7 +540,7 @@ export interface DictionaryAuditLogsResponse {
 /** 字典生命周期审计日志（M07 SRS v2.0 §6.4） */
 export const dictionaryAuditApi = {
   list(params?: {
-    dictionary_type?: 'business' | 'application' | 'platform' | 'cloud' | 'zone'
+    dictionary_type?: 'business' | 'application' | 'platform' | 'cloud'
     code?: string
     limit?: number
   }): Promise<ApiResponse<DictionaryAuditLogsResponse>> {

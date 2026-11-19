@@ -66,6 +66,37 @@ func (r Row) ToDomain() (*domain.Resource, error) {
 	return resource, nil
 }
 
+// AttributePairs parses the optional "attributes" column into key/value pairs.
+//
+// The keys are not validated here: only the importer service knows the
+// registered attribute dictionary, so it validates and persists them once the
+// resource exists (SRS Module_07 v2.1 FR-31).
+func (r Row) AttributePairs() (map[string]string, error) {
+	raw := strings.TrimSpace(r.AttributesRaw)
+	if raw == "" {
+		return nil, nil
+	}
+	pairs := make(map[string]string)
+	for _, item := range strings.Split(raw, ";") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		key, value, found := strings.Cut(item, "=")
+		if !found {
+			return nil, &ImportRowError{RowNumber: r.RowNumber, Field: "attributes", Value: item,
+				Reason: "must use key=value;key2=value2"}
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return nil, &ImportRowError{RowNumber: r.RowNumber, Field: "attributes", Value: item,
+				Reason: "attribute key is empty"}
+		}
+		pairs[key] = strings.TrimSpace(value)
+	}
+	return pairs, nil
+}
+
 func (r Row) attributes() (domain.Attributes, error) {
 	switch r.Category {
 	case domain.CategoryHost:
@@ -77,9 +108,19 @@ func (r Row) attributes() (domain.Attributes, error) {
 		if err != nil {
 			return nil, &ImportRowError{RowNumber: r.RowNumber, Field: "activated_at", Value: r.ActivatedAt, Reason: err.Error()}
 		}
+		hasNPU, err := parseBoolCell(r.HasNPURaw)
+		if err != nil {
+			return nil, &ImportRowError{RowNumber: r.RowNumber, Field: "has_npu", Value: r.HasNPURaw, Reason: err.Error()}
+		}
+		hasGPU, err := parseBoolCell(r.HasGPURaw)
+		if err != nil {
+			return nil, &ImportRowError{RowNumber: r.RowNumber, Field: "has_gpu", Value: r.HasGPURaw, Reason: err.Error()}
+		}
 		return domain.HostAttributes{
 			Hostname: hostname, InstanceIP: strings.TrimSpace(r.InstanceIP),
-			OSType: strings.TrimSpace(r.OSType), ActivatedAt: activatedAt,
+			OSType: strings.TrimSpace(r.OSType),
+			HasNPU: hasNPU, HasGPU: hasGPU,
+			ActivatedAt: activatedAt,
 		}, nil
 	case domain.CategoryDatabase:
 		return domain.DatabaseAttributes{

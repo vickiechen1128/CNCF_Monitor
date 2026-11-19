@@ -21,7 +21,9 @@ import type {
 import type { ResourceListItem } from './useResources'
 import { RESOURCE_TYPE_MAP, SOURCE_TYPE_MAP } from './resourceMeta'
 import { ENV_VALUES, buildCreateInput, buildUpdateInput, recordToFormValues } from './resourceFormMappers'
-import { optionalPortRules, renderResourceSharedFields, renderResourceTypeFields } from './resourceFormFields'
+import { optionalPortRules, renderResourceExtensionAttributes, renderResourceSharedFields, renderResourceTypeFields } from './resourceFormFields'
+import { attributeDefinitionApi, resourceAttributeApi } from '../../api/attributes'
+import type { AttributeDefinition, ResourceAttributeValue } from '../../types/attribute'
 import type { ResourceFormFieldsContext } from './resourceFormFields'
 import { BusinessDomainDrawer } from './BusinessDomainDrawer'
 
@@ -75,6 +77,11 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // 扩展属性字典（SRS Module_07 v2.1 FR-31）：按当前资源类别动态渲染登记时即可填写的能力字段
+  const [attributeDefs, setAttributeDefs] = useState<AttributeDefinition[]>([])
+  // 编辑态已有属性值：字典未覆盖的 key 在保存时原样保留，避免表单「看不见就删掉」。
+  // 用 state 而非 ref：值回填必须在字典渲染出字段之后执行（Form preserve={false} 会丢弃未挂载字段的值）。
+  const [existingAttributeValues, setExistingAttributeValues] = useState<ResourceAttributeValue[]>([])
   /** 资源表单内「登记业务」快捷入口（登记成功后自动回填并刷新下拉） */
   const [businessDrawerOpen, setBusinessDrawerOpen] = useState(false)
 
@@ -188,7 +195,33 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       .list()
       .then((res) => setAppPlatformRels(res.data?.list ?? []))
       .catch(() => setAppPlatformRels([]))
-  }, [open, mode, record, form])
+    // 扩展属性（FR-31）：字典按当前资源类别取；编辑态同时回填已有值。
+    // 加载失败静默降级为「无扩展属性字段」，不阻塞资源本身的登记。
+    attributeDefinitionApi
+      .list(displayCategory)
+      .then((res) => setAttributeDefs((res.data?.list ?? []).filter((def) => def.enabled)))
+      .catch(() => setAttributeDefs([]))
+    if (mode === 'edit' && record) {
+      resourceAttributeApi
+        .list(record.resource_id)
+        .then((res) => setExistingAttributeValues(res.data?.list ?? []))
+        .catch(() => setExistingAttributeValues([]))
+    } else {
+      setExistingAttributeValues([])
+    }
+  }, [open, mode, record, form, displayCategory])
+
+  // 字典字段挂载后再回填已有值：Form 使用 preserve={false}，未挂载字段的 setFieldsValue 会被丢弃
+  useEffect(() => {
+    if (mode !== 'edit' || attributeDefs.length === 0 || existingAttributeValues.length === 0) return
+    const initial: Record<string, unknown> = {}
+    for (const item of existingAttributeValues) {
+      if (item.value === 'true') initial[item.key] = true
+      else if (item.value === 'false') initial[item.key] = false
+      else initial[item.key] = item.value
+    }
+    form.setFieldsValue({ extension_attributes: initial })
+  }, [attributeDefs, existingAttributeValues, mode, form])
 
   /** 快捷登记业务后刷新下拉；失败不阻塞资源表单，沿用 dictError 提示 */
   const reloadBusinessDomains = () => {
@@ -196,6 +229,30 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       .list()
       .then((res) => setBusinessDomains(res.data?.list ?? []))
       .catch((err: Error) => setDictError(err.message))
+  }
+
+  /**
+   * 保存扩展属性值（FR-31）。表单字段名为 `extension_attributes.<key>`：
+   * - 布尔字段始终显式落 true/false，避免「未填」与「false」混淆；
+   * - 其余类型空值即「清空该属性」；
+   * - 字典中已停用/已删除、表单未渲染的历史 key 原样保留，不做隐式删除。
+   */
+  const persistExtensionAttributes = async (resourceID: string, values: Record<string, unknown>) => {
+    const raw = (values.extension_attributes ?? {}) as Record<string, unknown>
+    const renderedKeys = new Set(attributeDefs.map((def) => def.attribute_key))
+    const payload: ResourceAttributeValue[] = existingAttributeValues
+      .filter((item) => !renderedKeys.has(item.key))
+      .map((item) => ({ key: item.key, value: item.value }))
+    for (const def of attributeDefs) {
+      const value = raw[def.attribute_key]
+      if (def.value_type === 'boolean') {
+        payload.push({ key: def.attribute_key, value: value === true ? 'true' : 'false' })
+        continue
+      }
+      if (value === undefined || value === null || value === '') continue
+      payload.push({ key: def.attribute_key, value: String(value) })
+    }
+    await resourceAttributeApi.replace(resourceID, payload)
   }
 
   const handleSubmit = async () => {
@@ -209,12 +266,18 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     setSubmitting(true)
     setSubmitError(null)
     try {
+      let resourceID = record?.resource_id
       if (mode === 'create') {
-        await resourceApi.create(buildCreateInput(category, values))
+        const created = await resourceApi.create(buildCreateInput(category, values))
+        resourceID = created.data?.resource_id
         message.success('资源已新增')
       } else if (record) {
         await resourceApi.update(record.resource_id, buildUpdateInput(displayCategory, values))
         message.success('资源已更新')
+      }
+      // 扩展属性值（FR-31）：表单里渲染了哪些 key 就提交哪些；字典未覆盖的历史 key 原样保留。
+      if (resourceID && attributeDefs.length > 0) {
+        await persistExtensionAttributes(resourceID, values)
       }
       setSubmitting(false)
       onSuccess()
@@ -345,6 +408,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       <Form form={form} layout="vertical" name="resource-form" requiredMark preserve={false}>
         {renderResourceSharedFields(fieldsContext)}
         {renderResourceTypeFields(fieldsContext)}
+        {renderResourceExtensionAttributes(attributeDefs)}
       </Form>
       </Drawer>
       <BusinessDomainDrawer

@@ -30,7 +30,7 @@ const { Text } = Typography
 /**
  * 字典生命周期共享 UI（M07 SRS v2.0 §3.4 / §5.7 / NFR-21）
  *
- * 业务 / 应用 / 平台 / 云 / 区域类型五本字典共用同一套四态文案与撤销 / 合并交互，
+ * 业务 / 应用 / 平台 / 云四本字典共用同一套四态文案与撤销 / 合并交互，
  * 避免按页复制导致「删除 / 下线 / 作废」等口径漂移。
  *
  * - 编码一经引用永不物理删除、永不复用；
@@ -221,7 +221,7 @@ const AUDIT_ACTION_LABEL: Record<DictionaryAuditLog['action'], string> = {
 }
 
 interface DictionaryAuditDrawerProps {
-  dictionaryType: 'business' | 'application' | 'platform' | 'cloud' | 'zone'
+  dictionaryType: 'business' | 'application' | 'platform' | 'cloud'
   open: boolean
   onClose: () => void
 }

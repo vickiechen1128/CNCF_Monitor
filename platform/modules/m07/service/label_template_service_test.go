@@ -85,3 +85,24 @@ func TestLabelTemplateDefaultIsExclusive(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, reloadedSecond.IsDefault)
 }
+
+func TestLabelTemplateWritesNotifyAllDomains(t *testing.T) {
+	svc, _ := newLabelTemplateService(t, fixedUsageChecker{})
+	notifier := &recordedChangeNotifier{}
+	svc.SetChangeNotifier(notifier)
+	ctx := context.Background()
+
+	template, err := svc.Create(ctx, &domain.LabelTemplate{
+		Name: "host-notify", ResourceCategory: domain.CategoryHost,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, notifier.allCalls)
+
+	template.Name = "host-notify-renamed"
+	_, err = svc.Update(ctx, template.ID, template)
+	require.NoError(t, err)
+	assert.Equal(t, 2, notifier.allCalls)
+
+	require.NoError(t, svc.Delete(ctx, template.ID))
+	assert.Equal(t, 3, notifier.allCalls)
+}

@@ -200,16 +200,6 @@ func (h *DictionaryHandler) ListClouds(c *gin.Context) {
 	response.OK(c, gin.H{"list": list, "total": len(list)})
 }
 
-func (h *DictionaryHandler) ListZoneTypes(c *gin.Context) {
-	items, err := h.svc.ListZoneTypes(c.Request.Context())
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	list := dto.FromZoneTypes(items)
-	response.OK(c, gin.H{"list": list, "total": len(list)})
-}
-
 func (h *DictionaryHandler) ListOSOptions(c *gin.Context) {
 	items, err := h.svc.ListOSOptions(c.Request.Context())
 	if err != nil {
@@ -413,20 +403,6 @@ func (h *DictionaryHandler) RevokeCloud(c *gin.Context) {
 	response.OK(c, dto.FromCloud(item))
 }
 
-func (h *DictionaryHandler) RevokeZoneType(c *gin.Context) {
-	code := strings.TrimSpace(c.Param("code"))
-	if code == "" {
-		response.BadRequest(c, fmt.Errorf("code is required"))
-		return
-	}
-	item, err := h.svc.RevokeZoneType(c.Request.Context(), code, dictionaryOperator(c))
-	if err != nil {
-		respondDictionaryError(c, err)
-		return
-	}
-	response.OK(c, dto.FromZoneType(item))
-}
-
 func (h *DictionaryHandler) MergeCloud(c *gin.Context) {
 	cloudCode := strings.TrimSpace(c.Param("cloud_code"))
 	var req mergeDictionaryRequest
@@ -441,23 +417,6 @@ func (h *DictionaryHandler) MergeCloud(c *gin.Context) {
 	}
 	response.OK(c, gin.H{
 		"source": cloudCode, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
-	})
-}
-
-func (h *DictionaryHandler) MergeZoneType(c *gin.Context) {
-	code := strings.TrimSpace(c.Param("code"))
-	var req mergeDictionaryRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, fmt.Errorf("invalid request body: %w", err))
-		return
-	}
-	moved, err := h.svc.MergeZoneType(c.Request.Context(), code, req.TargetCode, dictionaryOperator(c))
-	if err != nil {
-		respondDictionaryError(c, err)
-		return
-	}
-	response.OK(c, gin.H{
-		"source": code, "target": strings.TrimSpace(req.TargetCode), "moved_references": moved,
 	})
 }
 

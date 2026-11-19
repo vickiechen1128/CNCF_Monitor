@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
 )
 
@@ -34,13 +35,21 @@ type DictionaryResolver interface {
 
 // ResourceService implements resource use cases.
 type ResourceService struct {
-	repo repository.ResourceRepository
-	dict DictionaryResolver
+	repo     repository.ResourceRepository
+	dict     DictionaryResolver
+	notifier references.ResourceChangeNotifier
 }
 
 // NewResourceService constructs a resource service.
 func NewResourceService(repo repository.ResourceRepository, dict DictionaryResolver) *ResourceService {
-	return &ResourceService{repo: repo, dict: dict}
+	return &ResourceService{repo: repo, dict: dict, notifier: references.NoopChangeNotifier{}}
+}
+
+// SetChangeNotifier wires the best-effort M01/M09 change notification port.
+func (s *ResourceService) SetChangeNotifier(notifier references.ResourceChangeNotifier) {
+	if notifier != nil {
+		s.notifier = notifier
+	}
 }
 
 // List returns a page of resources.
@@ -90,6 +99,7 @@ func (s *ResourceService) Create(ctx context.Context, resource *domain.Resource)
 	if err := s.repo.Create(ctx, resource); err != nil {
 		return nil, err
 	}
+	s.notifyDomains(ctx, resource.NetworkDomainID)
 	return resource, nil
 }
 
@@ -131,6 +141,7 @@ func (s *ResourceService) Update(ctx context.Context, resourceID string, input *
 	if err := s.repo.Update(ctx, &updated); err != nil {
 		return nil, err
 	}
+	s.notifyDomains(ctx, existing.NetworkDomainID, updated.NetworkDomainID)
 	return s.repo.Get(ctx, resourceID)
 }
 
@@ -139,7 +150,15 @@ func (s *ResourceService) Delete(ctx context.Context, resourceID string) error {
 	if strings.TrimSpace(resourceID) == "" {
 		return &domain.ValidationError{Field: "resource_id", Message: "is required"}
 	}
-	return s.repo.SoftDelete(ctx, resourceID)
+	existing, err := s.repo.Get(ctx, resourceID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SoftDelete(ctx, resourceID); err != nil {
+		return err
+	}
+	s.notifyDomains(ctx, existing.NetworkDomainID)
+	return nil
 }
 
 // BulkReassignFailure describes one resource rejected by bulk reassignment.
@@ -194,7 +213,12 @@ func (s *ResourceService) BulkSetScrapePort(ctx context.Context, resourceIDs []s
 	if scrapePort < 0 || scrapePort > 65535 {
 		return 0, &domain.ValidationError{Field: "scrape_port", Message: "must be between 0 and 65535"}
 	}
-	return s.repo.BulkSetScrapePort(ctx, ids, scrapePort)
+	updated, err := s.repo.BulkSetScrapePort(ctx, ids, scrapePort)
+	if err != nil {
+		return 0, err
+	}
+	s.notifyAll(ctx)
+	return updated, nil
 }
 
 func (s *ResourceService) BulkReassign(ctx context.Context, resourceIDs []string, field, targetCode string) (*BulkReassignResult, error) {
@@ -337,6 +361,7 @@ func (s *ResourceService) BulkReassign(ctx context.Context, resourceIDs []string
 	if int(updated) != len(ids) {
 		return nil, fmt.Errorf("批量改归属未完全生效：期望 %d 条，实际 %d 条，请重试", len(ids), updated)
 	}
+	s.notifyAll(ctx)
 	return &BulkReassignResult{UpdatedCount: int(updated)}, nil
 }
 
@@ -355,6 +380,18 @@ func normalizeBulkReassignIDs(resourceIDs []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func (s *ResourceService) notifyDomains(ctx context.Context, domainIDs ...string) {
+	if s.notifier != nil {
+		s.notifier.ResourceChanged(ctx, domainIDs...)
+	}
+}
+
+func (s *ResourceService) notifyAll(ctx context.Context) {
+	if s.notifier != nil {
+		s.notifier.AllResourcesChanged(ctx)
+	}
 }
 
 func (s *ResourceService) resolvePlatform(ctx context.Context, resource *domain.Resource) error {

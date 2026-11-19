@@ -81,6 +81,8 @@ export function buildTypeFields(
         instance_name: String(values.instance_name),
         instance_ip: String(values.instance_ip),
         os_type: values.os_type ? String(values.os_type) : undefined,
+        has_npu: values.has_npu === true,
+        has_gpu: values.has_gpu === true,
         activated_at:
           values.activated_at && dayjs.isDayjs(values.activated_at)
             ? values.activated_at.toISOString()
@@ -150,6 +152,8 @@ export function recordToFormValues(record: ResourceListItem): Record<string, unk
     instance_name: record.instance_name,
     instance_ip: record.instance_ip,
     os_type: record.os_type,
+    has_npu: record.has_npu === true,
+    has_gpu: record.has_gpu === true,
     activated_at: record.activated_at ? dayjs(record.activated_at) : undefined,
     database_type: record.database_type,
     middleware_type: record.middleware_type,

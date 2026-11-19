@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
 )
 
@@ -12,11 +13,19 @@ import (
 type LabelService struct {
 	labels    repository.LabelRepository
 	resources repository.ResourceRepository
+	notifier  references.ResourceChangeNotifier
 }
 
 // NewLabelService constructs a label service.
 func NewLabelService(labels repository.LabelRepository, resources repository.ResourceRepository) *LabelService {
-	return &LabelService{labels: labels, resources: resources}
+	return &LabelService{labels: labels, resources: resources, notifier: references.NoopChangeNotifier{}}
+}
+
+// SetChangeNotifier wires the best-effort M01/M09 change notification port.
+func (s *LabelService) SetChangeNotifier(notifier references.ResourceChangeNotifier) {
+	if notifier != nil {
+		s.notifier = notifier
+	}
 }
 
 // List returns labels for a resource.
@@ -39,23 +48,41 @@ func (s *LabelService) Add(ctx context.Context, resourceID, key, value string) (
 	if err := s.labels.Create(ctx, label); err != nil {
 		return nil, err
 	}
+	s.notify(ctx, resource.NetworkDomainID)
 	return label, nil
 }
 
 // Update updates a user label value.
 func (s *LabelService) Update(ctx context.Context, resourceID, labelID, value string) (*domain.Label, error) {
-	if _, err := s.writableResource(ctx, resourceID); err != nil {
+	resource, err := s.writableResource(ctx, resourceID)
+	if err != nil {
 		return nil, err
 	}
-	return s.labels.Update(ctx, resourceID, labelID, value)
+	label, err := s.labels.Update(ctx, resourceID, labelID, value)
+	if err != nil {
+		return nil, err
+	}
+	s.notify(ctx, resource.NetworkDomainID)
+	return label, nil
 }
 
 // Delete deletes a user label.
 func (s *LabelService) Delete(ctx context.Context, resourceID, labelID string) error {
-	if _, err := s.writableResource(ctx, resourceID); err != nil {
+	resource, err := s.writableResource(ctx, resourceID)
+	if err != nil {
 		return err
 	}
-	return s.labels.Delete(ctx, resourceID, labelID)
+	if err := s.labels.Delete(ctx, resourceID, labelID); err != nil {
+		return err
+	}
+	s.notify(ctx, resource.NetworkDomainID)
+	return nil
+}
+
+func (s *LabelService) notify(ctx context.Context, domainID string) {
+	if s.notifier != nil {
+		s.notifier.ResourceChanged(ctx, domainID)
+	}
 }
 
 func (s *LabelService) writableResource(ctx context.Context, resourceID string) (*domain.Resource, error) {

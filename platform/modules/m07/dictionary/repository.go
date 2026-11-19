@@ -109,17 +109,6 @@ type Cloud struct {
 	MergedInto     string
 }
 
-// ZoneType is a zone type dictionary entry. M07 exposes the same terminal
-// lifecycle states as the other dictionaries (M07 SRS v2.0 §5.7).
-type ZoneType struct {
-	Code           string
-	DisplayName    string
-	Enabled        bool
-	Status         string
-	ReferenceCount int64
-	MergedInto     string
-}
-
 // AppPlatformRel is an application↔platform relation.
 type AppPlatformRel struct {
 	RelID        string
@@ -153,7 +142,6 @@ type Repository interface {
 	CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error)
 	UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (*Platform, error)
 	ListClouds(ctx context.Context) ([]Cloud, error)
-	ListZoneTypes(ctx context.Context) ([]ZoneType, error)
 	ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error)
 	CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error)
 	SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error)
@@ -165,17 +153,14 @@ type Repository interface {
 	CountApplicationReferences(ctx context.Context, code string) (int64, error)
 	CountPlatformReferences(ctx context.Context, code string) (int64, error)
 	CountCloudReferences(ctx context.Context, cloudCode string) (int64, error)
-	CountZoneTypeReferences(ctx context.Context, code string) (int64, error)
 	RevokeBusinessDomain(ctx context.Context, code, operator string) (*BusinessDomain, error)
 	RevokeApplication(ctx context.Context, appCode, operator string) (*Application, error)
 	RevokePlatform(ctx context.Context, platformCode, operator string) (*Platform, error)
 	RevokeCloud(ctx context.Context, cloudCode, operator string) (*Cloud, error)
-	RevokeZoneType(ctx context.Context, code, operator string) (*ZoneType, error)
 	MergeBusinessDomain(ctx context.Context, source, target, operator string) (int64, error)
 	MergeApplication(ctx context.Context, source, target, operator string) (int64, error)
 	MergePlatform(ctx context.Context, source, target, operator string) (int64, error)
 	MergeCloud(ctx context.Context, source, target, operator string) (int64, error)
-	MergeZoneType(ctx context.Context, source, target, operator string) (int64, error)
 	ListDictionaryAuditLogs(ctx context.Context, dictionaryType, code string, limit int) ([]DictionaryAuditLog, error)
 }
 
@@ -571,29 +556,6 @@ func (r *GORMRepository) ListClouds(ctx context.Context) ([]Cloud, error) {
 	return out, nil
 }
 
-func (r *GORMRepository) ListZoneTypes(ctx context.Context) ([]ZoneType, error) {
-	var rows []zoneTypeRecord
-	if err := r.db.WithContext(ctx).Order("code ASC").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list zone types: %w", err)
-	}
-	counts, err := r.zoneTypeReferenceCounts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ZoneType, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, ZoneType{
-			Code:           row.Code,
-			DisplayName:    row.DisplayName,
-			Enabled:        row.Enabled,
-			Status:         dictionaryStatus(row.Enabled, row.MergedInto, row.RevokedAt),
-			ReferenceCount: counts[row.Code],
-			MergedInto:     derefString(row.MergedInto),
-		})
-	}
-	return out, nil
-}
-
 func (r *GORMRepository) ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error) {
 	q := r.db.WithContext(ctx).Model(&appPlatformRelRecord{})
 	if appCode != "" {
@@ -919,42 +881,12 @@ func (r *GORMRepository) cloudReferenceCounts(ctx context.Context) (map[string]i
 	return out, nil
 }
 
-// zoneTypeReferenceCounts returns zone_type -> live network-domain count.
-// network_domains.zone_type is the authoritative zone label source (D103).
-func (r *GORMRepository) zoneTypeReferenceCounts(ctx context.Context) (map[string]int64, error) {
-	var rows []struct {
-		Code  string
-		Total int64
-	}
-	err := r.db.WithContext(ctx).Table("network_domains").
-		Select("zone_type AS code, COUNT(*) AS total").
-		Where("zone_type IS NOT NULL AND zone_type <> '' AND deleted_at IS NULL").
-		Group("zone_type").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, fmt.Errorf("count zone type references: %w", err)
-	}
-	out := make(map[string]int64, len(rows))
-	for _, row := range rows {
-		out[row.Code] = row.Total
-	}
-	return out, nil
-}
-
 func (r *GORMRepository) CountCloudReferences(ctx context.Context, cloudCode string) (int64, error) {
 	counts, err := r.cloudReferenceCounts(ctx)
 	if err != nil {
 		return 0, err
 	}
 	return counts[cloudCode], nil
-}
-
-func (r *GORMRepository) CountZoneTypeReferences(ctx context.Context, code string) (int64, error) {
-	counts, err := r.zoneTypeReferenceCounts(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return counts[code], nil
 }
 
 // --- revoke (zero-reference only, terminal) ---------------------------------
@@ -1132,50 +1064,6 @@ func (r *GORMRepository) RevokeCloud(ctx context.Context, cloudCode, operator st
 		out = &Cloud{
 			CloudCode: row.CloudCode, CloudName: row.CloudName, CloudType: row.CloudType,
 			Carrier: row.Carrier, Description: derefString(row.Description),
-			Enabled: false, Status: DictionaryStatusRevoked,
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (r *GORMRepository) RevokeZoneType(ctx context.Context, code, operator string) (*ZoneType, error) {
-	var out *ZoneType
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row zoneTypeRecord
-		if err := tx.Where("code = ?", code).First(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrDictionaryNotFound
-			}
-			return fmt.Errorf("load zone type %q: %w", code, err)
-		}
-		if row.RevokedAt != nil || row.MergedInto != nil {
-			return ErrDictionaryTerminal
-		}
-		count, err := countZoneTypeReferencesTx(tx, code)
-		if err != nil {
-			return err
-		}
-		if count > 0 {
-			return fmt.Errorf("%w: 区域类型 %q 仍被 %d 个网域引用，请先停用或合并", ErrDictionaryReferenced, code, count)
-		}
-		now := time.Now().UTC()
-		if err := tx.Model(&row).Updates(map[string]any{
-			"revoked_at": now, "enabled": false, "updated_at": now,
-		}).Error; err != nil {
-			return fmt.Errorf("revoke zone type %q: %w", code, err)
-		}
-		if err := insertDictionaryAuditTx(tx, DictionaryAuditLog{
-			DictionaryType: dictionaryTypeZone, Action: DictionaryActionRevoke,
-			SourceCode: code, Operator: operator, CreatedAt: now,
-		}); err != nil {
-			return err
-		}
-		out = &ZoneType{
-			Code: row.Code, DisplayName: row.DisplayName,
 			Enabled: false, Status: DictionaryStatusRevoked,
 		}
 		return nil
@@ -1371,51 +1259,6 @@ func (r *GORMRepository) MergeCloud(ctx context.Context, source, target, operato
 	return moved, nil
 }
 
-// MergeZoneType folds a zone type entry into another, migrating
-// network_domains.zone_type references in one transaction (D103).
-func (r *GORMRepository) MergeZoneType(ctx context.Context, source, target, operator string) (int64, error) {
-	var moved int64
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		src, err := loadZoneTypeTx(tx, source)
-		if err != nil {
-			return err
-		}
-		if err := ensureMergeable(src.RevokedAt, src.MergedInto); err != nil {
-			return err
-		}
-		dst, err := loadZoneTypeTx(tx, target)
-		if err != nil {
-			return err
-		}
-		if !dst.Enabled || dst.RevokedAt != nil || dst.MergedInto != nil {
-			return fmt.Errorf("%w: 目标区域类型 %q 未启用或已终止", ErrDictionaryMergeInvalid, target)
-		}
-		now := time.Now().UTC()
-		result := tx.Table("network_domains").Where("zone_type = ?", source).Updates(map[string]any{
-			"zone_type": target, "updated_at": now,
-		})
-		if result.Error != nil {
-			return fmt.Errorf("migrate zone type references %q -> %q: %w", source, target, result.Error)
-		}
-		moved = result.RowsAffected
-
-		if err := tx.Model(src).Updates(map[string]any{
-			"merged_into": target, "enabled": false, "updated_at": now,
-		}).Error; err != nil {
-			return fmt.Errorf("mark zone type %q merged: %w", source, err)
-		}
-		return insertDictionaryAuditTx(tx, DictionaryAuditLog{
-			DictionaryType: dictionaryTypeZone, Action: DictionaryActionMerge,
-			SourceCode: source, TargetCode: target, ReferenceCount: moved,
-			Operator: operator, CreatedAt: now,
-		})
-	})
-	if err != nil {
-		return 0, err
-	}
-	return moved, nil
-}
-
 // migrateAppPlatformRelsTx moves organization ownership from the merged
 // application to the surviving one. Existing (app, platform) pairs collapse:
 // the source relation is soft-deleted instead of producing a duplicate.
@@ -1529,7 +1372,6 @@ const (
 	dictionaryTypeApplication = "application"
 	dictionaryTypePlatform    = "platform"
 	dictionaryTypeCloud       = "cloud"
-	dictionaryTypeZone        = "zone"
 )
 
 func insertDictionaryAuditTx(tx *gorm.DB, entry DictionaryAuditLog) error {
@@ -1634,17 +1476,6 @@ func loadCloudTx(tx *gorm.DB, cloudCode string) (*cloudDictRecord, error) {
 	return &row, nil
 }
 
-func loadZoneTypeTx(tx *gorm.DB, code string) (*zoneTypeRecord, error) {
-	var row zoneTypeRecord
-	if err := tx.Where("code = ?", code).First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrDictionaryNotFound
-		}
-		return nil, fmt.Errorf("load zone type %q: %w", code, err)
-	}
-	return &row, nil
-}
-
 func ensureMergeable(revokedAt *time.Time, mergedInto *string) error {
 	if revokedAt != nil {
 		return fmt.Errorf("%w: 源条目已撤销，不能合并", ErrDictionaryTerminal)
@@ -1701,12 +1532,4 @@ func countCloudReferencesTx(tx *gorm.DB, cloudCode string) (int64, error) {
 	return count, nil
 }
 
-func countZoneTypeReferencesTx(tx *gorm.DB, code string) (int64, error) {
-	var count int64
-	if err := tx.Table("network_domains").
-		Where("zone_type = ? AND deleted_at IS NULL", code).
-		Count(&count).Error; err != nil {
-		return 0, fmt.Errorf("count zone type references: %w", err)
-	}
-	return count, nil
-}
+

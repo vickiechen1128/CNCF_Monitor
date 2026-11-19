@@ -241,6 +241,8 @@ func attributesToDTO(attrs domain.Attributes) any {
 			InstanceIP:  a.InstanceIP,
 			OSType:      a.OSType,
 			OSVersion:   a.OSVersion,
+			HasNPU:      a.HasNPU,
+			HasGPU:      a.HasGPU,
 			ActivatedAt: a.ActivatedAt,
 		}
 	case domain.DatabaseAttributes:

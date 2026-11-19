@@ -55,6 +55,13 @@ type Row struct {
 	OpsPerson        string
 	OpsPersonContact string
 	CustomLabelsRaw  string
+
+	// Host capability flags (SRS Module_07 v2.1 FR-30).
+	HasNPURaw string
+	HasGPURaw string
+	// AttributesRaw carries long-tail capability pairs (FR-31):
+	// "dpu_model=BlueField-3;smart_nic=mellanox".
+	AttributesRaw string
 }
 
 // ParseExcel parses the first sheet using the category's fixed template.
@@ -205,9 +212,27 @@ func applyCells(row *Row, header, cells []string) {
 			row.OpsPersonContact = val
 		case "custom_labels":
 			row.CustomLabelsRaw = val
+		case "has_npu":
+			row.HasNPURaw = val
+		case "has_gpu":
+			row.HasGPURaw = val
+		case "attributes":
+			row.AttributesRaw = val
 		case "zone_env":
 			// Deprecated; ignored.
 		}
+	}
+}
+
+// parseBoolCell accepts the usual spreadsheet spellings of a boolean.
+func parseBoolCell(raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "false", "0", "no", "n", "否", "无":
+		return false, nil
+	case "true", "1", "yes", "y", "是", "有":
+		return true, nil
+	default:
+		return false, fmt.Errorf("must be true/false (or 是/否), got %q", raw)
 	}
 }
 

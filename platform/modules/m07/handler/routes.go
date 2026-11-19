@@ -4,7 +4,7 @@ import "github.com/gin-gonic/gin"
 
 // RegisterRoutes mounts the M07 v3 HTTP API under the given platform group
 // (expected prefix: /api/v3/platform).
-func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dictionaries *DictionaryHandler, labels *LabelHandler, imports *ImportHandler, labelTemplates *LabelTemplateHandler) {
+func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dictionaries *DictionaryHandler, labels *LabelHandler, imports *ImportHandler, labelTemplates *LabelTemplateHandler, attributes *AttributeHandler) {
 	resourceGroup := platform.Group("/resources")
 	{
 		resourceGroup.GET("", resources.List)
@@ -17,6 +17,12 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 		resourceGroup.PUT("/:resource_id", resources.Update)
 		resourceGroup.DELETE("/:resource_id", resources.Delete)
 		resourceGroup.GET("/:resource_id/referenced-by", resources.References)
+
+		attributeGroup := resourceGroup.Group("/:resource_id/attributes")
+		{
+			attributeGroup.GET("", attributes.ListResourceAttributes)
+			attributeGroup.PUT("", attributes.ReplaceResourceAttributes)
+		}
 
 		labelGroup := resourceGroup.Group("/:resource_id/labels")
 		{
@@ -34,6 +40,15 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 		labelTemplateGroup.GET("/:id", labelTemplates.Get)
 		labelTemplateGroup.PUT("/:id", labelTemplates.Update)
 		labelTemplateGroup.DELETE("/:id", labelTemplates.Delete)
+	}
+
+	// 通用扩展属性字典（SRS Module_07 v2.1 §5.8 FR-31）：新增能力 key 无需改表或发版。
+	attributeDefGroup := platform.Group("/attribute-definitions")
+	{
+		attributeDefGroup.GET("", attributes.ListDefinitions)
+		attributeDefGroup.POST("", attributes.CreateDefinition)
+		attributeDefGroup.PUT("/:id", attributes.UpdateDefinition)
+		attributeDefGroup.DELETE("/:id", attributes.DeleteDefinition)
 	}
 
 	platform.GET("/business-domains", dictionaries.ListBusinessDomains)
@@ -55,9 +70,6 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 	platform.GET("/cloud-dict", dictionaries.ListClouds)
 	platform.POST("/cloud-dict/:cloud_code/revoke", dictionaries.RevokeCloud)
 	platform.POST("/cloud-dict/:cloud_code/merge", dictionaries.MergeCloud)
-	platform.GET("/zone-types", dictionaries.ListZoneTypes)
-	platform.POST("/zone-types/:code/revoke", dictionaries.RevokeZoneType)
-	platform.POST("/zone-types/:code/merge", dictionaries.MergeZoneType)
 	platform.GET("/os-options", dictionaries.ListOSOptions)
 	platform.GET("/app-platform-rel", dictionaries.ListAppPlatformRels)
 	platform.POST("/app-platform-rel", dictionaries.CreateAppPlatformRel)

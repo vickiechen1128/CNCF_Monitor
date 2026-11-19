@@ -28,6 +28,7 @@ import { ResourceTable } from './ResourceTable'
 import type { ResourceColumnFilters } from './ResourceTable'
 import { ROW_SELECTION_COLUMN_WIDTH } from '../../components/tablePresets'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
+import { AttributeDefinitionsDrawer } from './AttributeDefinitionsDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
 import { TemplateDownloadModal } from './TemplateDownloadModal'
@@ -82,7 +83,7 @@ export function ResourcesPage() {
    * 应用↔平台 M:N 关联），口径见 `useResourceDictionaries.ts`。
    * 「应用」筛选下拉按当前所选平台级联，故传入 `filters.platform_code`。
    *
-   * v3 资源响应不再内联 `cloud_code` / `zone_type`：二者由所属网域只读派生，
+   * v3 资源响应不再内联 `cloud_code`：云归属由所属网域只读派生，
    * 因此字典 Hook 需先于深链云过滤就绪。
    */
   const {
@@ -148,6 +149,8 @@ export function ResourcesPage() {
   // F-4：独立「下载模板」弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离
   const [templateOpen, setTemplateOpen] = useState(false)
   const [recordsOpen, setRecordsOpen] = useState(false)
+  // 扩展属性字典（SRS Module_07 v2.1 FR-31）：登记能力 key 的入口挂在资源页工具栏
+  const [attrDictOpen, setAttrDictOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   /** FR-28：勾选资源 + 批量改归属弹窗 */
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
@@ -249,6 +252,9 @@ export function ResourcesPage() {
                 <Button icon={<UploadOutlined />} onClick={openImportModal}>Excel 导入</Button>
                 <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void handleExport()}>导出 CSV</Button>
                 <Button icon={<HistoryOutlined />} onClick={() => setRecordsOpen(true)}>导入记录</Button>
+                <Button onClick={() => setAttrDictOpen(true)} data-testid="open-attribute-dictionary">
+                  扩展属性字典
+                </Button>
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>新增资源</Button>
               </Space>
             }
@@ -339,6 +345,7 @@ export function ResourcesPage() {
         businessDomains={businessDomains}
         applicationDomains={applicationDomains}
       />
+      <AttributeDefinitionsDrawer open={attrDictOpen} onClose={() => setAttrDictOpen(false)} />
       {/* T07-F5：导入记录面板（列表筛选/分页/详情；空态引导打开 ImportModal） */}
       <Modal
         open={recordsOpen}

@@ -406,3 +406,37 @@ func TestBulkReassignValidation(t *testing.T) {
 	require.ErrorAs(t, err, &bulkErr)
 	assert.Equal(t, "missing", bulkErr.Failures[0].ResourceID)
 }
+
+type recordedChangeNotifier struct {
+	domainCalls [][]string
+	allCalls    int
+}
+
+func (n *recordedChangeNotifier) ResourceChanged(_ context.Context, domainIDs ...string) {
+	n.domainCalls = append(n.domainCalls, append([]string(nil), domainIDs...))
+}
+
+func (n *recordedChangeNotifier) AllResourcesChanged(context.Context) {
+	n.allCalls++
+}
+
+func TestResourceWritesNotifyConfigSync(t *testing.T) {
+	repo := newFakeRepository()
+	notifier := &recordedChangeNotifier{}
+	svc := NewResourceService(repo, &fakeDictionary{primary: "ecommerce"})
+	svc.SetChangeNotifier(notifier)
+
+	host := staticHostResource()
+	created, err := svc.Create(context.Background(), host)
+	require.NoError(t, err)
+	require.Len(t, notifier.domainCalls, 1)
+	assert.Equal(t, []string{"mc-demo"}, notifier.domainCalls[0])
+
+	require.NoError(t, svc.Delete(context.Background(), created.ResourceID))
+	require.Len(t, notifier.domainCalls, 2)
+	assert.Equal(t, []string{"mc-demo"}, notifier.domainCalls[1])
+
+	_, err = svc.BulkSetScrapePort(context.Background(), []string{created.ResourceID}, 9200)
+	require.NoError(t, err)
+	assert.Equal(t, 1, notifier.allCalls, "bulk port changes notify all domains")
+}

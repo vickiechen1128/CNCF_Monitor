@@ -62,21 +62,9 @@ type cloudDictRecord struct {
 
 func (cloudDictRecord) TableName() string { return "cloud_dicts" }
 
-type zoneTypeRecord struct {
-	Code        string     `gorm:"column:code;primaryKey"`
-	DisplayName string     `gorm:"column:display_name"`
-	Enabled     bool       `gorm:"column:enabled"`
-	MergedInto  *string    `gorm:"column:merged_into"`
-	RevokedAt   *time.Time `gorm:"column:revoked_at"`
-	UpdatedAt   time.Time  `gorm:"column:updated_at"`
-}
-
-func (zoneTypeRecord) TableName() string { return "zone_types" }
-
 type networkDomainRecord struct {
 	ID         string         `gorm:"column:id;primaryKey"`
 	DomainType string         `gorm:"column:domain_type"`
-	ZoneType   string         `gorm:"column:zone_type"`
 	CloudCode  string         `gorm:"column:cloud_code"`
 	Status     string         `gorm:"column:status"`
 	UpdatedAt  time.Time      `gorm:"column:updated_at"`

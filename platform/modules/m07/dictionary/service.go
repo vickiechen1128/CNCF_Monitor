@@ -318,10 +318,6 @@ func (s *Service) ListClouds(ctx context.Context) ([]Cloud, error) {
 	return s.repo.ListClouds(ctx)
 }
 
-func (s *Service) ListZoneTypes(ctx context.Context) ([]ZoneType, error) {
-	return s.repo.ListZoneTypes(ctx)
-}
-
 // --- dictionary lifecycle (M07 SRS v2.0 §5.7) -------------------------------
 
 // RevokeBusinessDomain revokes a zero-reference business entry. Codes are never
@@ -392,15 +388,6 @@ func (s *Service) RevokeCloud(ctx context.Context, cloudCode, operator string) (
 	return s.repo.RevokeCloud(ctx, cloudCode, operator)
 }
 
-// RevokeZoneType revokes a zero-reference zone type entry.
-func (s *Service) RevokeZoneType(ctx context.Context, code, operator string) (*ZoneType, error) {
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return nil, &domain.ValidationError{Field: "code", Message: "is required"}
-	}
-	return s.repo.RevokeZoneType(ctx, code, operator)
-}
-
 // MergeCloud folds a cloud source into target, migrating network-domain cloud
 // labels in one transaction.
 func (s *Service) MergeCloud(ctx context.Context, source, target, operator string) (int64, error) {
@@ -409,16 +396,6 @@ func (s *Service) MergeCloud(ctx context.Context, source, target, operator strin
 		return 0, err
 	}
 	return s.repo.MergeCloud(ctx, source, target, operator)
-}
-
-// MergeZoneType folds a zone type source into target, migrating network-domain
-// zone labels in one transaction.
-func (s *Service) MergeZoneType(ctx context.Context, source, target, operator string) (int64, error) {
-	source, target, err := validateMergeCodes(source, target, "code")
-	if err != nil {
-		return 0, err
-	}
-	return s.repo.MergeZoneType(ctx, source, target, operator)
 }
 
 func validateMergeCodes(source, target, field string) (string, string, error) {
@@ -437,11 +414,11 @@ func validateMergeCodes(source, target, field string) (string, string, error) {
 func (s *Service) ListDictionaryAuditLogs(ctx context.Context, dictionaryType, code string, limit int) ([]DictionaryAuditLog, error) {
 	dictionaryType = strings.TrimSpace(dictionaryType)
 	switch dictionaryType {
-	case "", dictionaryTypeBusiness, dictionaryTypeApplication, dictionaryTypePlatform, dictionaryTypeCloud, dictionaryTypeZone:
+	case "", dictionaryTypeBusiness, dictionaryTypeApplication, dictionaryTypePlatform, dictionaryTypeCloud:
 	default:
 		return nil, &domain.ValidationError{
 			Field:   "dictionary_type",
-			Message: "must be business/application/platform/cloud/zone",
+			Message: "must be business/application/platform/cloud",
 		}
 	}
 	return s.repo.ListDictionaryAuditLogs(ctx, dictionaryType, strings.TrimSpace(code), limit)

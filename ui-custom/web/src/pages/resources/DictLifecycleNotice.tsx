@@ -5,7 +5,7 @@ import { DICT_LIFECYCLE_RULES } from './dictionaryLifecycle'
 /**
  * 字典生命周期定位说明（M07 SRS v2.0 §3.4 / NFR-21）
  *
- * 业务 / 应用 / 平台 / 云 / 区域类型五个字典同属「编码取值权威」——编码即监控标签取值，
+ * 业务 / 应用 / 平台 / 云四个字典同属「编码取值权威」——编码即监控标签取值，
  * 一旦被资源、应用归属或网域引用就进入历史时序，不能物理删除、也不能复用。
  *
  * 生命周期：
@@ -23,7 +23,7 @@ export interface DictLifecycleNoticeProps {
   extraRules?: string[]
 }
 
-/** 字典页顶部统一说明条（可关闭）。五类字典页共用，保证文案一致。 */
+/** 字典页顶部统一说明条（可关闭）。四类字典页共用，保证文案一致。 */
 export function DictLifecycleNotice({ extraRules = [] }: DictLifecycleNoticeProps) {
   const [open, setOpen] = useState(false)
 
@@ -45,7 +45,7 @@ export function DictLifecycleNotice({ extraRules = [] }: DictLifecycleNoticeProp
       />
       <Drawer title="字典生命周期规则" open={open} onClose={() => setOpen(false)} width={480} destroyOnHidden>
         <Typography.Paragraph type="secondary">
-          字典是编码取值权威，不是可删除的对象。以下规则适用于业务、应用、平台、云、区域类型五个字典。
+          字典是编码取值权威，不是可删除的对象。以下规则适用于业务、应用、平台、云四个字典。
         </Typography.Paragraph>
         <ul style={{ paddingInlineStart: 20, margin: 0 }}>
           {DICT_LIFECYCLE_RULES.map((rule) => (

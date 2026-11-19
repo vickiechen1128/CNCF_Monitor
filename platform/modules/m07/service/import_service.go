@@ -5,11 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/importer"
+	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
 )
 
@@ -19,15 +22,34 @@ type ImportService struct {
 	imports      repository.ImportRepository
 	dict         DictionaryResolver
 	declarations dictionary.DeclarationWriter
+	// 能力属性写入端口（SRS Module_07 v2.1 FR-31）。未接入时 attributes 列会被拒绝，
+	// 避免导入「看起来成功但属性被静默丢弃」。
+	attributeDefs  repository.AttributeDefinitionRepository
+	attributeStore repository.ResourceAttributeRepository
+	notifier       references.ResourceChangeNotifier
 }
 
 // NewImportService constructs an import service.
 func NewImportService(resources repository.ResourceRepository, imports repository.ImportRepository, dict DictionaryResolver, declarations ...dictionary.DeclarationWriter) *ImportService {
-	svc := &ImportService{resources: resources, imports: imports, dict: dict}
+	svc := &ImportService{resources: resources, imports: imports, dict: dict, notifier: references.NoopChangeNotifier{}}
 	if len(declarations) > 0 {
 		svc.declarations = declarations[0]
 	}
 	return svc
+}
+
+// SetChangeNotifier wires the best-effort M01/M09 change notification port.
+func (s *ImportService) SetChangeNotifier(notifier references.ResourceChangeNotifier) {
+	if notifier != nil {
+		s.notifier = notifier
+	}
+}
+
+// SetAttributeWriter wires the capability dictionary and value store used by the
+// optional "attributes" column (FR-31).
+func (s *ImportService) SetAttributeWriter(defs repository.AttributeDefinitionRepository, store repository.ResourceAttributeRepository) {
+	s.attributeDefs = defs
+	s.attributeStore = store
 }
 
 // Import parses, validates and applies an Excel import.
@@ -92,6 +114,17 @@ func (s *ImportService) Import(ctx context.Context, category domain.Category, mo
 			record.Errors = append(record.Errors, importDetail(item.RowNumber, resource, "", err))
 			continue
 		}
+		// 能力属性先校验再落资源：字典不认识的 key 或非法取值直接判本行失败，
+		// 避免「资源已建、属性被静默丢弃」（FR-31）。
+		attributes, err := s.validateImportAttributes(ctx, category, item.Attributes)
+		if err != nil {
+			record.Failed++
+			record.Errors = append(record.Errors, domain.ImportErrorDetail{
+				Row: item.RowNumber, ResourceCategory: string(category),
+				Field: "attributes", Value: formatAttributePairs(item.Attributes), Reason: err.Error(),
+			})
+			continue
+		}
 
 		existing, found, err := s.resources.FindByDedupKey(ctx, resource.TenantID, category, resource.DedupKey)
 		if err != nil {
@@ -113,6 +146,11 @@ func (s *ImportService) Import(ctx context.Context, category domain.Category, mo
 			if err := s.resources.Update(ctx, resource); err != nil {
 				return nil, err
 			}
+			if len(attributes) > 0 {
+				if err := s.mergeImportAttributes(ctx, resource.ResourceID, attributes); err != nil {
+					return nil, err
+				}
+			}
 			record.Updated++
 			continue
 		}
@@ -130,6 +168,11 @@ func (s *ImportService) Import(ctx context.Context, category domain.Category, mo
 			}
 			return nil, err
 		}
+		if len(attributes) > 0 {
+			if err := s.mergeImportAttributes(ctx, resource.ResourceID, attributes); err != nil {
+				return nil, err
+			}
+		}
 		record.Success++
 	}
 
@@ -142,6 +185,9 @@ func (s *ImportService) Import(ctx context.Context, category domain.Category, mo
 	}
 	if err := s.imports.Create(ctx, record); err != nil {
 		return nil, err
+	}
+	if record.Success > 0 || record.Updated > 0 {
+		s.notifier.AllResourcesChanged(ctx)
 	}
 	return record, nil
 }
@@ -189,4 +235,83 @@ func newImportNo() string {
 		return fmt.Sprintf("IMP%s", time.Now().UTC().Format("20060102150405"))
 	}
 	return fmt.Sprintf("IMP%s%s", time.Now().UTC().Format("20060102150405"), hex.EncodeToString(b))
+}
+
+// validateImportAttributes checks the parsed "attributes" column against the
+// capability dictionary of the resource category. It returns only the values
+// that should be stored (empty optional values are dropped).
+func (s *ImportService) validateImportAttributes(ctx context.Context, category domain.Category, pairs map[string]string) ([]*domain.ResourceAttribute, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	if s.attributeStore == nil {
+		return nil, &domain.ValidationError{Field: "attributes", Message: "this importer does not support capability attributes"}
+	}
+	definitions, err := s.attributeDefs.List(ctx, category)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]*domain.AttributeDefinition, len(definitions))
+	for _, def := range definitions {
+		byKey[def.Key] = def
+	}
+	out := make([]*domain.ResourceAttribute, 0, len(pairs))
+	for key, raw := range pairs {
+		def, ok := byKey[key]
+		if !ok {
+			return nil, &domain.ValidationError{
+				Field:   "attributes",
+				Message: fmt.Sprintf("attribute %q is not registered for category %q", key, category),
+			}
+		}
+		if !def.Enabled {
+			return nil, &domain.ValidationError{
+				Field: "attributes", Message: fmt.Sprintf("attribute %q is disabled", key),
+			}
+		}
+		value, err := def.ValidateValue(raw)
+		if err != nil {
+			return nil, err
+		}
+		if value == "" {
+			continue
+		}
+		out = append(out, &domain.ResourceAttribute{Key: key, Value: value})
+	}
+	return out, nil
+}
+
+// mergeImportAttributes upserts the imported keys without dropping capability
+// values that are maintained through the UI and are absent from the sheet.
+func (s *ImportService) mergeImportAttributes(ctx context.Context, resourceID string, incoming []*domain.ResourceAttribute) error {
+	existing, err := s.attributeStore.ListByResource(ctx, resourceID)
+	if err != nil {
+		return err
+	}
+	merged := make(map[string]*domain.ResourceAttribute, len(existing)+len(incoming))
+	for _, attr := range existing {
+		merged[attr.Key] = &domain.ResourceAttribute{Key: attr.Key, Value: attr.Value}
+	}
+	for _, attr := range incoming {
+		merged[attr.Key] = &domain.ResourceAttribute{Key: attr.Key, Value: attr.Value}
+	}
+	out := make([]*domain.ResourceAttribute, 0, len(merged))
+	for _, attr := range merged {
+		out = append(out, attr)
+	}
+	return s.attributeStore.Replace(ctx, resourceID, out)
+}
+
+// formatAttributePairs renders pairs for the import error report.
+func formatAttributePairs(pairs map[string]string) string {
+	keys := make([]string, 0, len(pairs))
+	for key := range pairs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+pairs[key])
+	}
+	return strings.Join(parts, ";")
 }

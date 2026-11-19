@@ -65,16 +65,6 @@ type Cloud struct {
 	MergedInto     string `json:"merged_into,omitempty"`
 }
 
-// ZoneType is a v3 zone type item.
-type ZoneType struct {
-	Code           string `json:"code"`
-	DisplayName    string `json:"display_name"`
-	Enabled        bool   `json:"enabled"`
-	Status         string `json:"status"`
-	ReferenceCount int64  `json:"reference_count"`
-	MergedInto     string `json:"merged_into,omitempty"`
-}
-
 // OSOption is a v3 OS dictionary item.
 type OSOption struct {
 	Name   string `json:"name"`
@@ -207,30 +197,6 @@ func fromCloud(item dictionary.Cloud) Cloud {
 	return Cloud{
 		CloudCode: item.CloudCode, CloudName: item.CloudName, CloudType: item.CloudType,
 		Carrier: item.Carrier, Description: item.Description, Enabled: item.Enabled,
-		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
-	}
-}
-
-// FromZoneTypes maps dictionary entries to DTOs.
-func FromZoneTypes(items []dictionary.ZoneType) []ZoneType {
-	out := make([]ZoneType, 0, len(items))
-	for _, item := range items {
-		out = append(out, fromZoneType(item))
-	}
-	return out
-}
-
-// FromZoneType maps one zone type dictionary entry to a DTO.
-func FromZoneType(item *dictionary.ZoneType) ZoneType {
-	if item == nil {
-		return ZoneType{}
-	}
-	return fromZoneType(*item)
-}
-
-func fromZoneType(item dictionary.ZoneType) ZoneType {
-	return ZoneType{
-		Code: item.Code, DisplayName: item.DisplayName, Enabled: item.Enabled,
 		Status: item.Status, ReferenceCount: item.ReferenceCount, MergedInto: item.MergedInto,
 	}
 }

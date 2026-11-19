@@ -15,7 +15,6 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/modules/m08/notify"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/foundation/httpx"
@@ -28,6 +27,7 @@ import (
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 	m08 "github.com/metriccenter/metriccenter/platform/modules/m08"
+	"github.com/metriccenter/metriccenter/platform/modules/m08/notify"
 	m08refs "github.com/metriccenter/metriccenter/platform/modules/m08/references"
 	m09 "github.com/metriccenter/metriccenter/platform/modules/m09"
 )
@@ -120,6 +120,41 @@ func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (
 	return r, nil
 }
 
+// m07ChangeNotifier bridges M07 post-commit notifications to M01 reconcile and
+// M09 config sync. It runs asynchronously so a resource/template save never
+// waits for promtool or a full reconcile; failures fall back to the 60s
+// reconcile + 30s watcher.
+type m07ChangeNotifier struct {
+	m01 *m01.Module
+	m09 *m09.Module
+}
+
+func (n m07ChangeNotifier) ResourceChanged(_ context.Context, domainIDs ...string) {
+	go n.run(domainIDs, false)
+}
+
+func (n m07ChangeNotifier) AllResourcesChanged(_ context.Context) {
+	go n.run(nil, true)
+}
+
+func (n m07ChangeNotifier) run(domainIDs []string, all bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if n.m01 != nil {
+		if err := n.m01.ReconcileNow(ctx); err != nil {
+			log.Printf("[m07→m01] reconcile after resource change: %v", err)
+		}
+	}
+	if n.m09 == nil {
+		return
+	}
+	if all {
+		n.m09.NotifyAllConfigSync(ctx)
+		return
+	}
+	n.m09.NotifyConfigSync(ctx, domainIDs)
+}
+
 // mountV3Modules builds the v3 module registry and mounts every module under
 // the supplied platform group (expected prefix: /api/v3/platform). The edge
 // group (expected prefix: /api/v3/edge) receives M09's token-only protocol.
@@ -137,6 +172,11 @@ func mountV3Modules(ctx context.Context, platform, edge *gin.RouterGroup, m06Opt
 	m01Module, err := m01.NewModule(db.DB, m01.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("register m01 v3 module: %w", err)
+	}
+	// M01 的监控对象类型注册表在启动时从库里加载一次（SRS Module_01 v1.3 §5.6）；
+	// 之后每次写操作由 service 自行刷新，无需重启。
+	if err := m01Module.Bootstrap(ctx); err != nil {
+		return nil, fmt.Errorf("bootstrap m01 v3 module: %w", err)
 	}
 	// M09 owns monitoring retirement (D23). Build it before M06 so its
 	// MonitoringRetirer can be injected into M06; registration order below
@@ -193,6 +233,7 @@ func mountV3Modules(ctx context.Context, platform, edge *gin.RouterGroup, m06Opt
 	}
 	m07Module, err := m07.NewModule(db.DB, m07.Options{
 		LabelTemplateUsage: m01Module.LabelTemplateUsageChecker(),
+		ChangeNotifier:     m07ChangeNotifier{m01: m01Module, m09: m09Module},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("register m07 v3 module: %w", err)

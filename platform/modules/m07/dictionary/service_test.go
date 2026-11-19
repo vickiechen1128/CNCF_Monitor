@@ -24,7 +24,6 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 		&applicationDictRecord{},
 		&platformDictRecord{},
 		&cloudDictRecord{},
-		&zoneTypeRecord{},
 		&networkDomainRecord{},
 		&appPlatformRelRecord{},
 		&dictionaryAuditLogRecord{},
@@ -63,7 +62,6 @@ func openDictionaryTestDB(t *testing.T) *gorm.DB {
 		Description: &cloudDescription,
 		Enabled:     true,
 	}).Error)
-	require.NoError(t, db.Create(&zoneTypeRecord{Code: "internet", DisplayName: "互联网区", Enabled: true}).Error)
 	return db
 }
 
@@ -259,10 +257,6 @@ func TestServiceList(t *testing.T) {
 	assert.Equal(t, "TX", clouds[0].Carrier)
 	assert.Equal(t, "预置", clouds[0].Description)
 
-	zones, err := svc.ListZoneTypes(ctx)
-	require.NoError(t, err)
-	assert.Len(t, zones, 1)
-
 	rels, err := svc.ListAppPlatformRels(ctx, "order-service", "")
 	require.NoError(t, err)
 	assert.Len(t, rels, 2)
@@ -445,44 +439,32 @@ func TestDictionaryMergePlatformMigratesOwnership(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestDictionaryCloudZoneLifecycle(t *testing.T) {
+func TestDictionaryCloudLifecycle(t *testing.T) {
 	gormDB := openDictionaryTestDB(t)
 	svc := NewService(NewGORMRepository(gormDB))
 	ctx := context.Background()
 
-	// Seed merge targets (M06 owns cloud/zone creation; tests insert directly).
+	// Seed merge targets (M06 owns cloud creation; tests insert directly).
 	require.NoError(t, gormDB.Create(&cloudDictRecord{
 		CloudCode: "PUB-ALI", CloudName: "阿里云", CloudType: "PUB", Carrier: "ALI", Enabled: true,
 	}).Error)
-	require.NoError(t, gormDB.Create(&zoneTypeRecord{Code: "dmz", DisplayName: "隔离区", Enabled: true}).Error)
 
-	// Zero-reference cloud/zone revoke succeeds and codes stay reserved (terminal).
+	// Zero-reference cloud revoke succeeds and codes stay reserved (terminal).
 	cloud, err := svc.RevokeCloud(ctx, "PUB-TX", "alice")
 	require.NoError(t, err)
 	assert.Equal(t, DictionaryStatusRevoked, cloud.Status)
 	_, err = svc.RevokeCloud(ctx, "PUB-TX", "alice")
 	require.ErrorIs(t, err, ErrDictionaryTerminal)
 
-	zone, err := svc.RevokeZoneType(ctx, "internet", "alice")
-	require.NoError(t, err)
-	assert.Equal(t, DictionaryStatusRevoked, zone.Status)
-	_, err = svc.RevokeZoneType(ctx, "internet", "alice")
-	require.ErrorIs(t, err, ErrDictionaryTerminal)
-
-	// Audit rows for the two new dictionary types must be queryable.
+	// Audit rows for the dictionary type must be queryable.
 	cloudLogs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeCloud, "PUB-TX", 10)
 	require.NoError(t, err)
 	require.Len(t, cloudLogs, 1)
 	assert.Equal(t, DictionaryActionRevoke, cloudLogs[0].Action)
 	assert.Equal(t, "alice", cloudLogs[0].Operator)
-
-	zoneLogs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeZone, "internet", 10)
-	require.NoError(t, err)
-	require.Len(t, zoneLogs, 1)
-	assert.Equal(t, DictionaryActionRevoke, zoneLogs[0].Action)
 }
 
-func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
+func TestDictionaryCloudMergeMigratesNetworkDomainLabels(t *testing.T) {
 	gormDB := openDictionaryTestDB(t)
 	svc := NewService(NewGORMRepository(gormDB))
 	ctx := context.Background()
@@ -490,19 +472,15 @@ func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
 	require.NoError(t, gormDB.Create(&cloudDictRecord{
 		CloudCode: "PUB-ALI", CloudName: "阿里云", CloudType: "PUB", Carrier: "ALI", Enabled: true,
 	}).Error)
-	require.NoError(t, gormDB.Create(&zoneTypeRecord{Code: "dmz", DisplayName: "隔离区", Enabled: true}).Error)
 
-	// Two live network domains reference the source cloud/zone.
+	// Two live network domains reference the source cloud.
 	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains
-		(id, cloud_code, zone_type, status, deleted_at)
-		VALUES ('dom-a','PUB-TX','internet','enabled',NULL),
-		       ('dom-b','PUB-TX','internet','enabled',NULL)`).Error)
+		(id, cloud_code, status, deleted_at)
+		VALUES ('dom-a','PUB-TX','enabled',NULL),
+		       ('dom-b','PUB-TX','enabled',NULL)`).Error)
 
 	// Referenced revoke is rejected and reports the reference count.
 	_, err := svc.RevokeCloud(ctx, "PUB-TX", "alice")
-	require.ErrorIs(t, err, ErrDictionaryReferenced)
-	assert.Contains(t, err.Error(), "2")
-	_, err = svc.RevokeZoneType(ctx, "internet", "alice")
 	require.ErrorIs(t, err, ErrDictionaryReferenced)
 	assert.Contains(t, err.Error(), "2")
 
@@ -510,15 +488,11 @@ func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
 	moved, err := svc.MergeCloud(ctx, "PUB-TX", "PUB-ALI", "alice")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), moved)
-	moved, err = svc.MergeZoneType(ctx, "internet", "dmz", "alice")
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), moved)
 
-	var cloudCode, zoneType string
-	require.NoError(t, gormDB.Table("network_domains").Select("cloud_code, zone_type").
-		Where("id = ?", "dom-a").Row().Scan(&cloudCode, &zoneType))
+	var cloudCode string
+	require.NoError(t, gormDB.Table("network_domains").Select("cloud_code").
+		Where("id = ?", "dom-a").Row().Scan(&cloudCode))
 	assert.Equal(t, "PUB-ALI", cloudCode)
-	assert.Equal(t, "dmz", zoneType)
 
 	clouds, err := svc.ListClouds(ctx)
 	require.NoError(t, err)
@@ -529,14 +503,6 @@ func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
 			assert.Equal(t, int64(0), entry.ReferenceCount)
 		}
 	}
-	zones, err := svc.ListZoneTypes(ctx)
-	require.NoError(t, err)
-	for _, entry := range zones {
-		if entry.Code == "internet" {
-			assert.Equal(t, DictionaryStatusMerged, entry.Status)
-			assert.Equal(t, "dmz", entry.MergedInto)
-		}
-	}
 
 	logs, err := svc.ListDictionaryAuditLogs(ctx, dictionaryTypeCloud, "PUB-TX", 10)
 	require.NoError(t, err)
@@ -545,11 +511,9 @@ func TestDictionaryCloudZoneMergeMigratesNetworkDomainLabels(t *testing.T) {
 	assert.Equal(t, "PUB-ALI", logs[0].TargetCode)
 	assert.Equal(t, int64(2), logs[0].ReferenceCount)
 
-	// Terminal source and self-merge are rejected.
+	// Terminal source is rejected.
 	_, err = svc.MergeCloud(ctx, "PUB-TX", "PUB-ALI", "alice")
 	require.ErrorIs(t, err, ErrDictionaryTerminal)
-	_, err = svc.MergeZoneType(ctx, "dmz", "dmz", "alice")
-	require.ErrorIs(t, err, ErrDictionaryMergeSelf)
 }
 
 func boolPtr(v bool) *bool { return &v }

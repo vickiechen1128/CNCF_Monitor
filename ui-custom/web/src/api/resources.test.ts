@@ -667,7 +667,7 @@ describe('resources API (v3)', () => {
     expect(res.data.moved_references).toBe(3)
   })
 
-  it('dictionaryAuditApi.list accepts cloud / zone dictionary_type and forwards filters', async () => {
+  it('dictionaryAuditApi.list accepts cloud dictionary_type and forwards filters', async () => {
     mockFetch({ status: 'success', data: { list: [], total: 0 } })
 
     await dictionaryAuditApi.list({ dictionary_type: 'cloud', code: 'PUB-TX', limit: 20 })
@@ -677,10 +677,6 @@ describe('resources API (v3)', () => {
     expect(url.searchParams.get('dictionary_type')).toBe('cloud')
     expect(url.searchParams.get('code')).toBe('PUB-TX')
     expect(url.searchParams.get('limit')).toBe('20')
-
-    mockFetch({ status: 'success', data: { list: [], total: 0 } })
-    await dictionaryAuditApi.list({ dictionary_type: 'zone', code: 'dmz' })
-    expect(lastUrlInstance().searchParams.get('dictionary_type')).toBe('zone')
   })
 
   // ---- 决策 111：应用↔平台关联 app_platform_rel（§5.24 / §6.1）----

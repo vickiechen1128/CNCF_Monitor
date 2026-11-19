@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Descriptions, Drawer, Tag, Typography } from 'antd'
+import { Badge, Button, Descriptions, Drawer, Space, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { cloudDictApi, platformDictApi } from '../../api/resources'
-import { zoneTypeApi } from '../../api/domain'
-import type { NetworkDomain, ZoneType } from '../../types/domain'
+import type { NetworkDomain } from '../../types/domain'
 import type { BusinessDomain, CloudDict, PlatformDict } from '../../types/resource'
 import type { ResourceListItem } from './useResources'
 import { RESOURCE_TYPE_MAP, STATUS_MAP, statusColor, SOURCE_TYPE_MAP } from './resourceMeta'
 import { useSkin } from '../../skinContext'
 import { useResourceLabels } from './useResourceLabels'
 import { ResourceLabelsTab } from './ResourceLabelsTab'
+import { ResourceAttributesDrawer } from './ResourceAttributesDrawer'
+import { resourceAttributeApi } from '../../api/attributes'
+import type { ResourceAttributeValue } from '../../types/attribute'
 
 const { Text, Link } = Typography
 
@@ -37,30 +39,50 @@ interface ResourceDetailDrawerProps {
 /**
  * 资源详情抽屉（Module_07 §11.1 页面状态矩阵）。
  * 打开抽屉时抓取：标签全量 + 适用模板（useResourceLabels），以及详情展示只读字典
- * （云 / 网络分区 / 平台）。标签卡状态矩阵见 ResourceLabelsTab。
+ * （云 / 平台）。标签卡状态矩阵见 ResourceLabelsTab。
  */
 export function ResourceDetailDrawer({ open, record, networkDomains, businessDomains, onCancel }: ResourceDetailDrawerProps) {
   const navigate = useNavigate()
   // 决策 103 scheme-B / D37：云字典读视图（写接口在 M06），cloud_code → cloud_name 展示名解析；
   // 云的取值由所属网域派生，此处仅做展示名解析）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
-  // 决策 101：M06 zone_type 字典（网络分区展示名解析，互联网区 / 政务外网区）
-  const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   // {v2026-09-28 决策 110} 平台字典（资源行 `platform_code` 一等字段的展示名解析：platform_code → platform_name）
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
 
   const { tokens } = useSkin()
+  // 能力属性（SRS Module_07 v2.1 §5.8）：扩展属性值与固定能力标记分开展示
+  const [extensionAttrs, setExtensionAttrs] = useState<ResourceAttributeValue[]>([])
+  const [attrDrawerOpen, setAttrDrawerOpen] = useState(false)
   const isApplication = record?.resource_category === 'application'
   const labelsTab = useResourceLabels(open, record)
+
+  useEffect(() => {
+    if (!open || !record) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExtensionAttrs([])
+      return
+    }
+    let cancelled = false
+    void resourceAttributeApi
+      .list(record.resource_id)
+      .then((res) => {
+        if (!cancelled) setExtensionAttrs(res.data?.list ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setExtensionAttrs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, record])
 
   /** 网域 ID → 展示名（M06 网域清单），未匹配兜底展示 ID */
   const domainNameOf = (id: string) => networkDomains.find((d) => d.id === id)?.name ?? id
   /**
-   * v3 资源响应不再内联 `cloud_code` / `zone_type`：二者均由所属网域只读派生。
+   * v3 资源响应不再内联 `cloud_code`：云归属由所属网域只读派生。
    * 详情抽屉从父页面已加载的网域清单按 `network_domain_id` 取值。
    */
   const domainCloudCode = record ? networkDomains.find((d) => d.id === record.network_domain_id)?.cloud_code : undefined
-  const domainZoneType = record ? networkDomains.find((d) => d.id === record.network_domain_id)?.zone_type : undefined
   /** 业务编码 → biz_name（§11.2 业务列展示 biz_name） */
   const resolveBizName = (code?: string) => {
     if (!code) return '-'
@@ -82,15 +104,6 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     return !!c && !c.enabled
   }
   /**
-   * 网络分区展示名（决策 101）：分区唯一权威 = 所属网域 `zone_type`，
-   * 展示名走 M06 zone_type 字典（internet = 互联网区 / extranet = 政务外网区），
-   * 字典缺条目回退 zone_type 编码；主机侧只读派生。
-   */
-  const resolveZoneTypeName = (code?: string) => {
-    if (!code) return '-'
-    return zoneTypes.find((z) => z.code === code)?.display_name ?? code
-  }
-  /**
    * 平台展示名（{v2026-09-28 决策 110} / 契约快照 §11）：**资源行 `platform_code` 一等字段**为唯一权威，
    * 经 `GET /platform-dict` 解析 `platform_name`；字典缺条目回退显示 `platform_code`，
    * 停用条目标识「平台名（已停用）」（存量资源保留历史值）。留空显示 '-'。
@@ -109,19 +122,15 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     return !!p && !p.enabled
   }
 
-  /** 打开抽屉时抓取详情展示只读字典（云 / 网络分区 / 平台） */
+  /** 打开抽屉时抓取详情展示只读字典（云 / 平台） */
   useEffect(() => {
     if (!open || !record) return
-    // 只读字典（云字典 §5.20 / 决策 98；M06 网络分区字典 / 决策 103 scheme-B）：
-    // 二者均不影响详情主渲染，加载失败静默降级（缺条目回退编码）
+    // 只读字典（云字典 §5.20 / 决策 98）：
+    // 不影响详情主渲染，加载失败静默降级（缺条目回退编码）
     cloudDictApi
       .list()
       .then((res) => setCloudDicts(res.data?.list ?? []))
       .catch(() => setCloudDicts([]))
-    zoneTypeApi
-      .list()
-      .then((res) => setZoneTypes(res.data ?? []))
-      .catch(() => setZoneTypes([]))
     // {v2026-09-28 决策 110}：平台字典（读资源行 platform_code 解析 platform_name）；
     // 不再拉取应用字典——「平台」列不再经已废弃的 ApplicationDict.platform_code 派生（决策 118-3）
     platformDictApi
@@ -138,24 +147,6 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           key: 'network_domain_id',
           label: '网域',
           children: <Tag color="cyan">{domainNameOf(record.network_domain_id)}</Tag>,
-        },
-        // 决策 103 scheme-B：网络分区唯一权威 = 所属网域 zone_type，**五类资源均只读派生**
-        // （不再仅限 host）——无编辑入口（不提供任何一致性引导文案：不存在两处填写）
-        {
-          key: 'zone_type',
-          label: '网络分区',
-          children: (
-            <span>
-              {domainZoneType ? (
-                <Tag>{resolveZoneTypeName(domainZoneType)}</Tag>
-              ) : (
-                <Text type="secondary">-</Text>
-              )}
-              <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                继承所属网域
-              </Text>
-            </span>
-          ),
         },
         {
           key: 'biz_code',
@@ -292,6 +283,33 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       })()
     : []
 
+  /** 能力属性：固定标记（主机）+ 已登记的扩展属性值 */
+  const capabilityItems = record
+    ? [
+        ...(record.resource_category === 'host'
+          ? [
+              {
+                key: 'has_npu',
+                label: 'NPU 芯片',
+                children: record.has_npu ? <Tag color="geekblue">有</Tag> : <Tag>无</Tag>,
+              },
+              {
+                key: 'has_gpu',
+                label: 'GPU 芯片',
+                children: record.has_gpu ? <Tag color="geekblue">有</Tag> : <Tag>无</Tag>,
+              },
+            ]
+          : []),
+        ...(extensionAttrs.length > 0
+          ? extensionAttrs.map((attr) => ({
+              key: `attr-${attr.key}`,
+              label: attr.key,
+              children: attr.value,
+            }))
+          : [{ key: 'attr-empty', label: '扩展属性', children: '未登记扩展属性值' }]),
+      ]
+    : []
+
   return (
     <Drawer
       title="资源详情"
@@ -308,7 +326,31 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         <>
           <Descriptions column={2} size="small" title="基础信息" items={baseItems} />
           <Descriptions column={2} size="small" title="类型字段" style={{ marginTop: 16 }} items={typeItems} />
+          <Descriptions
+            column={2}
+            size="small"
+            style={{ marginTop: 16 }}
+            title={
+              <Space>
+                能力属性
+                <Button size="small" onClick={() => setAttrDrawerOpen(true)} data-testid="edit-resource-attributes">
+                  维护扩展属性
+                </Button>
+              </Space>
+            }
+            items={capabilityItems}
+          />
           <ResourceLabelsTab {...labelsTab} isApplication={isApplication} tokens={tokens} />
+          <ResourceAttributesDrawer
+            open={attrDrawerOpen}
+            record={record}
+            onClose={() => setAttrDrawerOpen(false)}
+            onSaved={() => {
+              void resourceAttributeApi.list(record.resource_id).then((res) => {
+                setExtensionAttrs(res.data?.list ?? [])
+              })
+            }}
+          />
         </>
       )}
     </Drawer>
