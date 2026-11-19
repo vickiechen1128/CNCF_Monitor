@@ -678,7 +678,7 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 }
 ```
 
-- `GET /metric-library`：筛选 `monitor_type` / `metric_type` / `category` / `keyword` / `enabled` + 分页。
+- `GET /metric-library`：筛选 `monitor_type` / `resource_category`（资源类别，按 `monitor_types` 锚点归属展开过滤）/ `metric_type` / `category`（语义域，如 cpu / memory）/ `keyword` / `enabled` + 分页。`monitor_type` 与 `resource_category` 同时传入时按 AND 组合；`resource_category` 无对应监控类型（如 `interface_service`）或取值未知时返回空页。
 - `POST`：用户扩展指标，`is_builtin=false`；`metric_name` 重复且同 `monitor_type` 锚点 → 409。
 - `PUT /metric-library/{id}`：可更新 `enabled` / `help` / `unit` / `monitor_types` / `category`；内置行 → 403。
 - `DELETE /metric-library/{id}`：内置行 → 403；用户行软删。

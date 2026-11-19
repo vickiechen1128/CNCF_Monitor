@@ -89,3 +89,9 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 3. **F4 测试门禁**：目标目录 vitest、`typecheck:test`、`pnpm lint`；删除 v2 客户端与相关测试。
 
 > 旧 `/api/v2` 客户端在页面迁完前保留，避免半迁移导致页面不可用。
+
+## 7. 2026-11-18 指标库筛选修复
+
+- **问题**：`MetricLibraryPage` 的「资源类别」只用于收敛「监控类型」下拉并清空已选类型，`load` / `loadAgg` 均未把 `category` 传给后端，导致单独按资源类别筛选不生效；「监控类型」虽已传参，但后端未实现该过滤。
+- **修复**：`metricLibraryApi.list` 参数新增 `resource_category`（与语义域 `category` 区分）；`load` / `loadAgg` 传入 `resource_category: category`，并把 `category` 加入 `useCallback` 依赖，分组视图与顶部统计同步受筛选影响。
+- **回归测试**：新增「资源类别变更发送 resource_category」与「监控类型变更发送 monitor_type」两个用例；`MetricLibraryPage.test.tsx` 7 项、`metricLibrary.test.ts` 4 项通过；`pnpm run typecheck:test`、eslint 通过。

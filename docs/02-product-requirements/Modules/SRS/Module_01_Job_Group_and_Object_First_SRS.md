@@ -6,13 +6,13 @@
 > **状态**：初稿（待评审）
 > **编写日期**：2026-11-17
 > **对应模块**：Module 01 — 监控策略与指标管理（增量能力：**Job 组**）
-> **基线文档**：[Module_01_Metric_Collection_Center_Requirements.md](Module_01_Metric_Collection_Center_Requirements.md)（v1.2）
+> **基线文档**：[Module_01_Metric_Collection_Center_Requirements.md](Module_01_Metric_Collection_Center_Requirements.md)（v1.3）
 > **关联文档**：
 > - [Module_07_Monitoring_Object_Management_Requirements.md](Module_07_Monitoring_Object_Management_Requirements.md)（资源 = 监控对象，含 `network_domain_id`）
 > - [Module_09_Network_Domain_Access_and_Query_Center_Requirements.md](Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)（每域独立配置包与同步状态）
 > - `docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md`（M09 契约，本次不新增端点）
 
-> **阅读约定**：本文件是**增量 SRS**，只定义「新增的 Job 组能力 + 被替换的 Job 创建动线」，未提及的 M01 需求一律沿用基线文档 v1.2。合并进基线时，本文件的 FR 编号建议改为 FR-4x，并按基线章节归位。
+> **阅读约定**：本文件是**增量 SRS**，只定义「新增的 Job 组能力 + 被替换的 Job 创建动线」，未提及的 M01 需求一律沿用基线文档 v1.3。合并进基线时，本文件的 FR 编号建议改为 FR-4x，并按基线章节归位。
 
 ---
 
@@ -221,11 +221,11 @@ M09 的物理约束不变：
   | `cluster` | 集群 | text | 资源字段（`eq` / `contains`） |
   | `owner` | 负责人 | text | 资源字段（`contains`） |
 
-- **云 / 可用区不单独建字段**：资源表没有云字段，云归属挂在网域上（M06 `cloud_code` / `zone_type`），
-  P0 的做法是在**网域选项标签**里附带归属信息（如 `域A（阿里云 / 北京）`），用户选域即等于选云；
+- **云 / 可用区不单独建字段**：资源表没有云字段，云归属挂在网域上（M06 `cloud_code`），
+  P0 的做法是在**网域选项标签**里附带归属信息（如 `域A（阿里云）`），用户选域即等于选云；
   P1 再评估是否引入 `cloud_code` 的 join 过滤或「选云 → 自动填入该云下的网域」的快捷组合器。
 
-- `monitor_type` 是**范围选择器**而非筛选条件：候选集分类与子类型仍由它决定；
+- `monitor_type` 是**范围选择器**而非筛选条件：候选集分类与子类型仍由它决定（**自 M01 SRS v1.3 起，该「决定」由可配置的推导规则完成，不再是代码里写死的类别/子类型映射**；规则维护见 M01 SRS §5.6）。同一资源可同时落在多个 `monitor_type` 的候选范围内，这正是「一个 CI 多个采集器」的来源，不做互斥；
 - **网域条件的定位（红线）**：`network_domain_id` 只用于**收窄本次可选实例**，
   不得被理解为「本次任务绑定/下发到这些域」。子 Job 的网域分布由**所选资源自身的
   `network_domain_id`** 在保存时派生（与筛选条件无关）；界面必须在网域条件处标注这一点，

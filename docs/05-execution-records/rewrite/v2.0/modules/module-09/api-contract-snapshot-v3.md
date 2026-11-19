@@ -133,7 +133,7 @@
       "steps": [
         "下载离线安装包",
         "解压部署到 /opt/apps/edge-sync-agent",
-        "配置 CENTER_ENDPOINT 与接入 Token",
+        "编辑 env/edge-sync-agent.env 填入网域 ID、接入 Token 与中心地址（其余变量已给推荐值）",
         "启动 Agent 并验证心跳回连"
       ],
       "package_download_url": "/api/v3/platform/edge-packages/latest"
@@ -287,6 +287,7 @@ POST /network-domains/:id/token/reset
 - `artifact_type`：`domain` / `center` / `alertmanager`；`network_domain_id` 仅 domain 有值。
 - 列表/详情登录可见；内容预览、导出、恢复包仅 admin（产物含凭据明文）。
 - 历史内容必须持久化：domain/center 存内容文件（`config-output/snapshots/<scope_key>/<version>.json`），alertmanager 存 DB `content` 列。
+- **2026-11-18 起（SRS v1.7）**：domain/center 历史按自然日裁剪，保留最近 30 天、每天最多一份成功版本（时区默认 `Asia/Shanghai`，可用 `METRIC_CENTER_SNAPSHOT_TIMEZONE` / `METRIC_CENTER_SNAPSHOT_RETENTION_DAYS` 覆盖）；同一天多次成功变更只保留最后一份；**失败尝试不写入快照历史**，仅回写 M01 `sync_status` / `sync_error` 与日志。alertmanager 沿用 M08 的 20 份版本策略。
 
 #### 4.3.2 端点
 
@@ -304,6 +305,53 @@ POST /network-domains/:id/token/reset
 - 中心恢复包取各类型**当前生效**版本；M08 不可用时省略 `alertmanager.yml` 并在 manifest 标注；无中心产物返回 404。
 - 预览/导出不改变当前版本、不触发 reload。
 - 非 admin 调用内容/导出/恢复包返回 `403 forbidden`。
+
+### 4.4 即时同步触发（2026-11-18）
+
+> 保存 M01 Job / 规则后由前端 best-effort 调用，缩短「待同步」窗口；
+> 30s watcher 仍是最终兜底。触发失败不阻断保存动线。
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| POST | `/config-sync/trigger` | 登录（domain）/ admin（center/all） | 立即生成配置快照；`scope=domain` 需 `network_domain_ids`，`scope=center` 重算中心规则，`scope=all` 覆盖全部启用边缘域 + 中心规则 |
+
+请求：
+
+```json
+{
+  "scope": "domain",
+  "network_domain_ids": ["mc-demo"],
+  "wait": false
+}
+```
+
+响应（`wait=false` 为 202 语义；`wait=true` 同步执行并返回结果）：
+
+```json
+{
+  "accepted": true,
+  "completed": true,
+  "domains": [
+    {
+      "network_domain_id": "mc-demo",
+      "version": "20261118-0a1b",
+      "validation_status": "passed",
+      "validation_cause": "none"
+    }
+  ],
+  "center": {
+    "version": "20261118-1c2d",
+    "validation_status": "passed",
+    "validation_cause": "none"
+  }
+}
+```
+
+- `scope=domain` 仅 admin 且网域必须存在、`domain_type=edge`、`status=enabled`。
+- `scope=domain` 的请求会去重并限制最多 200 个网域；`scope=center/all` 不接受 `network_domain_ids`。
+- `wait=false` 进入 500ms debounce 后台队列，同一网域的连续保存合并为一次生成。
+- `completed=false` 表示等待超时但任务已入队，前端应轮询 M01 `sync_status`。
+- 不改变现有只读历史/导出端点的语义；触发成功后的新快照仍按 §4.3 展示。
 
 ---
 

@@ -394,3 +394,147 @@ $ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
 - 采集 Job / 监控规则列表删除「变更进度」列。
 - 改为「启用状态 + 同步状态」两列，由 `SyncStatusTag` 消费 v3 `sync`。
 - 移除 pending 期编辑/启停/删除锁、批量提交草稿入口与 `triggerConfigDrafts` 调用。
+
+---
+
+## 12. 2026-11-18 指标库筛选修复（增量）
+
+- **补上未实现的 `monitor_type` 过滤**：`MetricHandler.List` 读取 `monitor_type`，`MetricFilter` 新增 `MonitorType`；repository 按方言匹配 `monitor_types` JSON 锚点（SQLite `json_each` / PostgreSQL `jsonb_array_elements`）。
+- **新增 `resource_category` 参数**：粗粒度资源类别（host / database / middleware / application / generic_target）由 `domain.MonitorTypesForCategory` 展开为该类别的监控类型集合后按锚点归属过滤；与 `monitor_type` 同时传入时 AND 组合，无对应类型（如 interface_service）或未知类别返回空页。
+- **语义澄清**：契约中的 `category` 仍表示指标语义域（cpu / memory / ...），不承载资源类别，避免 `category=host` 查不到数据。
+- **契约**：`api-contract-snapshot-v3.md` §7.1 已同步 `resource_category` 与 AND 语义。
+- **验证**：`go test ./platform/modules/m01/...`、`go vet ./platform/modules/m01/...` 通过；SQLite 与 PostgreSQL（`METRIC_CENTER_TEST_POSTGRES_DSN`）测试均通过；服务启动后用内置种子验证 all=19 / host=6 / database=4 / mysql=2 / application+host_linux=0。
+
+---
+
+## 13. 2026-11-18 监控对象类型配置化 + 一个 CI 多采集器（增量）
+
+> 需求来源：SRS Module_01 v1.3 §3.1 / §5.6（FR-21~FR-24）、SRS Module_07 v2.1 §3.5 / §5.8（FR-30/FR-31）。
+> 目标：`monitor_type` 从 Go 枚举变为平台可配置元数据；一个 CI 可同时命中多个类型，被多个采集器分别采集。
+
+### 13.1 schema（migration）
+
+| 文件 | 内容 |
+|------|------|
+| `0019_m07_resource_capabilities.{sqlite,postgres}.sql` | `host_resources` 增 `has_npu` / `has_gpu`（NOT NULL DEFAULT FALSE）；新增 `m07_attribute_definitions`（能力 key 字典）与 `m07_resource_attributes`（资源 × key × value），均有 Up/Down |
+| `0020_m01_monitor_type_registry.{sqlite,postgres}.sql` | 新增 `m01_monitor_types`（code/name/resource_category/rule_logic/enabled/is_builtin）与 `m01_monitor_type_rules`（field/operator/values/priority），`match_operator` 由 CHECK 约束枚举 |
+
+### 13.2 M01 实现
+
+- `domain/monitor_registry.go`：`MonitorTypeDefinition` / `MonitorTypeRule` / `MonitorTypeScope` / `MonitorTypeRegistry`（不可变快照 + `MonitorTypeRegistryHolder`），定义/规则的保存期校验（字段白名单、操作符与字段类型匹配、值类型校验）。
+- `domain/scope_fields.go`：**受控字段白名单**（os_family / os_type / has_npu / has_gpu / database_type / middleware_type / …），key → 物理列的映射由服务端持有，用户输入只作为参数绑定。
+- `domain/builtin_monitor_types.go`：内置 10 个类型作为种子（`npu` 更名为 `host_npu`，规则改为 `has_npu = true`，与 OS 类型正交）。
+- `domain/monitor_type.go`：`ValidMonitorType` / `CategoryForMonitorType` / `MonitorTypesForCategory` 改为读取注册表；**所有既有校验点（Job / 映射 / 规则 / 指标锚点 / 采集器 supported_monitor_types）自动支持新类型，无需改调用方**。
+- `repository/monitor_type.go`：定义与规则持久化、整组规则替换、引用计数（mappings / jobs / rules / metric anchors）。
+- `service/monitor_type.go`：CRUD + 影响面（引用数 + 当前匹配资源数）+ 每次写操作后重建快照并 `InstallMonitorTypeRegistry`；`EnsureBuiltins` 幂等补种子；`Bootstrap` 在 boot 时执行。
+- `handler/monitor_type.go` + `dto/monitor_type.go`：`/api/v3/platform/monitor-types`（List/Create/Get/Update/Delete/Impact）与 `/monitor-types/scope-fields`。
+- `references/resource.go`：候选实例收敛改为**规则解释**——`candidateScope` 取注册表 scope，`scopePredicate` 按 `all`/`any` 组合成 SQL 谓词；`os_family` 为虚拟字段，展开为 OS 字典关键字（保持 Ubuntu / RedHat 等规范名匹配行为）；`regexp` 仅 Postgres。
+- `references` 新增 `CountCandidates`，供影响面预览复用同一查询，避免预览与表单漂移。
+- `seed/seed.go`：新增 `seedMonitorTypes`（create-only，不覆盖用户修改）。
+
+### 13.3 M07 实现
+
+- `domain/attributes.go`：`HostAttributes` 增 `HasNPU` / `HasGPU`，校验不变。
+- `dto/attributes.go` / `dto/resource.go`：`has_npu` / `has_gpu` 进入 host 属性 payload。
+- `repository/models.go` / `mapping.go`：host 扩展表读写两个能力列。
+- `domain/capability.go`：`AttributeDefinition`（key / 值类型 / 枚举 / 必填 / 启停）与 `ResourceAttribute`，按类型校验取值。
+- `repository/attribute_repository.go`、`service/attribute_service.go`、`handler/attribute_handler.go`、`dto/attribute.go`：字典 CRUD + 资源属性整组替换；有引用的 key 只允许停用、不允许删除。
+- 路由：`/api/v3/platform/attribute-definitions`（CRUD）、`/api/v3/platform/resources/:resource_id/attributes`（GET/PUT）。
+
+### 13.4 行为变更（相对旧实现）
+
+| 旧行为 | 新行为 | 原因 |
+|--------|--------|------|
+| `monitor_type` 由 `candidateScope` 的 switch 决定 | 由 DB 规则 + 注册表决定；switch 删除 | FR-21/22，新增类型不改代码 |
+| `npu` 类型候选为主机全集 | `host_npu` 由 `has_npu = true` 推导，可与 `host_linux` 同时命中 | FR-10/23，一个 CI 多采集器 |
+| 一台主机只能被一种主机类型选中 | 同一主机可出现在 host_linux 与 host_npu 两个候选池 | FR-23 |
+| 新增类型需改常量 + 发版 | 界面/API 新增，保存即生效 | NFR-11 |
+
+### 13.5 验证
+
+- `go build ./platform/...`、`go vet ./platform/...` 通过。
+- `go test ./platform/...` 全绿。
+- 迁移 Up/Down：`platform/db/monitor_type_registry_migration_test.go`（0019/0020 建表、唯一索引、CHECK 约束、回滚后重放）。
+- 路由级：`TestSetupV3RouterMountsSystemM06M07` 断言 `/monitor-types`、`/monitor-types/scope-fields`、`/attribute-definitions` 已挂载且受鉴权；登录后 `/monitor-types` 返回内置类型（Bootstrap 生效）。
+- 业务级：`TestSameHostMatchesOSAndNPUTypes`（同一主机同时命中 host_linux 与 host_npu）、`TestRuntimeRegisteredTypeDrivesCandidates`（运行时注册即生效）、`TestCreateMonitorTypeIsImmediatelyUsable`、`TestReplaceResourceAttributesValidatesValues` 等。
+- 说明：本地 SQLite 仅测试可用，生产默认 Postgres，故未做真实进程启动冒烟；等价验证由 `setupV3Router` 测试承担（真实 router + 全部 v3 模块 + 鉴权）。
+
+### 13.6 遗留 / 下一步
+
+- 前端页面（监控对象类型管理页、资源能力属性区）未实现，API 已就绪。
+- Excel 导入尚未支持 `has_npu` / `has_gpu` 固定列与「属性名=值」扩展属性列（FR-30/31 的导入分支）。
+- 规则字段中的 `regexp` 仅 PostgreSQL 支持；SQLite 下保存期可校验，运行期返回明确错误。
+- 删除了 `MONITOR_TYPE_DERIVATION_MAP` 在 M01 的运行时用途；`platform/models/monitor_type.go`（legacy v2）保持原样，未触碰。
+
+---
+
+## 14. 2026-11-18 收尾三件套：npu 改名兼容 / 前端管理页 / Excel 能力列
+
+> 承接 §13。需求来源：SRS Module_01 v1.3 §3.1/§5.6、Module_07 v2.1 §5.8（FR-30/31）。
+
+### 14.1 ① `npu` → `host_npu` 改名兼容
+
+- **数据订正 migration** `0021_m01_npu_code_rename.{sqlite,postgres}.sql`：把存量 `npu` 改写为 `host_npu`，覆盖 `m01_scrape_jobs`、`m01_job_groups`、`m01_ci_type_exporter_mappings`、`m01_monitoring_rules` 的 `monitor_type`，以及 `m01_exporter_templates.supported_monitor_types`、`m01_metric_library.monitor_types` 两个 JSON 文本列；若曾有中间版本写入 `npu` 的类型定义行，一并改名为 `host_npu`（仅当 `host_npu` 尚不存在）。语句幂等，新库执行影响 0 行。
+- **入参别名**：`domain.NormalizeMonitorTypeCode` 把 `npu` 解析为 `host_npu`，`MonitorTypeRegistry.Get` 内部先归一；Job 与默认采集配置在保存前归一，避免旧客户端/旧表格继续写入过期编码。
+- 验证：`platform/db/monitor_type_registry_migration_test.go` 回滚 0021 → 写入 legacy `npu` 行 → 重放 0021 → 断言 Job 与 exporter 支持列表均已改写；`TestLegacyNPUCodeResolvesToHostNPU` 覆盖别名解析。
+
+### 14.2 ② 前端页面
+
+| 文件 | 说明 |
+|------|------|
+| `ui-custom/web/src/types/monitorType.ts` / `api/monitorTypes.ts` | 类型定义、规则、影响面、字段白名单的类型与 API 客户端 |
+| `ui-custom/web/src/pages/strategy/MonitorTypePage.tsx` | 监控对象类型管理页：列表（编码/名称/类别/规则/启停/内置）+ 新增/编辑抽屉（规则动态行：字段来自白名单、操作符按字段类型收敛、取值按 boolean/os_family 给固定选项）+ 影响面弹窗 |
+| `ui-custom/web/src/pages/strategy/MonitorTypePage.test.tsx` | 列表渲染、加载失败、新增抽屉 3 条行为测试 |
+| `ui-custom/web/src/types/attribute.ts` / `api/attributes.ts` | 扩展属性字典与资源属性值 API |
+| `ui-custom/web/src/pages/resources/AttributeDefinitionsDrawer.tsx` | 扩展属性字典抽屉（登记 key / 值类型 / 枚举 / 必填 / 启停 / 删除） |
+| `ui-custom/web/src/pages/resources/ResourceAttributesDrawer.tsx` | 单资源扩展属性编辑抽屉，字段由字典动态生成（boolean/number/text/enum） |
+| `ResourceFormDrawer`（host） | 新增「NPU 芯片」「GPU 芯片」开关，随 `attributes.has_npu/has_gpu` 提交与回显 |
+| `ResourceDetailDrawer` | 新增「能力属性」区：NPU/GPU 标记 + 扩展属性值，入口「维护扩展属性」 |
+| `ResourcesPage` | 工具栏新增「扩展属性字典」入口 |
+| `App.tsx` / `MainLayout.tsx` | 新增 `/monitor-types` 路由与「采集策略 → 监控对象类型」菜单项 |
+
+- 说明：详情抽屉的按钮文案由「编辑扩展属性」改为「维护扩展属性」——「编辑」前缀会与既有的「编辑」按钮在 `getByRole('button', {name:/编\s*辑/})` 查询中冲突（实测导致 ResourceDetailDrawer 两条测试失败）。
+
+### 14.3 ③ Excel 导入能力列
+
+- `importer/template.go`：host 模板新增 `has_npu`、`has_gpu`、`attributes` 三列；其余类别新增 `attributes`；三列均为**尾部可选列**，旧模板文件仍可导入（header 校验裁掉尾部可选列后比对前缀）。
+- `importer/excel.go`：新增 `HasNPURaw` / `HasGPURaw` / `AttributesRaw` 与 `parseBoolCell`（支持 `true/false/1/0/是/否/有/无`）。
+- `importer/row.go`：布尔列落入 `HostAttributes.HasNPU/HasGPU`；`AttributePairs()` 解析 `key=value;key2=value2`，格式错误给行级错误。
+- `importer/validate.go`：`ValidatedRow` 携带 `Attributes` 交由导入服务按字典校验。
+- `service/import_service.go`：`SetAttributeWriter` 注入字典与写入端口；**先校验后建资源**（未登记 key / 停用 key / 非法取值直接判行失败，避免"资源已建、属性静默丢弃"），再按 key 合并写入（不覆盖 UI 维护的其他属性）。
+- `module.go`：M07 组合根注入扩展属性仓储。
+- 前端 `TemplateDownloadModal` 的填报提示补 `has_npu` / `has_gpu` / `attributes` 三列说明。
+
+### 14.4 验证
+
+- 后端：`go test ./platform/...` 全绿、`go vet ./platform/...` 通过（含新增 `TestMigrateV3MonitorTypeRegistryAndCapabilities` 的 0021 回滚/重放、`TestParseExcelCarriesCapabilityColumns`、`TestImportPersistsCapabilityFlagsAndAttributes`、`TestImportRejectsUnregisteredAttributeKey`）。
+- 前端：`tsc --noEmit`（应用与测试两套配置）通过；`eslint` 对全部新增/改动文件通过；`vitest run MonitorTypePage.test.tsx` 3/3 通过；`ResourceFormDrawer.test.tsx`（58）、`ResourceDetailDrawer.test.tsx`（25）通过。
+- 已知环境问题：`ResourcesPage.test.tsx` 的 F-17/F-13 与 F-17/F-8-b 两条在**未包含本次改动**的对照实验下同样超出 15s 默认超时（实测 20.6s），属既有慢用例 + 本机负载，与本轮改动无关；`--testTimeout=60000` 下通过。
+
+### 14.5 遗留
+
+- Excel 导入暂不支持「能力属性」的批量声明 sheet（沿用资源列直填）。
+- 前端未提供监控对象类型规则的批量导入/导出。
+- 扩展属性值暂不参与列表列展示与筛选（仅详情与编辑）。
+
+### 14.6 2026-11-18 补正：扩展属性接入资源登记表单（用户实测反馈）
+
+- **问题**：§14.2 只把扩展属性接到了「资源详情 → 维护扩展属性」抽屉与 Excel 导入，**新增/编辑资源的主表单没有渲染动态字段**，导致用户登记了 `testkey` 后在「新增资源」里看不到。这是实现缺口，不是设计取舍——FR-31 要求「资源登记表单按适用类别动态展示扩展属性字段」。
+- **修复**：
+  - `resourceFormFields.tsx` 新增 `renderResourceExtensionAttributes(definitions)`：按值类型渲染 Switch / InputNumber / Select(enum) / Input，字段名挂在 `extension_attributes.<key>`。
+  - `ResourceFormDrawer.tsx`：打开抽屉时按当前资源类别拉取启用中的扩展属性字典；编辑态拉取已有值并在**字段挂载后**回填（Form `preserve={false}` 会丢弃未挂载字段的值，故回填放在独立 effect）；提交成功后按「先建/改资源 → 再写扩展属性」两步落库；布尔字段显式写 true/false，其余空值即清空；字典未渲染的历史 key 原样保留（不做隐式删除）。
+  - 新增 2 条测试：新增态动态字段 + 创建后落值；编辑态回显 + 历史 key 保留。`ResourceFormDrawer.test.tsx` 60/60 通过。
+- **验证**：`tsc --noEmit`（应用 + 测试）、`eslint` 通过；`vitest run ResourceFormDrawer.test.tsx` 60/60。
+- **使用口径**：扩展属性字典变更后，已打开的抽屉不会热更新，**重新打开「新增/编辑资源」即可看到新字段**。
+
+### 14.7 2026-11-18 补正：前端类型下拉改为读注册表（用户实测反馈）
+
+- **问题**：后端 `monitor_type` 已配置化，但前端仍保留一份写死枚举 `MONITOR_TYPE_CASCADE` / `MONITOR_TYPE_MAP`（且还是旧编码 `npu`）。采集器管理、采集 Job、任务组、指标库、规则、采集器「支持监控类型」等 **12 处**下拉/展示全部取自该常量，因此新建的类型永远选不到。
+- **修复**：
+  - 新增 `pages/strategy/useMonitorTypeCatalog.ts`：`useSyncExternalStore` + 模块级单例，首次订阅拉取 `/api/v3/platform/monitor-types`；提供 `cascade` / `optionsForCategory` / `allCodes` / `nameOf` / `categoryFor`；加载失败或未加载时回退内置常量（静态预览与单测可用）；**仅启用类型进入可选列表**，停用类型保留名称以展示历史 Job。
+  - `types/strategy.ts`：`MonitorType` 由闭集联合改为开放 `string`（类型集合已配置化）。
+  - 12 个消费点改为读目录：`MappingDrawer`、`ScrapeJobFormDrawer`、`JobGroupWizardDrawer`、`CollectorTemplatesTab`、`ScrapeJobListPage`、`MetricLibraryPage`、`RulesPage`、`RuleMountDrawer`、`ExporterTemplateDrawer`、`LabelTemplateSelectDrawer`、`ScrapeJobDetailDrawer`；`strategyConstants` 的常量降级为「内置回退数据」并更新为 `host_npu`。
+  - `MonitorTypePage` 拉取列表后调用 `applyMonitorTypeList()` 覆盖目录缓存：新增/改名/停用类型后，切到采集 Job、采集器管理立即看到，无需刷新页面。
+  - 依赖数组补齐 `catalog`（目录加载完成后下拉重算）；两处「打开抽屉重置表单」的 effect 刻意不纳入 `catalog` 并注明原因——否则目录加载完成会把用户已填内容清空。
+- **验证**：`tsc --noEmit`（应用 + 测试）、`eslint src/pages/strategy` 全通过；`vitest run src/pages/strategy` 20 个文件 / 156 条通过（含新增 `useMonitorTypeCatalog.test.ts` 4 条：回退内置、页面推送的启用类型进入候选、停用类型只保留名称、未知编码不渲染 undefined）；`vite build` 成功。
+- **口径提醒**：下拉只显示**启用**类型；保存默认采集配置时，若采集器的 `supported_monitor_types` 非空且不含该类型，后端会拒绝（`exporter does not support monitor type`），需先在采集器里勾选该类型。

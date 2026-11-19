@@ -449,3 +449,22 @@
   - `make repo-map` + `make check-repo-map`：**OK: repo-map 与当前业务代码一致**（pre-commit hook 亦自动复验通过）。
 - **A1~A12 自检**：A1/A2 迁出（策略卡/动线卡 + 两个控件从告警配置页消失，反向断言在 `alertSmoke` 与 `AlertConfigPage.test.tsx`）；A3~A5 路由规则页常驻路由设置卡、模式/兜底两控件 + 决策五提示句常驻、切手写自动置「不接管」且**不停用渠道**；A6 顶层路由 receiver 只读 + 指向唯一可改入口；A7 切换与兜底合并单次 PUT（决策三）；A8 切回「平台生成」不自动接管（决策四）；A9 兜底结论 Tag 行内展示、不复述渠道名/接收人名；A10 渠道页「兜底渠道」列三态判定、「建议兜底」与「兜底」不混用；A11 导入入口常驻卡；A12 「不即时生效 / 需经变更单确认」提示保持不变。全部通过。
 - **遗留 / 待 design 侧回写 PRD（提案 §6 D1~D6）**：D1 告警配置页 IA 收敛为「当前生效 + 版本历史 + 导入整份配置文件」；D2 路由规则页新增常驻「路由设置」卡；D3 通知渠道页新增「兜底渠道」列；D4 顶层路由 receiver 改只读；D5 模式切换与兜底变更合并为单次变更单；D6 决策五独立性提示句落位到路由规则页兜底控件旁。PRD 版本 +1 回写由 prototype-designer / chenrt 在 design 分支完成（本任务未改 `docs/02-product-requirements/` 与 `docs/prototypes/`）。
+
+## M08 侧边导航信息架构重排（2026-11-18，用户反馈「功能顺序比较乱没有逻辑」）
+
+- **问题**：M08 二级菜单历经多次增量（v1.12 告警状态、v1.13 历史告警、PL-3 通知渠道/模板、v0.3-a 路由规则、v1.22 告警抑制）逐步追加，顺序为「告警状态 → 静默管理 → 历史告警 → 通知渠道 → 通知模板 → 路由规则 → 告警抑制 → 告警配置」，同类能力被拆散（历史告警与告警状态相隔、静默与抑制相隔、路由与通知渠道倒置），用户难以建立心智模型。
+- **新顺序**（按「查看 → 收敛 → 分发 → 通知 → 只读产物」）：
+  1. **查看**：告警状态 → 历史告警；
+  2. **收敛**：静默管理（按时间窗临时静音）→ 告警抑制（按根因告警规则抑制）；
+  3. **分发**：路由规则（告警去哪个接收方）；
+  4. **通知**：通知渠道（接收方）→ 通知模板（通知内容）；
+  5. **只读产物**：告警配置（由路由 / 抑制 / 渠道保存时自动生成，保持置底）。
+- **改动范围**：
+  - `ui-custom/web/src/layouts/MainLayout.tsx`：仅调整 `MODULES` 中 `key: 'alert'` 的 `subItems` 顺序并重写注释说明排序依据；路由、图标、label、`resolveActiveModule` 映射均零改动（八个路径仍全部归属本模块）。
+  - `ui-custom/web/src/layouts/MainLayout.test.tsx`：原「prototype order」用例改为锁定完整八项顺序（`expect(siderLabels).toEqual(expectedOrder)`），并补齐 `/alert-history`、`/inhibitions`、`/routes`、`/notify-channels`、`/notify-templates` 路由挂载；用例名改为「IA order: 查看 → 收敛 → 分发 → 通知 → 只读产物」。
+- **保持约定**：不引入菜单分组标题 / 分割线，与其他模块的扁平二级菜单一致；侧栏首项仍为「告警状态」，顶栏切换模块默认落点不变。
+- **验证结果**：
+  - `pnpm vitest run src/layouts/MainLayout.test.tsx`：**25 / 25 通过**；
+  - `pnpm run typecheck:test`：**EXIT=0**；
+  - `pnpm exec eslint src/layouts/MainLayout.tsx src/layouts/MainLayout.test.tsx`：**0 问题**。
+- **待 design 侧同步**：原型 `docs/prototypes/module-08/src/layouts/MainLayout.tsx` 仍是旧顺序（告警状态 → 路由规则 → 通知渠道 → 静默规则 → 告警抑制 → 配置管理），本任务按目录权限未改原型与 PRD，建议后续原型轮一并承接。
