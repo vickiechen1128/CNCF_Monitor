@@ -10,7 +10,8 @@ Token 与中心通信（心跳上报 / 配置包拉取 / remote_write），本�
 
 - `bin/`  三件套二进制（linux/amd64 + linux/arm64，部署机按架构选装）：
   `edge-sync-agent-*`（守护）/ `vmagent-*`（采集器）/ `blackbox_exporter-*`（拨测器）
-- `packaging/edge-sync-agent.service`  systemd 守护单元（父进程模式、TimeoutStopSec=15、CAP_NET_RAW 注释）
+- `packaging/edge-sync-agent.service`  systemd 守护单元（父进程模式、TimeoutStopSec=15、EnvironmentFile= 加载 env 配置）
+- `env/edge-sync-agent.env`  **服务环境配置**：全量变量及推荐默认值，部署时只需填三项必填（systemd 通过 EnvironmentFile= 加载）
 - `start.sh`  安装引导（systemd 优先；无 systemd 时前台快速验证）
 
 ## 部署（生产建议 systemd）
@@ -26,24 +27,30 @@ sudo mkdir -p /opt/apps/edge-sync-agent /opt/data/edge-sync-agent
 sudo tar -xzf edge-sync-agent-*.tar.gz -C /opt/apps/edge-sync-agent --strip-components=1
 sudo ln -sf /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 \
              /opt/apps/edge-sync-agent/edge-sync-agent
+# 编辑服务环境配置：只填三项必填，其余已给推荐值（含包内 bin/*-linux-<arch> 路径）：
+#   NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT
+sudo vi /opt/apps/edge-sync-agent/env/edge-sync-agent.env
 sudo install -m 0644 /opt/apps/edge-sync-agent/packaging/edge-sync-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
-# 编辑 unit 的 [Service] Environment=，填写三项必填 + 数据目录覆盖：
-#   NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT
-#   EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config
-#   EDGE_WAL_DIR=/opt/data/edge-sync-agent/vmagent-cache
 sudo systemctl enable --now edge-sync-agent
 ```
 
+- **服务环境配置 `env/edge-sync-agent.env` 是必填项的唯一填写入口**：unit 通过
+  `EnvironmentFile=` 加载；文件已内置全量变量推荐值——采集器/拨测器显式指向包内
+  `bin/vmagent-linux-amd64`、`bin/blackbox_exporter-linux-amd64`（**不在 PATH，不能省略**），
+  配置/缓存目录指向可写盘 `/opt/data/edge-sync-agent`。ARM64（麒麟 V10）机器把两个
+  `*_BIN` 路径中的 `-amd64` 改成 `-arm64`；改 `EDGE_COLLECTOR_ADDR` 时必须同步改 `EDGE_PROM_HEALTH_URL` 端口。
 - 默认 ExecStart 指向 `/opt/apps/edge-sync-agent/edge-sync-agent`；如需改安装目录，
-  同步修改 unit 的 ExecStart 与配置文件落点（`EDGE_CONFIG_ROOT`）。
+  同步修改 unit 的 ExecStart、`EnvironmentFile=` 路径与配置文件落点（`EDGE_CONFIG_ROOT`）。
 - 状态查看：`sudo systemctl status edge-sync-agent`
 - 停止：`sudo systemctl stop edge-sync-agent`
 
 ## 手动运行（无 systemd 的临时/调试/容器场景）
 
 ```bash
-export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=https://<center>:8080
+# 可直接加载服务环境配置文件（填好三项必填后）：
+set -a; . /opt/apps/edge-sync-agent/env/edge-sync-agent.env; set +a
+# 或逐项 export：export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=https://<center>:8080
 ./start.sh                                   # 或 ./bin/edge-sync-agent-linux-<arch>
 ./bin/edge-sync-agent-linux-amd64 -version   # 打印版本与平台
 ./bin/edge-sync-agent-linux-amd64 -help      # 参数
@@ -65,7 +72,7 @@ export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=https://<center>:8080
 | `EDGE_AGENT_VERSION` | `dev` | 心跳上报的 Agent 版本 |
 | `EDGE_CONFIG_ROOT` | `/opt/apps/edge-sync-agent/edge-config` | 配置包版本落盘根（生产建议指 `/opt/data/...`） |
 | `EDGE_WAL_DIR` | `<version>/vmagent-cache` | vmagent 抓取缓存目录（生产建议指 `/opt/data/...`） |
-| `EDGE_COLLECTOR_BIN` / `EDGE_BLACKBOX_BIN` | PATH 内 `vmagent` / `blackbox_exporter` | 子进程可执行文件 |
+| `EDGE_COLLECTOR_BIN` / `EDGE_BLACKBOX_BIN` | `bin/vmagent-linux-<arch>` / `bin/blackbox_exporter-linux-<arch>`（**在 env 文件中显式指定，不在 PATH**） | 子进程可执行文件；ARM64 机器把 `-amd64` 改成 `-arm64` |
 | `EDGE_COLLECTOR_ADDR` | `127.0.0.1:8429` | vmagent HTTP 监听地址（改端口见下节） |
 | `EDGE_PROM_HEALTH_URL` | `http://127.0.0.1:8429/health` | vmagent 健康探活（**改 `EDGE_COLLECTOR_ADDR` 时必须同步改**） |
 | `EDGE_BLACKBOX_ADDR` | `127.0.0.1:9115` | blackbox_exporter 监听与 TCP 探活地址（改端口见下节） |

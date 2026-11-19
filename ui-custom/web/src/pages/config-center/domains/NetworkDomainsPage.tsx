@@ -56,10 +56,32 @@ import {
 
 const { Text } = Typography
 
+// M09 安装指引：可复制的服务环境配置块（与包内 env/edge-sync-agent.env 对齐）。
+// systemd 通过 EnvironmentFile= 加载该文件；二进制路径带 arch 后缀且不在 PATH，必须显式给出。
+const EDGE_ENV_TEMPLATE = `# 编辑 /opt/apps/edge-sync-agent/env/edge-sync-agent.env
+# 身份与中心地址（必填：从中心网域纳管页获取）
+NETWORK_DOMAIN_ID=<网域 ID>
+TOKEN=<接入 Token>
+CENTER_ENDPOINT=http://<中心地址>:<端口>
+
+# 可写数据目录（程序盘 /opt/apps 只读）
+EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config
+EDGE_WAL_DIR=/opt/data/edge-sync-agent/vmagent-cache
+
+# 采集器/拨测器二进制（必须显式给路径：包内带 arch 后缀且不在 PATH）
+# ARM64 机器请把下面两行的 -amd64 改成 -arm64
+EDGE_COLLECTOR_BIN=/opt/apps/edge-sync-agent/bin/vmagent-linux-amd64
+EDGE_BLACKBOX_BIN=/opt/apps/edge-sync-agent/bin/blackbox_exporter-linux-amd64
+
+# 本机监听端口（仅绑回环；改采集端口须同步改探活 URL 端口）
+EDGE_COLLECTOR_ADDR=127.0.0.1:8429
+EDGE_PROM_HEALTH_URL=http://127.0.0.1:8429/health
+EDGE_BLACKBOX_ADDR=127.0.0.1:9115`
+
 /**
  * 网域纳管列表页（Module_09 §11.1 页面状态矩阵）。
  * PRD v1.79 §3.1.1 / §11.3：7 列收敛为 5 列（网域 / 纳管状态 / 采集节点在线 / 凭据 / 操作）；
- * 网络区域类型、下发通道两列已下沉至详情抽屉。详情抽屉 + 行内纳管 + 顶部安装指引 + 行内下载入口。
+ * 下发通道列已下沉至详情抽屉。详情抽屉 + 行内纳管 + 顶部安装指引 + 行内下载入口。
  * v3 只有采集节点域一种类型（无「中心直连域」），所有网域均需部署采集节点（SRS §2.3 / NFR-02）。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足状态。
  */
@@ -428,13 +450,15 @@ sudo ln -sf /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 \\
                             title: '启动 / 守护',
                             description: (
                               <span>
-                                编辑 <Typography.Text code>/etc/systemd/system/edge-sync-agent.service</Typography.Text> 的
-                                <Typography.Text code>[Service] Environment=</Typography.Text>，
-                                填写必填项 <Typography.Text code>NETWORK_DOMAIN_ID</Typography.Text>（网域 ID）、<Typography.Text code>TOKEN</Typography.Text>（接入 Token）、<Typography.Text code>CENTER_ENDPOINT</Typography.Text>（平台心跳地址），并按需覆盖数据目录
-                                <Typography.Text code>EDGE_CONFIG_ROOT / EDGE_WAL_DIR</Typography.Text> 指向 <Typography.Text code>/opt/data/edge-sync-agent</Typography.Text>，然后拉起：
+                                编辑服务环境配置 <Typography.Text code>/opt/apps/edge-sync-agent/env/edge-sync-agent.env</Typography.Text>
+                                （安装包已带全量推荐值，只需把 <Typography.Text code>NETWORK_DOMAIN_ID</Typography.Text>（网域 ID）、
+                                <Typography.Text code>TOKEN</Typography.Text>（接入 Token）、
+                                <Typography.Text code>CENTER_ENDPOINT</Typography.Text>（平台心跳地址）三项填真实值；
+                                采集器/拨测器带 arch 后缀的二进制路径、可写数据目录与回环端口均已预置）。整块复制后填三项必填即可：
+                                <pre style={{ margin: '8px 0 0 0', padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap' }}>{EDGE_ENV_TEMPLATE}</pre>
+                                保存后安装 unit（unit 通过 EnvironmentFile= 自动加载该文件）并拉起：
                                 <pre style={{ margin: '8px 0 0 0', padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap' }}>{`sudo install -m 0644 /opt/apps/edge-sync-agent/packaging/edge-sync-agent.service \\
              /etc/systemd/system/
-# 编辑上文件 Environment=（见上），随后：
 sudo systemctl daemon-reload
 sudo systemctl enable --now edge-sync-agent`}</pre>
                               </span>

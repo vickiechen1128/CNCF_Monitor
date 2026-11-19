@@ -240,7 +240,7 @@ func defaultInstallGuide() InstallGuide {
 		Steps: []string{
 			"下载离线安装包",
 			"解压部署到 /opt/apps/edge-sync-agent",
-			"配置 CENTER_ENDPOINT 与接入 Token",
+			"编辑 env/edge-sync-agent.env 填入网域 ID、接入 Token 与中心地址（其余变量已给推荐值）",
 			"启动 Agent 并验证心跳回连",
 		},
 		PackageDownloadURL: "/api/v3/platform/edge-packages/latest",

@@ -116,7 +116,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
         data: {
           items: [
             domainRow('default', '默认域', { is_monitored: false }),
-            domainRow('mc-a', '政务网A区', { zone_type: 'internet' }),
+            domainRow('mc-a', '政务网A区'),
           ],
           total: 2,
         },
@@ -304,6 +304,26 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(await screen.findByText('复制并保存接入 Token')).toBeInTheDocument()
     expect(screen.getByText(/接入密码/)).toBeInTheDocument()
     expect(screen.getByText(/重置后旧 Token 立即失效/)).toBeInTheDocument()
+  })
+
+  it('安装指引「启动/守护」步展示可复制完整 env 配置（含 arch 后缀二进制路径与三项必填）', async () => {
+    useNetworkDomainsMock.mockReturnValue(result())
+    const { container } = renderPage()
+    fireEvent.click(await screen.findByText(/采集节点接入操作流程（安装指引）/))
+    await screen.findByText('启动 / 守护')
+    const text = container.textContent ?? ''
+    // 服务环境配置文件路径（unit 通过 EnvironmentFile= 加载）
+    expect(text).toContain('/opt/apps/edge-sync-agent/env/edge-sync-agent.env')
+    // 三项必填
+    expect(text).toContain('NETWORK_DOMAIN_ID=<网域 ID>')
+    expect(text).toContain('TOKEN=<接入 Token>')
+    expect(text).toContain('CENTER_ENDPOINT=http://<中心地址>:<端口>')
+    // 此前遗漏的关键项：包内带 arch 后缀且不在 PATH 的二进制路径
+    expect(text).toContain('EDGE_COLLECTOR_BIN=/opt/apps/edge-sync-agent/bin/vmagent-linux-amd64')
+    expect(text).toContain('EDGE_BLACKBOX_BIN=/opt/apps/edge-sync-agent/bin/blackbox_exporter-linux-amd64')
+    // 可写数据目录 + 端口一致性提醒
+    expect(text).toContain('EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config')
+    expect(text).toContain('EDGE_PROM_HEALTH_URL=http://127.0.0.1:8429/health')
   })
 
   it('MEDIUM-1 纳管 agent_pull 域成功后弹一次性明文 Token 展示', async () => {

@@ -9,8 +9,11 @@
 #        ln -s /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-$(uname -m | ...) \
 #              /opt/apps/edge-sync-agent/edge-sync-agent
 #      （也可直接改 ExecStart 指向 bin/ 下对应 arch 的二进制）
-#   2) 拷贝本 unit 到 /etc/systemd/system/edge-sync-agent.service
-#   3) systemctl daemon-reload && systemctl enable --now edge-sync-agent
+#   2) 编辑服务环境配置 /opt/apps/edge-sync-agent/env/edge-sync-agent.env，
+#      填入三项必填（NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT），其余已给推荐值；
+#      ARM64 机器把两个 *_BIN 路径中的 -amd64 改成 -arm64
+#   3) 拷贝本 unit 到 /etc/systemd/system/edge-sync-agent.service
+#   4) systemctl daemon-reload && systemctl enable --now edge-sync-agent
 #
 # 查看日志：journalctl -u edge-sync-agent -f
 
@@ -27,25 +30,13 @@ ExecStart=/opt/apps/edge-sync-agent/edge-sync-agent
 Restart=always
 RestartSec=5s
 
-# 身份与中心地址（必填）：每网域 Token 由中心门户在纳管网域时获取
-Environment=NETWORK_DOMAIN_ID=
-Environment=TOKEN=
-Environment=CENTER_ENDPOINT=
-# Agent 类型/版本与部署根、WAL 目录（可选，有默认值）
-# 目录规范：程序只读 /opt/apps/edge-sync-agent，数据可写 /opt/data/edge-sync-agent
-#   EDGE_CONFIG_ROOT=配置包版本落盘根（默认 /opt/apps/.../edge-config，生产建议指 /opt/data/.../edge-config）
-#Environment=EDGE_AGENT_TYPE=vmagent
-#Environment=EDGE_AGENT_VERSION=__VERSION__
-#Environment=EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config
-#Environment=EDGE_WAL_DIR=/opt/data/edge-sync-agent/vmagent-cache
-# 采集器/拨测器可执行文件路径（可选，默认走 PATH）
-#Environment=EDGE_COLLECTOR_BIN=vmagent
-#Environment=EDGE_BLACKBOX_BIN=blackbox_exporter
-# 本机监听端口（可选，默认仅绑回环、不占对外端口，无需为其开通网络策略）
-# 注意：改 EDGE_COLLECTOR_ADDR 时必须同步改 EDGE_PROM_HEALTH_URL，否则组件会被判为不健康
-#Environment=EDGE_COLLECTOR_ADDR=127.0.0.1:8429
-#Environment=EDGE_PROM_HEALTH_URL=http://127.0.0.1:8429/health
-#Environment=EDGE_BLACKBOX_ADDR=127.0.0.1:9115
+# 环境变量统一由服务配置文件提供（EnvironmentFile 加载，路径为安装包固定布局）：
+#   /opt/apps/edge-sync-agent/env/edge-sync-agent.env
+# 该文件已内置全量变量推荐值，部署时只需填三项必填：
+#   NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT（每网域 Token 由中心门户纳管时签发）
+# 其中采集器/拨测器二进制路径必须显式指向包内 bin/*-linux-<arch>（不在 PATH），
+# 配置缓存/数据目录指向可写盘 /opt/data/edge-sync-agent（程序盘 /opt/apps 只读）。
+EnvironmentFile=/opt/apps/edge-sync-agent/env/edge-sync-agent.env
 
 # 优雅停止：等 Agent 取消上下文并停止子进程
 TimeoutStopSec=15

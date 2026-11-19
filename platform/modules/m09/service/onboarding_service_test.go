@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,8 @@ func TestMonitorIssuesTokenOnce(t *testing.T) {
 	assert.NotContains(t, result.TokenMasked, result.TokenPlain)
 	assert.Equal(t, "https://mc.example.com", result.CenterEndpoint)
 	assert.NotEmpty(t, result.InstallGuide.Steps)
+	assert.Contains(t, strings.Join(result.InstallGuide.Steps, " "), "env/edge-sync-agent.env",
+		"install guide must point users to the env file that carries all required variables")
 	assert.Equal(t, "/api/v3/platform/edge-packages/latest", result.InstallGuide.PackageDownloadURL)
 
 	access, err := repo.FindAccess(ctx, "mc-a")

@@ -25,12 +25,13 @@
 #   │   ├── edge-sync-agent-linux-amd64 / -arm64
 #   │   ├── vmagent-linux-amd64 / -arm64
 #   │   └── blackbox_exporter-linux-amd64 / -arm64
-#   ├── packaging/edge-sync-agent.service   # systemd unit（父进程守护）
+#   ├── packaging/edge-sync-agent.service   # systemd unit（父进程守护，EnvironmentFile= 加载 env）
+#   ├── env/edge-sync-agent.env    # 服务环境配置（全量变量推荐值，部署时填三项必填）
 #   ├── start.sh                   # 安装引导（systemd 或前台手动运行）
 #   └── README.md                  # 安装/配置/升级说明
 #
-# 文档单一来源：包内 README.md 与 unit 均直接拷贝自
-#   platform/edge-sync-agent/packaging/{README.md,edge-sync-agent.service}，
+# 文档单一来源：包内 README.md、unit 与 env 配置均直接拷贝自
+#   platform/edge-sync-agent/packaging/{README.md,edge-sync-agent.service,env/edge-sync-agent.env}，
 #   本脚本只把其中的 __VERSION__ 占位符替换为实际版本号——避免出现第二份会各自漂移的文档。
 #
 # 产物清理：默认只保留最新一份 tarball 与解压目录，打包前会删除同目录历史产物。
@@ -93,7 +94,8 @@ for b in "$BIN_AMD64" "$BIN_ARM64" "$BIN_VM_AMD64" "$BIN_VM_ARM64" "$BIN_BB_AMD6
     fi
 done
 for doc in "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.service" \
-           "$PROJECT_ROOT/platform/edge-sync-agent/packaging/README.md"; do
+           "$PROJECT_ROOT/platform/edge-sync-agent/packaging/README.md" \
+           "$PROJECT_ROOT/platform/edge-sync-agent/packaging/env/edge-sync-agent.env"; do
     if [ ! -f "$doc" ]; then
         echo ">>> ERROR: 缺少 ${doc##*/}（包内文档单一来源），打包中止"
         exit 1
@@ -115,7 +117,7 @@ for olddir in "$PKG_ROOT"/${PACK_SCOPE}*; do
     [ "$olddir" = "$PACK_DIR" ] && continue
     rm -rf "$olddir"
 done
-mkdir -p "$PACK_DIR"/bin "$PACK_DIR"/packaging
+mkdir -p "$PACK_DIR"/bin "$PACK_DIR"/packaging "$PACK_DIR"/env
 cp -f "$BIN_AMD64" "$PACK_DIR/bin/"
 cp -f "$BIN_ARM64" "$PACK_DIR/bin/"
 cp -f "$BIN_VM_AMD64" "$PACK_DIR/bin/"
@@ -123,6 +125,7 @@ cp -f "$BIN_VM_ARM64" "$PACK_DIR/bin/"
 cp -f "$BIN_BB_AMD64" "$PACK_DIR/bin/"
 cp -f "$BIN_BB_ARM64" "$PACK_DIR/bin/"
 cp -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.service" "$PACK_DIR/packaging/"
+cp -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/env/edge-sync-agent.env" "$PACK_DIR/env/"
 
 # 启动/安装引导脚本（systemd 优先，回落前台手动运行）
 # 注意：本段用 quoted heredoc（<<'EOF'），端口默认值与变量名需原样保留到部署机展开。
@@ -131,14 +134,15 @@ cat > "$PACK_DIR/start.sh" <<'EOF'
 # start.sh — Edge Sync Agent 安装引导
 #
 # 推荐以 systemd 部署（生产，见 packaging/edge-sync-agent.service）：
-#   sudo cp packaging/edge-sync-agent.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now edge-sync-agent
-#   编辑 /etc/systemd/system/edge-sync-agent.service 的 Environment= 填写三项必填：
-#     NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT，然后 sudo systemctl restart edge-sync-agent。
-#   systemd 场景自定义端口：取消该 unit 中对应 Environment= 行的注释并改成目标端口。
+#   1) 编辑服务配置 /opt/apps/edge-sync-agent/env/edge-sync-agent.env：
+#      填入三项必填 NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT；
+#      其余项已给推荐值（含包内 bin/*-linux-<arch> 二进制路径与回环端口），一般无需改动；
+#      ARM64（麒麟 V10）机器把两个 *_BIN 路径中的 -amd64 改成 -arm64。
+#   2) sudo cp packaging/edge-sync-agent.service /etc/systemd/system/
+#   3) sudo systemctl daemon-reload && sudo systemctl enable --now edge-sync-agent
+#   改配置后 sudo systemctl restart edge-sync-agent（unit 通过 EnvironmentFile= 加载该 env 文件）。
 #
-# 无 systemd 时（容器 / 调试）可前台手动运行：export 必填项后执行本脚本。
+# 无 systemd 时（容器 / 调试）可前台手动运行：source 上面的 env 文件（或 export 必填项）后执行本脚本。
 #
 # ---- 端口（可选自定义，默认无需改动）------------------------------------------
 # 采集器与拨测器默认只绑回环（127.0.0.1），不占对外端口，因此无需为其开通网络策略。
@@ -194,13 +198,13 @@ chmod +x "$PACK_DIR/start.sh"
 # 安装/配置/升级说明：直接拷贝仓库内唯一权威文档（文档单一来源），不再在此生成第二份。
 cp -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/README.md" "$PACK_DIR/README.md"
 
-# 版本注入：README 与 systemd unit 中的 __VERSION__ 占位符统一替换为实际版本号。
-for f in "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service"; do
+# 版本注入：README、systemd unit 与 env 配置中的 __VERSION__ 占位符统一替换为实际版本号。
+for f in "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service" "$PACK_DIR/env/edge-sync-agent.env"; do
     sed "s|__VERSION__|$EDGE_AGENT_VERSION|g" "$f" > "$f.tmp"
     mv "$f.tmp" "$f"
 done
 # 兜底自检：占位符不得残留（防止漏拷贝或漏渲染带病交付）。
-if grep -q "__VERSION__" "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service"; then
+if grep -q "__VERSION__" "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service" "$PACK_DIR/env/edge-sync-agent.env"; then
     echo ">>> ERROR: 版本占位符 __VERSION__ 未完全注入，打包中止"
     exit 1
 fi
