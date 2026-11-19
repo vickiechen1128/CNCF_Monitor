@@ -2,6 +2,7 @@ package domain
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -64,8 +65,27 @@ func TestValidateWebhookURL(t *testing.T) {
 }
 
 func TestClosedStatusMapping(t *testing.T) {
+	// Explicit resolved notification (webhook path).
 	assert.Equal(t, EventStatusSilencedClosed, ClosedStatus(EventStatusSilenced))
 	assert.Equal(t, EventStatusInhibitedClosed, ClosedStatus(EventStatusInhibited))
 	assert.Equal(t, EventStatusResolved, ClosedStatus(EventStatusFiring))
+
+	// Reconciler-inferred close: recovery time is unknown.
+	assert.Equal(t, EventStatusSilencedClosed, InferredClosedStatus(EventStatusSilenced))
+	assert.Equal(t, EventStatusInhibitedClosed, InferredClosedStatus(EventStatusInhibited))
+	assert.Equal(t, EventStatusResolvedUnknown, InferredClosedStatus(EventStatusFiring))
+
 	assert.Equal(t, EventStatusFiring, NormalizeStatus("weird"))
+}
+
+func TestOccurrenceKeyDedupAcrossPrecision(t *testing.T) {
+	fp := "fingerprint-1"
+	base := time.Date(2026, 11, 18, 3, 53, 22, 119624000, time.UTC)
+	// Webhook and reconciler observe the same alert a few ms apart / in a
+	// different zone: the key must still collide (dedup to one occurrence).
+	webhook := base.In(time.FixedZone("UTC+8", 8*3600))
+	reconciler := base.Add(200 * time.Microsecond)
+	assert.Equal(t, OccurrenceKey(fp, webhook), OccurrenceKey(fp, reconciler))
+	assert.Len(t, OccurrenceKey(fp, webhook), 64, "SHA-256 hex digest")
+	assert.Empty(t, OccurrenceKey("", base), "fingerprint-less alerts do not dedup")
 }

@@ -59,7 +59,6 @@ func TestRenderBuiltinFeishuCardTemplate(t *testing.T) {
 	assert.Contains(t, s, "**状态**: 告警中")
 	assert.Contains(t, s, "**主机**: 10.0.0.1:9100")
 	assert.Contains(t, s, "**网域**: dmz")
-	assert.Contains(t, s, "**区域**: INT")
 	assert.Contains(t, s, "**级别**: critical")
 	assert.Contains(t, s, "**摘要**: cpu high")
 	assert.Contains(t, s, `**详情**: cpu \u003e 90%`)

@@ -129,18 +129,3 @@ func CollectReceivers(nodes []RouteNode) map[string]bool {
 	return out
 }
 
-// RouteTreeSize returns the node count (used as a guard before persistence).
-func RouteTreeSize(nodes []RouteNode) int {
-	total := 0
-	var walk func([]RouteNode)
-	walk = func(list []RouteNode) {
-		for range list {
-			total++
-		}
-		for i := range list {
-			walk(list[i].Children)
-		}
-	}
-	walk(nodes)
-	return total
-}

@@ -16,7 +16,6 @@ import {
   FileSearchOutlined,
   FileTextOutlined,
   FundProjectionScreenOutlined,
-  GlobalOutlined,
   HddOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -119,6 +118,7 @@ const MODULES: ModuleDef[] = [
     path: '/collectors',
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
+      { key: '/monitor-types', label: '监控对象类型', icon: <TagsOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
       {
         // D-1b ⓐ（2026-09-28）：名称保持「规则编辑」不变，仅补副标题说明本页同时承载
@@ -156,20 +156,24 @@ const MODULES: ModuleDef[] = [
     key: 'alert',
     label: '告警收敛与通知管理',
     path: '/alert-status',
-    // 原型对齐（Module_08 原型 MainLayout 左侧栏）：告警状态置顶（第一），
-    // 告警配置落底（最后）；中间为静默管理、历史告警。
+    // 信息架构按「查看 → 收敛 → 分发 → 通知 → 只读产物」排序（用户反馈原顺序无逻辑）：
+    // 告警状态 / 历史告警（看现状与历史）→ 静默管理 / 告警抑制（临时与规则收敛）
+    // → 路由规则（告警分发到哪个接收方）→ 通知渠道 / 通知模板（接收方与内容）
+    // → 告警配置（由上述配置自动生成的只读产物，保持置底）。
     subItems: [
-      // M08 v1.12 增量：告警状态双视图页（T08-F7），原型中为侧栏首项
+      // M08 v1.12 增量：告警状态双视图页（T08-F7），侧栏首项
       { key: '/alert-status', label: '告警状态', icon: <RadarChartOutlined /> },
-      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
-      // M08 v1.13 增量：历史告警独立页（Track B+）
+      // M08 v1.13 增量：历史告警独立页（Track B+），与「告警状态」同属「查看」
       { key: '/alert-history', label: '历史告警', icon: <ClockCircleOutlined /> },
-      // PL-3 通知渲染桥增量：通知渠道 / 通知模板（M08 新增能力页；「告警配置」保持置底）
+      // 收敛层：先临时静默（按时间窗），再规则抑制（按根因告警）
+      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
+      { key: '/inhibitions', label: '告警抑制', icon: <StopOutlined /> },
+      // M08 v0.3-a：「路由规则」只读路由树（T08-F10），承接「告警分发到哪个接收方」
+      { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
+      // PL-3 通知渲染桥增量：通知渠道 / 通知模板（M08 新增能力页），承接「接收方与内容」
       { key: '/notify-channels', label: '通知渠道', icon: <ApiOutlined /> },
       { key: '/notify-templates', label: '通知模板', icon: <FileTextOutlined /> },
-      // M08 v0.3-a：「路由规则」只读路由树（T08-F10），与「告警配置」同组（模式开关落在该页）
-      { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
-      { key: '/inhibitions', label: '告警抑制', icon: <StopOutlined /> },
+      // 只读产物：配置由路由 / 抑制 / 渠道保存时自动生成，「告警配置」保持置底
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
@@ -182,8 +186,6 @@ const MODULES: ModuleDef[] = [
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
       // 云字典维护页（D37：admin 维护；读视图由 M07 提供）：云归属取值唯一来源
       { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
-      // 区域类型字典维护页（M07 v3 生命周期）：网域「网络分区」字段的取值权威
-      { key: '/admin/zone-types', label: '区域类型', icon: <GlobalOutlined /> },
       { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
       { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
       // 外观设置（用户 2026-09-18 补充）：界面皮肤 + 产品名称。

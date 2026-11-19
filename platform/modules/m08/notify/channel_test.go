@@ -37,10 +37,9 @@ func newNotifyDB(t *testing.T) *gorm.DB {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.AlertmanagerConfigVersion{},
-		// 通知渲染前补齐网域 / 云 / 区域中文展示名。
+		// 通知渲染前补齐网域 / 云中文展示名。
 		&models.NetworkDomain{},
 		&models.CloudDict{},
-		&models.ZoneType{},
 	))
 	return db
 }

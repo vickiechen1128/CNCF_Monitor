@@ -668,11 +668,11 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     const { onSubmit } = renderDrawer()
     await waitFor(() => expect(getLabelOptionsMock).toHaveBeenCalled())
     const input = openSelect('分组键')
-    fireEvent.change(input, { target: { value: 'zone_type' } })
+    fireEvent.change(input, { target: { value: 'custom_label' } })
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13 })
     fireEvent.click(screen.getByTestId('route-editor-save'))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-    expect(onSubmit.mock.calls[0][0].group_by).toEqual(['alertname', 'zone_type'])
+    expect(onSubmit.mock.calls[0][0].group_by).toEqual(['alertname', 'custom_label'])
   })
 
   it('分组键联想：输入关键词按前缀 / 包含过滤', async () => {

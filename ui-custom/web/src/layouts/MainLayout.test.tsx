@@ -380,33 +380,40 @@ describe('MainLayout', () => {
     expect(screen.getByText('alert-config-content')).toBeInTheDocument()
   })
 
-  it('renders M08 alert sidebar in prototype order: 告警状态 first, 告警配置 last', async () => {
+  it('renders M08 alert sidebar in IA order: 查看 → 收敛 → 分发 → 通知 → 只读产物', async () => {
     render(
       <MemoryRouter initialEntries={['/alert-status']}>
         <Routes>
           <Route path="/alert-status" element={<MainLayout>alert-status-content</MainLayout>} />
-          <Route path="/silences" element={<MainLayout>silences-content</MainLayout>} />
           <Route path="/alert-history" element={<MainLayout>alert-history-content</MainLayout>} />
+          <Route path="/silences" element={<MainLayout>silences-content</MainLayout>} />
+          <Route path="/inhibitions" element={<MainLayout>inhibitions-content</MainLayout>} />
+          <Route path="/routes" element={<MainLayout>routes-content</MainLayout>} />
+          <Route path="/notify-channels" element={<MainLayout>notify-channels-content</MainLayout>} />
+          <Route path="/notify-templates" element={<MainLayout>notify-templates-content</MainLayout>} />
           <Route path="/alert-config" element={<MainLayout>alert-config-content</MainLayout>} />
         </Routes>
       </MemoryRouter>,
     )
-    // 原型对齐（Module_08 原型 MainLayout）：告警状态置顶（第一），告警配置落底（最后）
-    const siderTexts = screen
+    // 侧栏信息架构（用户反馈原顺序无逻辑后重排）：
+    // 查看（告警状态 / 历史告警）→ 收敛（静默管理 / 告警抑制）
+    // → 分发（路由规则）→ 通知（通知渠道 / 通知模板）→ 只读产物（告警配置）
+    const expectedOrder = [
+      '告警状态',
+      '历史告警',
+      '静默管理',
+      '告警抑制',
+      '路由规则',
+      '通知渠道',
+      '通知模板',
+      '告警配置',
+    ]
+    const siderLabels = screen
       .getAllByRole('menuitem')
-      .map((el) => el.textContent ?? '')
-    const statusIdx = siderTexts.findIndex((t) => t.includes('告警状态'))
-    const silenceIdx = siderTexts.findIndex((t) => t.includes('静默管理'))
-    const historyIdx = siderTexts.findIndex((t) => t.includes('历史告警'))
-    const configIdx = siderTexts.findIndex((t) => t.includes('告警配置'))
-    // 四项均存在
-    expect([statusIdx, silenceIdx, historyIdx, configIdx]).not.toContain(-1)
-    // 告警状态 第一、告警配置 最后；中间保持 静默管理 → 历史告警
-    expect(statusIdx).toBe(0)
-    expect(configIdx).toBe(siderTexts.length - 1)
-    expect(statusIdx).toBeLessThan(silenceIdx)
-    expect(silenceIdx).toBeLessThan(historyIdx)
-    expect(historyIdx).toBeLessThan(configIdx)
+      .map((el) => (el.textContent ?? '').trim())
+      .filter((text) => expectedOrder.includes(text))
+    // 八项齐全且顺序完全一致（首项告警状态、末项告警配置）
+    expect(siderLabels).toEqual(expectedOrder)
   })
 
   /**
@@ -501,32 +508,6 @@ describe('MainLayout', () => {
     expect(selected).toBeDefined()
     expect(selected?.className ?? '').toContain('ant-menu-item-selected')
     expect(screen.getByText('cloud-dict-content')).toBeInTheDocument()
-  })
-
-  /** 区域类型字典维护页与云字典同属「系统与平台管理」，在 /admin/zone-types 高亮。 */
-  it('exposes 区域类型 under 系统与平台管理 and highlights it on /admin/zone-types', () => {
-    render(
-      <MemoryRouter initialEntries={['/admin/zone-types']}>
-        <Routes>
-          <Route
-            path="/admin/zone-types"
-            element={<MainLayout>zone-type-content</MainLayout>}
-          />
-        </Routes>
-      </MemoryRouter>,
-    )
-
-    const tab = screen
-      .getAllByRole('button')
-      .find((el) => (el.textContent || '').includes('系统与平台管理'))
-    expect(tab?.className ?? '').toContain('active')
-
-    const selected = screen
-      .getAllByRole('menuitem')
-      .find((el) => (el.textContent || '').includes('区域类型'))
-    expect(selected).toBeDefined()
-    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
-    expect(screen.getByText('zone-type-content')).toBeInTheDocument()
   })
 
   /**

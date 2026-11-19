@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -155,13 +154,4 @@ func notifyStatus(alert service.AMAlert) string {
 	default:
 		return "active"
 	}
-}
-
-// idsToStrings is a small helper for responses that expose numeric ids.
-func idsToStrings(ids []int64) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, strconv.FormatInt(id, 10))
-	}
-	return out
 }

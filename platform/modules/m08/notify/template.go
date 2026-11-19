@@ -56,12 +56,12 @@ const BuiltinFeishuCardTemplateName = "飞书卡片-默认"
 // 渲染为飞书 interactive 卡片 JSON）。**以用户自建脚本 feishu_alert_notify.py 的样式为准**
 // （docs/06-mvp-e2e-testing/tests/feishu_alert_notify.py 的 format_alert）：
 //   - header：`{🟢|🔴} {恢复|告警}: {alertname}`，模板色由 status 决定（firing=红 / resolved=绿）；
-//   - 字段：状态 / 主机 / **网域** / 区域 / 级别，再按需追加 摘要 / 详情 / 开始 / 恢复（空则省略）。
+//   - 字段：状态 / 主机 / **网域** / 级别，再按需追加 摘要 / 详情 / 开始 / 恢复（空则省略）。
 //
 // 「网域」相对用户原脚本为**新增字段**（M08 §10.2 与前端告警列表同口径）：优先读
 // target 级展示标签 network_domain_name（中文），缺失时回退消费侧 network_domain
-// （网域 ID）与写入侧 network_domain_id。区域同理优先 zone_name；桥层渲染前还会按
-// 网域字典补齐展示标签，覆盖存量告警与聚合告警。时间字段已由渲染层本地化
+// （网域 ID）与写入侧 network_domain_id。桥层渲染前还会按网域字典补齐展示标签，
+// 覆盖存量告警与聚合告警。时间字段已由渲染层本地化
 // （RenderAlert.StartsAtLocal / EndsAtLocal），不依赖宿主机时区。用户零模板即可接入。
 const BuiltinFeishuCardTemplate = `{{- $resolved := eq .Status "resolved" -}}
 {{- $color := "red" -}}{{- $icon := "🔴" -}}{{- $verb := "告警" -}}
@@ -84,13 +84,10 @@ const BuiltinFeishuCardTemplate = `{{- $resolved := eq .Status "resolved" -}}
 {{- if not $nd }}{{- $nd = index $a.Labels "network_domain" -}}{{- end -}}
 {{- if not $nd }}{{- $nd = index $a.Labels "network_domain_id" -}}{{- end -}}
 {{- if not $nd }}{{- $nd = "-" -}}{{- end -}}
-{{- $zone := index $a.Labels "zone_name" -}}
-{{- if not $zone }}{{- $zone = index $a.Labels "zone" -}}{{- end -}}
-{{- if not $zone }}{{- $zone = "-" -}}{{- end -}}
 {{- $inst := index $a.Labels "instance" -}}{{- if not $inst }}{{- $inst = "-" -}}{{- end -}}
 {{- $sev := index $a.Labels "severity" -}}{{- if not $sev }}{{- $sev = "-" -}}{{- end -}}
 {{- $st := "告警中" -}}{{- if eq $a.Status "resolved" -}}{{- $st = "已恢复" -}}{{- end -}}
-{{- $content := printf "**状态**: %s\n**主机**: %s\n**网域**: %s\n**区域**: %s\n**级别**: %s" $st $inst $nd $zone $sev -}}
+{{- $content := printf "**状态**: %s\n**主机**: %s\n**网域**: %s\n**级别**: %s" $st $inst $nd $sev -}}
 {{- if index $a.Annotations "summary" }}{{- $content = printf "%s\n**摘要**: %s" $content (index $a.Annotations "summary") -}}{{- end -}}
 {{- if index $a.Annotations "description" }}{{- $content = printf "%s\n**详情**: %s" $content (index $a.Annotations "description") -}}{{- end -}}
 {{- if $a.StartsAtLocal }}{{- $content = printf "%s\n**开始**: %s" $content $a.StartsAtLocal -}}{{- end -}}

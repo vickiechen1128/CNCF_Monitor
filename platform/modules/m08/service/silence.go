@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -196,8 +196,9 @@ func (s *SilenceService) audit(ctx context.Context, actor domain.Actor, action d
 		Matchers: matchers, Reason: reason, FailureReason: failure, At: s.now(),
 	}
 	if err := s.audits.Insert(ctx, entry); err != nil {
-		// Auditing must not block the operation; the failure is surfaced in logs
-		// by the handler layer's own logging.
-		_ = fmt.Sprintf("audit insert failed: %v", err)
+		// Auditing must not block the operation, but the failure must be visible:
+		// silently dropping it would hide a broken audit trail. Log here because
+		// the handler layer has no access to this error.
+		log.Printf("[m08] silence audit insert failed: %v", err)
 	}
 }

@@ -11,14 +11,6 @@ const (
 	ChannelTypeWebhook  ChannelType = "webhook"
 )
 
-// ValidChannelTypes returns every accepted channel type.
-func ValidChannelTypes() []string {
-	return []string{
-		string(ChannelTypeFeishu), string(ChannelTypeDingtalk),
-		string(ChannelTypeWecom), string(ChannelTypeWebhook),
-	}
-}
-
 // IsIM reports whether the type renders templates (everything but webhook).
 func IsIM(t ChannelType) bool {
 	return t == ChannelTypeFeishu || t == ChannelTypeDingtalk || t == ChannelTypeWecom
@@ -82,17 +74,6 @@ const (
 	ReloadTriggerManual         ReloadTrigger = "manual"
 	ReloadTriggerM09Sync        ReloadTrigger = "m09_sync"
 )
-
-// IsValidReloadTrigger validates a trigger.
-func IsValidReloadTrigger(t ReloadTrigger) bool {
-	switch t {
-	case ReloadTriggerRouteSave, ReloadTriggerInhibitionSave,
-		ReloadTriggerManual, ReloadTriggerM09Sync:
-		return true
-	default:
-		return false
-	}
-}
 
 // ReloadStatus is the outcome of a reload attempt.
 type ReloadStatus string

@@ -175,7 +175,10 @@ func (s *EventService) Reconcile(ctx context.Context, alerts []AMAlert) (int, in
 		if live[event.OccurrenceKey] || now.Sub(event.StartsAt) < 2*time.Minute {
 			continue
 		}
-		event.Status = domain.ClosedStatus(event.Status)
+		// Reconciler-driven close: the alert stopped appearing but no resolved
+		// notification was received, so the recovery time is unknown. Mark it
+		// inferred (firing -> resolved_unknown) rather than a real recovery.
+		event.Status = domain.InferredClosedStatus(event.Status)
 		event.ClosedAt = &now
 		if err := s.events.Update(ctx, event); err != nil {
 			return 0, 0, err

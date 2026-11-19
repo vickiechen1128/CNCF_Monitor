@@ -14,15 +14,12 @@ func TestEnrichAlertsDisplayLabels(t *testing.T) {
 	db := newNotifyDB(t)
 	require.NoError(t, db.Create(&models.NetworkDomain{
 		ID: "gov-cloud-a", Name: "政务网A区", DomainType: models.DomainTypeEdge,
-		ZoneType: "internet", CloudCode: "PUB-TX", TenantID: models.PlatformAdminTenantID,
+		CloudCode: "PUB-TX", TenantID: models.PlatformAdminTenantID,
 		Channel: models.ChannelTypeAgentPull, Status: models.DomainStatusEnabled,
 	}).Error)
 	require.NoError(t, db.Create(&models.CloudDict{
 		CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic,
 		Carrier: models.CloudCarrierTencent, Enabled: true,
-	}).Error)
-	require.NoError(t, db.Create(&models.ZoneType{
-		Code: "internet", DisplayName: "互联网区", Enabled: true,
 	}).Error)
 
 	alerts := []amWebhookAlert{
@@ -38,7 +35,6 @@ func TestEnrichAlertsDisplayLabels(t *testing.T) {
 
 	assert.Equal(t, "政务网A区", alerts[0].Labels[models.NetworkDomainNameLabelKey])
 	assert.Equal(t, "腾讯云", alerts[0].Labels[models.CloudNameLabelKey])
-	assert.Equal(t, "互联网区", alerts[0].Labels[models.ZoneNameLabelKey])
 	assert.Equal(t, "gov-cloud-a", alerts[0].Labels[models.NetworkDomainIDLabelKey],
 		"身份标签不得被展示名覆盖")
 	assert.NotContains(t, alerts[1].Labels, models.NetworkDomainNameLabelKey)
@@ -60,7 +56,7 @@ func TestEnrichAlertsDisplayLabelsUnknownDomain(t *testing.T) {
 }
 
 // TestBuiltinFeishuTemplatePrefersDisplayLabels：内置飞书卡片优先展示
-// network_domain_name / zone_name，无展示标签时才回落 code。
+// network_domain_name，无展示标签时才回落 code。
 func TestBuiltinFeishuTemplatePrefersDisplayLabels(t *testing.T) {
 	payload := amWebhookPayload{
 		Status: "firing",
@@ -72,8 +68,6 @@ func TestBuiltinFeishuTemplatePrefersDisplayLabels(t *testing.T) {
 				"severity":            "critical",
 				"network_domain":      "gov-cloud-a",
 				"network_domain_name": "政务网A区",
-				"zone":                "internet",
-				"zone_name":           "互联网区",
 			},
 		}},
 	}
@@ -82,7 +76,6 @@ func TestBuiltinFeishuTemplatePrefersDisplayLabels(t *testing.T) {
 
 	s := string(out)
 	assert.Contains(t, s, "**网域**: 政务网A区")
-	assert.Contains(t, s, "**区域**: 互联网区")
 	assert.NotContains(t, s, "**网域**: gov-cloud-a")
-	assert.NotContains(t, s, "**区域**: internet")
+	assert.NotContains(t, s, "**区域**")
 }

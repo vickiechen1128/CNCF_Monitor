@@ -43,8 +43,3 @@ func ValidateInhibition(r *InhibitionRule) []ValidationIssue {
 	return issues
 }
 
-// FirstNetworkDomain returns the first exact network_domain_id matcher value in
-// the given matcher list, plus whether it was found.
-func FirstNetworkDomain(matchers []Matcher) (string, bool) {
-	return LabelValue(matchers, "network_domain_id")
-}
