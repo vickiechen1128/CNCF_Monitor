@@ -95,3 +95,40 @@ $ pnpm exec eslint src/api/strategyV3.ts src/api/strategyV3.test.ts src/types/st
 - **问题**：`MetricLibraryPage` 的「资源类别」只用于收敛「监控类型」下拉并清空已选类型，`load` / `loadAgg` 均未把 `category` 传给后端，导致单独按资源类别筛选不生效；「监控类型」虽已传参，但后端未实现该过滤。
 - **修复**：`metricLibraryApi.list` 参数新增 `resource_category`（与语义域 `category` 区分）；`load` / `loadAgg` 传入 `resource_category: category`，并把 `category` 加入 `useCallback` 依赖，分组视图与顶部统计同步受筛选影响。
 - **回归测试**：新增「资源类别变更发送 resource_category」与「监控类型变更发送 monitor_type」两个用例；`MetricLibraryPage.test.tsx` 7 项、`metricLibrary.test.ts` 4 项通过；`pnpm run typecheck:test`、eslint 通过。
+
+## 8. 2026-11-19 指标库视图与筛选收敛（T01-F3）
+
+**用户反馈**：分组浏览视图不需要；监控对象类型已可手动新增，筛选下拉是否会同步更新；表格列名要与筛选条件对应。
+
+**变更**：
+
+1. **移除分组浏览视图**：删除「分组浏览 / 列表」Segmented、按 CI 类型分组的 Card 视图与 `aggItems / aggTotal / groupedData / GROUP_PAGE_SIZE` 全量拉取；页面只保留扁平分页列表（一次请求），顶部统计改为服务端筛选后的 `共 n 个指标`，不再显示「按 n 个 CI 类型组织」。该视图本就在 `frontend-prototype-map.md` 中登记为 P2 裁剪（E3/F1-7），本次回到裁剪口径。
+2. **监控对象类型筛选与注册表同步**：下拉选项继续取自 `useMonitorTypeCatalog()`；新增 `refreshMonitorTypeCatalog()`（主动重新拉取、失败时保留已有目录不降级），在「监控对象类型」下拉展开时调用。手动新增 / 停用类型后无需刷新浏览器，展开下拉即可看到最新选项；资源类别变更时仍清空已选类型并按类别收敛候选。
+3. **列名与筛选条件对齐**：`类型` → `指标类型`、`所属类型` → `监控对象类型`；新增 `资源类别` 列（由 `monitor_types` 锚点经目录 `categoryFor` 反查 M07 资源类别），使 `资源类别 / 监控对象类型 / 指标类型` 三个筛选维度在表头一一对应。
+4. **空态与提示**：空态按当前筛选给出「『MySQL』暂无指标」等针对性文案；选中监控对象类型且无数据时补充「指标库为平台内置只读字典，监控对象类型挂接指标后才会产生数据」，避免把「新类型无内置指标」误判为筛选失效。
+
+**文件**：
+
+| 文件 | 说明 |
+|---|---|
+| `ui-custom/web/src/pages/strategy/MetricLibraryPage.tsx` | 移除分组视图；列名与筛选对齐；资源类别列；空态说明 |
+| `ui-custom/web/src/pages/strategy/useMonitorTypeCatalog.ts` | 新增 `refreshMonitorTypeCatalog()`；抽出 `toOptions` 复用 |
+| `ui-custom/web/src/pages/strategy/MetricLibraryPage.test.tsx` | 重写 10 项用例（分组视图移除、列名对齐、类型同步、空态说明等） |
+| `ui-custom/web/src/pages/strategy/useMonitorTypeCatalog.refresh.test.ts` | 新增 2 项（刷新生效、刷新失败保留目录） |
+
+**验证**：
+
+```text
+$ pnpm vitest run src/pages/strategy/MetricLibraryPage.test.tsx
+✓ 10 tests passed
+
+$ pnpm vitest run src/pages/strategy
+✓ 21 files / 161 tests passed
+
+$ pnpm run typecheck:test   # 通过
+$ pnpm exec eslint <changed files>   # 通过
+$ pnpm build               # tsc + vite build 通过
+$ vite --port 5199         # GET / → 200
+```
+
+**偏离 / 待评审**：表格 10 列，超过前端标准「建议 ≤8 列」；技术指标字典需要横向比对元数据，保留 `TABLE_SCROLL_X` 横向滚动与首列固定。若评审要求收敛，可把「标签 / 来源采集器」下沉到后续详情抽屉（当前 MVP 只读、无详情抽屉）。

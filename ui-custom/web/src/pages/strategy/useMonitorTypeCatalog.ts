@@ -7,7 +7,8 @@
  * 本 hook 从 `/api/v3/platform/monitor-types` 拉取注册表：
  * - 首次订阅时加载一次，成功后全局缓存（页面间共享，不重复请求）；
  * - 失败或未加载完成时回退到 `strategyConstants` 的内置常量，保证静态预览与单测可用；
- * - 只把 `enabled` 的类型放进可选列表；停用类型仍保留名称用于历史数据展示。
+ * - 只把 `enabled` 的类型放进可选列表；停用类型仍保留名称用于历史数据展示；
+ * - 筛选下拉可在展开时调用 `refreshMonitorTypeCatalog()` 重新拉取，保证选项与注册表同步。
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { monitorTypeApi } from '../../api/monitorTypes'
@@ -104,10 +105,34 @@ function emit(next: MonitorTypeCatalog) {
   for (const listener of listeners) listener()
 }
 
-/** 确保注册表已加载（幂等：并发订阅只发一次请求）。 */
-export function ensureMonitorTypeCatalog() {
-  if (loadStarted) return
-  loadStarted = true
+/** 注册表/管理页返回的类型条目（sort_order 可缺省，缺省时按数组顺序补齐） */
+interface MonitorTypeListEntry {
+  code: string
+  name: string
+  resource_category: ResourceCategory
+  enabled: boolean
+  is_builtin: boolean
+  sort_order?: number
+}
+
+function toOptions(list: MonitorTypeListEntry[]): MonitorTypeOption[] {
+  return list.map((item, index) => ({
+    code: item.code,
+    name: item.name,
+    resource_category: item.resource_category,
+    enabled: item.enabled,
+    is_builtin: item.is_builtin,
+    sort_order: item.sort_order ?? index,
+  }))
+}
+
+/**
+ * 拉取注册表并发布快照。
+ *
+ * `keepOnError` 用于「主动刷新」：请求失败时保留当前可用目录，
+ * 避免一次网络抖动把已经加载好的下拉降级成内置回退。
+ */
+function loadCatalog(keepOnError = false) {
   monitorTypeApi
     .list()
     .then((res) => {
@@ -117,19 +142,30 @@ export function ensureMonitorTypeCatalog() {
         emit(buildCatalog(buildFallbackTypes(), false, null))
         return
       }
-      const types: MonitorTypeOption[] = list.map((item, index) => ({
-        code: item.code,
-        name: item.name,
-        resource_category: item.resource_category,
-        enabled: item.enabled,
-        is_builtin: item.is_builtin,
-        sort_order: item.sort_order ?? index,
-      }))
-      emit(buildCatalog(types, true, null))
+      emit(buildCatalog(toOptions(list), true, null))
     })
     .catch((err: Error) => {
+      if (keepOnError && snapshot.loaded) return
       emit(buildCatalog(buildFallbackTypes(), false, err.message))
     })
+}
+
+/** 确保注册表已加载（幂等：并发订阅只发一次请求）。 */
+export function ensureMonitorTypeCatalog() {
+  if (loadStarted) return
+  loadStarted = true
+  loadCatalog()
+}
+
+/**
+ * 主动重新拉取注册表（不复位当前目录）。
+ *
+ * 用于筛选下拉「打开时刷新」：监控对象类型支持手动新增/停用，
+ * 重新进入页面或从其他会话新增后，下拉选项需要立即跟随注册表。
+ */
+export function refreshMonitorTypeCatalog() {
+  loadStarted = true
+  loadCatalog(true)
 }
 
 function subscribe(listener: () => void) {
@@ -172,23 +208,13 @@ export function resetMonitorTypeCatalogForTest() {
  * 「监控对象类型」页增删改后调用：避免目录仍是启动时的旧快照，
  * 导致用户切到采集 Job / 采集器管理时看不到刚建的类型。
  */
-export function applyMonitorTypeList(
-  list: { code: string; name: string; resource_category: ResourceCategory; enabled: boolean; is_builtin: boolean; sort_order?: number }[],
-) {
+export function applyMonitorTypeList(list: MonitorTypeListEntry[]) {
   if (list.length === 0) {
     emit(buildCatalog(buildFallbackTypes(), false, null))
     return
   }
-  const types: MonitorTypeOption[] = list.map((item, index) => ({
-    code: item.code,
-    name: item.name,
-    resource_category: item.resource_category,
-    enabled: item.enabled,
-    is_builtin: item.is_builtin,
-    sort_order: item.sort_order ?? index,
-  }))
   loadStarted = true
-  emit(buildCatalog(types, true, null))
+  emit(buildCatalog(toOptions(list), true, null))
 }
 
 /** 供页面在提交前刷新（例如刚在「监控对象类型」页新增了类型）。 */
