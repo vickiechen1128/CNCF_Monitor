@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,21 +20,32 @@ import (
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
 
 type fakeSource struct {
+	mu          sync.Mutex
 	src         configgen.Source
 	fingerprint int64
 	// domains overrides EdgeDomainIDs (defaults to the single src domain).
 	domains []string
 	// buildHook runs at the start of BuildSource (concurrency instrumentation).
 	buildHook func(domainID string)
+	builds    int
 }
 
 func (f *fakeSource) BuildSource(_ context.Context, domainID string) (configgen.Source, error) {
+	f.mu.Lock()
+	f.builds++
+	f.mu.Unlock()
 	if f.buildHook != nil {
 		f.buildHook(domainID)
 	}
 	source := f.src
 	source.NetworkDomainID = domainID
 	return source, nil
+}
+
+func (f *fakeSource) BuildCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.builds
 }
 
 func (f *fakeSource) Fingerprint(_ context.Context, _ string) (time.Time, error) {
@@ -51,7 +63,7 @@ type fakeValidator struct {
 	result configgen.ValidationResult
 }
 
-func (f fakeValidator) Validate(_ context.Context, _ *configgen.Artifacts) configgen.ValidationResult {
+func (f fakeValidator) Validate(_ context.Context, _ *configgen.Artifacts, _ []string) configgen.ValidationResult {
 	return f.result
 }
 
@@ -110,6 +122,11 @@ func TestSyncDomainFailureKeepsCurrent(t *testing.T) {
 	checksum, _, err := failSvc.CurrentContent(ctx, "mc-a")
 	require.NoError(t, err)
 	assert.Equal(t, first.Checksum, checksum, "current version is preserved on failure")
+
+	items, err := failSvc.ListSnapshots(ctx, "mc-a", 50)
+	require.NoError(t, err)
+	require.Len(t, items, 1, "failed attempts are not persisted as config snapshots")
+	assert.Equal(t, first.ID, items[0].ID)
 }
 
 func TestSyncDomainSkipsUnchangedChecksum(t *testing.T) {
@@ -133,7 +150,7 @@ func TestSyncDomainSkipsUnchangedChecksum(t *testing.T) {
 	assert.Len(t, items, 1)
 }
 
-func TestSyncDomainPrunesHistory(t *testing.T) {
+func TestSyncDomainCollapsesSameDayHistory(t *testing.T) {
 	_, _, repo := newTestStack(t)
 	ctx := context.Background()
 	store := storage.NewContentStore(t.TempDir())
@@ -141,7 +158,7 @@ func TestSyncDomainPrunesHistory(t *testing.T) {
 	validator := passed()
 	svc := service.NewConfigSyncService(repo, sources, store, validator)
 
-	for i := 0; i < service.DefaultSnapshotRetention+3; i++ {
+	for i := 0; i < 8; i++ {
 		sources.src.Jobs = []configgen.Job{{
 			Name:    "node",
 			Targets: []configgen.Target{{Instance: "10.0.0." + itoa(int64(i+1)) + ":9100"}},
@@ -152,15 +169,8 @@ func TestSyncDomainPrunesHistory(t *testing.T) {
 
 	items, err := svc.ListSnapshots(ctx, "mc-a", 50)
 	require.NoError(t, err)
-	assert.LessOrEqual(t, len(items), service.DefaultSnapshotRetention, "history is pruned to the retention window")
-	require.NotEmpty(t, items)
-	current := 0
-	for _, item := range items {
-		if item.IsCurrent {
-			current++
-		}
-	}
-	assert.Equal(t, 1, current, "exactly one current snapshot")
+	require.Len(t, items, 1, "same-day changes keep only the latest successful version")
+	assert.True(t, items[0].IsCurrent)
 }
 
 func TestSnapshotContentReadsStoredPayload(t *testing.T) {

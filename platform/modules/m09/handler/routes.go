@@ -17,6 +17,8 @@ type Handlers struct {
 	Artifacts  *ArtifactHandler
 	Query      *QueryHandler
 	Packages   *PackageHandler
+	// Trigger runs immediate config generation after a source save.
+	Trigger *ConfigTriggerHandler
 	// EdgeAuth validates edge bearer tokens (nil falls back to reject-all).
 	EdgeAuth TokenValidator
 }
@@ -36,6 +38,10 @@ func RegisterPlatformRoutes(platform *gin.RouterGroup, h Handlers) {
 	admin.POST("/network-domains/:id/monitor", h.Onboarding.Monitor)
 	admin.DELETE("/network-domains/:id/monitor", h.Onboarding.Unmonitor)
 	admin.POST("/network-domains/:id/token/reset", h.Onboarding.ResetToken)
+
+	// 保存源数据后的即时同步（best-effort；30s watcher 仍是最终兜底）。
+	// domain scope 允许有网域权限的登录用户；center/all 在 service 层要求 admin。
+	platform.POST("/config-sync/trigger", h.Trigger.Trigger)
 
 	// 采集节点（契约 §3）
 	platform.GET("/edge-agents", h.Agents.List)

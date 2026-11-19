@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { scrapeJobApi, type ScrapeJobListParams } from '../../api/scrapeJobs'
 import type { Paginated } from '../../types/api'
 import type { JobType, MonitorType, ScrapeJob } from '../../types/strategy'
@@ -28,7 +28,7 @@ export interface UseScrapeJobsResult {
   pageSize: number
   onPageChange: (p: number) => void
   onPageSizeChange: (p: number, pz: number) => void
-  reload: () => void
+  reload: (options?: { silent?: boolean }) => void
 }
 
 /**
@@ -48,8 +48,10 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [refresh, setRefresh] = useState(0)
+  const [silentRefresh, setSilentRefresh] = useState(0)
+  const handledSilentRefresh = useRef(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent: boolean) => {
     const params: ScrapeJobListParams = {
       network_domain_id: filters.network_domain_id,
       monitor_type: filters.monitor_type,
@@ -62,21 +64,33 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
     try {
       const res = await scrapeJobApi.list(params)
       setData(res.data ?? EMPTY_PAGE)
-      setError(null)
+      if (!silent) setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载失败，请稍后重试')
+      if (!silent) setError(e instanceof Error ? e.message : '加载失败，请稍后重试')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [filters.network_domain_id, filters.monitor_type, filters.job_type, filters.ungrouped, filters.keyword, page, pageSize])
 
   useEffect(() => {
     // 数据请求回调内在异步完成后才 setState；沿用本模块既有抓取 effect 模式
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load()
+    void load(false)
   }, [load, refresh])
 
-  const reload = useCallback(() => {
+  useEffect(() => {
+    // 轮询刷新不切换 loading 遮罩，避免 Ant Table 每秒闪 spinner。
+    // 独立计数 + 已处理标记：load 因筛选/分页变化重建时不会重复触发。
+    if (silentRefresh === 0 || silentRefresh === handledSilentRefresh.current) return
+    handledSilentRefresh.current = silentRefresh
+    void load(true)
+  }, [load, silentRefresh])
+
+  const reload = useCallback((options?: { silent?: boolean }) => {
+    if (options?.silent) {
+      setSilentRefresh((r) => r + 1)
+      return
+    }
     setError(null)
     setLoading(true)
     setRefresh((r) => r + 1)

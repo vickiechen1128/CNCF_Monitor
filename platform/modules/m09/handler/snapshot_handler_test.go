@@ -51,7 +51,7 @@ type stubValidator struct {
 	result configgen.ValidationResult
 }
 
-func (s stubValidator) Validate(_ context.Context, _ *configgen.Artifacts) configgen.ValidationResult {
+func (s stubValidator) Validate(_ context.Context, _ *configgen.Artifacts, _ []string) configgen.ValidationResult {
 	return s.result
 }
 

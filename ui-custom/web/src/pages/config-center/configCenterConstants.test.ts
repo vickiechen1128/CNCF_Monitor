@@ -10,6 +10,7 @@ import {
   deploymentStatusLabel,
   deriveRemoteWriteUrl,
   deriveRegistrationStatus,
+  formatLocalDate,
   highestRisk,
 } from './configCenterConstants'
 
@@ -60,6 +61,12 @@ describe('configCenterConstants（Module_09 契约映射）', () => {
     expect(highestRisk([{ risk: 'low' }, { risk: 'high' }])).toBe('high')
     expect(highestRisk([{ risk: 'low' }])).toBe('low')
     expect(highestRisk(undefined)).toBe('low')
+  })
+
+  it('配置日期按本地自然日格式化', () => {
+    expect(formatLocalDate('2026-11-18T10:00:00Z')).toMatch(/^2026-11-1[78]$/)
+    expect(formatLocalDate('bad-date')).toBe('-')
+    expect(formatLocalDate(null)).toBe('-')
   })
 
   it('MVP 预置确认人', () => {

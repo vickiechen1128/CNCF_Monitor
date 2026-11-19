@@ -19,6 +19,10 @@ type CenterRule struct {
 type CenterRuleSource interface {
 	ListEnabledReady(ctx context.Context) ([]CenterRule, error)
 	Fingerprint(ctx context.Context) (time.Time, error)
+	// EffectiveJobNames returns the global enabled+ready job-name union used by
+	// the center rule job-reference gate (decision 66). Rules are evaluated
+	// centrally, so references may span every network domain.
+	EffectiveJobNames(ctx context.Context) ([]string, error)
 }
 
 // GORMCenterRuleSource is the GORM-backed implementation.
@@ -53,6 +57,21 @@ func (r *GORMCenterRuleSource) ListEnabledReady(ctx context.Context) ([]CenterRu
 		out = append(out, CenterRule{ID: row.ID, Name: row.Name, RuleContent: row.RuleContent})
 	}
 	return out, nil
+}
+
+// EffectiveJobNames returns every enabled, ready job name across all network
+// domains. Center rules are evaluated by one Prometheus, so the job-reference
+// gate must see the global union rather than a single domain package.
+func (r *GORMCenterRuleSource) EffectiveJobNames(ctx context.Context) ([]string, error) {
+	var names []string
+	if err := r.db.WithContext(ctx).
+		Table("m01_scrape_jobs").
+		Where("enabled = ? AND draft_status = ? AND deleted_at IS NULL", true, "ready").
+		Order("job_name ASC").
+		Pluck("job_name", &names).Error; err != nil {
+		return nil, fmt.Errorf("list effective center rule jobs: %w", err)
+	}
+	return names, nil
 }
 
 // Fingerprint returns the newest rule change (including soft deletions).

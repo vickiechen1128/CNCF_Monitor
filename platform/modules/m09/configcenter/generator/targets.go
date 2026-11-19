@@ -345,15 +345,14 @@ func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *mod
 			continue
 		}
 		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), address, labelDict)
-		// 决策 103 scheme-B：cloud / zone / network_domain 三标签在 TARGET-LEVEL SYSTEM
+		// 决策 103 scheme-B：cloud / network_domain 两标签在 TARGET-LEVEL SYSTEM
 		// 层强制注入（不可被 LabelTemplate 覆盖，亦不经 external_labels）：
 		//   - network_domain = 资源所属网域 id；
 		//   - cloud         = 网域 cloud_code（引用启用云字典条目）；
-		//   - zone          = 网域 zone_type；
 		// 任一值为空则省略对应 key（不写空标签）。
 		//
-		// 同层另注入三个**仅展示**的中文标签（network_domain_name / cloud_name /
-		// zone_name），供飞书卡片与页面直接展示；身份过滤仍读上面的 code 标签，
+		// 同层另注入两个**仅展示**的中文标签（network_domain_name / cloud_name），
+		// 供飞书卡片与页面直接展示；身份过滤仍读上面的 code 标签，
 		// 展示标签不得用于 matcher / 筛选 / 归属判定。
 		//
 		// ⚠️ 通用规约（决策 118-2，防复发）：**同一 label 不得同时由 system 层与模板层
@@ -369,7 +368,7 @@ func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *mod
 				if d, derr := LoadDomain(db, rt.NetworkDomainID); derr == nil {
 					dom = d
 				} else {
-					dom = nil // 网域缺失时省略 cloud/zone，不阻断目标生成
+					dom = nil // 网域缺失时省略 cloud，不阻断目标生成
 				}
 				domainCache[rt.NetworkDomainID] = dom
 			}
@@ -377,20 +376,14 @@ func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *mod
 				if dom.CloudCode != "" {
 					systemLabels["cloud"] = dom.CloudCode
 				}
-				if dom.ZoneType != "" {
-					systemLabels["zone"] = dom.ZoneType
-				}
 				// 中文展示标签（仅展示，不参与过滤/归属）：身份仍以
-				// network_domain / cloud / zone 的稳定 code 为准，三者保持原值不动。
-				// 字典未命中时 cloud_name / zone_name 回退 code，保证展示不为空。
+				// network_domain / cloud 的稳定 code 为准，二者保持原值不动。
+				// 字典未命中时 cloud_name 回退 code，保证展示不为空。
 				if dom.Name != "" {
 					systemLabels[models.NetworkDomainNameLabelKey] = dom.Name
 				}
 				if dom.CloudCode != "" {
 					systemLabels[models.CloudNameLabelKey] = labelDict.cloudDisplayName(dom.CloudCode)
-				}
-				if dom.ZoneType != "" {
-					systemLabels[models.ZoneNameLabelKey] = labelDict.zoneDisplayName(dom.ZoneType)
 				}
 			}
 		}

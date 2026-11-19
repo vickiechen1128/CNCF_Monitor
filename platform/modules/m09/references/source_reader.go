@@ -93,14 +93,6 @@ type exporterPortRow struct {
 
 // BuildSource returns the scrape jobs of one network domain.
 func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (configgen.Source, error) {
-	var zoneRow struct {
-		ZoneType string `gorm:"column:zone_type"`
-	}
-	if err := r.db.WithContext(ctx).Table("network_domains").
-		Select("zone_type").Where("id = ?", domainID).Limit(1).Scan(&zoneRow).Error; err != nil {
-		return configgen.Source{}, fmt.Errorf("load network domain %q zone_type: %w", domainID, err)
-	}
-
 	var rows []jobSourceRow
 	if err := r.db.WithContext(ctx).
 		Table("m01_scrape_jobs").
@@ -166,7 +158,9 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 		tpl, hasTemplate := templates.resolve(row.LabelTemplateID, row.ResourceCategory)
 		for _, id := range selected {
 			ref, ok := refs[id]
-			if !ok {
+			if !ok || ref.NetworkDomainID != domainID {
+				// Deleted resources and resources moved to another domain must
+				// not leak into this domain's targets before M01 reconcile runs.
 				continue
 			}
 			instance := ""
@@ -204,7 +198,7 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 	if err != nil {
 		return configgen.Source{}, err
 	}
-	return configgen.Source{NetworkDomainID: domainID, ZoneType: zoneRow.ZoneType, Jobs: jobs, Modules: modules}, nil
+	return configgen.Source{NetworkDomainID: domainID, Jobs: jobs, Modules: modules}, nil
 }
 
 // loadProbeModules returns the enabled blackbox module definitions. They are

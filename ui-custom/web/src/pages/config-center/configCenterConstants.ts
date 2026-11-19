@@ -101,16 +101,6 @@ export const registrationStatusColor: Record<RegistrationStatus, string> = {
   retired: 'default',
 }
 
-/** 区域类型 Tag 颜色（M06 字典 code 维度，兜底 default） */
-export const zoneTypeColor: Record<string, string> = {
-  internet: 'volcano',
-  extranet: 'purple',
-  'private-network': 'cyan',
-  'region-beijing': 'geekblue',
-  'region-shanghai': 'geekblue',
-  'region-shenzhen': 'geekblue',
-}
-
 /** 运行态（agent_pull 心跳）——枚举值与后端 offline_detector 四档一致：
  *  normal（全部在线）/ partial（在线离线混合）/ offline（全部失联）/ unknown（无节点） */
 export const monitoredStatusLabel: Record<NonNullable<NetworkDomain['monitored_status']>, string> = {
@@ -257,4 +247,13 @@ export function formatLocalTime(iso?: string | null): string {
   if (!iso) return '-'
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN', { hour12: false })
+}
+
+/** 本地自然日 YYYY-MM-DD（配置快照按天查找/裁剪展示用） */
+export function formatLocalDate(iso?: string | null): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '-'
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

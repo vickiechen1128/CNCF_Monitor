@@ -27,7 +27,9 @@ type CenterSnapshotRepository interface {
 	InsertAndActivate(ctx context.Context, rec CenterConfigSnapshot) (int64, error)
 	CurrentPassed(ctx context.Context) (*CenterConfigSnapshot, error)
 	List(ctx context.Context, limit int) ([]CenterConfigSnapshot, error)
-	Prune(ctx context.Context, keep int) ([]string, error)
+	// Prune keeps the current snapshot plus at most one successful snapshot per
+	// natural day for the last keepDays days.
+	Prune(ctx context.Context, keepDays int, loc *time.Location) ([]string, error)
 }
 
 // Center snapshots live in the 'center' scope of the unified config_snapshots
@@ -79,15 +81,8 @@ func (r *GORMCenterSnapshotRepository) InsertAndActivate(ctx context.Context, re
 		if err := tx.Create(&row).Error; err != nil {
 			return fmt.Errorf("insert center snapshot %q: %w", rec.Version, err)
 		}
-		if err := tx.Model(&centerSnapshotRecord{}).
-			Where("scope = ? AND scope_key = ? AND is_current = ?", centerSnapshotScope, centerSnapshotScopeKey, true).
-			Update("is_current", false).Error; err != nil {
-			return fmt.Errorf("demote current center snapshot: %w", err)
-		}
-		if err := tx.Model(&centerSnapshotRecord{}).
-			Where("id = ? AND scope = ? AND scope_key = ?", row.ID, centerSnapshotScope, centerSnapshotScopeKey).
-			Update("is_current", true).Error; err != nil {
-			return fmt.Errorf("activate center snapshot %d: %w", row.ID, err)
+		if err := activateCenterSnapshot(tx, row.ID); err != nil {
+			return err
 		}
 		id = row.ID
 		return nil
@@ -114,6 +109,24 @@ func (r *GORMCenterSnapshotRepository) CurrentPassed(ctx context.Context) (*Cent
 	return centerSnapshotToDomain(&row), nil
 }
 
+func activateCenterSnapshot(tx *gorm.DB, id int64) error {
+	if err := tx.Model(&centerSnapshotRecord{}).
+		Where("scope = ? AND scope_key = ? AND is_current = ?", centerSnapshotScope, centerSnapshotScopeKey, true).
+		Update("is_current", false).Error; err != nil {
+		return fmt.Errorf("demote current center snapshot: %w", err)
+	}
+	res := tx.Model(&centerSnapshotRecord{}).
+		Where("id = ? AND scope = ? AND scope_key = ?", id, centerSnapshotScope, centerSnapshotScopeKey).
+		Update("is_current", true)
+	if res.Error != nil {
+		return fmt.Errorf("activate center snapshot %d: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("activate center snapshot %d: not found", id)
+	}
+	return nil
+}
+
 // List returns snapshots newest first.
 func (r *GORMCenterSnapshotRepository) List(ctx context.Context, limit int) ([]CenterConfigSnapshot, error) {
 	if limit <= 0 {
@@ -134,30 +147,25 @@ func (r *GORMCenterSnapshotRepository) List(ctx context.Context, limit int) ([]C
 
 // Prune keeps the newest `keep` center snapshots (including the current one)
 // and deletes the rest, returning removed versions so callers can clean content.
-func (r *GORMCenterSnapshotRepository) Prune(ctx context.Context, keep int) ([]string, error) {
-	if keep < 1 {
-		keep = 1
-	}
+func (r *GORMCenterSnapshotRepository) Prune(ctx context.Context, keepDays int, loc *time.Location) ([]string, error) {
 	var rows []centerSnapshotRecord
 	if err := r.db.WithContext(ctx).
 		Where("scope = ? AND scope_key = ?", centerSnapshotScope, centerSnapshotScopeKey).
 		Order("created_at DESC, id DESC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load center snapshots for prune: %w", err)
 	}
-	removed := make([]string, 0)
-	ids := make([]int64, 0)
-	kept := 0
+	candidates := make([]snapshotPruneCandidate, 0, len(rows))
 	for _, row := range rows {
-		if kept < keep {
-			kept++
-			continue
-		}
-		if row.IsCurrent {
-			continue
-		}
-		ids = append(ids, row.ID)
-		removed = append(removed, row.Version)
+		candidates = append(candidates, snapshotPruneCandidate{
+			ID:               row.ID,
+			Version:          row.Version,
+			Family:           "center",
+			ValidationStatus: row.ValidationStatus,
+			CreatedAt:        row.CreatedAt,
+			IsCurrent:        row.IsCurrent,
+		})
 	}
+	ids, removed := planDailySnapshotPrune(candidates, keepDays, loc, time.Now())
 	if len(ids) == 0 {
 		return removed, nil
 	}

@@ -31,16 +31,23 @@ func newRepoTestDB(t *testing.T) *gorm.DB {
 }
 
 func insertSnapshot(t *testing.T, repo *repository.GORMRepository, version string, created time.Time, current bool) int64 {
+	return insertSnapshotWithStatus(t, repo, version, created, "passed", current)
+}
+
+func insertSnapshotWithStatus(t *testing.T, repo *repository.GORMRepository, version string, created time.Time, status string, current bool) int64 {
 	t.Helper()
 	rec := repository.ConfigSnapshot{
 		NetworkDomainID:   "mc-a",
 		Version:           version,
 		Checksum:          "sha256:" + version,
-		ValidationStatus:  "passed",
+		ValidationStatus:  status,
 		ValidationCause:   "none",
 		ValidationDetails: "{}",
 		GeneratedBy:       "system",
 		CreatedAt:         created,
+	}
+	if status != "passed" {
+		rec.ValidationCause = "platform_fault"
 	}
 	var (
 		id  int64
@@ -66,88 +73,66 @@ func listVersions(t *testing.T, repo *repository.GORMRepository) []string {
 	return versions
 }
 
-// M08 告警配置留痕（am- 行）与采集配置快照同表。若保留策略按整表 created_at 取最新 N 条，
-// 频繁保存告警配置会把真正的配置历史挤掉。两类必须分开计数。
-func TestPruneSnapshotsKeepsConfigHistoryWhenAlertmanagerHistoryGrows(t *testing.T) {
+// Every family keeps at most one successful snapshot per natural day; failed
+// attempts and intra-day duplicates are removed.
+func TestPruneSnapshotsKeepsOneSuccessPerDay(t *testing.T) {
 	gormDB := newRepoTestDB(t)
 	repo := repository.NewGORMRepository(gormDB)
 	ctx := context.Background()
-	base := time.Now().UTC().Add(-24 * time.Hour)
-
-	// 先建立满窗的配置历史（7 条非当前 + 1 条当前），裁剪后应剩最新 5 条
-	for i := 0; i < 7; i++ {
-		insertSnapshot(t, repo, "cfg-"+string(rune('a'+i)), base.Add(time.Duration(i)*time.Minute), false)
-	}
-	insertSnapshot(t, repo, "cfg-current", base.Add(30*time.Minute), true)
-	_, err := repo.PruneSnapshots(ctx, "mc-a", 5)
-	require.NoError(t, err)
-
-	configsBefore := filterVersions(listVersions(t, repo), false)
-	require.Len(t, configsBefore, 5)
-
-	// 之后频繁保存告警配置：8 条 am- 行，时间都比配置快照新
-	for i := 0; i < 8; i++ {
-		insertSnapshot(t, repo, "am-"+string(rune('a'+i)), base.Add(time.Duration(60+i)*time.Minute), false)
+	loc := time.FixedZone("CST", 8*3600)
+	now := time.Now().In(loc)
+	day := func(offset int) time.Time {
+		local := now.AddDate(0, 0, offset)
+		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	}
 
-	removed, err := repo.PruneSnapshots(ctx, "mc-a", 5)
+	// Today: two config successes + a failure; current wins.
+	insertSnapshot(t, repo, "cfg-today-old", day(0).Add(time.Hour), false)
+	insertSnapshotWithStatus(t, repo, "cfg-today-failed", day(0).Add(2*time.Hour), "failed", false)
+	insertSnapshot(t, repo, "cfg-current", day(0).Add(3*time.Hour), true)
+
+	// Yesterday: two config successes (keep newest) + a failure (drop).
+	insertSnapshot(t, repo, "cfg-yesterday-old", day(-1).Add(time.Hour), false)
+	insertSnapshot(t, repo, "cfg-yesterday-new", day(-1).Add(2*time.Hour), false)
+	insertSnapshotWithStatus(t, repo, "cfg-yesterday-failed", day(-1).Add(3*time.Hour), "failed", false)
+
+	// Legacy alertmanager family is counted independently.
+	insertSnapshot(t, repo, "am-today-old", day(0).Add(time.Hour), false)
+	insertSnapshot(t, repo, "am-today-new", day(0).Add(2*time.Hour), false)
+	insertSnapshot(t, repo, "am-yesterday", day(-1).Add(time.Hour), false)
+
+	// Outside the 30-day window.
+	insertSnapshot(t, repo, "cfg-too-old", day(-31).Add(time.Hour), false)
+	insertSnapshot(t, repo, "am-too-old", day(-31).Add(time.Hour), false)
+
+	removed, err := repo.PruneSnapshots(ctx, "mc-a", 30, loc)
 	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{
+		"cfg-today-old", "cfg-today-failed", "cfg-yesterday-old", "cfg-yesterday-failed",
+		"am-today-old", "cfg-too-old", "am-too-old",
+	}, removed)
 
 	versions := listVersions(t, repo)
-	assert.Equal(t, configsBefore, filterVersions(versions, false),
-		"config history must not be evicted by alertmanager history")
-	assert.Len(t, filterVersions(versions, true), 5, "alertmanager history keeps its own retention window")
-	assert.Contains(t, versions, "cfg-current")
-	assert.Len(t, removed, 3, "only the 3 oldest alertmanager rows exceed their own window")
+	assert.ElementsMatch(t, []string{
+		"cfg-current", "cfg-yesterday-new", "am-today-new", "am-yesterday",
+	}, versions)
 }
 
-// 当前生效版本即使超出保留数也不得删除（唯一 is_current）。
+// 当前生效版本即使超出保留窗口也不得删除（唯一 is_current）。
 func TestPruneSnapshotsKeepsCurrentOutsideRetentionWindow(t *testing.T) {
 	gormDB := newRepoTestDB(t)
 	repo := repository.NewGORMRepository(gormDB)
 	ctx := context.Background()
-	base := time.Now().UTC().Add(-24 * time.Hour)
+	loc := time.FixedZone("CST", 8*3600)
+	now := time.Now().In(loc)
 
-	// 最老的一条是当前生效版本，其后又产生了 6 条历史
-	insertSnapshot(t, repo, "cfg-current", base, true)
-	for i := 0; i < 6; i++ {
-		insertSnapshot(t, repo, "cfg-"+string(rune('a'+i)), base.Add(time.Duration(i+1)*time.Minute), false)
-	}
+	insertSnapshot(t, repo, "cfg-current", now.AddDate(0, 0, -40), true)
+	insertSnapshot(t, repo, "cfg-recent", now, false)
 
-	_, err := repo.PruneSnapshots(ctx, "mc-a", 5)
+	_, err := repo.PruneSnapshots(ctx, "mc-a", 30, loc)
 	require.NoError(t, err)
 
 	versions := listVersions(t, repo)
-	assert.Contains(t, versions, "cfg-current", "current snapshot is never pruned")
-	assert.Len(t, versions, 6, "5 newest + current outside the window")
-}
-
-// 没有 am- 行时行为保持原样：整表保留最新 keep 条 + 当前版本。
-func TestPruneSnapshotsKeepsNewestConfigSnapshots(t *testing.T) {
-	gormDB := newRepoTestDB(t)
-	repo := repository.NewGORMRepository(gormDB)
-	ctx := context.Background()
-	base := time.Now().UTC().Add(-24 * time.Hour)
-
-	for i := 0; i < 7; i++ {
-		insertSnapshot(t, repo, "cfg-"+string(rune('a'+i)), base.Add(time.Duration(i)*time.Minute), false)
-	}
-	insertSnapshot(t, repo, "cfg-current", base.Add(30*time.Minute), true)
-
-	removed, err := repo.PruneSnapshots(ctx, "mc-a", 5)
-	require.NoError(t, err)
-	assert.Len(t, removed, 3)
-	assert.Len(t, listVersions(t, repo), 5)
-}
-
-// filterVersions 按版本前缀拆分两类快照（am- = M08 告警配置留痕）。
-func filterVersions(versions []string, alertmanager bool) []string {
-	out := make([]string, 0, len(versions))
-	for _, version := range versions {
-		isAlertmanager := len(version) > 3 && version[:3] == "am-"
-		if isAlertmanager == alertmanager {
-			out = append(out, version)
-		}
-	}
-	return out
+	assert.ElementsMatch(t, []string{"cfg-current", "cfg-recent"}, versions,
+		"current snapshot is never pruned")
 }

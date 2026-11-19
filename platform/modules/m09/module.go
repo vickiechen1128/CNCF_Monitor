@@ -48,6 +48,7 @@ type Module struct {
 	edge     *service.EdgeService
 	config   *service.ConfigSyncService
 	center   *service.CenterRulesService
+	trigger  *service.ConfigTriggerService
 	query    *service.QueryService
 	opts     Options
 }
@@ -72,6 +73,7 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 		opts.PromURL,
 	)
 	centerRules.SetAlertmanagerAddr(opts.AlertmanagerAddr)
+	trigger := service.NewConfigTriggerService(configSync, centerRules, onboarding)
 	query := service.NewQueryService(opts.PromURL, repo, repo)
 	packages := service.NewPackageService(opts.EdgePackagesDir)
 	artifacts := service.NewArtifactService(repo, store)
@@ -84,12 +86,14 @@ func NewModule(db *gorm.DB, opts Options) (*Module, error) {
 			Artifacts:  handler.NewArtifactHandler(onboarding, artifacts),
 			Query:      handler.NewQueryHandler(query),
 			Packages:   handler.NewPackageHandler(packages),
+			Trigger:    handler.NewConfigTriggerHandler(trigger),
 			EdgeAuth:   service.NewTokenValidator(repo),
 		},
 		onboard: onboarding,
 		edge:    edge,
 		config:  configSync,
 		center:  centerRules,
+		trigger: trigger,
 		query:   query,
 		opts:    opts,
 	}, nil
@@ -126,6 +130,21 @@ func (m *Module) ConfigSync() *service.ConfigSyncService {
 	return m.config
 }
 
+// NotifyConfigSync enqueues a best-effort sync for affected domains. It is the
+// M07 post-commit notification entry point (no user actor involved).
+func (m *Module) NotifyConfigSync(ctx context.Context, domainIDs []string) {
+	if m.trigger != nil {
+		m.trigger.NotifyDomains(ctx, domainIDs)
+	}
+}
+
+// NotifyAllConfigSync enqueues a best-effort sync for every enabled edge domain.
+func (m *Module) NotifyAllConfigSync(ctx context.Context) {
+	if m.trigger != nil {
+		m.trigger.NotifyAllDomains(ctx)
+	}
+}
+
 // RegisterQueryRoutes mounts the Prometheus-compatible query surface
 // (expected prefix: /api/v1). Only used in v3-only mode (D30).
 func (m *Module) RegisterQueryRoutes(apiV1 *gin.RouterGroup) error {
@@ -145,5 +164,8 @@ func (m *Module) StartBackground(ctx context.Context) {
 	}
 	if m.center != nil {
 		go m.center.RunWatcher(ctx, 30*time.Second)
+	}
+	if m.trigger != nil {
+		go m.trigger.Run(ctx)
 	}
 }

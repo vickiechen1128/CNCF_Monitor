@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/modules/m09/configcenter/generator"
 )
 
 const (
@@ -51,7 +51,6 @@ type Job struct {
 // Source is the pure input to the generator.
 type Source struct {
 	NetworkDomainID string
-	ZoneType        string
 	Replica         string
 	Jobs            []Job
 	// Modules are the enabled blackbox module definitions rendered into the
@@ -103,7 +102,7 @@ func Generate(src Source, version string, generatedAt time.Time) (*Artifacts, er
 	sort.SliceStable(builds, func(i, j int) bool { return builds[i].Job.JobName < builds[j].Job.JobName })
 
 	rendered, err := generator.AssembleWithModules(
-		src.NetworkDomainID, src.ZoneType, src.Replica,
+		src.NetworkDomainID, src.Replica,
 		builds, nil, "", "", false, src.Modules,
 	)
 	if err != nil {
@@ -219,14 +218,18 @@ type ValidationResult struct {
 
 // Validate runs the shared promtool / blackbox / targets checks. An unavailable
 // external tool is a platform fault (matching generator's attribution rules).
-func Validate(artifacts *Artifacts) ValidationResult {
+//
+// platformJobs is the effective central job-name set used by the rule job-ref
+// gate (decision 66). Domain artifacts carry no rules and pass nil; the center
+// rules service passes the global enabled+ready job union.
+func Validate(artifacts *Artifacts, platformJobs []string) ValidationResult {
 	ca := &generator.ConfigArtifacts{
 		PrometheusYML: artifacts.PrometheusYML,
 		RulesYML:      artifacts.RulesYML,
 		BlackboxYML:   artifacts.BlackboxYML,
 		TargetsFiles:  artifacts.TargetsFiles,
 	}
-	status, cause, details, message := generator.ValidateArtifacts(ca, false, nil)
+	status, cause, details, message := generator.ValidateArtifacts(ca, false, platformJobs)
 
 	normalizedStatus := "failed"
 	if status == models.ValidationStatusPassed {
@@ -267,7 +270,7 @@ func GenerateCenterRules(rules []models.MonitoringRule, version string, generate
 		alertmanagerMarker = "# center alertmanager mounted"
 	}
 	rendered, err := generator.AssembleWithModules(
-		"center", "", "", nil, rules, alertmanagerMarker, alertmanagerAddr, true, nil,
+		"center", "", nil, rules, alertmanagerMarker, alertmanagerAddr, true, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("configgen: assemble center rules: %w", err)

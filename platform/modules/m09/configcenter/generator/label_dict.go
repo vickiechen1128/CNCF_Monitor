@@ -17,10 +17,9 @@ type labelDictionary struct {
 	platformNames map[string]string
 	domainNames   map[string]string
 	cloudNames    map[string]string
-	zoneNames     map[string]string
 }
 
-// newLabelDictionary 加载全部可翻译字典（应用 / 业务 / 平台 / 网域 / 云 / 区域）。
+// newLabelDictionary 加载全部可翻译字典（应用 / 业务 / 平台 / 网域 / 云）。
 // 环境（env）为固定枚举，直接走 models.LabelEnvDisplayNames（当前恒等映射，输出原代码），无需查库。
 func newLabelDictionary(db *gorm.DB) *labelDictionary {
 	d := &labelDictionary{
@@ -29,7 +28,6 @@ func newLabelDictionary(db *gorm.DB) *labelDictionary {
 		platformNames: map[string]string{},
 		domainNames:   map[string]string{},
 		cloudNames:    map[string]string{},
-		zoneNames:     map[string]string{},
 	}
 	if db == nil {
 		return d
@@ -71,22 +69,13 @@ func newLabelDictionary(db *gorm.DB) *labelDictionary {
 		}
 	}
 
-	// 云 / 区域字典用于 target 级展示名标签（cloud_name / zone_name）。
+	// 云字典用于 target 级展示名标签（cloud_name）。
 	// 不过滤 enabled：存量网域可能引用已停用字典项，展示名仍应可读。
 	var clouds []models.CloudDict
 	if err := db.Select("cloud_code", "cloud_name").Find(&clouds).Error; err == nil {
 		for _, c := range clouds {
 			if c.CloudCode != "" && c.CloudName != "" {
 				d.cloudNames[c.CloudCode] = c.CloudName
-			}
-		}
-	}
-
-	var zones []models.ZoneType
-	if err := db.Select("code", "display_name").Find(&zones).Error; err == nil {
-		for _, z := range zones {
-			if z.Code != "" && z.DisplayName != "" {
-				d.zoneNames[z.Code] = z.DisplayName
 			}
 		}
 	}
@@ -99,17 +88,6 @@ func newLabelDictionary(db *gorm.DB) *labelDictionary {
 func (d *labelDictionary) cloudDisplayName(code string) string {
 	if d != nil {
 		if name, ok := d.cloudNames[code]; ok && name != "" {
-			return name
-		}
-	}
-	return code
-}
-
-// zoneDisplayName 返回区域编码对应的中文展示名；字典未命中回退原始编码。
-// 用于 target 级 zone_name 标签（仅展示，不改变 zone 身份标签的 code 口径）。
-func (d *labelDictionary) zoneDisplayName(code string) string {
-	if d != nil {
-		if name, ok := d.zoneNames[code]; ok && name != "" {
 			return name
 		}
 	}

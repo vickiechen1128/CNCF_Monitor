@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -18,10 +19,6 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
 )
-
-// DefaultCenterSnapshotRetention keeps the newest N center artifacts plus the
-// current one (SRS v1.5 FR-13).
-const DefaultCenterSnapshotRetention = 5
 
 // CenterRulesService renders the platform-global rules.yml evaluated by the
 // center Prometheus (D35) and reports per-rule outcomes back to M01.
@@ -38,6 +35,14 @@ type CenterRulesService struct {
 	client           *http.Client
 	now              func() time.Time
 	validator        Validator
+
+	retentionDays int
+	dayLocation   *time.Location
+
+	// mu serializes Sync calls from the 30s watcher and the immediate trigger.
+	// Without it, two callers can both observe no current snapshot and insert
+	// duplicate center history rows for the same content.
+	mu sync.Mutex
 }
 
 // NewCenterRulesService constructs the service.
@@ -49,15 +54,17 @@ func NewCenterRulesService(
 	promURL *url.URL,
 ) *CenterRulesService {
 	return &CenterRulesService{
-		repo:      repo,
-		source:    source,
-		sink:      sink,
-		outputDir: outputDir,
-		store:     storage.NewContentStore(outputDir),
-		promURL:   promURL,
-		client:    &http.Client{Timeout: 5 * time.Second},
-		now:       func() time.Time { return time.Now().UTC() },
-		validator: defaultValidator{},
+		repo:          repo,
+		source:        source,
+		sink:          sink,
+		outputDir:     outputDir,
+		store:         storage.NewContentStore(outputDir),
+		promURL:       promURL,
+		client:        &http.Client{Timeout: 5 * time.Second},
+		now:           func() time.Time { return time.Now().UTC() },
+		validator:     defaultValidator{},
+		retentionDays: snapshotRetentionDays(),
+		dayLocation:   snapshotDayLocation(),
 	}
 }
 
@@ -74,8 +81,19 @@ func (s *CenterRulesService) SetValidator(validator Validator) {
 	}
 }
 
+// SetRetention overrides the daily history window (tests / deployment tuning).
+func (s *CenterRulesService) SetRetention(days int, loc *time.Location) {
+	s.retentionDays = normalizeSnapshotRetention(days)
+	if loc != nil {
+		s.dayLocation = loc
+	}
+}
+
 // Sync regenerates the center rules artifact and publishes it when valid.
 func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfigSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rules, err := s.source.ListEnabledReady(ctx)
 	if err != nil {
 		return nil, err
@@ -104,12 +122,30 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 	if current != nil && current.Checksum == artifacts.Checksum {
 		// Upgrade path: rows created before content persistence have no payload.
 		// Backfill the current version so preview/export/recovery work without a
-		// spurious new snapshot.
-		_, _ = s.store.WriteArtifacts(repository.ArtifactTypeCenterKey, current.Version, artifacts)
+		// spurious new snapshot. Regenerate with the persisted version so the
+		// payload's metadata.json agrees with the DB row instead of carrying the
+		// tentative version generated above.
+		if !s.store.Exists(repository.ArtifactTypeCenterKey, current.Version) {
+			stored, genErr := configgen.GenerateCenterRules(modelsRules, current.Version, now, s.alertmanagerAddr)
+			if genErr == nil {
+				_, _ = s.store.WriteArtifacts(repository.ArtifactTypeCenterKey, current.Version, stored)
+			}
+		}
+		// Reconcile M01 sync_status and prune legacy rows even when the config
+		// content is unchanged.
+		s.recordOutcomes(ctx, rules, *current, now)
+		s.prune(ctx)
 		return current, nil
 	}
 
-	outcome := s.validator.Validate(ctx, artifacts)
+	var platformJobs []string
+	if strings.TrimSpace(artifacts.RulesYML) != "" {
+		platformJobs, err = s.source.EffectiveJobNames(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	outcome := s.validator.Validate(ctx, artifacts, platformJobs)
 	record := repository.CenterConfigSnapshot{
 		Version:           version,
 		Checksum:          artifacts.Checksum,
@@ -135,11 +171,9 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 	}
 
 	if record.ValidationStatus != "passed" {
-		id, err := s.repo.Insert(ctx, record)
-		if err != nil {
-			return nil, err
-		}
-		record.ID = id
+		// Failed attempts are not config versions (SRS v1.7 FR-13): keep the
+		// current passed snapshot untouched and expose the failure only through
+		// M01 sync_status / logs.
 		s.recordOutcomes(ctx, rules, record, now)
 		s.prune(ctx)
 		return &record, nil
@@ -159,7 +193,7 @@ func (s *CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfig
 // prune trims center history and removes the corresponding content files.
 // Pruning is best-effort: a failure never fails an already-published snapshot.
 func (s *CenterRulesService) prune(ctx context.Context) {
-	removed, err := s.repo.Prune(ctx, DefaultCenterSnapshotRetention)
+	removed, err := s.repo.Prune(ctx, s.retentionDays, s.dayLocation)
 	if err != nil {
 		log.Printf("m09 center rules: prune: %v", err)
 		return
@@ -171,25 +205,38 @@ func (s *CenterRulesService) prune(ctx context.Context) {
 
 // RunWatcher polls the M01 rule fingerprint and syncs when it changes. It runs
 // one immediate pass so startup does not wait for the first tick.
+//
+// A zero fingerprint means "no enabled rules" and is a valid stable state, not
+// "changed on every tick". After a settled sync the watcher only runs again
+// when the fingerprint actually differs (including the transition back to
+// zero when all rules are deleted). platform_fault results are deliberately
+// not marked settled so the next tick retries; Sync coalesces retries of the
+// same checksum into one history row, so a persistent publish failure cannot
+// flood the snapshot history.
 func (s *CenterRulesService) RunWatcher(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 	var last time.Time
+	synced := false
 	run := func() {
 		fingerprint, err := s.source.Fingerprint(ctx)
 		if err != nil {
 			log.Printf("m09 center rules: fingerprint: %v", err)
 			return
 		}
-		if !fingerprint.IsZero() && !fingerprint.After(last) {
+		if synced && fingerprint.Equal(last) {
 			return
 		}
-		if _, err := s.Sync(ctx); err != nil {
+		snapshot, err := s.Sync(ctx)
+		if err != nil {
 			log.Printf("m09 center rules: sync: %v", err)
 			return
 		}
-		last = fingerprint
+		if centerSyncSettled(snapshot) {
+			last = fingerprint
+			synced = true
+		}
 	}
 	run()
 	ticker := time.NewTicker(interval)
@@ -202,6 +249,19 @@ func (s *CenterRulesService) RunWatcher(ctx context.Context, interval time.Durat
 			run()
 		}
 	}
+}
+
+// centerSyncSettled reports whether the watcher may advance its fingerprint.
+// passed snapshots are settled; user_config failures need a source fix and
+// must not be retried on every tick. platform_fault (for example a Prometheus
+// reload endpoint that is not reachable) is retried on the next tick; Sync
+// updates one failed row by checksum instead of appending a new version.
+func centerSyncSettled(snapshot *repository.CenterConfigSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	return snapshot.ValidationStatus == "passed" ||
+		(snapshot.ValidationStatus == "failed" && snapshot.ValidationCause == "user_config")
 }
 
 func (s *CenterRulesService) publish(ctx context.Context, rulesYML string) error {

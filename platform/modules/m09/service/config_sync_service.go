@@ -15,10 +15,6 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
 )
 
-// DefaultSnapshotRetention keeps the newest N snapshots per domain plus the
-// current one (contract §4: 3–5 read-only history).
-const DefaultSnapshotRetention = 5
-
 // DefaultSyncWorkers bounds how many domains are regenerated concurrently.
 // Each changed domain shells out to promtool / blackbox_exporter for validation,
 // so the cap keeps CPU and file handles predictable while still removing the
@@ -27,13 +23,13 @@ const DefaultSyncWorkers = 4
 
 // Validator checks generated artifacts before they are published.
 type Validator interface {
-	Validate(ctx context.Context, artifacts *configgen.Artifacts) configgen.ValidationResult
+	Validate(ctx context.Context, artifacts *configgen.Artifacts, platformJobs []string) configgen.ValidationResult
 }
 
 type defaultValidator struct{}
 
-func (defaultValidator) Validate(_ context.Context, artifacts *configgen.Artifacts) configgen.ValidationResult {
-	return configgen.Validate(artifacts)
+func (defaultValidator) Validate(_ context.Context, artifacts *configgen.Artifacts, platformJobs []string) configgen.ValidationResult {
+	return configgen.Validate(artifacts, platformJobs)
 }
 
 // ConfigSyncService generates, validates and atomically publishes per-domain
@@ -45,9 +41,10 @@ type ConfigSyncService struct {
 	validator Validator
 	sink      references.SyncResultSink
 
-	now       func() time.Time
-	retention int
-	workers   int
+	now           func() time.Time
+	retentionDays int
+	dayLocation   *time.Location
+	workers       int
 
 	mu          sync.Mutex
 	domainLocks map[string]*sync.Mutex
@@ -65,14 +62,15 @@ func NewConfigSyncService(
 		validator = defaultValidator{}
 	}
 	return &ConfigSyncService{
-		repo:        repo,
-		sources:     sources,
-		store:       store,
-		validator:   validator,
-		now:         func() time.Time { return time.Now().UTC() },
-		retention:   DefaultSnapshotRetention,
-		workers:     DefaultSyncWorkers,
-		domainLocks: map[string]*sync.Mutex{},
+		repo:          repo,
+		sources:       sources,
+		store:         store,
+		validator:     validator,
+		now:           func() time.Time { return time.Now().UTC() },
+		retentionDays: snapshotRetentionDays(),
+		dayLocation:   snapshotDayLocation(),
+		workers:       DefaultSyncWorkers,
+		domainLocks:   map[string]*sync.Mutex{},
 	}
 }
 
@@ -80,6 +78,21 @@ func NewConfigSyncService(
 // (tests / standalone M09).
 func (s *ConfigSyncService) SetSyncSink(sink references.SyncResultSink) {
 	s.sink = sink
+}
+
+// SetRetention overrides the daily history window (tests / deployment tuning).
+func (s *ConfigSyncService) SetRetention(days int, loc *time.Location) {
+	s.retentionDays = normalizeSnapshotRetention(days)
+	if loc != nil {
+		s.dayLocation = loc
+	}
+}
+
+// EdgeDomainIDs returns the enabled edge domains that participate in config
+// sync. The immediate trigger uses it for scope=all (for example a label
+// template change that affects every domain).
+func (s *ConfigSyncService) EdgeDomainIDs(ctx context.Context) ([]string, error) {
+	return s.sources.EdgeDomainIDs(ctx)
 }
 
 // SyncDomain regenerates the domain config and publishes it when valid. On
@@ -106,10 +119,15 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 		return nil, err
 	}
 	if current != nil && current.Checksum == artifacts.Checksum {
+		// Even without a new version, reconcile M01's sync_status and prune any
+		// legacy failed/intra-day rows. This heals a pending state left by an
+		// older writeback or a previous platform fault.
+		s.recordSyncResult(ctx, source, *current, now)
+		s.prune(ctx, domainID)
 		return current, nil // no substantive change
 	}
 
-	outcome := s.validator.Validate(ctx, artifacts)
+	outcome := s.validator.Validate(ctx, artifacts, nil)
 	record := repository.ConfigSnapshot{
 		NetworkDomainID:   domainID,
 		Version:           version,
@@ -130,12 +148,11 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 	}
 
 	if record.ValidationStatus != "passed" {
-		id, err := s.repo.InsertSnapshot(ctx, record)
-		if err != nil {
-			return nil, err
-		}
-		record.ID = id
+		// Failed attempts are not config versions (SRS v1.7 FR-13): keep the
+		// current passed snapshot untouched and expose the failure only through
+		// M01 sync_status / logs.
 		s.recordSyncResult(ctx, source, record, now)
+		s.prune(ctx, domainID)
 		return &record, nil
 	}
 
@@ -146,13 +163,24 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 	record.ID = id
 	record.IsCurrent = true
 
-	if removed, err := s.repo.PruneSnapshots(ctx, domainID, s.retention); err == nil {
-		for _, oldVersion := range removed {
-			_ = s.store.Delete(domainID, oldVersion)
-		}
-	}
+	s.prune(ctx, domainID)
 	s.recordSyncResult(ctx, source, record, now)
 	return &record, nil
+}
+
+// prune keeps the current snapshot plus one successful snapshot per natural
+// day for the configured retention window, and deletes content for removed
+// versions. Pruning is best-effort: a failure never fails an already-published
+// snapshot.
+func (s *ConfigSyncService) prune(ctx context.Context, domainID string) {
+	removed, err := s.repo.PruneSnapshots(ctx, domainID, s.retentionDays, s.dayLocation)
+	if err != nil {
+		log.Printf("m09: prune config snapshots for domain %s: %v", domainID, err)
+		return
+	}
+	for _, oldVersion := range removed {
+		_ = s.store.Delete(domainID, oldVersion)
+	}
 }
 
 // recordSyncResult writes per-job outcomes back to M01. Writeback failures are

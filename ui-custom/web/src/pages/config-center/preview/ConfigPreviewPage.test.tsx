@@ -6,7 +6,6 @@ import { setupAntdTest, mockAntdMessage, selectAntdOption } from '../../../test/
 import { ConfigPreviewPage } from './ConfigPreviewPage'
 import { ApiError } from '../../../api/client'
 import type { ConfigSnapshotHistoryRow, NetworkDomain } from '../../../types/config-center'
-import { shortChecksum } from '../../../utils/shortChecksum'
 
 const { userState } = vi.hoisted(() => ({ userState: { role: 'admin' as string | undefined } }))
 
@@ -126,11 +125,11 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
   it('加载中提示', () => {
     useConfigSnapshotsMock.mockReturnValue(result({ loading: true }))
     renderPage()
-    expect(screen.getAllByText('配置产物历史').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('配置备份历史').length).toBeGreaterThan(0)
     expect(screen.getByText('加载中…')).toBeInTheDocument()
   })
 
-  it('渲染快照列表：网域 / 版本 / 校验状态 / 当前版本 / 生成来源 / 校验值 / 生成时间', async () => {
+  it('渲染配置列表：网域 / 配置日期 / 版本 / 状态 / 当前版本 / 生成来源 / 生成时间', async () => {
     useConfigSnapshotsMock.mockReturnValue(
       result({
         rows: [
@@ -159,28 +158,29 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(screen.getAllByText('边缘域').length).toBeGreaterThan(0)
     expect(screen.getByText('成功')).toBeInTheDocument()
     expect(screen.getByText('失败')).toBeInTheDocument()
-    expect(screen.getByText('当前生效')).toBeInTheDocument()
+    expect(screen.getByText('当前使用')).toBeInTheDocument()
     expect(screen.getByText('系统自动生成')).toBeInTheDocument()
     expect(screen.getByText('告警配置同步')).toBeInTheDocument()
-    expect(screen.getByText(shortChecksum('sha256:deadbeef0123456789abcdef'))).toBeInTheDocument()
+    expect(screen.getAllByText('2026-11-11').length).toBeGreaterThan(0)
+    expect(screen.getByText('2026-11-10')).toBeInTheDocument()
   })
 
   it('空态：暂无已纳管网域（引导先去网域纳管）', async () => {
     useConfigSnapshotsMock.mockReturnValue(result({ domains: [] }))
     renderPage()
-    expect(await screen.findByText(/暂无配置产物/)).toBeInTheDocument()
+    expect(await screen.findByText(/暂无配置备份/)).toBeInTheDocument()
   })
 
   it('空态：全部网域暂无配置快照', async () => {
     useConfigSnapshotsMock.mockReturnValue(result())
     renderPage()
-    expect(await screen.findByText('暂无配置产物')).toBeInTheDocument()
+    expect(await screen.findByText('暂无配置备份')).toBeInTheDocument()
   })
 
   it('空态：选中某一网域且该域无快照时文案限定为该网域', async () => {
     useConfigSnapshotsMock.mockReturnValue(result({ domainFilter: 'mc-demo' }))
     renderPage()
-    expect(await screen.findByText('该网域暂无采集配置快照')).toBeInTheDocument()
+    expect(await screen.findByText('该网域暂无配置备份')).toBeInTheDocument()
   })
 
   it('按网域筛选：选择网域后调用 setDomainFilter（默认「全部网域」= 跨域聚合）', async () => {
@@ -202,7 +202,36 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(setDomainFilterMock).toHaveBeenCalledWith('mc-edge')
   })
 
-  it('按校验状态筛选：仅保留失败快照', async () => {
+  it('按配置日期筛选：仅保留所选日期的配置，并提示仅保留 30 天', async () => {
+    useConfigSnapshotsMock.mockReturnValue(
+      result({
+        rows: [
+          row(),
+          row({
+            id: 41,
+            version: '20261110-x9y8',
+            created_at: '2026-11-10T10:00:00Z',
+          }),
+        ],
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
+    expect(screen.getAllByText('仅保留最近 30 天').length).toBeGreaterThan(0)
+
+    await user.click(screen.getAllByRole('combobox')[3])
+    const dateOption = document.querySelector(
+      '.ant-select-dropdown .ant-select-item-option[title="2026-11-10"]',
+    ) as HTMLElement
+    expect(dateOption).not.toBeNull()
+    await user.click(dateOption)
+
+    await waitFor(() => expect(screen.queryByText('20261111-0a1b')).not.toBeInTheDocument())
+    expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
+  })
+
+  it('按状态筛选：仅保留失败配置', async () => {
     useConfigSnapshotsMock.mockReturnValue(
       result({
         rows: [
@@ -231,7 +260,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
   })
 
-  it('关键字筛选：命中版本或校验值，未命中展示无匹配提示', async () => {
+  it('关键字筛选：命中版本或日期，未命中展示无匹配提示', async () => {
     useConfigSnapshotsMock.mockReturnValue(
       result({
         rows: [
@@ -248,16 +277,16 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     renderPage()
     expect(await screen.findByText('20261111-0a1b')).toBeInTheDocument()
 
-    const input = screen.getByPlaceholderText('搜索版本或校验值')
+    const input = screen.getByPlaceholderText('搜索版本或日期')
     fireEvent.change(input, { target: { value: 'x9y8' } })
     await waitFor(() => expect(screen.queryByText('20261111-0a1b')).not.toBeInTheDocument())
     expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
 
-    fireEvent.change(input, { target: { value: '00112233' } })
+    fireEvent.change(input, { target: { value: '2026-11-10' } })
     expect(screen.getByText('20261110-x9y8')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: 'no-such-snapshot' } })
-    expect(await screen.findByText('没有匹配的配置产物')).toBeInTheDocument()
+    expect(await screen.findByText('没有符合条件的配置备份')).toBeInTheDocument()
   })
 
   it('部分网域失败：提示条列出失败域，其余行正常展示', async () => {
@@ -269,24 +298,24 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
       }),
     )
     renderPage()
-    expect(await screen.findByText('部分网域快照加载失败（1 个）')).toBeInTheDocument()
-    expect(screen.getByText(/故障域（mc-fail）：请求超时/)).toBeInTheDocument()
+    expect(await screen.findByText('部分网域的配置暂时无法读取（1 个）')).toBeInTheDocument()
+    expect(screen.getByText(/故障域：请稍后刷新重试/)).toBeInTheDocument()
     expect(screen.getByText('20261111-0a1b')).toBeInTheDocument()
   })
 
   it('接口错误：Alert + 重新加载触发 reload', async () => {
     useConfigSnapshotsMock.mockReturnValue(result({ error: 'boom' }))
     renderPage()
-    expect(await screen.findByText('配置产物加载失败，请稍后重试')).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: /重新加载/ })[0])
+    expect(await screen.findByText('配置列表暂时加载失败')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: /刷新/ })[0])
     expect(reloadMock).toHaveBeenCalled()
   })
 
   it('网域列表失败：展示提示并可刷新', async () => {
     useConfigSnapshotsMock.mockReturnValue(result({ domainError: true, domains: [] }))
     renderPage()
-    expect(await screen.findByText('网域列表加载失败')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /刷新/ }))
+    expect(await screen.findByText('网域信息暂时无法读取')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: /刷新/ })[0])
     expect(reloadMock).toHaveBeenCalled()
   })
 
@@ -322,7 +351,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     expect(snapshotGetMock).toHaveBeenCalledWith(42)
-    expect(await screen.findByText('配置产物详情：20261111-0a1b')).toBeInTheDocument()
+    expect(await screen.findByText('配置详情：20261111-0a1b')).toBeInTheDocument()
     expect(screen.getByText('用户配置问题')).toBeInTheDocument()
     expect(await screen.findByText(/"message": "禁止覆盖内置标签"/)).toBeInTheDocument()
   })
@@ -332,10 +361,10 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     snapshotGetMock.mockResolvedValue({ status: 'success', data: row() })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    expect(await screen.findByText('校验通过，无明细')).toBeInTheDocument()
+    expect(await screen.findByText('配置检查通过，没有需要处理的明细')).toBeInTheDocument()
   })
 
-  it('admin 导出网域配置包：调用 export 并触发 zip 下载', async () => {
+  it('admin 下载网域配置包：调用 export 并触发 zip 下载', async () => {
     const antdMessage = mockAntdMessage()
     useConfigSnapshotsMock.mockReturnValue(result({ rows: [row()] }))
     snapshotGetMock.mockResolvedValue({ status: 'success', data: row() })
@@ -346,11 +375,11 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /导出配置包/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置包/ }))
 
     await waitFor(() => expect(artifactExportMock).toHaveBeenCalledWith(42, false))
     expect(triggerBlobDownloadMock).toHaveBeenCalledWith(expect.any(Blob), 'mc-demo-20261111-0a1b.zip')
-    expect(antdMessage.success).toHaveBeenCalledWith('配置产物已开始下载')
+    expect(antdMessage.success).toHaveBeenCalledWith('配置已开始下载')
   })
 
   it('非 admin 不展示内容预览与导出按钮', async () => {
@@ -359,9 +388,9 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     snapshotGetMock.mockResolvedValue({ status: 'success', data: row() })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    expect(await screen.findByText('配置产物详情：20261111-0a1b')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /导出配置包/ })).not.toBeInTheDocument()
-    expect(screen.getByText('配置内容含凭据明文，仅管理员可查看与导出。')).toBeInTheDocument()
+    expect(await screen.findByText('配置详情：20261111-0a1b')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /下载配置包/ })).not.toBeInTheDocument()
+    expect(screen.getByText('配置里可能包含账号密码，只有管理员可以查看和下载。')).toBeInTheDocument()
   })
 
   it('导出 403：提示需管理员权限，不触发下载', async () => {
@@ -372,10 +401,10 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /导出配置包/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置包/ }))
 
     await waitFor(() =>
-      expect(antdMessage.error).toHaveBeenCalledWith('当前账号无导出配置产物的权限，请联系管理员开通'),
+      expect(antdMessage.error).toHaveBeenCalledWith('当前账号不能下载配置，请联系管理员开通权限'),
     )
     expect(triggerBlobDownloadMock).not.toHaveBeenCalled()
   })
@@ -388,7 +417,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /导出配置包/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载配置包/ }))
 
     await waitFor(() =>
       expect(antdMessage.error).toHaveBeenCalledWith('登录已过期，请重新登录后再下载'),
@@ -404,11 +433,11 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
-    expect(await screen.findByText('配置产物详情加载失败')).toBeInTheDocument()
-    expect(screen.getByText('网络异常')).toBeInTheDocument()
+    expect(await screen.findByText('配置详情加载失败')).toBeInTheDocument()
+    expect(screen.getByText('请点击「重试」；如果一直失败，请联系管理员。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
     await waitFor(() => expect(snapshotGetMock).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('配置产物详情：retried-version')).toBeInTheDocument()
+    expect(await screen.findByText('配置详情：retried-version')).toBeInTheDocument()
   })
 
   it('前端分页：20 条/页，可翻到第二页', async () => {
@@ -430,7 +459,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(screen.queryByText('version-01')).not.toBeInTheDocument()
   })
 
-  it('按产物类型筛选：仅保留中心规则', async () => {
+  it('按类型筛选：仅保留中心规则', async () => {
     useConfigSnapshotsMock.mockReturnValue(
       result({
         rows: [
@@ -469,7 +498,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(screen.queryByText('am-1')).not.toBeInTheDocument()
   })
 
-  it('平台级产物展示类型标签与「中心」范围', async () => {
+  it('平台级配置展示类型标签与「中心」范围', async () => {
     useConfigSnapshotsMock.mockReturnValue(
       result({
         rows: [
@@ -498,7 +527,7 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     expect(screen.getAllByText('告警配置').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('admin 导出中心一体化恢复包', async () => {
+  it('admin 下载恢复包', async () => {
     const antdMessage = mockAntdMessage()
     useConfigSnapshotsMock.mockReturnValue(result({ rows: [row()] }))
     recoveryBundleMock.mockResolvedValue({
@@ -507,13 +536,13 @@ describe('ConfigPreviewPage（配置快照：单域与快照历史合并）', ()
     })
     renderPage()
 
-    fireEvent.click(await screen.findByRole('button', { name: /导出中心恢复包/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /下载恢复包/ }))
     await waitFor(() => expect(recoveryBundleMock).toHaveBeenCalled())
     expect(triggerBlobDownloadMock).toHaveBeenCalledWith(
       expect.any(Blob),
       'center-recovery-20261117-aaaa.zip',
     )
-    expect(antdMessage.success).toHaveBeenCalledWith('中心一体化恢复包已开始下载')
+    expect(antdMessage.success).toHaveBeenCalledWith('恢复包已开始下载')
   })
 
   it('详情预览按文件 Tab 展示内容', async () => {

@@ -20,7 +20,7 @@ const VIEWS: Record<SyncStatus, SyncStatusView> = {
     label: '待同步',
     badgeStatus: 'warning',
     color: 'gold',
-    description: '源数据已变更，等待 M09 下一轮生成',
+    description: '源数据已变更，M09 正在同步（通常几秒内完成；失败时由 30s 轮询兜底）',
   },
   syncing: {
     label: '同步中',

@@ -37,7 +37,6 @@ export interface NetworkDomain {
   id: string
   name: string
   domain_type: DomainType
-  zone_type?: string
   tenant_id: string
   /** 下发通道：v3 固定 agent_pull */
   channel: Channel
@@ -87,7 +86,6 @@ export interface OnboardingDomain {
   network_domain_id: string
   name: string
   cloud_code: string
-  zone_type: string
   registration_status: RegistrationStatus
   monitored_at: string | null
   token_masked: string
@@ -253,6 +251,41 @@ export interface ConfigArtifactPreview {
 /** 统一历史页聚合行：附带展示名（网域名 / 中心规则 / 告警配置） */
 export interface ConfigSnapshotHistoryRow extends ConfigArtifact {
   network_domain_name: string
+}
+
+/** 即时同步触发范围：网域 / 中心规则 / 全部 */
+export type ConfigSyncTriggerScope = 'domain' | 'center' | 'all'
+
+/** POST /config-sync/trigger 请求体 */
+export interface ConfigSyncTriggerRequest {
+  scope: ConfigSyncTriggerScope
+  network_domain_ids?: string[]
+  /** true 时后端同步执行并返回结果；默认 false（后台队列，前端轮询状态） */
+  wait?: boolean
+}
+
+export interface ConfigSyncTriggerDomainResult {
+  network_domain_id: string
+  version: string
+  validation_status: SnapshotValidationStatus
+  validation_cause: SnapshotValidationCause
+  validation_details?: string
+  error?: string
+}
+
+export interface ConfigSyncTriggerCenterResult {
+  version: string
+  validation_status: SnapshotValidationStatus
+  validation_cause: SnapshotValidationCause
+  validation_details?: string
+  error?: string
+}
+
+export interface ConfigSyncTriggerResponse {
+  accepted: boolean
+  completed: boolean
+  domains?: ConfigSyncTriggerDomainResult[]
+  center?: ConfigSyncTriggerCenterResult
 }
 
 /**

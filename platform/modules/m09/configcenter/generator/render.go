@@ -91,7 +91,7 @@ type JobBuild struct {
 }
 
 // Assemble 按网域组装配置产物：
-//   - prometheus.yml：global.external_labels（仅 network_domain_id/zone_type/replica）
+//   - prometheus.yml：global.external_labels（仅 network_domain_id/replica）
 //   - scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
 //     中心求值器额外注入 rule_files 与 alerting（见 alertmanagerAddr / centerEvaluator）；
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
@@ -107,17 +107,17 @@ type JobBuild struct {
 // centerEvaluator 判定驱动**（约定纪律：禁止各自 if，否则 v0.2 会出现「一段生成了、
 // 另一段没生成」的半残配置）。alerting 另有前置条件：alertmanagerYML 非空且地址非空，
 // 避免指向不存在的 Alertmanager。
-func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
-	return assemble(domainID, zoneType, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, nil, false)
+func Assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
+	return assemble(domainID, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, nil, false)
 }
 
 // AssembleWithModules 使用全部启用模块生成完整 blackbox.yml，并校验 Job 引用。
-func AssembleWithModules(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule) (*ConfigArtifacts, error) {
-	return assemble(domainID, zoneType, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, moduleDefs, true)
+func AssembleWithModules(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule) (*ConfigArtifacts, error) {
+	return assemble(domainID, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, moduleDefs, true)
 }
 
-func assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule, useModuleDefs bool) (*ConfigArtifacts, error) {
-	ext := buildExternalLabels(domainID, zoneType, replica)
+func assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule, useModuleDefs bool) (*ConfigArtifacts, error) {
+	ext := buildExternalLabels(domainID, replica)
 
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}, ScrapeConfigs: []scrapeConf{}}
 	targets := map[string]string{}

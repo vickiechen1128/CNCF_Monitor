@@ -56,11 +56,14 @@ type SnapshotRepository interface {
 	CurrentPassed(ctx context.Context, domainID string) (*ConfigSnapshot, error)
 	GetSnapshot(ctx context.Context, domainID string, id int64) (*ConfigSnapshot, error)
 	ListSnapshots(ctx context.Context, domainID string, limit int) ([]ConfigSnapshot, error)
-	PruneSnapshots(ctx context.Context, domainID string, keep int) ([]string, error)
+	// PruneSnapshots keeps the current snapshot plus at most one successful
+	// snapshot per natural day for the last keepDays days.
+	PruneSnapshots(ctx context.Context, domainID string, keepDays int, loc *time.Location) ([]string, error)
 }
 
-// InsertSnapshot stores a snapshot without changing the current version (used
-// for failed validations).
+// InsertSnapshot stores a non-current snapshot without changing the active
+// version. Production syncs no longer persist failed attempts; this remains for
+// history/import tests and backfill tooling.
 func (r *GORMRepository) InsertSnapshot(ctx context.Context, rec ConfigSnapshot) (int64, error) {
 	row := toSnapshotRecord(rec, false)
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -158,40 +161,33 @@ func isAlertmanagerSnapshot(version string) bool {
 	return strings.HasPrefix(version, AlertmanagerVersionPrefix)
 }
 
-// PruneSnapshots keeps the newest `keep` snapshots **per family** (scrape config
-// vs alertmanager history), always keeps the current scrape config row, and
-// deletes the rest; removed versions are returned for content cleanup.
-func (r *GORMRepository) PruneSnapshots(ctx context.Context, domainID string, keep int) ([]string, error) {
-	if keep < 1 {
-		keep = 1
-	}
+// PruneSnapshots keeps the current snapshot plus at most one successful
+// snapshot per natural day for the last keepDays days. Failed rows and
+// intra-day duplicates are removed; removed versions are returned so callers
+// can delete their content files.
+func (r *GORMRepository) PruneSnapshots(ctx context.Context, domainID string, keepDays int, loc *time.Location) ([]string, error) {
 	var rows []configSnapshotRecord
 	if err := r.db.WithContext(ctx).
 		Where("scope = ? AND scope_key = ?", snapshotScopeDomain, domainID).
 		Order("created_at DESC, id DESC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load config snapshots for prune %q: %w", domainID, err)
 	}
-	removed := make([]string, 0)
-	ids := make([]int64, 0)
-	keptConfig, keptAlertmanager := 0, 0
+	candidates := make([]snapshotPruneCandidate, 0, len(rows))
 	for _, row := range rows {
-		// 两族各自保留最新 keep 条：告警配置留痕再频繁也不会挤掉采集配置历史
+		family := "config"
 		if isAlertmanagerSnapshot(row.Version) {
-			if keptAlertmanager < keep {
-				keptAlertmanager++
-				continue
-			}
-		} else if keptConfig < keep {
-			keptConfig++
-			continue
+			family = "alertmanager"
 		}
-		// 当前生效版本即使超出保留数也不删除（每域唯一 is_current）
-		if row.IsCurrent {
-			continue
-		}
-		ids = append(ids, row.ID)
-		removed = append(removed, row.Version)
+		candidates = append(candidates, snapshotPruneCandidate{
+			ID:               row.ID,
+			Version:          row.Version,
+			Family:           family,
+			ValidationStatus: row.ValidationStatus,
+			CreatedAt:        row.CreatedAt,
+			IsCurrent:        row.IsCurrent,
+		})
 	}
+	ids, removed := planDailySnapshotPrune(candidates, keepDays, loc, time.Now())
 	if len(ids) == 0 {
 		return removed, nil
 	}

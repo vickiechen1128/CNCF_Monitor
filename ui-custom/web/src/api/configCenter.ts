@@ -16,6 +16,8 @@ import type {
   ConfigArtifactType,
   ConfigSnapshot,
   ConfigSnapshotListResponse,
+  ConfigSyncTriggerRequest,
+  ConfigSyncTriggerResponse,
   MonitoredStatus,
   MonitorDomainResult,
   NetworkDomain,
@@ -61,7 +63,6 @@ function toNetworkDomain(item: OnboardingDomain): NetworkDomain {
     id: item.network_domain_id,
     name: item.name,
     domain_type: 'edge',
-    zone_type: item.zone_type || undefined,
     tenant_id: '',
     cloud_code: item.cloud_code || undefined,
     channel: 'agent_pull',
@@ -186,6 +187,15 @@ async function downloadArtifactResponse(res: Response, fallback: string): Promis
     blob: await res.blob(),
     filename: filenameFromDisposition(res.headers.get('content-disposition'), fallback),
   }
+}
+
+/** 即时同步触发（M09）：保存 M01/M07 源数据后 best-effort 调用；30s watcher 兜底 */
+export const CONFIG_SYNC_TRIGGER_PATH = '/api/v3/platform/config-sync/trigger'
+
+export const configSyncTriggerApi = {
+  trigger(input: ConfigSyncTriggerRequest): Promise<ApiResponse<ConfigSyncTriggerResponse>> {
+    return apiClient.post<ConfigSyncTriggerResponse>(CONFIG_SYNC_TRIGGER_PATH, { body: input })
+  },
 }
 
 /**

@@ -15,7 +15,6 @@ func TestGenerateRendersDeterministicArtifacts(t *testing.T) {
 	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
 	src := Source{
 		NetworkDomainID: "mc-demo",
-		ZoneType:        "beijing",
 		Jobs: []Job{{
 			Name:    "node",
 			Targets: []Target{{Instance: "10.0.0.2:9100"}, {Instance: "10.0.0.1:9100"}},
@@ -29,7 +28,7 @@ func TestGenerateRendersDeterministicArtifacts(t *testing.T) {
 	assert.Equal(t, first.Checksum, second.Checksum, "same source renders the same checksum")
 	assert.Equal(t, "20261111-100000", first.Version)
 	assert.Contains(t, first.PrometheusYML, "network_domain_id: mc-demo")
-	assert.Contains(t, first.PrometheusYML, "zone_type: beijing")
+	assert.NotContains(t, first.PrometheusYML, "zone_type")
 	assert.Contains(t, first.PrometheusYML, "job_name: node")
 	assert.NotContains(t, first.PrometheusYML, "rule_files", "edge domains carry no rules")
 
@@ -102,7 +101,6 @@ func TestGenerateCenterRules(t *testing.T) {
 func TestGenerateRendersEnabledBlackboxModules(t *testing.T) {
 	src := Source{
 		NetworkDomainID: "mc-demo",
-		ZoneType:        "beijing",
 		Modules: []models.BlackboxModule{{
 			Name: "http_2xx", Content: "http_2xx:\n  prober: http\n  timeout: 5s\n", Enabled: true,
 		}},

@@ -76,12 +76,9 @@ type TargetGroup struct {
 }
 
 // boundaryLabelKeys 是 M09 会注入到 external_labels 的部署级标签集合。
-// 仅注入 network_domain_id / zone_type / replica；不注入 tenant_id 与业务标签。
-func buildExternalLabels(domainID, zoneType, replica string) map[string]string {
+// 仅注入 network_domain_id / replica；不注入 tenant_id 与业务标签。
+func buildExternalLabels(domainID, replica string) map[string]string {
 	labels := map[string]string{"network_domain_id": domainID}
-	if zoneType != "" {
-		labels["zone_type"] = zoneType
-	}
 	if replica != "" {
 		labels["replica"] = replica
 	}

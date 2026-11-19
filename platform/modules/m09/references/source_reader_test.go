@@ -27,8 +27,8 @@ func newSourceTestDB(t *testing.T) *gorm.DB {
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
-		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status,zone_type)
-			VALUES ('mc-a','域 mc-a','edge','platform_admin','enabled','beijing')`,
+		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+			VALUES ('mc-a','域 mc-a','edge','platform_admin','enabled')`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -100,7 +100,6 @@ func TestSourceReaderBuildsJobsFromM01(t *testing.T) {
 
 	source, err := reader.BuildSource(context.Background(), "mc-a")
 	require.NoError(t, err)
-	assert.Equal(t, "beijing", source.ZoneType)
 	require.Len(t, source.Jobs, 4)
 	assert.Equal(t, []string{"api-probe", "database", "node", "redis_exporter"}, []string{
 		source.Jobs[0].Name, source.Jobs[1].Name, source.Jobs[2].Name, source.Jobs[3].Name,
@@ -237,4 +236,23 @@ func TestSourceReaderFansOutWithoutQueryAmplification(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, counter.count("m01_ci_type_exporter_mappings"), "port mappings come from the TTL cache")
 	assert.Equal(t, 1, counter.count("m01_exporter_templates"))
+}
+
+func TestSourceReaderExcludesResourceMovedToAnotherDomain(t *testing.T) {
+	gormDB := newSourceTestDB(t)
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
+		VALUES ('mc-b','域 mc-b','edge','platform_admin','enabled')`).Error)
+	require.NoError(t, gormDB.Exec(`UPDATE resources SET network_domain_id = 'mc-b' WHERE resource_id = 'r-host'`).Error)
+
+	reader := references.NewGORMSourceReader(gormDB)
+	source, err := reader.BuildSource(context.Background(), "mc-a")
+	require.NoError(t, err)
+
+	for _, job := range source.Jobs {
+		if job.Name == "node" {
+			assert.Empty(t, job.Targets, "a resource moved out of the domain must not leak into its targets")
+			return
+		}
+	}
+	t.Fatal("node job not found")
 }

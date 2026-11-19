@@ -39,7 +39,12 @@ export const SNAPSHOT_CAUSE_LABEL: Record<string, string> = {
 export const SNAPSHOT_GENERATOR_LABEL: Record<string, string> = {
   system: '系统自动生成',
   alertmanager: '告警配置同步',
+  admin: '管理员操作',
 }
+
+/** 配置历史保留口径（用户可见，避免暴露技术细节） */
+export const SNAPSHOT_RETENTION_TIP =
+  '系统只保留最近 30 天、每天最多 1 份成功配置；当前正在使用的配置不会被删除。'
 
 /**
  * validation_details 美化展示：

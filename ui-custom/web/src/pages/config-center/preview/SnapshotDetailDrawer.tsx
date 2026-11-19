@@ -36,9 +36,9 @@ interface SnapshotDetailDrawerProps {
 type DetailRow = ConfigSnapshotHistoryRow & ConfigArtifact
 
 const EXPORT_LABEL: Record<ConfigArtifactType, string> = {
-  domain: '导出配置包（zip）',
-  center: '导出 rules.yml',
-  alertmanager: '导出 alertmanager.yml',
+  domain: '下载配置包',
+  center: '下载规则文件',
+  alertmanager: '下载告警配置',
 }
 
 /**
@@ -86,9 +86,9 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
           network_domain_name: domainName ?? snapshot.network_domain_name,
         })
       })
-      .catch((e) => {
+      .catch(() => {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : '配置产物详情加载失败，请稍后重试')
+        setError('请点击「重试」；如果一直失败，请联系管理员。')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -99,9 +99,9 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
         .then((res) => {
           if (!cancelled) setPreview(res.data)
         })
-        .catch((e) => {
+        .catch(() => {
           if (cancelled) return
-          setPreviewError(e instanceof Error ? e.message : '配置内容加载失败，请稍后重试')
+          setPreviewError('配置内容暂时无法读取，请点击「重试」。')
         })
     }
     return () => {
@@ -116,14 +116,14 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
     try {
       const { blob, filename } = await configArtifactApi.export(detail.id, raw)
       triggerBlobDownload(blob, filename)
-      message.success(raw ? '原始载荷已开始下载' : '配置产物已开始下载')
+      message.success(raw ? '原始内容已开始下载' : '配置已开始下载')
     } catch (e) {
       if (isApiError(e) && e.code === 401) {
         message.error('登录已过期，请重新登录后再下载')
       } else if (isApiError(e) && (e.code === 403 || e.errorType === 'forbidden')) {
-        message.error('当前账号无导出配置产物的权限，请联系管理员开通')
+        message.error('当前账号不能下载配置，请联系管理员开通权限')
       } else {
-        message.error(e instanceof Error ? e.message : '配置产物导出失败，请稍后重试')
+        message.error('下载失败，请稍后重试')
       }
     } finally {
       if (raw) setRawDownloading(false)
@@ -154,7 +154,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
 
   return (
     <Drawer
-      title={detail ? `配置产物详情：${detail.version}` : '配置产物详情'}
+      title={detail ? `配置详情：${detail.version}` : '配置详情'}
       width={760}
       open={open}
       onClose={onClose}
@@ -163,7 +163,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
           <Space>
             {artifactType !== 'alertmanager' && (
               <Button loading={rawDownloading} onClick={() => void handleDownload(true)}>
-                下载原始载荷
+                下载原始内容
               </Button>
             )}
             <Button
@@ -183,7 +183,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message="配置产物详情加载失败"
+          message="配置详情加载失败"
           description={error}
           action={
             <Button size="small" icon={<ReloadOutlined />} onClick={() => setReloadKey((k) => k + 1)}>
@@ -194,7 +194,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
       )}
       {loading && !detail ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spin /> <Text type="secondary">配置产物详情加载中…</Text>
+          <Spin /> <Text type="secondary">配置详情加载中…</Text>
         </div>
       ) : detail ? (
         <>
@@ -212,22 +212,22 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
             <Descriptions.Item label="版本">
               <Text code>{detail.version}</Text>
             </Descriptions.Item>
-            <Descriptions.Item label="校验状态">
+            <Descriptions.Item label="状态">
               <Tag color={SNAPSHOT_STATUS_COLOR[detail.validation_status]}>
                 {SNAPSHOT_STATUS_LABEL[detail.validation_status]}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="校验归因">
+            <Descriptions.Item label="失败原因">
               {SNAPSHOT_CAUSE_LABEL[detail.validation_cause] ?? '—'}
             </Descriptions.Item>
-            <Descriptions.Item label="当前生效">
-              {detail.is_current ? <Tag color="success">当前生效</Tag> : <Text type="secondary">否</Text>}
+            <Descriptions.Item label="是否当前使用">
+              {detail.is_current ? <Tag color="success">当前使用</Tag> : <Text type="secondary">否</Text>}
             </Descriptions.Item>
             <Descriptions.Item label="生成来源">
-              {SNAPSHOT_GENERATOR_LABEL[detail.generated_by] ?? detail.generated_by ?? '—'}
+              {SNAPSHOT_GENERATOR_LABEL[detail.generated_by] ?? detail.generated_by ?? '系统自动生成'}
             </Descriptions.Item>
             <Descriptions.Item label="生成时间">{formatLocalTime(detail.created_at)}</Descriptions.Item>
-            <Descriptions.Item label="校验值">
+            <Descriptions.Item label="配置标识">
               <Space size={4} wrap>
                 <Text code>{shortChecksum(detail.checksum)}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -238,7 +238,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
           </Descriptions>
 
           <div style={{ marginTop: 16 }}>
-            <Text strong>校验明细</Text>
+            <Text strong>失败详情</Text>
             {detailsText ? (
               <pre
                 style={{
@@ -256,7 +256,7 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
             ) : (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={detail.validation_status === 'passed' ? '校验通过，无明细' : '无校验明细'}
+                description={detail.validation_status === 'passed' ? '配置检查通过，没有需要处理的明细' : '没有更多失败详情'}
                 style={{ marginTop: 8 }}
               />
             )}
@@ -269,15 +269,15 @@ export function SnapshotDetailDrawer({ open, snapshot, domainName, onClose }: Sn
                 type="info"
                 showIcon
                 style={{ marginTop: 8 }}
-                message="配置内容含凭据明文，仅管理员可查看与导出。"
+                message="配置里可能包含账号密码，只有管理员可以查看和下载。"
               />
             ) : detail.content_available === false ? (
               <Alert
                 type="warning"
                 showIcon
                 style={{ marginTop: 8 }}
-                message="该版本内容不可用"
-                description="历史内容未持久化或文件已被清理，元数据仍可查看。"
+                message="这份历史配置的内容已不在服务器上"
+                description="只能查看基本信息；如需当前配置，请下载当前的配置备份。"
               />
             ) : previewError ? (
               <Alert
