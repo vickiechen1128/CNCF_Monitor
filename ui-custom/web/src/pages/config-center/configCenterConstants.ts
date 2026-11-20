@@ -63,7 +63,8 @@ export const agentTypeLabel: Record<AgentType, string> = {
 
 /**
  * 字段解释文案（网域纳管页 —— 纳管抽屉 / 编辑抽屉共用，单一事实来源）。
- * 形态约定：字段级解释统一走 `FieldLabel` 的问号 Tooltip，字段下方不再散落小字注释。
+ * 形态约定：字段级解释集中在 DOMAIN_FIELD_TIP，由页面就地渲染问号 Tooltip，
+ * 字段下方不再散落小字注释。
  * v3 只有采集节点域一种网域类型，不再保留「中心直连域」相关解释（SRS NFR-02）。
  */
 export const DOMAIN_FIELD_TIP = {
