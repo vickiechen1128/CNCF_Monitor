@@ -29,9 +29,14 @@ vi.mock('../../api/collectionTemplates', () => ({
   },
 }))
 
+const exporterCreateMock = vi.fn()
+const exporterRemoveMock = vi.fn()
+
 vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: {
     list: (...args: unknown[]) => exporterListMock(...args),
+    create: (...args: unknown[]) => exporterCreateMock(...args),
+    remove: (...args: unknown[]) => exporterRemoveMock(...args),
   },
 }))
 
@@ -277,5 +282,53 @@ describe('CollectorTemplatesTab', () => {
     expect(within(panel).getByText('redis-exporter')).toBeInTheDocument()
     expect(within(panel).getByText('官方')).toBeInTheDocument()
     expect(within(panel).getByText('第三方')).toBeInTheDocument()
+  })
+
+  it('registers a collector implementation from the 采集实现 tab', async () => {
+    renderTab()
+    await screen.findByText('MySQL 标准采集')
+    fireEvent.click(screen.getByRole('tab', { name: '采集实现' }))
+
+    const panel = document.querySelector('[id$="panel-implementations"]') as HTMLElement
+    const register = await within(panel).findByRole('button', { name: /登记采集器/ })
+    fireEvent.click(register)
+
+    // 登记抽屉打开，且复用了采集器登记表单（模板抽屉也在挂载状态，故取最后一个 dialog）
+    const dialogs = await screen.findAllByRole('dialog')
+    const registerDialog = dialogs[dialogs.length - 1]
+    expect(within(registerDialog).getByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
+  })
+
+  it('deletes a custom collector implementation and refreshes the pool', async () => {
+    exporterRemoveMock.mockResolvedValue({ status: 'success', data: {} })
+    exporterListMock
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: {
+          list: [
+            { id: 'exp-custom', name: 'npu-exporter', version: '1.0', default_port: 9101, metrics_path: '/metrics', scheme: 'http', os: 'linux', arch: 'amd64', download_url: '', homepage: '', install_guide: '', description: '', is_builtin: false, source: 'internal', created_at: '', updated_at: '' },
+          ],
+          total: 1,
+        },
+      })
+      .mockResolvedValue({
+        status: 'success',
+        data: { list: [], total: 0 },
+      })
+
+    renderTab()
+    await screen.findByText('MySQL 标准采集')
+    fireEvent.click(screen.getByRole('tab', { name: '采集实现' }))
+    const panel = document.querySelector('[id$="panel-implementations"]') as HTMLElement
+    expect(await within(panel).findByText('npu-exporter')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: '删除' }))
+    const popconfirm = await waitFor(() => {
+      const el = document.querySelector('.ant-popconfirm') as HTMLElement | null
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    fireEvent.click(within(popconfirm).getByRole('button', { name: /删\s*除/ }))
+
+    await waitFor(() => expect(exporterRemoveMock).toHaveBeenCalledWith('exp-custom'))
   })
 })

@@ -403,17 +403,17 @@ export function CollectionTemplateDrawer({ open, record, onCancel, onSaved }: Co
               key: 'default-selector',
               label: (
                 <Space size={8} wrap>
-                  <Text strong>新建任务时的推荐条件</Text>
+                  <Text strong>新建任务时的推荐条件（可选）</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    仅作预填提示，不影响已有任务的选择器
+                    只用于新建任务时预填条件；不配也可以，不影响已有任务
                   </Text>
                 </Space>
               ),
               children: (
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-                    这里的条件只在「新建采集任务」时作为选择器的预填建议；任务最终采哪些对象，由任务自己的选择器决定，
-                    模板不会限制资源范围。
+                    这里的条件只在「新建采集任务」时作为选择器的预填建议，让新建任务少填几步；任务最终采哪些对象，
+                    由任务自己的选择器决定，模板不限制资源范围。留空 = 新建任务时默认不限条件，需要时再到任务里加。
                   </Paragraph>
                   <Form.Item name="default_selector" noStyle>
                     <SelectorEditor category={category} fields={fieldCatalog.fields} />

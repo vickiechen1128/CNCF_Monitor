@@ -151,10 +151,10 @@ describe('CollectionTemplateDrawer', () => {
     expect(screen.getByText('新建采集模板')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：mysql_default')).toBeInTheDocument()
     // 「推荐条件」默认收起，标题常驻并明确其只作预填提示（不是适用范围）
-    expect(screen.getByText('新建任务时的推荐条件')).toBeInTheDocument()
-    expect(screen.getByText('仅作预填提示，不影响已有任务的选择器')).toBeInTheDocument()
+    expect(screen.getByText(/新建任务时的推荐条件/)).toBeInTheDocument()
+    expect(screen.getByText(/只用于新建任务时预填条件/)).toBeInTheDocument()
     // 展开后才挂载 SelectorEditor
-    fireEvent.click(screen.getByText('新建任务时的推荐条件'))
+    fireEvent.click(screen.getByText(/新建任务时的推荐条件/))
     expect(await screen.findByText('多条件组合')).toBeInTheDocument()
   })
 

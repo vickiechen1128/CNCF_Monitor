@@ -623,8 +623,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   rules={[{ required: true, message: '请选择采集模板' }]}
                   extra={
                     selectedTemplate
-                      ? `资源类别：${CATEGORY_MAP[selectedTemplate.resource_category] ?? selectedTemplate.resource_category} · 默认端口 ${selectedTemplate.default_port}`
-                      : '模板决定采集实现、默认参数与推荐的对象范围'
+                      ? `采集实现：${selectedTemplate.exporter_template_name || selectedTemplate.exporter_template_id || '未绑定'}（由模板决定） · 资源类别：${CATEGORY_MAP[selectedTemplate.resource_category] ?? selectedTemplate.resource_category} · 默认端口 ${selectedTemplate.default_port}`
+                      : '模板决定采集实现、默认参数与推荐的对象范围；实现清单在「采集模板 → 采集实现」维护'
                   }
                 >
                   <Select
@@ -690,10 +690,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             </Card>
 
             {/* 「采哪些对象」：选择器只决定任务覆盖范围；不配置 = 该模板类别下全部对象 */}
-            <Card size="small" title="采哪些对象" style={{ marginBottom: 12 }}>
+            <Card size="small" title="采哪些对象（可选）" style={{ marginBottom: 12 }}>
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  条件只决定任务覆盖哪些对象；不配置表示该类别下全部对象。
+                  条件只决定任务覆盖哪些对象；不配置表示该类别下全部对象。新建时若模板配置了推荐条件，会自动带出，可改可删。
                 </Text>
                 <SelectorEditor
                   value={selector}

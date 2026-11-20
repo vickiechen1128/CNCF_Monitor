@@ -27,6 +27,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { CATEGORY_MAP } from './strategyConstants'
 import { CollectionTemplateDrawer } from './CollectionTemplateDrawer'
+import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 
 const { Text } = Typography
@@ -385,12 +386,18 @@ function CollectionTemplatePane() {
   )
 }
 
-/** 采集实现（exporter）池：只读清单，供模板选择时确认可选实现与默认参数。 */
+/**
+ * 采集实现（exporter）池：模板从这里选取实现。
+ *
+ * 平台预置 6 个内置实现（node/mysqld/redis/windows/kafka/snmp）；其余实现由运维在
+ * 本页「登记采集器」自助登记，自建的实现可删除（内置实现只能由平台版本维护）。
+ */
 function ExporterPoolPane() {
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const [registerOpen, setRegisterOpen] = useState(false)
 
   // 加载态由「刷新」动作置位（事件内 setState），effect 只负责发起请求并在异步回调里落结果，
   // 避免在 effect 体内同步 setState 触发级联渲染。
@@ -420,6 +427,16 @@ function ExporterPoolPane() {
       cancelled = true
     }
   }, [refresh])
+
+  const handleDeleteExporter = async (record: ExporterTemplate) => {
+    try {
+      await exporterTemplateApi.remove(record.id)
+      message.success(`采集实现「${record.name}」已删除`)
+      reload()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败：可能仍被采集模板引用')
+    }
+  }
 
   const columns: ColumnsType<ExporterTemplate> = [
     {
@@ -469,6 +486,34 @@ function ExporterPoolPane() {
       width: 100,
       render: (_, record) => <Tag>{SOURCE_MAP[record.source] ?? record.source}</Tag>,
     },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 90,
+      fixed: 'right',
+      render: (_, record) =>
+        record.is_builtin ? (
+          <Tooltip title="内置采集实现由平台版本维护，不可删除">
+            <span>
+              <Button size="small" type="link" disabled>
+                删除
+              </Button>
+            </span>
+          </Tooltip>
+        ) : (
+          <Popconfirm
+            title="删除采集实现"
+            description="删除后引用它的采集模板将无法继续解析；已被模板引用时后端会拒绝。"
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => handleDeleteExporter(record)}
+          >
+            <Button size="small" type="link" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        ),
+    },
   ]
 
   return (
@@ -477,12 +522,17 @@ function ExporterPoolPane() {
         type="info"
         showIcon
         message="采集实现（exporter）池"
-        description="模板的「采集实现」从这里选取；采集实现由平台内置或独立登记维护，本清单只读。"
+        description="采集模板的「采集实现」从这里选取。平台内置 6 个常用实现；其余（如 npu-exporter、nginx-exporter）请在本页登记后再绑定到模板。"
         style={{ marginBottom: 16 }}
         action={
-          <Button size="small" icon={<ReloadOutlined />} onClick={reload}>
-            刷新
-          </Button>
+          <Space size={8}>
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
+              登记采集器
+            </Button>
+            <Button size="small" icon={<ReloadOutlined />} onClick={reload}>
+              刷新
+            </Button>
+          </Space>
         }
       />
       {error && (
@@ -495,8 +545,24 @@ function ExporterPoolPane() {
         columns={columns}
         size="small"
         scroll={TABLE_SCROLL_X}
-        locale={{ emptyText: <Empty description="暂无采集实现" /> }}
+        locale={{
+          emptyText: (
+            <Empty description="暂无采集实现">
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
+                登记采集器
+              </Button>
+            </Empty>
+          ),
+        }}
         pagination={{ ...TABLE_PAGINATION, showTotal: undefined }}
+      />
+      <ExporterTemplateDrawer
+        open={registerOpen}
+        onCancel={() => setRegisterOpen(false)}
+        onSuccess={() => {
+          setRegisterOpen(false)
+          reload()
+        }}
       />
     </div>
   )

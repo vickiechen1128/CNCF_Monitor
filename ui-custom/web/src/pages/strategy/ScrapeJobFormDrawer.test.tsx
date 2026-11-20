@@ -244,7 +244,7 @@ describe('ScrapeJobFormDrawer', () => {
     // M01 v1.5：采集模板取代「监控对象类型」
     expect(screen.getByText('采集模板')).toBeInTheDocument()
     expect(screen.getByText('请选择采集模板')).toBeInTheDocument()
-    expect(screen.getByText('采哪些对象')).toBeInTheDocument()
+    expect(screen.getByText(/采哪些对象/)).toBeInTheDocument()
     expect(screen.getByText('不限条件：该模板类别下全部对象')).toBeInTheDocument()
     expect(screen.getByText('网域')).toBeInTheDocument()
     expect(screen.queryByText('监控对象类型')).toBeNull()
