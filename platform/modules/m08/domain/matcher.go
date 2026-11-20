@@ -30,7 +30,7 @@ func (m Matcher) Validate(field string) []ValidationIssue {
 		issues = append(issues, ValidationIssue{Field: field + ".name", Message: "匹配条件的标签名不能为空"})
 	} else if !matcherNamePattern.MatchString(m.Name) {
 		issues = append(issues, ValidationIssue{
-			Field: field + ".name",
+			Field:   field + ".name",
 			Message: fmt.Sprintf("标签名 %q 非法：仅允许字母、数字与下划线，且不能以数字开头", m.Name),
 		})
 	}

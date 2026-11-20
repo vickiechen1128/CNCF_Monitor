@@ -23,7 +23,7 @@ type AMAlert struct {
 	Annotations map[string]string `json:"annotations"`
 	StartsAt    time.Time         `json:"startsAt"`
 	EndsAt      time.Time         `json:"endsAt"`
-	Status struct {
+	Status      struct {
 		State       string   `json:"state"`
 		SilencedBy  []string `json:"silencedBy"`
 		InhibitedBy []string `json:"inhibitedBy"`
@@ -84,8 +84,8 @@ func (c *AMClient) ActiveAlerts(ctx context.Context) ([]AMAlert, error) {
 // ListSilences proxies GET /api/v2/silences (FR-16).
 func (c *AMClient) ListSilences(ctx context.Context) ([]domain.Silence, error) {
 	var payload []struct {
-		ID        string `json:"id"`
-		Matchers  []struct {
+		ID       string `json:"id"`
+		Matchers []struct {
 			Name    string `json:"name"`
 			Value   string `json:"value"`
 			IsRegex bool   `json:"isRegex"`

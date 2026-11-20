@@ -97,9 +97,9 @@ type globalConfig struct {
 }
 
 type alertmanagerConfig struct {
-	Global       globalConfig    `yaml:"global"`
-	Route        *routeConfig    `yaml:"route"`
-	InhibitRules []inhibitRule   `yaml:"inhibit_rules,omitempty"`
+	Global       globalConfig     `yaml:"global"`
+	Route        *routeConfig     `yaml:"route"`
+	InhibitRules []inhibitRule    `yaml:"inhibit_rules,omitempty"`
 	Receivers    []receiverConfig `yaml:"receivers"`
 }
 

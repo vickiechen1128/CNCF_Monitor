@@ -90,8 +90,8 @@ type PendingSection string
 
 // Pending sections reported by a save response.
 const (
-	PendingRouteChanged         PendingSection = "route_changed"
-	PendingInhibitRulesChanged  PendingSection = "inhibit_rules_changed"
+	PendingRouteChanged        PendingSection = "route_changed"
+	PendingInhibitRulesChanged PendingSection = "inhibit_rules_changed"
 )
 
 // AuditAction is a silence operation kind (D50).

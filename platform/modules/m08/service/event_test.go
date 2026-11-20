@@ -26,10 +26,10 @@ func firingPayload() WebhookPayload {
 	return WebhookPayload{
 		Status: "firing", Receiver: "notify-c1",
 		Alerts: []WebhookAlert{{
-			Status:   "firing",
-			Labels:   map[string]string{"alertname": "HostDown", "severity": "critical", "network_domain_id": "mc-a", "resource_id": "res-1", "instance": "10.0.0.1:9100"},
+			Status:      "firing",
+			Labels:      map[string]string{"alertname": "HostDown", "severity": "critical", "network_domain_id": "mc-a", "resource_id": "res-1", "instance": "10.0.0.1:9100"},
 			Annotations: map[string]string{"summary": "主机不可达"},
-			StartsAt: time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
+			StartsAt:    time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
 		}},
 	}
 }

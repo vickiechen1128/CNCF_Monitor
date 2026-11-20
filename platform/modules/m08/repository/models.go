@@ -79,17 +79,17 @@ const (
 
 // snapshotRecord is the alertmanager-scoped row of config_snapshots.
 type snapshotRecord struct {
-	ID          int64             `gorm:"column:id;primaryKey"`
-	Scope       string            `gorm:"column:scope"`
-	ScopeKey    string            `gorm:"column:scope_key"`
-	Version     string            `gorm:"column:version;not null"`
-	Checksum    string            `gorm:"column:checksum;not null"`
-	Content     string            `gorm:"column:content;not null"`
+	ID          int64              `gorm:"column:id;primaryKey"`
+	Scope       string             `gorm:"column:scope"`
+	ScopeKey    string             `gorm:"column:scope_key"`
+	Version     string             `gorm:"column:version;not null"`
+	Checksum    string             `gorm:"column:checksum;not null"`
+	Content     string             `gorm:"column:content;not null"`
 	RouteTree   []domain.RouteNode `gorm:"column:route_tree;serializer:json;not null"`
-	IsCurrent   bool              `gorm:"column:is_current;not null;default:false"`
-	GeneratedBy string            `gorm:"column:generated_by;not null;default:''"`
-	GeneratedAt time.Time         `gorm:"column:generated_at"`
-	CreatedAt   time.Time         `gorm:"column:created_at"`
+	IsCurrent   bool               `gorm:"column:is_current;not null;default:false"`
+	GeneratedBy string             `gorm:"column:generated_by;not null;default:''"`
+	GeneratedAt time.Time          `gorm:"column:generated_at"`
+	CreatedAt   time.Time          `gorm:"column:created_at"`
 }
 
 // TableName pins the unified v3 table name.
@@ -164,16 +164,16 @@ func (r *eventRecord) toDomain() *domain.Event {
 
 // inhibitionRecord is the m08_inhibition_rules row.
 type inhibitionRecord struct {
-	ID             string            `gorm:"column:id;primaryKey"`
-	Name           string            `gorm:"column:name;not null"`
-	SourceMatchers []domain.Matcher  `gorm:"column:source_matchers;serializer:json;not null"`
-	TargetMatchers []domain.Matcher  `gorm:"column:target_matchers;serializer:json;not null"`
-	Equal          []string          `gorm:"column:equal;serializer:json;not null"`
-	Enabled        bool              `gorm:"column:enabled;not null;default:true"`
-	Builtin        bool              `gorm:"column:builtin;not null;default:false"`
-	CreatedAt      time.Time         `gorm:"column:created_at"`
-	UpdatedAt      time.Time         `gorm:"column:updated_at"`
-	DeletedAt      gorm.DeletedAt    `gorm:"column:deleted_at"`
+	ID             string           `gorm:"column:id;primaryKey"`
+	Name           string           `gorm:"column:name;not null"`
+	SourceMatchers []domain.Matcher `gorm:"column:source_matchers;serializer:json;not null"`
+	TargetMatchers []domain.Matcher `gorm:"column:target_matchers;serializer:json;not null"`
+	Equal          []string         `gorm:"column:equal;serializer:json;not null"`
+	Enabled        bool             `gorm:"column:enabled;not null;default:true"`
+	Builtin        bool             `gorm:"column:builtin;not null;default:false"`
+	CreatedAt      time.Time        `gorm:"column:created_at"`
+	UpdatedAt      time.Time        `gorm:"column:updated_at"`
+	DeletedAt      gorm.DeletedAt   `gorm:"column:deleted_at"`
 }
 
 // TableName pins the v3 table name.

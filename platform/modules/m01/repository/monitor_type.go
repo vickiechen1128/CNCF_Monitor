@@ -128,9 +128,9 @@ type MonitorTypeRepository interface {
 // MonitorTypeReferenceCounts is the reference breakdown returned by delete
 // pre-flight and by the change-impact preview (FR-24).
 type MonitorTypeReferenceCounts struct {
-	Mappings    int64 `json:"mappings"`
-	Jobs        int64 `json:"jobs"`
-	Rules       int64 `json:"rules"`
+	Mappings      int64 `json:"mappings"`
+	Jobs          int64 `json:"jobs"`
+	Rules         int64 `json:"rules"`
 	MetricAnchors int64 `json:"metric_anchors"`
 }
 

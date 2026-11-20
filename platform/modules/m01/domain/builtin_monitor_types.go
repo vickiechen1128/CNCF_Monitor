@@ -29,7 +29,7 @@ const (
 //
 // host_npu is deliberately not derived from the operating system: NPU is an
 // additional collection capability of a host, so it is expressed as
-// ``has_npu = true`` and coexists with host_linux / host_windows (FR-10).
+// “has_npu = true“ and coexists with host_linux / host_windows (FR-10).
 func BuiltinMonitorTypeEntries() []MonitorTypeEntry {
 	return []MonitorTypeEntry{
 		{

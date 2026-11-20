@@ -78,7 +78,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{
-		"token": res.Token,
+		"token":      res.Token,
 		"expires_at": res.ExpiresAt,
 		"user": loginUserDTO{
 			ID:          res.User.ID,

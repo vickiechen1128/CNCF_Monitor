@@ -56,20 +56,20 @@ type EventView struct {
 
 // EventInstance carries the display fields resolved from M07.
 type EventInstance struct {
-	Address  string
-	Display  string
+	Address    string
+	Display    string
 	ResourceID string
-	Name     string
-	Category string
+	Name       string
+	Category   string
 }
 
 // EventService owns alert-event ingestion, reconciliation and queries
 // (FR-21..25). The event table is the single source of truth.
 type EventService struct {
-	events repository.EventRepository
-	namer  references.ResourceNamer
-	loc    *time.Location
-	now    func() time.Time
+	events        repository.EventRepository
+	namer         references.ResourceNamer
+	loc           *time.Location
+	now           func() time.Time
 	retentionDays int
 }
 

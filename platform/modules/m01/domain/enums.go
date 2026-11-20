@@ -38,7 +38,6 @@ func (c ResourceCategory) Valid() bool {
 	}
 }
 
-
 // AuthType is the optional scrape authentication mode.
 type AuthType string
 

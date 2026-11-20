@@ -20,7 +20,7 @@ type EventResponse struct {
 	StartsAt         *time.Time        `json:"starts_at,omitempty"`
 	EndsAt           *time.Time        `json:"ends_at,omitempty"`
 	ClosedAt         *time.Time        `json:"closed_at,omitempty"`
-	UpdatedAt         time.Time         `json:"updated_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
 	DurationSeconds  *int64            `json:"duration_seconds,omitempty"`
 	Fingerprint      string            `json:"fingerprint,omitempty"`
 	Labels           map[string]string `json:"labels,omitempty"`

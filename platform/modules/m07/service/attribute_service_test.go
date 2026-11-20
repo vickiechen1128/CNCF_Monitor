@@ -219,4 +219,3 @@ func TestAttributeDefinitionGroupAndOrder(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "display_order")
 }
-

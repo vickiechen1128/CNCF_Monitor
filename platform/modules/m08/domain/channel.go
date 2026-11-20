@@ -13,15 +13,15 @@ var ErrWebhookInvalid = NewValidationError("webhook_url", "Webhook 地址非法�
 // Channel is a notification channel (FR-09). Channel secrets are stored in
 // plaintext for now (D45) and must never leave the service layer.
 type Channel struct {
-	ID         string
-	Name       string
-	Type       ChannelType
-	WebhookURL string
-	Secret     string
+	ID          string
+	Name        string
+	Type        ChannelType
+	WebhookURL  string
+	Secret      string
 	SignEnabled bool
-	TemplateID *string
-	CreatedAt  string
-	UpdatedAt  string
+	TemplateID  *string
+	CreatedAt   string
+	UpdatedAt   string
 }
 
 // ReceiverName returns the stable Alertmanager receiver name for this channel:
@@ -37,7 +37,7 @@ func ValidateChannel(c *Channel, allowPrivate bool) []ValidationIssue {
 	}
 	if !IsValidChannelType(c.Type) {
 		issues = append(issues, ValidationIssue{
-			Field: "channel_type",
+			Field:   "channel_type",
 			Message: fmt.Sprintf("渠道类型 %q 非法：必须是 feishu / dingtalk / wecom / webhook", c.Type),
 		})
 	}

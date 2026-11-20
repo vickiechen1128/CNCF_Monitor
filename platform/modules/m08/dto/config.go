@@ -18,16 +18,16 @@ type ReloadSummary struct {
 // `route_tree` is the editable truth behind the YAML (D47); `inhibit_rules` is
 // hydrated from its own table at read time (D49).
 type SnapshotResponse struct {
-	ID           string                  `json:"id"`
-	Version      string                  `json:"version"`
-	Checksum     string                  `json:"checksum"`
-	Content      string                  `json:"content"`
-	RouteTree    []domain.RouteNode      `json:"route_tree"`
-	InhibitRules []InhibitionResponse    `json:"inhibit_rules"`
-	IsCurrent    bool                    `json:"is_current"`
-	GeneratedBy  string                  `json:"generated_by"`
-	GeneratedAt  time.Time               `json:"generated_at"`
-	Reload       *ReloadSummary          `json:"reload,omitempty"`
+	ID           string               `json:"id"`
+	Version      string               `json:"version"`
+	Checksum     string               `json:"checksum"`
+	Content      string               `json:"content"`
+	RouteTree    []domain.RouteNode   `json:"route_tree"`
+	InhibitRules []InhibitionResponse `json:"inhibit_rules"`
+	IsCurrent    bool                 `json:"is_current"`
+	GeneratedBy  string               `json:"generated_by"`
+	GeneratedAt  time.Time            `json:"generated_at"`
+	Reload       *ReloadSummary       `json:"reload,omitempty"`
 }
 
 // SnapshotListItem is the history row (content omitted to keep the list light).
@@ -68,8 +68,8 @@ type SaveRouteRequest struct {
 
 // SaveResult is the shared save response for route and inhibition writes.
 type SaveResult struct {
-	ConfigChecksum  string        `json:"config_checksum"`
-	ConfigVersion   string        `json:"config_version"`
-	PendingSections []string      `json:"pending_sections"`
+	ConfigChecksum  string         `json:"config_checksum"`
+	ConfigVersion   string         `json:"config_version"`
+	PendingSections []string       `json:"pending_sections"`
 	Reload          *ReloadSummary `json:"reload,omitempty"`
 }

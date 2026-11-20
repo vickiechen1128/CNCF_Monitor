@@ -118,19 +118,19 @@ func (r *GORMEventRepository) Update(ctx context.Context, event *domain.Event) e
 	}
 	res := r.db.WithContext(ctx).Model(&eventRecord{}).Where("id = ?", event.ID).
 		Updates(map[string]any{
-			"status":      string(event.Status),
-			"severity":    event.Severity,
-			"summary":     event.Summary,
-			"description": event.Description,
-			"network_domain": event.NetworkDomain,
-			"resource_id": event.ResourceID,
+			"status":            string(event.Status),
+			"severity":          event.Severity,
+			"summary":           event.Summary,
+			"description":       event.Description,
+			"network_domain":    event.NetworkDomain,
+			"resource_id":       event.ResourceID,
 			"resource_category": event.ResourceCategory,
-			"instance":    event.Instance,
-			"labels":      string(labels),
-			"annotations": string(annotations),
-			"ends_at":     event.EndsAt,
-			"closed_at":   event.ClosedAt,
-			"updated_at":  time.Now().UTC(),
+			"instance":          event.Instance,
+			"labels":            string(labels),
+			"annotations":       string(annotations),
+			"ends_at":           event.EndsAt,
+			"closed_at":         event.ClosedAt,
+			"updated_at":        time.Now().UTC(),
 		})
 	if res.Error != nil {
 		return res.Error

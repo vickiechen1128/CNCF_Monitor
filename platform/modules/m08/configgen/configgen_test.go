@@ -52,7 +52,7 @@ func TestGenerateRendersInhibitRules(t *testing.T) {
 	output, err := Generate(Input{
 		RouteTree:     baseTree(),
 		BridgeBaseURL: "http://center:8080",
-		Channels: []*domain.Channel{{ID: "c1", Type: domain.ChannelTypeFeishu}},
+		Channels:      []*domain.Channel{{ID: "c1", Type: domain.ChannelTypeFeishu}},
 		InhibitRules: []*domain.InhibitionRule{{
 			Name: "网域离线抑制", Enabled: true,
 			SourceMatchers: []domain.Matcher{{Name: "alertname", Value: "NetworkDomainDown"}},

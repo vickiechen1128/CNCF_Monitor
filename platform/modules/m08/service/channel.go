@@ -10,9 +10,9 @@ import (
 
 // ChannelService manages notification channels (FR-09).
 type ChannelService struct {
-	channels   repository.ChannelRepository
-	templates  repository.TemplateRepository
-	snapshots  repository.SnapshotRepository
+	channels     repository.ChannelRepository
+	templates    repository.TemplateRepository
+	snapshots    repository.SnapshotRepository
 	allowPrivate bool
 }
 

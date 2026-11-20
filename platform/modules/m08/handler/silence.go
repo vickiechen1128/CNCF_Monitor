@@ -106,10 +106,10 @@ func (h *SilenceHandler) Delete(c *gin.Context) {
 func (h *SilenceHandler) Audits(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.AuditFilter{
-		Operator: strings.TrimSpace(c.Query("operator")),
-		Action:   strings.TrimSpace(c.Query("action")),
+		Operator:  strings.TrimSpace(c.Query("operator")),
+		Action:    strings.TrimSpace(c.Query("action")),
 		SilenceID: strings.TrimSpace(c.Query("silence_id")),
-		Page: page, PageSize: pageSize,
+		Page:      page, PageSize: pageSize,
 	}
 	if from, err := parseOptionalTime(c.Query("from")); err == nil {
 		filter.From = from

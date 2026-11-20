@@ -22,9 +22,9 @@ func NewChannelHandler(svc *service.ChannelService) *ChannelHandler { return &Ch
 func (h *ChannelHandler) List(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.ChannelFilter{
-		Keyword: strings.TrimSpace(c.Query("keyword")),
+		Keyword:     strings.TrimSpace(c.Query("keyword")),
 		ChannelType: strings.TrimSpace(c.Query("channel_type")),
-		Page: page, PageSize: pageSize,
+		Page:        page, PageSize: pageSize,
 	}
 	channels, total, counts, err := h.svc.List(c.Request.Context(), filter)
 	if err != nil {

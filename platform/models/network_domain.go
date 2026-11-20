@@ -69,7 +69,7 @@ type NetworkDomain struct {
 	// ZoneType is retained only for legacy v2 compilation/rows. v3 removed the
 	// network-partition feature (M06 SRS v1.3): v3 repositories never read or
 	// write this column and config generation no longer injects zone labels.
-	ZoneType    string     `gorm:"size:50" json:"zone_type,omitempty"`
+	ZoneType string `gorm:"size:50" json:"zone_type,omitempty"`
 	// CloudCode 是 cloud/network_domain 两标签中 cloud 标签的权威来源（决策 103
 	// scheme-B）：登记时必填且须引用已启用云字典条目，创建后不可变更（与 TenantID
 	// 同语义）。资源侧 cloud_code 不再落资源表，统一经 network_domain_id 派生。

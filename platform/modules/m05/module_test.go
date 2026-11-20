@@ -18,11 +18,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 )
 
 // newTestDB builds an isolated in-memory v3 database.
@@ -119,7 +119,7 @@ func doSummary(t *testing.T, router http.Handler, token string) (int, dto.Summar
 	router.ServeHTTP(rec, req)
 
 	var envelope struct {
-		Status string            `json:"status"`
+		Status string      `json:"status"`
 		Data   dto.Summary `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope), rec.Body.String())

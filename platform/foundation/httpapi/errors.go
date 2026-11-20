@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 	"github.com/metriccenter/metriccenter/platform/foundation/apierror"
+	"github.com/metriccenter/metriccenter/platform/foundation/apiresponse"
 )
 
 // WriteError maps err to the unified response envelope and writes it.

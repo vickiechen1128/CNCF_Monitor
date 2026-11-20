@@ -139,4 +139,3 @@ func TestImportRejectsRemovedAttributeKey(t *testing.T) {
 	require.Len(t, record.Errors, 1)
 	assert.Contains(t, record.Errors[0].Reason, "removed")
 }
-

@@ -42,4 +42,3 @@ func ValidateInhibition(r *InhibitionRule) []ValidationIssue {
 	}
 	return issues
 }
-

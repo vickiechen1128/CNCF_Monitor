@@ -249,10 +249,10 @@ func (s *MonitorTypeService) Impact(ctx context.Context, code string) (MonitorTy
 
 // MonitorTypeImpact is the change-impact preview payload (FR-24).
 type MonitorTypeImpact struct {
-	Code             string                            `json:"code"`
+	Code             string                                `json:"code"`
 	References       repository.MonitorTypeReferenceCounts `json:"references"`
-	RuleCount        int64                             `json:"rule_count"`
-	MatchedResources int64                             `json:"matched_resources"`
+	RuleCount        int64                                 `json:"rule_count"`
+	MatchedResources int64                                 `json:"matched_resources"`
 }
 
 // ScopeFields returns the closed whitelist of rule fields for the UI picker.

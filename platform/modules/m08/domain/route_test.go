@@ -13,7 +13,7 @@ func TestValidateRouteTree(t *testing.T) {
 	valid := []RouteNode{{
 		ID: "root", Receiver: "default", Enabled: true,
 		GroupWait: "30s",
-		Children: []RouteNode{{ID: "child", Receiver: "notify-c1", Enabled: true}},
+		Children:  []RouteNode{{ID: "child", Receiver: "notify-c1", Enabled: true}},
 	}}
 	assert.Empty(t, ValidateRouteTree(valid, allowed))
 

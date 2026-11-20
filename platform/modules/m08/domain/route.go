@@ -10,17 +10,17 @@ import (
 // persisted verbatim inside the current snapshot (D47) and rendered to the
 // `route` section; nobody edits the YAML by hand.
 type RouteNode struct {
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	Matchers      []Matcher   `json:"matchers"`
-	Receiver      string      `json:"receiver"`
-	GroupBy       []string    `json:"group_by"`
-	GroupWait     string      `json:"group_wait"`
-	GroupInterval string      `json:"group_interval"`
-	RepeatInterval string     `json:"repeat_interval"`
-	Continue      bool        `json:"continue"`
-	Enabled       bool        `json:"enabled"`
-	Children      []RouteNode `json:"children"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	Matchers       []Matcher   `json:"matchers"`
+	Receiver       string      `json:"receiver"`
+	GroupBy        []string    `json:"group_by"`
+	GroupWait      string      `json:"group_wait"`
+	GroupInterval  string      `json:"group_interval"`
+	RepeatInterval string      `json:"repeat_interval"`
+	Continue       bool        `json:"continue"`
+	Enabled        bool        `json:"enabled"`
+	Children       []RouteNode `json:"children"`
 }
 
 // maxRouteDepth bounds recursion so a malformed tree cannot exhaust the stack.
@@ -128,4 +128,3 @@ func CollectReceivers(nodes []RouteNode) map[string]bool {
 	walk(nodes)
 	return out
 }
-

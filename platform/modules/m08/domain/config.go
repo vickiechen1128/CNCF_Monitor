@@ -36,11 +36,11 @@ type ReloadLog struct {
 // Silence is a runtime Alertmanager silence (FR-16). It is never persisted
 // locally; the audit trail is.
 type Silence struct {
-	ID        string      `json:"id"`
-	Matchers  []Matcher   `json:"matchers"`
-	StartsAt  time.Time   `json:"starts_at"`
-	EndsAt    time.Time   `json:"ends_at"`
-	CreatedBy string      `json:"created_by"`
-	Comment   string      `json:"comment"`
-	Status    string      `json:"status,omitempty"`
+	ID        string    `json:"id"`
+	Matchers  []Matcher `json:"matchers"`
+	StartsAt  time.Time `json:"starts_at"`
+	EndsAt    time.Time `json:"ends_at"`
+	CreatedBy string    `json:"created_by"`
+	Comment   string    `json:"comment"`
+	Status    string    `json:"status,omitempty"`
 }

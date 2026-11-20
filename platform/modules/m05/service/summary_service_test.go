@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/repository"
 )
 

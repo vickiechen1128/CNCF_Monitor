@@ -32,8 +32,8 @@ func Seed(ctx context.Context, snapshots repository.SnapshotRepository, template
 	}
 	tree := []domain.RouteNode{{
 		ID: "root", Name: "根路由", Receiver: "default", Enabled: true,
-		GroupBy:     []string{"alertname", "network_domain_id"},
-		GroupWait:   "30s", GroupInterval: "5m", RepeatInterval: "4h",
+		GroupBy:   []string{"alertname", "network_domain_id"},
+		GroupWait: "30s", GroupInterval: "5m", RepeatInterval: "4h",
 	}}
 	outcome, err := config.saveInitial(ctx, tree)
 	if err != nil {

@@ -7,11 +7,11 @@ import (
 // CIModelResponse is the API view of one CI model
 // (SRS Module_07 v2.2 §5.8 FR-32).
 type CIModelResponse struct {
-	ResourceCategory string                      `json:"resource_category"`
-	CategoryLabel    string                      `json:"category_label"`
-	BuiltinFields    []BuiltinFieldResponse      `json:"builtin_fields"`
+	ResourceCategory string                        `json:"resource_category"`
+	CategoryLabel    string                        `json:"category_label"`
+	BuiltinFields    []BuiltinFieldResponse        `json:"builtin_fields"`
 	CustomFields     []AttributeDefinitionResponse `json:"custom_fields"`
-	AvailableGroups  []AttributeGroupOption      `json:"available_groups"`
+	AvailableGroups  []AttributeGroupOption        `json:"available_groups"`
 }
 
 // BuiltinFieldResponse is one platform-owned field. Immutable is always true:

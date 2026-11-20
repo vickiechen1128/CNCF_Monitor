@@ -5,7 +5,7 @@ package models
 type GenericTarget struct {
 	BaseModel
 	ResourceBase
-	TargetName string `gorm:"size:200;not null" json:"target_name"`
+	TargetName   string            `gorm:"size:200;not null" json:"target_name"`
 	InstanceIP   string            `gorm:"size:50;not null" json:"instance_ip"`
 	Port         int               `json:"port"`
 	MetricsPath  string            `gorm:"size:200" json:"metrics_path"`  // 默认 /metrics

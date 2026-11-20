@@ -81,7 +81,7 @@ func FromMonitorTypeEntry(entry domain.MonitorTypeEntry) MonitorTypeResponse {
 
 // MonitorTypeRequest is the create/update payload (FR-21 / FR-22).
 //
-// ``code`` is ignored on update: the code is immutable so existing jobs and
+// “code“ is ignored on update: the code is immutable so existing jobs and
 // mappings never dangle.
 type MonitorTypeRequest struct {
 	Code             string               `json:"code"`

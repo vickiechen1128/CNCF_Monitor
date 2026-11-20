@@ -67,7 +67,6 @@ func (r JobRequest) ToDomain() *domain.Job {
 	return job
 }
 
-
 // SyncResponse is the inline sync projection.
 type SyncResponse struct {
 	Status   string     `json:"status"`

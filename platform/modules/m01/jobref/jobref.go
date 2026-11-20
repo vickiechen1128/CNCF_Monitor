@@ -111,7 +111,7 @@ func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issu
 	var out []Issue
 	seen := make(map[string]struct{})
 	for _, m := range jobMatcherRe.FindAllStringSubmatch(rule.Expr, -1) {
-		op := m[1] // =~ 或 =
+		op := m[1]  // =~ 或 =
 		ref := m[2] // 引用的 job 名
 		if _, dup := seen[op+":"+ref]; dup {
 			continue

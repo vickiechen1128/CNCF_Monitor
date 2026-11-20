@@ -32,7 +32,9 @@ type TemplateRepository interface {
 type GORMTemplateRepository struct{ db *gorm.DB }
 
 // NewTemplateRepository constructs the repository.
-func NewTemplateRepository(db *gorm.DB) *GORMTemplateRepository { return &GORMTemplateRepository{db: db} }
+func NewTemplateRepository(db *gorm.DB) *GORMTemplateRepository {
+	return &GORMTemplateRepository{db: db}
+}
 
 // Create inserts a template.
 func (r *GORMTemplateRepository) Create(ctx context.Context, template *domain.Template) error {
