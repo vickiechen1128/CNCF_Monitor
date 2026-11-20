@@ -17,42 +17,46 @@ import {
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { networkDomainApi } from '../../api/domain'
-import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { blackboxModuleApi, type BlackboxModule } from '../../api/blackboxModules'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
-import type { CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
+import type { JobType } from '../../types/strategy'
 import type { ScrapeJob, ScrapeJobInstanceItem } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
+import type { CollectionTemplate, Selector } from '../../types/collectionTemplate'
+import { EMPTY_SELECTOR, normalizeSelector } from '../../types/collectionTemplate'
 import {
   CATEGORY_MAP,
   BLACKBOX_CATEGORIES,
   BLACKBOX_TARGET_FIELD_LABEL,
 } from './strategyConstants'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCandidateFields, useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
+import { SelectorEditor } from './SelectorEditor'
 import { AuthTlsFields, ScrapeParamFields } from './JobParamsFields'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
-import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 
 /**
- * 表单值 = 提交后端的字段 + 仅用于「资源类别 → 监控对象类型」两级级联的
- * `resource_category`。标准采集 Job 提交时把 `resource_category` 原样写入
- * `resource_type`，后端不再从 monitor_type 二次推导。
+ * 表单值 = 提交后端的字段 + 仅用于联动展示的 `resource_category`。
+ *
+ * M01 v1.5 起任务不再有「监控对象类型」：标准采集由「采集模板」决定资源类别与默认参数，
+ * 「采哪些对象」由任务自己的 selector 表达。
  */
-type ScrapeJobFormValues = ScrapeJobInput & { resource_category?: ResourceCategory }
+type ScrapeJobFormValues = Omit<ScrapeJobInput, 'resource_category' | 'resource_type'> & {
+  resource_category?: ResourceCategory
+  resource_type?: ResourceCategory
+}
 
 const { Text, Link } = Typography
 
-/** 参数继承来源 Tag（§5.4 参数同步）：inherited 灰 / overridden 蓝 / pending 橙 */
+/** 参数继承来源 Tag（标准采集：模板带出 / 手动覆盖 / 待同步） */
 function ParamsSyncTag({ state }: { state: 'inherited' | 'overridden' | 'pending' | 'none' }) {
-  if (state === 'inherited') return <Tag>继承映射</Tag>
+  if (state === 'inherited') return <Tag>模板带出</Tag>
   if (state === 'overridden') return <Tag color="blue">已覆盖</Tag>
   if (state === 'pending') return <Tag color="orange">待同步</Tag>
   return null
@@ -101,6 +105,12 @@ function PortEcho({ item, onGoResources }: { item: ScrapeJobInstanceItem; onGoRe
   )
 }
 
+/** 采集模板下拉选项文案：`名称（资源类别）` */
+function templateOptionLabel(template: CollectionTemplate): string {
+  const category = CATEGORY_MAP[template.resource_category as ResourceCategory] ?? template.resource_category
+  return `${template.name}（${category}）`
+}
+
 interface ScrapeJobFormDrawerProps {
   open: boolean
   /** 编辑态传行 record；新增态为 null */
@@ -110,16 +120,16 @@ interface ScrapeJobFormDrawerProps {
 }
 
 /**
- * 采集 Job 编辑抽屉（Module_01 §3.1/§5.4/§9.1/§11.1/§11.2，F4）。
- * - monitor_type 两级级联带出默认采集器与参数（可覆盖）；默认采集器「使用默认/手填」二选一；
- * - 网域下拉=已纳管非冻结；job_type standard/blackbox 切换（blackbox 隐藏 mon/exp，显黑盒目标）；
- * - 认证TLS折叠面板（auth_type 三选一 + basic→user/pass 掩码、bearer→token、TLS 区）；
- * - 标签模板卡片式选择（按资源类别过滤 + 补配引导，F1-4）；采集器 inline 登记成功回选（C1）；
- * - 编辑态网域可改（FIX-2 已按契约开放），网域空态跨模块引导（A7）；标准 Job 内嵌实例选择器与安装确认面板。
+ * 采集 Job 编辑抽屉（Module_01 SRS v1.5 / §5.4 / §9.1 / §11.1/§11.2，F4）。
+ * - 采集模板带出资源类别 / 采集器 / 标签模板 / 采集参数（可覆盖，保留 override UX）；
+ * - 「采哪些对象」用统一 SelectorEditor，未改动时按模板推荐条件（default_selector）预填；
+ * - 网域下拉=已纳管非冻结；job_type standard/blackbox 切换（blackbox 无模板/选择器）；
+ * - 认证TLS折叠面板；标签模板卡片式选择（按资源类别过滤）；标准 Job 内嵌实例选择器与安装确认面板。
  */
 export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: ScrapeJobFormDrawerProps) {
   const navigate = useNavigate()
-  const catalog = useMonitorTypeCatalog()
+  const { templates } = useCollectionTemplateCatalog()
+  const { fields } = useCandidateFields()
   const [form] = Form.useForm<ScrapeJobFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -131,13 +141,15 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   // 模板列表加载状态：未加载完成 / 加载失败时禁止提交（避免静默提交空模板）
   const [labelTemplatesLoading, setLabelTemplatesLoading] = useState(false)
   const [labelTemplatesFailed, setLabelTemplatesFailed] = useState(false)
-  const [registerOpen, setRegisterOpen] = useState(false)
-  // F-28 稀疏覆盖：当前监控对象类型的默认采集配置（用于参数 placeholder 展示继承默认值；
-  // 不再值预填进表单，留空=继承，保存时由后端按 映射→模板→全局 链解析生效快照）
-  const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
   // {T01-P6} 编辑态生效端口回显数据（GET /instances 的 port/port_source，仅 standard 分支渲染）
   const [portEchoItems, setPortEchoItems] = useState<ScrapeJobInstanceItem[]>([])
   const [blackboxModules, setBlackboxModules] = useState<BlackboxModule[]>([])
+  // 「采哪些对象」选择器：独立受控状态（SelectorEditor 不是 Form 字段）
+  const [selector, setSelector] = useState<Selector>(EMPTY_SELECTOR)
+  // 用户是否动过选择器：动过之后切换模板不再覆盖用户条件
+  const [selectorTouched, setSelectorTouched] = useState(false)
+  // 当前选择器是否来自模板推荐条件（展示「已按模板推荐条件预填，可修改」）
+  const [selectorPrefilled, setSelectorPrefilled] = useState(false)
 
   const isEdit = !!record
   // 任务类型分支状态：编辑态由 record.job_type 直接决定（确定性，不依赖
@@ -145,39 +157,35 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   // 偶发不触发，导致拨测 Job 编辑时仍停留在「采集」分支、已填的拨测信息不回显）。
   // 新增态初值 standard，由下方 Radio onChange 切换。
   const [jobType, setJobType] = useState<JobType>(record?.job_type ?? 'standard')
-  const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
-  // O2/T01-F15：登记采集器发起上下文 = 当前已选监控对象类型（预填 supported_monitor_types）；useMemo 稳定引用
-  const registerInitialTypes = useMemo<MonitorType[] | undefined>(
-    () => (monitorType ? [monitorType] : undefined),
-    [monitorType],
-  )
-  const resourceCategorySelected = Form.useWatch('resource_category', form) as ResourceCategory | undefined
-  // 拨测（blackbox）分支：由用户选定目标资源类别（限接口服务 / 应用服务两类）。
-  // 探测地址字段不再由用户选：由类别写死推导（接口服务→接口地址、应用服务→健康检查 URL），
-  // 服务端保存时按同一映射落库，前端不提交 target_field。
+  const templateCode = Form.useWatch('template_code', form) as string | undefined
+  const formResourceCategory = Form.useWatch('resource_category', form) as ResourceCategory | undefined
   const blackboxCategory = Form.useWatch('resource_type', form) as ResourceCategory | undefined
-  // Q1a：登记采集器仅在「已选监控对象类型但无默认采集器」的空态展示（PRD §3.1 采集器选择器空态引导，L83）
-  const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
 
-  // F1-8：监控对象类型候选 = 按已选资源类别过滤（两级级联）
-  const categoryTypes = useMemo<MonitorType[]>(() => {
-    if (!resourceCategorySelected) return []
-    return catalog.optionsForCategory(resourceCategorySelected)
-  }, [resourceCategorySelected, catalog])
+  // 可选模板：仅启用项；label 为「名称（类别）」
+  const templateOptions = useMemo(
+    () =>
+      templates
+        .filter((template) => template.enabled)
+        .map((template) => ({ value: template.code, label: templateOptionLabel(template) })),
+    [templates],
+  )
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.code === templateCode),
+    [templates, templateCode],
+  )
 
   // F1-4：按当前资源类别过滤可选的标签模板（卡片式）。
-  // 采集 Job 由 monitor_type 推导类别；拨测 Job 没有 monitor_type，类别取 resource_type
-  // （接口服务 / 应用服务），否则拨测场景下选择器会因 monitorType 为空而不渲染。
+  // 标准采集类别来自采集模板（目录未就绪时回落到表单值）；拨测类别取 resource_type。
   const resourceCategory = useMemo<ResourceCategory | undefined>(() => {
     if (jobType === 'blackbox') return blackboxCategory
-    if (!monitorType) return undefined
-    return catalog.categoryFor(monitorType)
-  }, [jobType, blackboxCategory, monitorType, catalog])
+    return selectedTemplate?.resource_category ?? formResourceCategory
+  }, [jobType, blackboxCategory, selectedTemplate, formResourceCategory])
   const filteredLabelTemplates = useMemo(
     () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
     [labelTemplates, resourceCategory],
   )
+
   // 打开抽屉时装载网域与初始值
   useEffect(() => {
     if (!open) return
@@ -203,24 +211,26 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       })
       .finally(() => setLabelTemplatesLoading(false))
     form.resetFields()
-    setMappingDefaults(null)
     setPortEchoItems([])
+    setSelector(EMPTY_SELECTOR)
+    setSelectorTouched(false)
+    setSelectorPrefilled(false)
+    setParamsState('none')
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
-      // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
-      const echoedCategory = catalog.categoryFor(record.monitor_type)
       form.setFieldsValue({
         job_name: record.job_name,
         job_type: record.job_type,
-        resource_category: echoedCategory,
-        monitor_type: (record.monitor_type || undefined) as MonitorType | undefined,
+        // 标准采集：采集模板（编辑态不回填模板默认参数，保留 Job 快照）
+        template_code: record.template_code || undefined,
+        resource_category: (record.resource_category as ResourceCategory | undefined) ?? undefined,
         exporter_template_id: record.exporter_template_id,
         network_domain_id: record.network_domain_id,
         scrape_interval: record.scrape_interval,
         scrape_timeout: record.scrape_timeout,
         metrics_path: record.metrics_path,
         scheme: record.scheme,
-        // 存量任务可能没有 label_template_id；空值时由下方 effect 选中该类别默认模板的 ID
+        // 存量任务可能没有 label_template_id；空值时由用户按需选择
         label_template_id: record.label_template_id ?? '',
         auth_type: record.auth_type,
         username: record.username,
@@ -235,19 +245,30 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         resource_type: (record.resource_type || undefined) as ResourceCategory | undefined,
         password: undefined,
       })
+      // 编辑态：选择器以 Job 快照为准，视为「已改动」，切换模板不覆盖
+      setSelector(normalizeSelector(record.selector))
+      setSelectorTouched(true)
       setParamsState((record.mapping_overrides?.length ?? 0) > 0 ? 'pending' : 'none')
     } else {
       setSelectedIds([])
-      form.setFieldsValue({ job_type: 'standard', auth_type: 'none', tls_skip_verify: false, exporter_template_id: undefined, label_template_id: '' } as Partial<ScrapeJobInput>)
+      form.setFieldsValue({
+        job_type: 'standard',
+        auth_type: 'none',
+        tls_skip_verify: false,
+        exporter_template_id: undefined,
+        label_template_id: '',
+        template_code: undefined,
+        resource_category: undefined,
+      } as Partial<ScrapeJobFormValues>)
     }
-    // catalog 仅提供类别反查；目录加载完成后不应重跑「重置表单」逻辑，否则会清掉用户已填内容
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // catalog 仅提供模板解析；模板目录加载完成后不应重跑「重置表单」逻辑，否则会清掉用户已填内容
   }, [open, record, form])
 
   useEffect(() => {
     if (!open || jobType !== 'blackbox') return
     let cancelled = false
-    blackboxModuleApi.list()
+    blackboxModuleApi
+      .list()
       .then((res) => {
         if (!cancelled) setBlackboxModules(res.data?.list ?? [])
       })
@@ -277,67 +298,83 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     }
   }, [open, record, jobType])
 
-  // monitor_type 变化 → 带出默认采集器与标签模板；采集参数仅以 placeholder 展示
-  // 映射默认值（F-28 稀疏覆盖：留空=继承，不再把参数值写进表单快照）
-  const handleMonitorTypeChange = useCallback(
-    async (next: MonitorType | undefined) => {
-      setParamsState('none')
-      setMappingDefaults(null)
-      if (!next) return
-      try {
-        const res = await ciExporterMappingApi.list({ monitor_type: next as string, is_default: true, page: 1, page_size: 20 })
-        const def = res.data?.list?.[0]
-        if (def) {
-          setMappingDefaults(def)
-          form.setFieldsValue({
-            exporter_template_id: def.exporter_template_id as string,
-            label_template_id: def.label_template_id || '',
-          })
-          setParamsState('inherited')
-        }
-      } catch {
-        // 无默认映射时保持空，用户可手填
+  /**
+   * 采集模板变化 → 带出资源类别 / 采集器 / 标签模板 / 采集参数（均可再改）。
+   * 选择器：用户尚未改动过时按模板推荐条件（default_selector）预填。
+   */
+  const handleTemplateChange = useCallback(
+    (code?: string) => {
+      const template = templates.find((item) => item.code === code)
+      // 换模板 = 候选类别可能变化，已选实例不再适用
+      setSelectedIds([])
+      if (!template) {
+        form.setFieldsValue({
+          resource_category: undefined,
+          exporter_template_id: undefined,
+          label_template_id: '',
+        })
+        setParamsState('none')
+        setSelector(EMPTY_SELECTOR)
+        setSelectorPrefilled(false)
+        return
+      }
+      form.setFieldsValue({
+        resource_category: template.resource_category,
+        exporter_template_id: template.exporter_template_id,
+        label_template_id: template.label_template_id || '',
+        // 参数按模板预填（可覆盖；清空 = 回到模板/全局继承）
+        scrape_interval: template.scrape_interval || '',
+        scrape_timeout: template.scrape_timeout || '',
+        metrics_path: template.metrics_path || '',
+        scheme: template.scheme || '',
+      })
+      setCollectorMode('default')
+      setParamsState('inherited')
+      if (!selectorTouched) {
+        const recommended = normalizeSelector(template.default_selector)
+        setSelector(recommended)
+        setSelectorPrefilled(recommended.filters.length > 0)
       }
     },
-    [form],
+    [templates, form, selectorTouched],
   )
 
-  // F-28：参数字段 placeholder = 继承链下层生效值提示（映射 → 采集器/全局兜底）
+  /** 选择器编辑：之后切换模板不再覆盖用户条件 */
+  const handleSelectorChange = useCallback((next: Selector) => {
+    setSelector(next)
+    setSelectorTouched(true)
+    setSelectorPrefilled(false)
+  }, [])
+
+  // F-28：参数字段 placeholder = 继承链下层生效值提示（采集模板 → 采集器/全局兜底）
   const paramPlaceholders: Record<string, string> = {
-    scrape_interval: mappingDefaults?.scrape_interval
-      ? `留空继承默认采集配置（${mappingDefaults.scrape_interval}）`
+    scrape_interval: selectedTemplate?.scrape_interval
+      ? `留空继承采集模板（${selectedTemplate.scrape_interval}）`
       : '留空使用全局默认（15s）',
-    scrape_timeout: mappingDefaults?.scrape_timeout
-      ? `留空继承默认采集配置（${mappingDefaults.scrape_timeout}）`
+    scrape_timeout: selectedTemplate?.scrape_timeout
+      ? `留空继承采集模板（${selectedTemplate.scrape_timeout}）`
       : '留空使用全局默认（10s）',
-    metrics_path: mappingDefaults?.metrics_path
-      ? `留空继承默认采集配置（${mappingDefaults.metrics_path}）`
+    metrics_path: selectedTemplate?.metrics_path
+      ? `留空继承采集模板（${selectedTemplate.metrics_path}）`
       : '留空继承采集器默认（/metrics）',
-    scheme: mappingDefaults?.scheme
-      ? `留空继承默认采集配置（${mappingDefaults.scheme}）`
+    scheme: selectedTemplate?.scheme
+      ? `留空继承采集模板（${selectedTemplate.scheme}）`
       : '留空继承采集器默认（http）',
   }
-
-  // C1：登记采集器成功后回选到来源表单（D17）：回填 exporter_template_id 并切「手填」展示
-  const handleRegisterSuccess = useCallback(
-    (template?: ExporterTemplate) => {
-      if (template?.id) {
-        form.setFieldsValue({ exporter_template_id: String(template.id) })
-        setCollectorMode('manual')
-      }
-    },
-    [form],
-  )
 
   // 将表单值组装为请求体；draftStatus 决定是「保存草稿」还是「提交生效」。
   const buildBody = useCallback(
     (values: ScrapeJobFormValues, draftStatus: 'draft' | 'ready'): ScrapeJobInput => {
+      const isBlackbox = values.job_type === 'blackbox'
       const body: ScrapeJobInput = {
         job_name: values.job_name,
         job_type: values.job_type ?? 'standard',
         network_domain_id: values.network_domain_id ?? '',
+        // M01 v1.5：标准采集提交采集模板 + 任务自己的选择器；拨测无模板/选择器（显式清空）
+        template_code: isBlackbox ? '' : values.template_code ?? '',
+        selector: isBlackbox ? { ...EMPTY_SELECTOR } : normalizeSelector(selector),
         // F-28：采集参数可留空（留空=继承）。空值显式归一为 '' 提交——编辑态清空字段
-        // 即「恢复继承」，后端保存时按 映射→模板→全局 链重新解析生效快照。
+        // 即「恢复继承」，后端保存时按 模板→采集器→全局 链重新解析生效快照。
         scrape_interval: values.scrape_interval || '',
         scrape_timeout: values.scrape_timeout || '',
         metrics_path: values.metrics_path || '',
@@ -352,7 +389,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         draft_status: draftStatus,
         enabled: true,
       }
-      if (values.job_type === 'blackbox') {
+      if (isBlackbox) {
         body.blackbox_module = values.blackbox_module
         // 拨测目标改走资源选择：目标地址 = 所选实例在「该类别写死的探测地址字段」上的值
         // （接口服务→接口地址、应用服务→健康检查 URL）。只提交类别，target_field 由服务端
@@ -360,17 +397,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         body.resource_type = values.resource_type
         body.selected_instance_ids = selectedIds
       } else {
-        // 标准采集 Job：用户在表单选定的资源类别原样提交，后端直接落库。
-        // 之前漏传该字段 → resource_type 存空串 → 默认标签模板按空类别查找不到，
-        // 整份模板标签集静默为空。
-        body.resource_type = values.resource_category
-        body.monitor_type = values.monitor_type
+        // 标准采集：资源类别由采集模板决定（表单已联动写入）
+        body.resource_category = values.resource_category ?? selectedTemplate?.resource_category
         body.exporter_template_id = values.exporter_template_id
         body.selected_instance_ids = selectedIds
       }
       return body
     },
-    [selectedIds],
+    [selectedIds, selector, selectedTemplate],
   )
 
   // 保存草稿：仅基础校验（job_name / job_type），不进入 M09 变更管线。
@@ -403,6 +437,11 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     try {
       values = await form.validateFields()
     } catch {
+      return
+    }
+    // 标准采集必须选采集模板（否则后端拒绝 template_code 为空）
+    if ((values.job_type ?? 'standard') === 'standard' && !values.template_code) {
+      message.error('请选择采集模板')
       return
     }
     // 标签模板是提交的硬前置：列表未加载/加载失败/数据异常/未选中时一律拦截，
@@ -445,7 +484,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
 
   /**
    * 标签模板选择区（采集 / 拨测共用）。
-   * 采集 Job 的类别来自 monitor_type，拨测 Job 的类别来自 resource_type；
+   * 采集 Job 的类别来自采集模板，拨测 Job 的类别来自 resource_type；
    * 不选择具体模板时后端回落到该类别默认模板，故空选项明确文案为「使用默认标签模板」。
    */
   const renderLabelTemplateSection = () => (
@@ -453,8 +492,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       label="标签模板"
       extra={
         resourceCategory
-          ? '可选择自定义模板；不使用模板时仅保留系统注入标签'
-          : '选择资源类别后列出可用标签模板'
+          ? '默认取采集模板配置；可选择自定义模板（仅保留系统注入标签时不使用模板）'
+          : '选择采集模板后列出可用标签模板'
       }
     >
       {resourceCategory && labelTemplatesLoading ? (
@@ -491,44 +530,43 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           </Radio.Group>
         </Form.Item>
       ) : (
-        <Text type="secondary">选择资源类别后列出可用标签模板</Text>
+        <Text type="secondary">选择采集模板后列出可用标签模板</Text>
       )}
     </Form.Item>
   )
 
   return (
-    <>
-      <Drawer
-        title={isEdit ? `编辑采集任务 ${record?.job_name ?? ''}` : '新增采集任务'}
-        open={open}
-        onClose={submitting ? undefined : onCancel}
-        width={640}
-        // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
-        // useEffect 的 setFieldsValue 完成挂载），导致编辑回显首次为空、二次才出现；
-        // forceRender 保证 Form 常驻挂载，首次打开即正确回显（#19 同源问题，采集 Job 抽屉）。
-        forceRender
-        footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={onCancel} disabled={submitting}>
-              取消
+    <Drawer
+      title={isEdit ? `编辑采集任务 ${record?.job_name ?? ''}` : '新增采集任务'}
+      open={open}
+      onClose={submitting ? undefined : onCancel}
+      width={640}
+      // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
+      // useEffect 的 setFieldsValue 完成挂载），导致编辑回显首次为空、二次才出现；
+      // forceRender 保证 Form 常驻挂载，首次打开即正确回显（#19 同源问题，采集 Job 抽屉）。
+      forceRender
+      footer={
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={onCancel} disabled={submitting}>
+            取消
+          </Button>
+          {isEdit ? (
+            <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
+              保存
             </Button>
-            {isEdit ? (
-              <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
-                保存
+          ) : (
+            <>
+              <Button loading={submitting} disabled={submitting} onClick={() => void handleSaveDraft()}>
+                保存草稿
               </Button>
-            ) : (
-              <>
-                <Button loading={submitting} disabled={submitting} onClick={() => void handleSaveDraft()}>
-                  保存草稿
-                </Button>
-                <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
-                  提交生效
-                </Button>
-              </>
-            )}
-          </Space>
-        }
-      >
+              <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
+                提交生效
+              </Button>
+            </>
+          )}
+        </Space>
+      }
+    >
       {submitError && (
         <Alert type="error" showIcon message="保存失败" description={submitError} style={{ marginBottom: 16 }} />
       )}
@@ -553,9 +591,15 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               <Radio.Group
                 buttonStyle="solid"
                 onChange={(e) => {
-                  setJobType(e.target.value as JobType)
+                  const nextType = e.target.value as JobType
+                  setJobType(nextType)
                   // 采集 / 拨测的资源类别不同，切换任务类型后回到「使用默认标签模板」，避免跨类别残留
-                  form.setFieldsValue({ label_template_id: '' })
+                  form.setFieldsValue({ label_template_id: '', template_code: undefined })
+                  // 拨测没有采集模板与选择器：切换时一并清空，避免把标准采集的条件带过去
+                  setSelector(EMPTY_SELECTOR)
+                  setSelectorTouched(false)
+                  setSelectorPrefilled(false)
+                  setSelectedIds([])
                 }}
               >
                 <Radio.Button value="standard">采集</Radio.Button>
@@ -567,23 +611,28 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
 
         {jobType === 'standard' ? (
           <>
+            {/* 资源类别由采集模板决定，仅作为隐藏提交字段 */}
+            <Form.Item name="resource_category" hidden>
+              <Input />
+            </Form.Item>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="资源类别" name="resource_category" rules={[{ required: true, message: '请选择资源类别' }]}>
+                <Form.Item
+                  label="采集模板"
+                  name="template_code"
+                  rules={[{ required: true, message: '请选择采集模板' }]}
+                  extra={
+                    selectedTemplate
+                      ? `资源类别：${CATEGORY_MAP[selectedTemplate.resource_category] ?? selectedTemplate.resource_category} · 默认端口 ${selectedTemplate.default_port}`
+                      : '模板决定采集实现、默认参数与推荐的对象范围'
+                  }
+                >
                   <Select
-                    placeholder="请选择"
-                    options={catalog.cascade.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
-                    // 换类别 → 监控对象类型与已选标签模板都不再适用，一并清空；
-                    // 新类别的默认模板加载后由 effect 自动选中其 ID
-                    onChange={() => form.setFieldsValue({ monitor_type: undefined, label_template_id: '' })}
-                  />
-                </Form.Item>
-                <Form.Item label="监控对象类型" name="monitor_type" rules={[{ required: true, message: '请选择监控对象类型' }]}>
-                  <Select
-                    placeholder={categoryTypes.length > 0 ? '请选择监控对象类型' : '请先选择资源类别'}
-                    disabled={categoryTypes.length === 0}
-                    options={categoryTypes.map((t) => ({ value: t, label: catalog.nameOf(t) }))}
-                    onChange={(v) => void handleMonitorTypeChange(v as MonitorType | undefined)}
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="请选择采集模板"
+                    options={templateOptions}
+                    onChange={(value) => handleTemplateChange(value as string | undefined)}
                   />
                 </Form.Item>
               </Col>
@@ -618,20 +667,14 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Col>
             </Row>
 
-            <Card size="small" title="采集器与参数同步" style={{ marginBottom: 12 }}>
+            <Card size="small" title="采集器与参数" style={{ marginBottom: 12 }}>
               <Space direction="vertical" style={{ width: '100%' }} size={8}>
                 <Space align="center">
                   <Radio.Group value={collectorMode} onChange={(e) => setCollectorMode(e.target.value)} size="small" optionType="button" buttonStyle="solid">
-                    <Radio.Button value="default">使用默认</Radio.Button>
+                    <Radio.Button value="default">使用模板默认</Radio.Button>
                     <Radio.Button value="manual">手填</Radio.Button>
                   </Radio.Group>
                   <ParamsSyncTag state={paramsState} />
-                  {/* C1/PRD §3.1 采集器选择器空态引导：仅「有类型无采集器」显示登记入口，登记成功回选（D17） */}
-                  {monitorType && !exporterTemplateId ? (
-                    <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
-                      登记采集器
-                    </Button>
-                  ) : null}
                 </Space>
                 {collectorMode === 'manual' ? (
                   <Form.Item name="exporter_template_id" noStyle rules={[{ required: true, message: '请输入采集器模板 ID' }]}>
@@ -639,10 +682,31 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   </Form.Item>
                 ) : (
                   <Form.Item name="exporter_template_id" noStyle>
-                    <Input disabled placeholder="默认采集器（切换监控类型自动带出）" />
+                    <Input disabled placeholder="采集模板默认采集器（选择模板后自动带出）" />
                   </Form.Item>
                 )}
-                <ScrapeParamFields monitorType={monitorType} paramPlaceholders={paramPlaceholders} />
+                <ScrapeParamFields templateCode={templateCode} paramPlaceholders={paramPlaceholders} />
+              </Space>
+            </Card>
+
+            {/* 「采哪些对象」：选择器只决定任务覆盖范围；不配置 = 该模板类别下全部对象 */}
+            <Card size="small" title="采哪些对象" style={{ marginBottom: 12 }}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  条件只决定任务覆盖哪些对象；不配置表示该类别下全部对象。
+                </Text>
+                <SelectorEditor
+                  value={selector}
+                  onChange={handleSelectorChange}
+                  category={resourceCategory}
+                  fields={fields}
+                  emptyText="不限条件：该模板类别下全部对象"
+                />
+                {selectorPrefilled && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    已按模板推荐条件预填，可修改
+                  </Text>
+                )}
               </Space>
             </Card>
 
@@ -651,7 +715,13 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <AuthTlsFields />
 
             <Card size="small" title="选择实例" style={{ marginBottom: 12 }}>
-              <InstanceSelector monitorType={monitorType} networkDomainId={networkDomainId} selectedIds={selectedIds} onChange={setSelectedIds} />
+              <InstanceSelector
+                templateCode={templateCode}
+                resourceCategory={resourceCategory}
+                networkDomainId={networkDomainId}
+                selectedIds={selectedIds}
+                onChange={setSelectedIds}
+              />
             </Card>
             {/* {T01-P6} 生效端口只读回显：四级解析链结果 + 来源标注（业务端口兜底 ⚠️ 不阻断） */}
             {isEdit && portEchoItems.length > 0 && (
@@ -764,13 +834,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         )}
       </Form>
     </Drawer>
-      <ExporterTemplateDrawer
-        open={registerOpen}
-        onCancel={() => setRegisterOpen(false)}
-        onSuccess={handleRegisterSuccess}
-        initialMonitorTypes={registerInitialTypes}
-      />
-    </>
   )
 }
 

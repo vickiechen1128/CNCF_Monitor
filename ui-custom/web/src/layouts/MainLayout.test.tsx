@@ -170,7 +170,7 @@ describe('MainLayout', () => {
     )
   })
 
-  it('shows 采集器管理 as a Sider sub-item under 采集策略 module (F-09)', () => {
+  it('shows 采集模板 as a Sider sub-item under 采集策略 module (M01 v2.0)', () => {
     render(
       <MemoryRouter initialEntries={['/collectors']}>
         <Routes>
@@ -180,35 +180,24 @@ describe('MainLayout', () => {
     )
     // 顶部一级 tab 用 PRD 模块名「采集策略」
     expect(screen.getByText('采集策略')).toBeInTheDocument()
-    // Sider 二级含「采集器管理」，且位于「采集 Job」之前（动线：先采集器、后 Job）
+    // 「监控对象类型」概念已下线：采集策略下只剩 采集模板 / 采集 Job / 规则编辑 / 指标库
     const siderTexts = screen
       .getAllByRole('menuitem')
       .map((el) => el.textContent ?? '')
-    expect(siderTexts.some((t) => t.includes('采集器管理'))).toBe(true)
+    expect(siderTexts.some((t) => t.includes('监控对象类型'))).toBe(false)
+    expect(siderTexts.some((t) => t.includes('采集器管理'))).toBe(false)
+    expect(siderTexts.some((t) => t.includes('采集模板'))).toBe(true)
     expect(siderTexts.some((t) => t.includes('采集 Job'))).toBe(true)
-    const collectorsIdx = siderTexts.findIndex((t) => t.includes('采集器管理'))
+    // 动线不变：先采集模板、后采集 Job
+    const templatesIdx = siderTexts.findIndex((t) => t.includes('采集模板'))
     const jobsIdx = siderTexts.findIndex((t) => t.includes('采集 Job'))
-    expect(collectorsIdx).toBeGreaterThan(-1)
-    expect(collectorsIdx).toBeLessThan(jobsIdx)
+    expect(templatesIdx).toBeGreaterThan(-1)
+    expect(templatesIdx).toBeLessThan(jobsIdx)
     expect(screen.getByText('collector-content')).toBeInTheDocument()
   })
 
-  it('/monitor-types 归属采集策略，侧栏不再落到可视化大屏', () => {
-    render(
-      <MemoryRouter initialEntries={['/monitor-types']}>
-        <Routes>
-          <Route path="/monitor-types" element={<MainLayout>monitor-type-content</MainLayout>} />
-        </Routes>
-      </MemoryRouter>,
-    )
-    expect(screen.getByText('monitor-type-content')).toBeInTheDocument()
-    expect(screen.getByText('采集策略')).toBeInTheDocument()
-    const menuTexts = screen
-      .getAllByRole('menuitem')
-      .map((el) => el.textContent ?? '')
-    expect(menuTexts.some((t) => t.includes('监控对象类型'))).toBe(true)
-    expect(menuTexts.some((t) => t.includes('概览 Dashboard'))).toBe(false)
-  })
+  // M01 v2.0：/monitor-types 路由与「监控对象类型」菜单项整体下线（模板 + 任务选择器取代），
+  // 点击一级 tab「采集策略」仍默认落在首个子项「采集模板」（/collectors）。
 
   // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
   it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
@@ -243,12 +232,12 @@ describe('MainLayout', () => {
     )
     expect(screen.getByText('home-content')).toBeInTheDocument()
     fireEvent.click(screen.getByText('采集策略'))
-    // 点击一级 tab 应默认定位到第一个子项「采集器管理」（/collectors），而非「采集 Job」
+    // 点击一级 tab 应默认定位到第一个子项「采集模板」（/collectors），而非「采集 Job」
     await waitFor(() => expect(screen.getByText('collector-content')).toBeInTheDocument())
     expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
-  it('navigates to /collectors when 采集器管理 sub-item clicked', () => {
+  it('navigates to /collectors when 采集模板 sub-item clicked', () => {
     render(
       <MemoryRouter initialEntries={['/scrape-jobs']}>
         <Routes>
@@ -258,13 +247,13 @@ describe('MainLayout', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('jobs-content')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('采集器管理'))
+    fireEvent.click(screen.getByText('采集模板'))
     // 真实路由导航：Content 由 jobs-content 切换为 collector-content
     expect(screen.getByText('collector-content')).toBeInTheDocument()
     expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
-  it('M09 侧栏平铺 4 项：不再有「网域与节点管理 / 配置下发」折叠分组，也不再有两页快照入口', async () => {
+  it('M09 侧栏平铺 5 项：含指标查询，不再有折叠分组与两页快照入口', async () => {
     render(
       <MemoryRouter initialEntries={['/config-snapshots']}>
         <Routes>
@@ -272,13 +261,14 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    // 顶部一级 tab：M09 独立为「网域与边缘配置中心」顶级模块
-    expect(screen.getByText('网域与边缘配置中心')).toBeInTheDocument()
+    // 顶部一级 tab：M09 独立为「配置与查询中心」顶级模块
+    expect(screen.getByText('配置与查询中心')).toBeInTheDocument()
     expect(screen.getByText('系统与平台管理')).toBeInTheDocument()
-    // 平铺：4 个二级页面常态可见，无需展开任何分组
+    // 平铺：5 个二级页面常态可见，无需展开任何分组
     expect(await screen.findByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
     expect(screen.getByText('监控目标状态')).toBeInTheDocument()
+    expect(screen.getByText('指标查询')).toBeInTheDocument()
     expect(screen.getByText('配置产物历史')).toBeInTheDocument()
     // 分组标题与已合并的「快照历史」入口均不再出现
     expect(screen.queryByText('网域与节点管理')).toBeNull()
@@ -300,7 +290,7 @@ describe('MainLayout', () => {
     )
     await screen.findByText('网域纳管')
     expect(container.querySelector('.app-sider .ant-menu-submenu')).toBeNull()
-    expect(container.querySelectorAll('.app-sider .ant-menu-item').length).toBe(4)
+    expect(container.querySelectorAll('.app-sider .ant-menu-item').length).toBe(5)
   })
 
   it('highlights 采集节点状态 when route is /node-status (M09 平铺菜单选中态)', async () => {
@@ -320,7 +310,7 @@ describe('MainLayout', () => {
     })
   })
 
-  it('resolves /domain-onboarding、/node-status、/config-snapshots 到网域与边缘配置中心 tab', () => {
+  it('resolves /domain-onboarding、/node-status、/config-snapshots 到配置与查询中心 tab', () => {
     render(
       <MemoryRouter initialEntries={['/config-snapshots']}>
         <Routes>
@@ -328,12 +318,34 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    // 顶部一级 tab「网域与边缘配置中心」处于 active
+    // 顶部一级 tab「配置与查询中心」处于 active
     const tab = screen
       .getAllByRole('button')
-      .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
+      .find((el) => (el.textContent || '').includes('配置与查询中心'))
     expect(tab?.className ?? '').toContain('active')
     expect(screen.getByText('preview-content')).toBeInTheDocument()
+  })
+
+  it('resolves /query 到配置与查询中心 tab 并选中「指标查询」', async () => {
+    render(
+      <MemoryRouter initialEntries={['/query']}>
+        <Routes>
+          <Route path="/query" element={<MainLayout>query-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('配置与查询中心'))
+    expect(tab?.className ?? '').toContain('active')
+    await waitFor(() => {
+      const selected = screen
+        .getAllByRole('menuitem')
+        .find((el) => (el.textContent || '').includes('指标查询'))
+      expect(selected).toBeDefined()
+      expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    })
+    expect(screen.getByText('query-content')).toBeInTheDocument()
   })
 
   it('shows role + username info in the header top-right when signed in', () => {

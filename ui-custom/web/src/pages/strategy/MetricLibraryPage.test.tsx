@@ -3,13 +3,13 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { MetricLibraryPage } from './MetricLibraryPage'
-import { resetMonitorTypeCatalogForTest } from './useMonitorTypeCatalog'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
 const removeMock = vi.fn()
-const monitorTypeListMock = vi.fn()
+const templateListMock = vi.fn()
 
 vi.mock('../../api/metricLibrary', () => ({
   metricLibraryApi: {
@@ -20,9 +20,13 @@ vi.mock('../../api/metricLibrary', () => ({
   },
 }))
 
-vi.mock('../../api/monitorTypes', () => ({
-  monitorTypeApi: {
-    list: (...args: unknown[]) => monitorTypeListMock(...args),
+// M01 v2.0：指标锚点改挂「采集模板」，下拉选项来自 useCollectionTemplateCatalog()
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: {
+    list: (...args: unknown[]) => templateListMock(...args),
+  },
+  candidateFieldApi: {
+    list: vi.fn(),
   },
 }))
 
@@ -59,6 +63,30 @@ function setRole(role: 'admin' | 'user' | null) {
   )
 }
 
+/** 采集模板目录夹具（code 与后端内置模板一致） */
+const TEMPLATES = [
+  {
+    code: 'host_linux',
+    name: 'Linux 主机采集',
+    resource_category: 'host',
+    enabled: true,
+    is_builtin: true,
+    sort_order: 10,
+  },
+  {
+    code: 'mysql',
+    name: 'MySQL 采集',
+    resource_category: 'database',
+    enabled: true,
+    is_builtin: true,
+    sort_order: 40,
+  },
+]
+
+function templateListResponse(list = TEMPLATES) {
+  return { status: 'success', data: { list, total: list.length, page: 1, page_size: 100 } }
+}
+
 function metric(id: number, extra: Record<string, unknown> = {}) {
   return {
     id,
@@ -67,7 +95,7 @@ function metric(id: number, extra: Record<string, unknown> = {}) {
     help: 'CPU 使用率',
     unit: 'percent',
     labels: [],
-    monitor_types: [{ monitor_type: 'host_linux', source_exporter: 'node-exporter' }],
+    collection_templates: [{ template_code: 'host_linux', source_exporter: 'node-exporter' }],
     category: 'hardware',
     is_builtin: true,
     enabled: true,
@@ -82,10 +110,10 @@ beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
   removeMock.mockReset()
-  monitorTypeListMock.mockReset()
-  // 默认返回空注册表 → 目录回落到内置常量，保持既有断言稳定
-  monitorTypeListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
-  resetMonitorTypeCatalogForTest()
+  templateListMock.mockReset()
+  // 采集模板目录有进程内缓存，逐用例重置，保证各用例只看到自己声明的模板
+  resetCollectionCatalogCache()
+  templateListMock.mockResolvedValue(templateListResponse())
   // 默认管理员：既有用例覆盖页面主体，写入口默认可见
   storageMap.clear()
   setRole('admin')
@@ -94,7 +122,7 @@ beforeEach(() => {
 /**
  * 打开 FilterItem 标签对应的 antd Select。
  *
- * 列名与筛选条件同名（如「资源类别」「监控对象类型」会同时出现在表头），
+ * 列名与筛选条件同名（如「资源类别」「采集模板」会同时出现在表头），
  * 因此按标签文本找到**带下拉的筛选格**再点击，避免 getByText 命中多处。
  */
 function openFilterSelect(label: string) {
@@ -131,7 +159,8 @@ describe('MetricLibraryPage', () => {
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
     expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     expect(screen.getAllByText('仪表').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Linux 主机').length).toBeGreaterThanOrEqual(1)
+    // 采集模板列按 code 解析展示名（来自采集模板目录）
+    expect(screen.getAllByText('Linux 主机采集').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('node-exporter').length).toBeGreaterThanOrEqual(1)
     // 抽屉常驻挂载（forceRender）也含「启用」文案，状态断言限定在表格内
     expect(within(screen.getByRole('table')).getByText('启用')).toBeInTheDocument()
@@ -175,6 +204,27 @@ describe('MetricLibraryPage', () => {
     expect(screen.getByText('job')).toBeInTheDocument()
   })
 
+  it('shows 未挂接采集模板 for metrics without anchors', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [metric(1, { collection_templates: [] })],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
+    expect(screen.getByText('未挂接采集模板')).toBeInTheDocument()
+  })
+
   it('only renders the flat list (分组浏览视图已移除)', async () => {
     listMock.mockResolvedValue({
       status: 'success',
@@ -194,7 +244,7 @@ describe('MetricLibraryPage', () => {
     expect(listMock).not.toHaveBeenCalledWith(expect.objectContaining({ page_size: 100 }))
   })
 
-  it('aligns column headers with filter labels (资源类别 / 监控对象类型 / 指标类型)', async () => {
+  it('aligns column headers with filter labels (资源类别 / 采集模板 / 指标类型)', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
@@ -212,11 +262,13 @@ describe('MetricLibraryPage', () => {
       .getAllByRole('columnheader')
       .map((th) => th.textContent)
     expect(headers).toEqual(
-      expect.arrayContaining(['指标名', '指标类型', '资源类别', '监控对象类型', '来源采集器', '启用状态']),
+      expect.arrayContaining(['指标名', '指标类型', '资源类别', '采集模板', '来源采集器', '启用状态']),
     )
+    // 监控对象类型已退场：表头与筛选都不应再出现该文案
+    expect(screen.queryByText('监控对象类型')).toBeNull()
     // 筛选区标签与表头同名（各出现 1 次筛选 + 1 次表头）
     expect(screen.getAllByText('资源类别').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('监控对象类型').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('采集模板').length).toBeGreaterThanOrEqual(2)
     expect(screen.getAllByText('指标类型').length).toBeGreaterThanOrEqual(2)
   })
 
@@ -238,12 +290,12 @@ describe('MetricLibraryPage', () => {
 
     await waitFor(() =>
       expect(listMock).toHaveBeenCalledWith(
-        expect.objectContaining({ resource_category: 'database', monitor_type: undefined, page: 1 }),
+        expect.objectContaining({ resource_category: 'database', template_code: undefined, page: 1 }),
       ),
     )
   })
 
-  it('sends monitor_type when 监控对象类型 changes', async () => {
+  it('sends template_code when 采集模板 changes', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
@@ -256,34 +308,18 @@ describe('MetricLibraryPage', () => {
     )
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
 
-    openFilterSelect('监控对象类型')
-    fireEvent.click(await screen.findByText('MySQL'))
+    openFilterSelect('采集模板')
+    fireEvent.click(await screen.findByText('MySQL 采集'))
 
     await waitFor(() =>
-      expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ monitor_type: 'mysql', page: 1 })),
+      expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ template_code: 'mysql', page: 1 })),
     )
   })
 
-  it('syncs 监控对象类型 options with manually added registry entries', async () => {
+  it('syncs 采集模板 options with newly added templates', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
-    })
-    monitorTypeListMock.mockResolvedValueOnce({
-      status: 'success',
-      data: {
-        list: [
-          {
-            code: 'mysql',
-            name: 'MySQL',
-            resource_category: 'database',
-            enabled: true,
-            is_builtin: true,
-            sort_order: 1,
-          },
-        ],
-        total: 1,
-      },
     })
 
     render(
@@ -292,39 +328,28 @@ describe('MetricLibraryPage', () => {
       </MemoryRouter>,
     )
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
-    expect(screen.queryByText('达梦数据库')).toBeNull()
+    expect(screen.queryByText('达梦数据库采集')).toBeNull()
 
-    // 手动新增监控对象类型后，展开下拉会重新拉取注册表
-    monitorTypeListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          {
-            code: 'mysql',
-            name: 'MySQL',
-            resource_category: 'database',
-            enabled: true,
-            is_builtin: true,
-            sort_order: 1,
-          },
-          {
-            code: 'dameng',
-            name: '达梦数据库',
-            resource_category: 'database',
-            enabled: true,
-            is_builtin: false,
-            sort_order: 2,
-          },
-        ],
-        total: 2,
-      },
-    })
-    openFilterSelect('监控对象类型')
+    // 新增采集模板后，展开下拉会重新拉取目录
+    templateListMock.mockResolvedValue(
+      templateListResponse([
+        ...TEMPLATES,
+        {
+          code: 'dameng',
+          name: '达梦数据库采集',
+          resource_category: 'database',
+          enabled: true,
+          is_builtin: false,
+          sort_order: 45,
+        },
+      ]),
+    )
+    openFilterSelect('采集模板')
 
-    expect(await screen.findByText('达梦数据库')).toBeInTheDocument()
+    expect(await screen.findByText('达梦数据库采集')).toBeInTheDocument()
   })
 
-  it('explains an empty result for a newly added monitor type', async () => {
+  it('explains an empty result for a template without metrics', async () => {
     listMock.mockResolvedValueOnce({
       status: 'success',
       data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
@@ -338,12 +363,12 @@ describe('MetricLibraryPage', () => {
     )
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
 
-    openFilterSelect('监控对象类型')
-    fireEvent.click(await screen.findByText('MySQL'))
+    openFilterSelect('采集模板')
+    fireEvent.click(await screen.findByText('MySQL 采集'))
 
-    expect(await screen.findByText('「MySQL」暂无指标')).toBeInTheDocument()
+    expect(await screen.findByText('「MySQL 采集」暂无指标')).toBeInTheDocument()
     expect(
-      screen.getByText('该类型还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该类型'),
+      screen.getByText('该采集模板还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该模板'),
     ).toBeInTheDocument()
   })
 
@@ -407,7 +432,7 @@ describe('MetricLibraryPage', () => {
     expect(screen.queryByTestId('edit-metric-2')).toBeNull()
   })
 
-  it('creates a user metric anchored to a monitor type (admin)', async () => {
+  it('creates a user metric anchored to collection templates (admin)', async () => {
     listMock.mockResolvedValue({
       status: 'success',
       data: { list: [metric(1)], total: 1, page: 1, page_size: 20 },
@@ -430,10 +455,15 @@ describe('MetricLibraryPage', () => {
     fireEvent.change(screen.getByPlaceholderText('例如 app_payment_success_total'), {
       target: { value: 'app_payment_success_total' },
     })
-    // 挂接监控对象类型（下拉选项来自注册表目录）
-    fireEvent.mouseDown(screen.getByText('请选择监控对象类型').closest('.ant-select')!.querySelector('.ant-select-selector')!)
+    // 挂接采集模板（多选，选项来自采集模板目录）
+    fireEvent.mouseDown(
+      screen.getByText('请选择采集模板').closest('.ant-select')!.querySelector('.ant-select-selector')!,
+    )
     const dropdown = document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)') as HTMLElement
-    fireEvent.click(within(dropdown).getByText('Linux 主机'))
+    fireEvent.click(within(dropdown).getByText('Linux 主机采集'))
+    // 每个已选模板可单独填写来源采集器
+    const sourceInput = await screen.findByLabelText('来源采集器-host_linux')
+    fireEvent.change(sourceInput, { target: { value: 'node-exporter' } })
 
     fireEvent.click(screen.getByTestId('submit-metric'))
 
@@ -442,7 +472,7 @@ describe('MetricLibraryPage', () => {
         expect.objectContaining({
           metric_name: 'app_payment_success_total',
           metric_type: 'gauge',
-          monitor_types: [{ monitor_type: 'host_linux', source_exporter: undefined }],
+          collection_templates: [{ template_code: 'host_linux', source_exporter: 'node-exporter' }],
           enabled: true,
         }),
       ),

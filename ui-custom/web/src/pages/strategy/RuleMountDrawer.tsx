@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Checkbox, Drawer, Form, Input, Select, Space, Spin, Tag, Typography, Upload, message } from 'antd'
 import { CheckCircleOutlined, EyeOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -6,9 +6,9 @@ import { monitoringRuleApi } from '../../api/monitoringRules'
 import type { JobRefIssue, PromQLCheckResult, RuleInspectResult } from '../../api/monitoringRules'
 import { isApiError } from '../../api/client'
 import type { ResourceCategory } from '../../types/resource'
-import type { MonitorType, MonitoringRule } from '../../types/strategy'
+import type { MonitoringRule } from '../../types/strategy'
 import { CATEGORY_MAP } from './strategyConstants'
-import { currentMonitorTypeCatalog, useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 import { validateYamlClient } from './rulesYaml'
 import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
@@ -27,9 +27,10 @@ interface RuleMountDrawerProps {
 /** 规则文件挂载/编辑输入 */
 interface MountFormValues {
   name?: string
-  /** 资源类别（级联辅助，不入库；提交载荷仅 monitor_type） */
+  /** 资源类别（级联辅助，不入库；提交载荷仅 template_code） */
   resource_category?: ResourceCategory
-  monitor_type?: MonitorType
+  /** 采集模板编码（M01 v2.0 重构后取代监控对象类型，可选） */
+  template_code?: string
   rule_content: string
 }
 
@@ -74,12 +75,6 @@ function checkSummaryText(outcome: CheckOutcome): string {
 
 /** 标签探查状态机（2026-10-13）：idle 未探查 / loading 探查中 / done 完成 / failed 探查失败 */
 type InspectState = 'idle' | 'loading' | 'done' | 'failed'
-
-/** 由监控对象类型反推资源类别（编辑回显级联选择器用） */
-function categoryOfType(t?: string): ResourceCategory | undefined {
-  if (!t) return undefined
-  return currentMonitorTypeCatalog().categoryFor(t)
-}
 
 /**
  * 规则挂载 / 编辑抽屉（Module_01 §3.1/§5.5/§6.2.4/§11.1，F6；交互经决策 69 重排）。
@@ -229,7 +224,7 @@ function RuleInspectPanel({
 }
 
 export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: RuleMountDrawerProps) {
-  const catalog = useMonitorTypeCatalog()
+  const templateCatalog = useCollectionTemplateCatalog()
   const navigate = useNavigate()
   const [form] = Form.useForm<MountFormValues>()
   const [submitting, setSubmitting] = useState(false)
@@ -313,12 +308,30 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
     void runInspect(content)
   }
 
-  // 资源类别 → 监控对象类型两级级联（对齐 MappingDrawer/ScrapeJobFormDrawer F1-8）：
-  // 已选类别时类型候选按类别收敛；未选类别时平铺全部类型（monitor_type 可空，类别仅作辅助）。
+  // 资源类别 → 采集模板两级级联（对齐 MappingDrawer/ScrapeJobFormDrawer F1-8）：
+  // 已选类别时模板候选按类别收敛；未选类别时平铺全部模板（template_code 可空，类别仅作辅助）。
   const resourceCategory = Form.useWatch('resource_category', form)
-  const monitorTypeOptions = resourceCategory
-    ? catalog.optionsForCategory(resourceCategory)
-    : catalog.allCodes()
+
+  /** 采集模板 code → 资源类别（编辑回显级联选择器用） */
+  const categoryOfTemplate = useCallback(
+    (code?: string) => (code ? templateCatalog.templates.find((t) => t.code === code)?.resource_category : undefined),
+    [templateCatalog.templates],
+  )
+
+  const templateOptions = useMemo(() => {
+    const list = resourceCategory
+      ? templateCatalog.templates.filter((t) => t.resource_category === resourceCategory)
+      : templateCatalog.templates
+    return list.map((t) => ({ value: t.code, label: t.name }))
+  }, [templateCatalog.templates, resourceCategory])
+
+  // 资源类别候选仅展示「已有采集模板」的类别，避免选出空模板列表
+  const categoryOptions = useMemo(() => {
+    const present = new Set(templateCatalog.templates.map((t) => t.resource_category))
+    return Object.entries(CATEGORY_MAP)
+      .filter(([category]) => present.has(category as ResourceCategory))
+      .map(([value, label]) => ({ value, label }))
+  }, [templateCatalog.templates])
 
   useEffect(() => {
     if (!open) return
@@ -326,8 +339,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       // 编辑模式回显（含类别反推）；启停状态不回显/不修改
       form.setFieldsValue({
         name: editingRule.name,
-        resource_category: categoryOfType(editingRule.monitor_type),
-        monitor_type: editingRule.monitor_type as MonitorType | undefined,
+        resource_category: categoryOfTemplate(editingRule.template_code),
+        template_code: editingRule.template_code,
         rule_content: editingRule.rule_content ?? '',
       })
     } else {
@@ -394,7 +407,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       if (editingRule) {
         await monitoringRuleApi.update(editingRule.id, {
           name: values.name,
-          monitor_type: values.monitor_type,
+          template_code: values.template_code,
           rule_content: values.rule_content,
           // 逃生门：仅在用户显式确认时上送，后端据 ack=true 放行留痕
           ...(ackJobRefErrors ? { ack_job_ref_errors: true } : {}),
@@ -406,7 +419,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           content_mode: 'yaml_passthrough',
           rule_content: values.rule_content,
           name: values.name,
-          monitor_type: values.monitor_type,
+          template_code: values.template_code,
           // 创建默认启用（M01 PRD §8，与采集 Job 对齐）；漏传会被后端零值 false 落库成「停用」
           enabled: true,
           // 逃生门：仅在用户显式确认时上送，后端据 ack=true 放行留痕
@@ -495,26 +508,28 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
         <Form.Item
           label="资源类别"
           name="resource_category"
-          extra="可选，用于按 CI 类型组织规则；切换类别会清空已选监控对象类型"
+          extra="可选，用于按资源类别组织规则；切换类别会清空已选采集模板"
         >
           <Select
             allowClear
             data-testid="rule-resource-category"
             placeholder="全部类别"
-            options={catalog.cascade.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
-            onChange={() => form.setFieldsValue({ monitor_type: undefined })}
+            options={categoryOptions}
+            onChange={() => form.setFieldsValue({ template_code: undefined })}
           />
         </Form.Item>
         <Form.Item
-          label="监控对象类型"
-          name="monitor_type"
-          extra="可选；所有启用规则将合并为同一份 rules.yml，组名（group name）须全局唯一"
+          label="采集模板"
+          name="template_code"
+          extra="可选，用于说明规则面向哪类采集目标；所有启用规则将合并为同一份 rules.yml，组名（group name）须全局唯一"
         >
           <Select
             allowClear
-            data-testid="rule-monitor-type"
-            placeholder="请选择监控对象类型"
-            options={monitorTypeOptions.map((t) => ({ value: t, label: catalog.nameOf(t) }))}
+            showSearch
+            optionFilterProp="label"
+            data-testid="rule-template-code"
+            placeholder="请选择采集模板"
+            options={templateOptions}
           />
         </Form.Item>
         <Form.Item label="内容形态" extra="当前版本仅支持文件透传（yaml_passthrough）">

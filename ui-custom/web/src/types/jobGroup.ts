@@ -73,7 +73,8 @@ export interface JobGroup {
   job_name: string
   job_type: string
   resource_category: ResourceCategory
-  monitor_type: string
+  template_code: string
+  selector?: import('./collectionTemplate').Selector
   blackbox_module?: string
   scrape_interval: string
   scrape_timeout: string
@@ -92,7 +93,8 @@ export interface JobGroupInput {
   job_name: string
   job_type?: string
   resource_category?: ResourceCategory
-  monitor_type: string
+  template_code: string
+  selector?: import('./collectionTemplate').Selector
   exporter_template_id?: string
   scrape_interval?: string
   scrape_timeout?: string

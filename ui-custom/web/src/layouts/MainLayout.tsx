@@ -17,6 +17,7 @@ import {
   FileTextOutlined,
   FundProjectionScreenOutlined,
   HddOutlined,
+  LineChartOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -59,12 +60,14 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 一级模块顶部栏顺序为「可视化大屏 / 监控对象管理 / 采集策略 / 网域与边缘配置中心 / 告警收敛与通知管理 / 系统与平台管理」；
+ * D3（临时）：MVP 一级模块顶部栏顺序为「可视化大屏 / 监控对象管理 / 采集策略 / 配置与查询中心 / 告警收敛与通知管理 / 系统与平台管理」；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
- * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），二级导航**平铺** 4 项：
- * 网域纳管 / 采集节点状态 / 监控目标状态 / 配置快照（2026-11-17 用户反馈：原 N2-1 的两个折叠组
+ * M09「配置与查询中心」为独立的顶级模块（与「采集策略」同级），二级导航**平铺** 5 项：
+ * 网域纳管 / 采集节点状态 / 监控目标状态 / 指标查询 / 配置产物历史（2026-11-17 用户反馈：原 N2-1 的两个折叠组
  * 默认收起后二级页面全部不可见、跨组还需二次展开，改为与其它模块一致的平铺；配置快照与快照历史
  * 已合并为同一页面）。既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
+ * 2026-11-20：一级 tab 由「网域与边缘配置中心」改名「配置与查询中心」，指标查询作为二级菜单
+ * （M09 SRS v1.9 FR-22；指标查询依赖本模块的网域上下文与查询代理）。
  */
 interface ModuleDef {
   key: string
@@ -120,8 +123,8 @@ const MODULES: ModuleDef[] = [
     label: '采集策略',
     path: '/collectors',
     subItems: [
-      { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
-      { key: '/monitor-types', label: '监控对象类型', icon: <TagsOutlined /> },
+      // M01 v2.0：原「采集器管理」改名为「采集模板」；「监控对象类型」概念下线（模板 + 任务选择器取代）
+      { key: '/collectors', label: '采集模板', icon: <DatabaseOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
       {
         // D-1b ⓐ（2026-09-28）：名称保持「规则编辑」不变，仅补副标题说明本页同时承载
@@ -141,16 +144,18 @@ const MODULES: ModuleDef[] = [
   },
   {
     key: 'config-center',
-    label: '网域与边缘配置中心',
+    label: '配置与查询中心',
     path: '/domain-onboarding',
     subItems: [
       // 2026-11-17 用户反馈：本模块二级导航改为**平铺**（原「网域与节点管理」+「配置下发」两个折叠组
-      // 默认收起，进入模块后二级页面全部不可见、跨组还要二次展开；合并后仅 4 项，无需分组）。
+      // 默认收起，进入模块后二级页面全部不可见、跨组还要二次展开；合并后无需分组）。
       // 顺序按「接入 → 观测 → 追溯」组织，与页面动线一致。
       { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
       { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
       // M02 目标状态页（P1）：暂挂 M09 下（与 PRD 决策 47-4 不符，见 module-02/dev-feedback.md F-1）。
       { key: '/targets', label: '监控目标状态', icon: <RadarChartOutlined /> },
+      // 指标查询（M09 SRS v1.9 FR-22）：查询依赖本模块的网域上下文与查询代理，与目标状态同属排障动线。
+      { key: '/query', label: '指标查询', icon: <LineChartOutlined /> },
       // 配置快照与快照历史已合并为单一只读页（v3 无全局快照接口，页面内「网域」筛选承接原两页差异）。
       { key: '/config-snapshots', label: '配置产物历史', icon: <FileSearchOutlined /> },
     ],
@@ -264,9 +269,9 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
- * /domain-onboarding、/node-status、/targets、/config-snapshots → 网域与边缘配置中心；
+ * /domain-onboarding、/node-status、/targets、/query、/config-snapshots → 配置与查询中心；
  * （旧路由 /config-preview、/deployments 已合并重定向到 /config-snapshots，见 App.tsx 别名。）
- * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/monitor-types、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 可视化大屏（默认落地页）。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -277,6 +282,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
     locationPath.startsWith('/targets') ||
+    locationPath.startsWith('/query') ||
     locationPath.startsWith('/config-snapshots')
   )
     return findModuleByKey('config-center')
@@ -291,8 +297,6 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
-    // /monitor-types（M01 监控对象类型）同属采集策略；漏配会让一级 tab 与侧栏一起落到「可视化大屏」。
-    locationPath.startsWith('/monitor-types') ||
     // 拨测模块同属采集策略；遗漏会让一级 tab 落回「可视化大屏」，侧栏也切到可视化大屏的二级菜单。
     locationPath.startsWith('/scrape-jobs') ||
     locationPath.startsWith('/rules') ||

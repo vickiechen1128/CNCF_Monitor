@@ -27,7 +27,7 @@ import QueryPage from './pages/query/QueryPage'
 import { getToken, setUnauthorizedNavigate } from './api/client'
 import './App.css'
 
-// Module_09 网域与边缘配置中心（Phase 4，MVP）路由，懒加载
+// Module_09 配置与查询中心（Phase 4，MVP）路由，懒加载
 const NetworkDomainsPage = lazy(() =>
   import('./pages/config-center/domains/NetworkDomainsPage').then((m) => ({ default: m.NetworkDomainsPage })),
 )
@@ -73,9 +73,6 @@ const RoutesPage = lazy(() =>
   import('./pages/alerts/RoutesPage').then((m) => ({ default: m.RoutesPage })),
 )
 
-const MonitorTypePage = lazy(() =>
-  import('./pages/strategy/MonitorTypePage').then((m) => ({ default: m.MonitorTypePage })),
-)
 const InhibitionsPage = lazy(() => import('./pages/alerts/InhibitionsPage'))
 
 /**
@@ -134,8 +131,6 @@ function AppRoutes() {
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/metric-library" element={<MetricLibraryPage />} />
-          {/* 监控对象类型配置化（SRS Module_01 v1.3 §5.6）：新增类型无需改代码 */}
-          <Route path="/monitor-types" element={<MonitorTypePage />} />
           <Route path="/domain-onboarding" element={<NetworkDomainsPage />} />
           <Route path="/node-status" element={<EdgeAgentsPage />} />
           <Route path="/config-snapshots" element={<ConfigPreviewPage />} />

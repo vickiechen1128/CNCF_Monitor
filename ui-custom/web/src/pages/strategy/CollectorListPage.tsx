@@ -1,15 +1,28 @@
+import { Space, Typography } from 'antd'
 import { MainLayout } from '../../layouts/MainLayout'
 import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
+const { Text, Title } = Typography
+
 /**
- * 采集器管理独立页（F-09 用户裁定拆分，路由 /collectors，2026-08-23）。
- * 动线先行：先登记采集器 / 配置默认采集，再创建采集 Job（创建时自动套用默认值），
- * 故「采集器管理」由采集 Job 页内 Tab 提升为「采集策略」一级 tab 下的独立二级页面。
- * 复用 CollectorTemplatesTab 组件主体（页内 Tab 与独立页共用同一列表/抽屉逻辑）。
+ * 采集模板页（路由 /collectors，原「采集器管理」）。
+ *
+ * M01 v2.0 重构：「监控对象类型」概念下线，模板成为唯一的「类对象」配置载体——
+ * 模板回答「这类对象怎么采」（采集实现 + 抓取参数 + 标签模板），
+ * 「采哪些对象」由采集任务自己的选择器表达，故本页不再维护类型↔实现映射。
+ * 页面主体是 CollectorTemplatesTab（采集模板 / 采集实现两个 Tab）。
  */
 export function CollectorListPage() {
   return (
     <MainLayout>
+      <Space direction="vertical" size={4} style={{ marginBottom: 12 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          采集模板
+        </Title>
+        <Text type="secondary">
+          模板回答「这类对象怎么采」：一个采集实现 + 一套抓取参数 + 一个标签模板；采哪些对象由采集任务自己的选择器决定。
+        </Text>
+      </Space>
       <CollectorTemplatesTab />
     </MainLayout>
   )

@@ -3,11 +3,23 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { RulesPage } from './RulesPage'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 
 const listMock = vi.fn()
 const getMock = vi.fn()
 const updateMock = vi.fn()
 const removeMock = vi.fn()
+const templateListMock = vi.fn()
+
+// M01 v2.0：规则归属由「监控对象类型」改为「采集模板」，展示名来自采集模板目录
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: {
+    list: (...args: unknown[]) => templateListMock(...args),
+  },
+  candidateFieldApi: {
+    list: vi.fn(),
+  },
+}))
 
 vi.mock('../../api/monitoringRules', () => ({
   monitoringRuleApi: {
@@ -53,6 +65,27 @@ beforeEach(() => {
   getMock.mockReset()
   updateMock.mockReset()
   removeMock.mockReset()
+  templateListMock.mockReset()
+  // 采集模板目录有进程内缓存，逐用例重置
+  resetCollectionCatalogCache()
+  templateListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: [
+        {
+          code: 'mysql',
+          name: 'MySQL 采集',
+          resource_category: 'database',
+          enabled: true,
+          is_builtin: true,
+          sort_order: 40,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    },
+  })
 })
 
 describe('RulesPage', () => {
@@ -63,7 +96,7 @@ describe('RulesPage', () => {
       status: 'success',
       data: {
         list: [
-          rule(1, { change_status: 'pending', monitor_type: 'mysql' }),
+          rule(1, { change_status: 'pending', template_code: 'mysql' }),
           rule(2, { change_status: 'deployed', enabled: true }),
           rule(3, { enabled: false }),
         ],
@@ -82,8 +115,8 @@ describe('RulesPage', () => {
     expect(await screen.findByText('rule-1')).toBeInTheDocument()
     expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     expect(screen.getAllByText('文件透传').length).toBeGreaterThanOrEqual(1)
-    // 监控对象类型列：有值映射展示名，无值显示占位「-」
-    expect(screen.getAllByText('MySQL').length).toBeGreaterThanOrEqual(1)
+    // 采集模板列：有值映射展示名（来自采集模板目录），无值显示占位「-」
+    expect(screen.getAllByText('MySQL 采集').length).toBeGreaterThanOrEqual(1)
     // 两条 `- alert:` → 规则条数 2
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
     // v3：列表展示「启用状态 + 同步状态」，不再有变更进度列。

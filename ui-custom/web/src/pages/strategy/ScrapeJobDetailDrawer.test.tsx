@@ -3,9 +3,12 @@ import { render, screen, fireEvent, within, cleanup } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 import type { ScrapeJob } from '../../types/strategy'
+import type { CollectionTemplate } from '../../types/collectionTemplate'
 
 const instancesMock = vi.fn()
+const templateListMock = vi.fn()
 const previewTargetsMock = vi.fn()
 const targetsListMock = vi.fn()
 const queryMock = vi.fn()
@@ -15,6 +18,12 @@ vi.mock('../../api/scrapeJobs', () => ({
     instances: (...args: unknown[]) => instancesMock(...args),
     previewTargets: (...args: unknown[]) => previewTargetsMock(...args),
   },
+}))
+
+// 采集模板目录（详情「采集模板」列展示模板名，目录未就绪时回落 code）
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: { list: (...args: unknown[]) => templateListMock(...args) },
+  candidateFieldApi: { list: vi.fn().mockResolvedValue({ status: 'success', data: { list: [], total: 0 } }) },
 }))
 
 vi.mock('../../api/targets', () => ({
@@ -40,13 +49,33 @@ function renderDrawer(element: React.ReactNode) {
   )
 }
 
+/** 采集模板 fixture（详情「采集模板」列的展示名来源） */
+const HOST_LINUX_TEMPLATE: CollectionTemplate = {
+  code: 'host_linux',
+  name: 'Linux 主机采集',
+  resource_category: 'host',
+  exporter_template_id: 'node-exporter',
+  default_port: 9100,
+  metrics_path: '/metrics',
+  scheme: 'http',
+  scrape_interval: '15s',
+  scrape_timeout: '10s',
+  label_template_id: '7',
+  default_selector: { logic: 'all', filters: [{ field: 'os_family', operator: 'eq', values: ['linux'] }] },
+  sort_order: 1,
+  enabled: true,
+  is_builtin: true,
+  reference_job_count: 1,
+}
+
 const job = (over: Partial<ScrapeJob> = {}): ScrapeJob =>
   ({
     id: '1',
     job_name: 'job-x',
     job_type: 'standard',
     resource_type: 'host',
-    monitor_type: 'host_linux',
+    template_code: 'host_linux',
+    selector: { logic: 'all', filters: [{ field: 'os_family', operator: 'eq', values: ['linux'] }] },
     network_domain_id: 'nd-1',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['a', 'b', 'c'],
@@ -81,10 +110,16 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
   setupAntdTest()
 
   beforeEach(() => {
+    // useCollectionTemplateCatalog 有进程内缓存，用例之间清空以保证取到本文件的 mock
+    resetCollectionCatalogCache()
     instancesMock.mockReset()
     previewTargetsMock.mockReset()
     targetsListMock.mockReset()
     queryMock.mockReset()
+    templateListMock.mockReset().mockResolvedValue({
+      status: 'success',
+      data: { list: [HOST_LINUX_TEMPLATE], total: 1, page: 1, page_size: 100 },
+    })
   })
 
   // 抽屉打开后启动 20s 自动刷新 interval：确保每个用例树卸载释放定时器
@@ -117,7 +152,13 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     expect(screen.getAllByText('job-x').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('标准采集')).toBeInTheDocument()
     expect(screen.getByText('网域A')).toBeInTheDocument()
-    expect(screen.getByText('Linux 主机')).toBeInTheDocument()
+    // M01 v1.5：详情展示「采集模板」（模板名 + code）与「采哪些对象」选择器摘要，不再有监控对象类型
+    expect(await screen.findByText('Linux 主机采集')).toBeInTheDocument()
+    expect(screen.getByText('采集模板')).toBeInTheDocument()
+    expect(screen.getByText('host_linux')).toBeInTheDocument()
+    expect(screen.getByText('采哪些对象')).toBeInTheDocument()
+    expect(screen.getByText('全部满足：os_family=linux')).toBeInTheDocument()
+    expect(screen.queryByText('监控对象类型')).toBeNull()
     expect(screen.getAllByText('node-exporter').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('采集间隔')).toBeInTheDocument()
     expect(screen.getByText('超时')).toBeInTheDocument()

@@ -4,11 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 
 const updateMock = vi.fn()
 const createMock = vi.fn()
 const domainListMock = vi.fn()
 const labelListMock = vi.fn()
+const templateListMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
@@ -21,8 +23,10 @@ vi.mock('../../api/scrapeJobs', () => ({
 vi.mock('../../api/domain', () => ({
   networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
 }))
-vi.mock('../../api/ciExporterMappings', () => ({
-  ciExporterMappingApi: { list: vi.fn().mockResolvedValue({ status: 'success', data: { list: [], total: 0 } }) },
+// M01 v1.5：抽屉依赖采集模板目录（标准分支选模板）；拨测分支不用，但 hook 仍会加载
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: { list: (...args: unknown[]) => templateListMock(...args) },
+  candidateFieldApi: { list: () => Promise.resolve({ status: 'success', data: { list: [], total: 0 } }) },
 }))
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: { list: (...args: unknown[]) => labelListMock(...args) },
@@ -30,17 +34,20 @@ vi.mock('../../api/labelTemplates', () => ({
 vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: vi.fn() },
 }))
-vi.mock('../../api/configCenter', () => ({
-  configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
+// 保存成功后 best-effort 触发配置生成：测试内静默，避免真实请求
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDrafts: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('./InstanceSelector', () => ({ InstanceSelector: () => null }))
 vi.mock('./ExporterInstallationPanel', () => ({ ExporterInstallationPanel: () => null }))
 
 beforeEach(() => {
+  resetCollectionCatalogCache()
   updateMock.mockReset()
   createMock.mockReset()
   domainListMock.mockReset()
   labelListMock.mockReset()
+  templateListMock.mockReset().mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   domainListMock.mockResolvedValue({
     status: 'success',
     data: { list: [{ id: 'mc-a', name: '网域A', is_monitored: true, status: 'enabled' }], total: 1, page: 1, page_size: 100 },
@@ -55,7 +62,6 @@ const blackboxRecord = {
   id: 5,
   job_name: 'probe-edit-1',
   job_type: 'blackbox',
-  monitor_type: '',
   resource_type: 'interface_service',
   target_field: 'api_url',
   network_domain_id: 'mc-a',

@@ -35,10 +35,11 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { blackboxModuleApi } from '../../api/blackboxModules'
 import { getStoredUser } from '../../api/client'
 import type { InstanceCandidateV3, JobInstanceV3, ResourceCategory } from '../../types/strategyV3'
-import type { MonitorType } from '../../types/strategy'
 import type { CandidateFilterField, DomainHit, FilterCondition, JobGroup } from '../../types/jobGroup'
 import { BLACKBOX_CATEGORIES, CATEGORY_MAP } from './strategyConstants'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { EMPTY_SELECTOR, normalizeSelector, type Selector } from '../../types/collectionTemplate'
+import { useCandidateFields, useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
+import { SelectorEditor } from './SelectorEditor'
 import { JobParamsFields } from './JobParamsFields'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 
@@ -82,12 +83,14 @@ function toPayloadFilters(conditions: FilterCondition[]) {
 
 export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSaved }: JobGroupWizardDrawerProps) {
   const isEdit = Boolean(record)
-  // 监控对象类型目录（SRS Module_01 v1.3 §5.6）：类型已配置化，禁止再用前端写死列表
-  const catalog = useMonitorTypeCatalog()
+  // 采集模板目录 + 选择器字段字典（SRS Module_01 v1.5）
+  const { templates } = useCollectionTemplateCatalog()
+  const { fields: candidateFields } = useCandidateFields()
   const [schema, setSchema] = useState<CandidateFilterField[]>([])
   const [fieldOptions, setFieldOptions] = useState<Record<string, Option[]>>({})
-  // 未选类型前不发候选查询：避免"默认 Linux 主机"静默过滤导致怀疑数据丢失
-  const [monitorType, setMonitorType] = useState<MonitorType | ''>('')
+  // 未选模板前不发候选查询：避免"默认 Linux 主机"静默过滤导致怀疑数据丢失
+  const [templateCode, setTemplateCode] = useState('')
+  const [selector, setSelector] = useState<Selector>(EMPTY_SELECTOR)
   const [resourceCategory, setResourceCategory] = useState<ResourceCategory>('host')
   // 任务名称 / 下发任务名（job 标签）
   const [taskName, setTaskName] = useState('')
@@ -120,20 +123,22 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
   const filters = useMemo(() => toPayloadFilters(conditions), [conditions])
   const payload: CandidateQueryPayload = useMemo(
     () => ({
-      monitor_type: jobType === 'blackbox' ? undefined : monitorType,
+      template_code: jobType === 'blackbox' ? undefined : templateCode,
+      selector: jobType === 'blackbox' ? undefined : normalizeSelector(selector),
       resource_category: resourceCategory,
       filters,
       page,
       page_size: pageSize,
     }),
-    [monitorType, jobType, resourceCategory, filters, page],
+    [templateCode, selector, jobType, resourceCategory, filters, page],
   )
 
   // 编辑态：预填公共参数 + 跨域已选实例（子任务反查 instance_ids）
   useEffect(() => {
     if (!open || !record) return
     /* eslint-disable react-hooks/set-state-in-effect */
-    setMonitorType((record.monitor_type || 'host_linux') as MonitorType)
+    setTemplateCode(record.template_code || '')
+    setSelector(normalizeSelector(record.selector))
     setJobType(record.job_type === 'blackbox' ? 'blackbox' : 'standard')
     setBlackboxModule(record.blackbox_module ?? '')
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -160,7 +165,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
             next[id] = {
               resource_id: id,
               resource_category: job.resource_category,
-              monitor_type: job.monitor_type,
+              template_code: job.template_code,
               display_name: id,
               instance_ip: '',
               port: 0,
@@ -302,13 +307,18 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
   )
 
   // 候选查询（条件变化即重查，短防抖）；标准任务未选对象类型时不查询
-  const typeMissing = jobType === 'standard' && !monitorType
+  const typeMissing = jobType === 'standard' && !templateCode
   const currentCategory = resourceCategory
-  const categoryTypeOptions = catalog.optionsForCategory(resourceCategory)
+  const templateOptions = templates
+    .filter((item) => item.enabled && item.resource_category === resourceCategory)
+    .map((item) => ({ value: item.code, label: `${item.name}（${item.code}）` }))
   const categoryOptions =
     jobType === 'blackbox'
       ? BLACKBOX_CATEGORIES.map((category) => ({ value: category, label: CATEGORY_MAP[category] }))
-      : catalog.cascade.map((item) => ({ value: item.category, label: CATEGORY_MAP[item.category] }))
+      : (Object.keys(CATEGORY_MAP) as ResourceCategory[]).map((category) => ({
+          value: category,
+          label: CATEGORY_MAP[category],
+        }))
   useEffect(() => {
     if (!open || typeMissing) return
     let cancelled = false
@@ -346,7 +356,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
     paramsForm.resetFields()
     // 重开时复位任务/对象类型，避免沿用上次选择造成误判
     setJobType('standard')
-    setMonitorType('')
+    setTemplateCode('')
+    setSelector(EMPTY_SELECTOR)
     setBlackboxCategory('interface_service')
     setBlackboxModule('')
     setCollectorMode('default')
@@ -406,7 +417,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
 
   const selectAllFiltered = async () => {
     const body: CandidateIdsPayload = {
-      monitor_type: jobType === 'blackbox' ? undefined : monitorType,
+      template_code: jobType === 'blackbox' ? undefined : templateCode,
+      selector: jobType === 'blackbox' ? undefined : normalizeSelector(selector),
       resource_category: resourceCategory,
       filters,
     }
@@ -424,8 +436,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
             const row = rows.find((item) => item.resource_id === id)
             next[id] = row ?? {
               resource_id: id,
-              resource_category: catalog.categoryFor(monitorType) ?? 'host',
-              monitor_type: monitorType,
+              resource_category: resourceCategory,
+              template_code: templateCode,
               display_name: id,
               instance_ip: '',
               port: 0,
@@ -447,7 +459,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
 
   const clearOutOfFilter = async () => {
     const body: CandidateIdsPayload = {
-      monitor_type: jobType === 'blackbox' ? undefined : monitorType,
+      template_code: jobType === 'blackbox' ? undefined : templateCode,
+      selector: jobType === 'blackbox' ? undefined : normalizeSelector(selector),
       resource_category: resourceCategory,
       filters,
     }
@@ -487,7 +500,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
         job_name: jobNameOverride.trim() || finalName,
         job_type: jobType,
         resource_category: resourceCategory,
-        monitor_type: jobType === 'blackbox' ? '' : monitorType,
+        template_code: jobType === 'blackbox' ? '' : templateCode,
+        selector: jobType === 'blackbox' ? EMPTY_SELECTOR : normalizeSelector(selector),
         blackbox_module: jobType === 'blackbox' ? blackboxModule : values.blackbox_module,
         scrape_interval: values.scrape_interval,
         scrape_timeout: values.scrape_timeout,
@@ -577,7 +591,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                 setJobType(nextType)
                 if (nextType === 'blackbox') {
                   setResourceCategory('interface_service')
-                  setMonitorType('')
+                  setTemplateCode('')
+                  setSelector(EMPTY_SELECTOR)
                 } else {
                   setResourceCategory('host')
                 }
@@ -611,7 +626,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
         </div>
 
         <div>
-          <Title level={5}>2. 监控对象</Title>
+          <Title level={5}>2. 采集模板与范围</Title>
           <Space wrap align="center" size={12}>
             <Select
               style={{ width: 200 }}
@@ -623,7 +638,8 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                 if (jobType === 'blackbox') {
                   setBlackboxCategory(next as 'interface_service' | 'application')
                 } else {
-                  setMonitorType('')
+                  setTemplateCode('')
+                  setSelector(EMPTY_SELECTOR)
                 }
                 setSelected({})
                 setPage(1)
@@ -632,13 +648,18 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
             {jobType === 'standard' ? (
               <Select
                 style={{ minWidth: 240 }}
-                placeholder="监控对象类型"
+                placeholder="采集模板"
                 showSearch
                 optionFilterProp="label"
-                value={monitorType || undefined}
-                options={categoryTypeOptions.map((type) => ({ value: type, label: catalog.nameOf(type) }))}
+                value={templateCode || undefined}
+                options={templateOptions}
                 onChange={(value) => {
-                  setMonitorType(value as MonitorType)
+                  const picked = templates.find((item) => item.code === value)
+                  setTemplateCode(value)
+                  if (picked) {
+                    setResourceCategory(picked.resource_category)
+                    setSelector(normalizeSelector(picked.default_selector))
+                  }
                   setSelected({})
                   setPage(1)
                   setFiltersChanged(false)
@@ -660,6 +681,19 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
               />
             )}
           </Space>
+          {jobType === 'standard' && (
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                采哪些对象：条件来自字段字典；留空表示该类别全部资源
+              </Text>
+              <SelectorEditor
+                value={selector}
+                onChange={setSelector}
+                category={resourceCategory}
+                fields={candidateFields}
+              />
+            </div>
+          )}
           {jobType === 'blackbox' && !blackboxModule && (
             <div>
               <Text type="danger" style={{ fontSize: 12 }}>
@@ -804,7 +838,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                 <Empty
                   description={
                     typeMissing
-                      ? '请先在上方选择「监控对象类型」'
+                      ? '请先在上方选择采集模板'
                       : '没有匹配的实例，请检查下面的生效条件'
                   }
                 >
@@ -812,7 +846,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       当前条件：{jobType === 'blackbox'
                         ? `拨测 / ${blackboxCategory === 'application' ? '应用服务' : '接口服务'}`
-                        : `采集 / ${catalog.nameOf(monitorType)}`}
+                        : `采集 / ${templates.find((item) => item.code === templateCode)?.name ?? templateCode}`}
                       {conditions
                         .filter((condition) => condition.values.length > 0)
                         .map((condition) => {
@@ -888,7 +922,7 @@ export function JobGroupWizardDrawer({ open, record, adoptJobId, onClose, onSave
                 />
               </Form.Item>
             </Space>
-            <JobParamsFields monitorType={(monitorType || undefined) as MonitorType | undefined} />
+            <JobParamsFields templateCode={templateCode || undefined} />
           </Form>
         </div>
 

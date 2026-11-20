@@ -66,4 +66,38 @@ go test -count=1 ./platform/...    # 结果见 §5
 2. **未绑定导出器的内置模板**：`host_npu` / `elasticsearch` / `nginx` / `application_http` 在内置导出器池中没有实现，种子为停用态 + 文案提示，需管理员在采集模板页绑定导出器后启用（避免用 node-exporter 误采）。
 3. **指标库 `resource_category` 过滤仍未落地**（既有缺口，非本次引入）；锚点 `template_code` 仅校验非空与去重。
 4. **网域级参数覆盖（FR-04）仍未实现**（既有缺口）。
-5. **前端 P2 未开始**：`ui-custom/web/src/pages/strategy` 仍调用旧接口，需下一轮改造（goal 仍 active）。
+5. **前端 P2 已完成**（见 §7）。
+
+---
+
+## 7. 前端 P2（采集模板页 / 三步向导 / 指标库锚点 / 删除类型页）
+
+### 7.1 结构变更
+
+| 区域 | 变更 |
+|------|------|
+| 类型与 API | 新增 `types/collectionTemplate.ts`、`api/collectionTemplates.ts`（模板 CRUD + impact + `/candidate-fields`）；`types/strategy.ts` / `types/strategyV3.ts` 全量改 `template_code` + `selector`；删除 `api/monitorTypes.ts`、`api/ciExporterMappings.ts`、`types/monitorType.ts` |
+| 共享组件 | 新增 `SelectorEditor`（条件行编辑器，字段来自字典、操作符按类型收敛）、`selectorUtils`（操作符/取值推导 + 摘要）、`useCollectionTemplateCatalog` / `useCandidateFields`（进程内缓存） |
+| 采集模板页 | `CollectorTemplatesTab` 重写为「采集模板 / 采集实现」双 Tab；新增 `CollectionTemplateDrawer`（默认选择器为「推荐条件」预填）；`CollectorListPage` 文案；删除 `MappingDrawer` / `MonitorTypePage` / `LabelTemplateSelectDrawer` |
+| 任务域 | `ScrapeJobFormDrawer` 改为选模板 → 自动带出导出器/标签模板/参数 → 选择器预填可改；`JobGroupWizardDrawer` 第 2 步改为「采集模板与范围」（模板 + SelectorEditor），候选查询与保存载荷改 `template_code` + `selector`；`InstanceSelector` / `ScrapeJobListPage` / `ScrapeJobDetailDrawer` / `JobGroupDetailDrawer` 列与筛选改采集模板 |
+| 指标库 / 规则 | 指标锚点改「采集模板」多选 + 来源采集器，载荷 `collection_templates[]`；规则筛选/详情改 `template_code`；采集实现抽屉移除「支持监控类型」 |
+| 导航 | `MainLayout` 菜单「采集器管理 → 采集模板」，删除「监控对象类型」；`App.tsx` 删除 `/monitor-types` 路由（旧书签落 404/通配回首页，不做重定向） |
+
+### 7.2 验证
+
+| 项 | 命令 | 结果 |
+|----|------|------|
+| 应用类型 | `pnpm exec tsc --noEmit` | 0 错误 |
+| 测试类型门禁 | `pnpm run typecheck:test` | 0 错误 |
+| Lint | `pnpm run lint` | 0 error / 0 warning |
+| 构建 | `pnpm run build` | 成功（4.5s） |
+| 定向测试（变更范围） | `vitest run src/pages/strategy src/layouts src/api` | 34 文件 / 302 用例全通过 |
+| 后端未回归 | `go build ./platform/...` | 通过（本轮未改后端） |
+
+> 说明：本机 homebrew pnpm 会尝试清空 `node_modules` 并因无 TTY 失败，验证统一使用项目工具链 `../../.tools/pnpm/bin/pnpm`（9.15.9）+ `CI=true`。
+
+### 7.3 已知取舍
+
+1. 「采集实现」Tab 目前只读（未挂登记入口），避免与任务抽屉的采集器登记动线重复；如需本页登记，后续单独接回。
+2. 删除 3 个过时测试用例（监控对象类型下拉过滤、NPU 级联、抽屉内「登记采集器」内联入口），对应功能已不存在。
+3. 旧书签 `/monitor-types` 不做重定向：概念已下线，直接落通配路由回首页。

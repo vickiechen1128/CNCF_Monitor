@@ -8,7 +8,6 @@
  */
 import { Col, Collapse, Form, Input, Radio, Row, Select, Typography } from 'antd'
 import { SCRAPE_PARAM_FIELDS } from './strategyConstants'
-import type { MonitorType } from '../../types/strategy'
 
 const { Text } = Typography
 
@@ -21,8 +20,9 @@ const FALLBACK_PLACEHOLDERS: Record<string, string> = {
 }
 
 export interface ScrapeParamFieldsProps {
-  monitorType?: MonitorType | ''
-  /** 继承链下层生效值提示（映射 → 采集器/全局兜底） */
+  /** 采集模板编码（M01 v1.5 起取代 monitor_type）；用于识别应用采集的必填路径 */
+  templateCode?: string
+  /** 继承链下层生效值提示（采集模板 → 采集器/全局兜底） */
   paramPlaceholders?: Record<string, string>
 }
 
@@ -30,8 +30,8 @@ export interface ScrapeParamFieldsProps {
  * 采集参数四字段（间隔 / 超时 / 路径 / 协议）+ 继承说明。
  * `application_http` 的指标路径没有通用默认值，必须显式填写。
  */
-export function ScrapeParamFields({ monitorType, paramPlaceholders }: ScrapeParamFieldsProps) {
-  const isAppMetricsPath = monitorType === 'application_http'
+export function ScrapeParamFields({ templateCode, paramPlaceholders }: ScrapeParamFieldsProps) {
+  const isAppMetricsPath = templateCode === 'application_http'
   const placeholders = { ...FALLBACK_PLACEHOLDERS, ...(paramPlaceholders ?? {}) }
   return (
     <>
@@ -61,7 +61,7 @@ export function ScrapeParamFields({ monitorType, paramPlaceholders }: ScrapePara
         ))}
       </Row>
       <Text type="secondary" style={{ fontSize: 12 }}>
-        采集参数留空 = 继承默认采集配置 / 采集器默认值；填写 = 覆盖并保存为本 Job 快照。
+        采集参数留空 = 继承采集模板 / 采集器默认值；填写 = 覆盖并保存为本 Job 快照。
       </Text>
       {isAppMetricsPath && (
         <Text type="secondary" style={{ fontSize: 12 }}>

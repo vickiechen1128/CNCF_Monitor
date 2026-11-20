@@ -14,7 +14,6 @@ import type {
   ExporterInstallationRecord,
   InstanceCandidate,
   JobType,
-  MonitorType,
   ScrapeJob,
   ScrapeJobInstanceItem,
 } from '../types/strategy'
@@ -23,7 +22,7 @@ import type { JobInputV3 } from './strategyV3'
 
 export interface ScrapeJobListParams extends Record<string, string | number | boolean | undefined> {
   network_domain_id?: string
-  monitor_type?: MonitorType
+  template_code?: string
   job_type?: JobType
   enabled?: boolean
   /** true = 只返回未归组（job_group_id 为空）的单域 Job */
@@ -41,7 +40,9 @@ export interface ScrapeJobMappingOverrideInput {
 
 export interface ScrapeJobInput {
   job_name: string
-  monitor_type?: MonitorType
+  template_code?: string
+  selector?: import('../types/collectionTemplate').Selector
+  resource_category?: string
   exporter_template_id?: string
   network_domain_id: string
   instance_selection_mode?: 'manual'
@@ -71,7 +72,7 @@ export interface ScrapeJobInput {
 }
 
 export interface InstanceCandidateListParams extends Record<string, string | number | boolean | undefined> {
-  monitor_type?: MonitorType
+  template_code?: string
   resource_category?: ResourceCategory
   target_field?: string
   network_domain_id: string
@@ -109,7 +110,8 @@ function toLegacyJob(job: ScrapeJobV3): ScrapeJob {
     job_type: job.job_type,
     resource_type: job.resource_category,
     resource_category: job.resource_category,
-    monitor_type: job.monitor_type,
+    template_code: job.template_code,
+    selector: job.selector,
     exporter_template_id: job.exporter_template_id,
     exporter_template_name: job.exporter_template_name,
     network_domain_id: job.network_domain_id,
@@ -145,8 +147,9 @@ function toV3Input(input: ScrapeJobInput): JobInputV3 {
   return {
     job_name: input.job_name,
     job_type: input.job_type,
-    resource_category: (input.resource_type ?? input.monitor_type) as ResourceCategory,
-    monitor_type: input.monitor_type,
+    resource_category: (input.resource_type ?? input.resource_category) as ResourceCategory,
+    template_code: input.template_code,
+    selector: input.selector,
     exporter_template_id: input.exporter_template_id,
     network_domain_id: input.network_domain_id,
     instance_selection_mode: 'manual',
@@ -174,7 +177,8 @@ function fromV3Job(job: ScrapeJobV3, draftStatus: 'draft' | 'ready'): JobInputV3
     job_name: job.job_name,
     job_type: job.job_type,
     resource_category: job.resource_category,
-    monitor_type: job.monitor_type || undefined,
+    template_code: job.template_code || undefined,
+    selector: job.selector,
     exporter_template_id: job.exporter_template_id || undefined,
     network_domain_id: job.network_domain_id,
     selected_instance_ids: job.selected_instance_ids,

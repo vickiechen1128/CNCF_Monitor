@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { scrapeJobApi, type ScrapeJobListParams } from '../../api/scrapeJobs'
 import type { Paginated } from '../../types/api'
-import type { JobType, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { JobType, ScrapeJob } from '../../types/strategy'
 
 /**
  * 采集 Job 列表筛选参数（F3，Module_01 §11.1）。
- * 网域（仅已纳管非冻结）/ 监控对象类型 / 关键字均走后端；分页默认 20/页。
+ * 网域（仅已纳管非冻结）/ 采集模板 / 关键字均走后端；分页默认 20/页。
  */
 export interface ScrapeJobFilters {
   network_domain_id?: string
-  monitor_type?: MonitorType
+  /** 采集模板编码（M01 v1.5 起取代 monitor_type） */
+  template_code?: string
   job_type?: JobType
   /** true = 只看未归组的单域 Job（合并任务列表的「未分组」区） */
   ungrouped?: boolean
@@ -54,7 +55,7 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
   const load = useCallback(async (silent: boolean) => {
     const params: ScrapeJobListParams = {
       network_domain_id: filters.network_domain_id,
-      monitor_type: filters.monitor_type,
+      template_code: filters.template_code,
       job_type: filters.job_type,
       ungrouped: filters.ungrouped,
       keyword: filters.keyword,
@@ -70,7 +71,7 @@ export function useScrapeJobs(initialFilters?: ScrapeJobFilters): UseScrapeJobsR
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [filters.network_domain_id, filters.monitor_type, filters.job_type, filters.ungrouped, filters.keyword, page, pageSize])
+  }, [filters.network_domain_id, filters.template_code, filters.job_type, filters.ungrouped, filters.keyword, page, pageSize])
 
   useEffect(() => {
     // 数据请求回调内在异步完成后才 setState；沿用本模块既有抓取 effect 模式

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   Button,
@@ -13,8 +13,7 @@ import {
   message,
 } from 'antd'
 import { exporterTemplateApi, type ExporterTemplateInput } from '../../api/exporterTemplates'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
-import type { ExporterTemplate, MonitorType } from '../../types/strategy'
+import type { ExporterTemplate } from '../../types/strategy'
 
 const { TextArea } = Input
 
@@ -23,8 +22,6 @@ interface ExporterTemplateDrawerProps {
   onCancel: () => void
   /** 登记成功后回调：回刷采集器池（忽略参数）或回选到来源表单（接收新模板，C1） */
   onSuccess: (template?: ExporterTemplate) => void
-  /** O2/T01-F15：发起上下文预填——从 Job 表单发起登记时预填 supported_monitor_types=当前监控对象类型；采集器管理 Tab 直接登记不传（保持不预填） */
-  initialMonitorTypes?: MonitorType[]
 }
 
 /**
@@ -42,20 +39,10 @@ const SOURCE_OPTIONS = [
  * 登记采集器抽屉（Module_01 §9.1 / api-contract-snapshot §3）。
  * 任何来源登记均须提供 default_port/metrics_path/scheme（入库需完整采集参数）；登记即入池。
  */
-export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonitorTypes }: ExporterTemplateDrawerProps) {
-  const catalog = useMonitorTypeCatalog()
+export function ExporterTemplateDrawer({ open, onCancel, onSuccess }: ExporterTemplateDrawerProps) {
   const [form] = Form.useForm<ExporterTemplateInput>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-
-  // O2/T01-F15：打开抽屉时若提供发起上下文（当前监控对象类型），预填 supported_monitor_types；
-  // 采集器管理 Tab 直接登记不传该 prop（不预填，行为不变）
-  useEffect(() => {
-    if (!open) return
-    form.setFieldsValue({
-      supported_monitor_types: initialMonitorTypes?.length ? [...initialMonitorTypes] : undefined,
-    })
-  }, [open, initialMonitorTypes, form])
 
   // 登记入库需完整采集参数，default_port/metrics_path/scheme 对所有来源恒必填（F-29 D 放开来源后不再区分）
 
@@ -71,7 +58,6 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
     try {
       const response = await exporterTemplateApi.create({
         ...values,
-        supported_monitor_types: (values.supported_monitor_types ?? []) as MonitorType[],
         source: values.source ?? 'internal',
       })
       message.success('采集器已登记')
@@ -92,8 +78,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
       onClose={submitting ? undefined : onCancel}
       width={520}
       // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
-      // useEffect 的 setFieldsValue 完成挂载），导致发起上下文预填首次打开丢失；
-      // forceRender 保证 Form 常驻挂载，首次打开即正确预填（#19 同源问题，登记抽屉）。
+      // useEffect 完成挂载），Form 常驻挂载可保证首次打开即完成字段注册（#19 同源问题，登记抽屉）。
       forceRender
       footer={
         <div style={{ textAlign: 'right' }}>
@@ -136,17 +121,6 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
                 {SOURCE_OPTIONS.map((s) => (
                   <Select.Option key={s.value} value={s.value}>
                     {s.label}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="支持监控类型" name="supported_monitor_types">
-              <Select mode="multiple" allowClear placeholder="关联的监控对象类型">
-                {catalog.allCodes().map((t) => (
-                  <Select.Option key={t} value={t}>
-                    {catalog.nameOf(t)}
                   </Select.Option>
                 ))}
               </Select>

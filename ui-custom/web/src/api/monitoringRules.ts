@@ -10,7 +10,7 @@ import type { RuleInputV3 } from './strategyV3'
 export interface MonitoringRuleListParams extends Record<string, string | number | boolean | undefined> {
   rule_type?: string
   enabled?: boolean
-  monitor_type?: string
+  template_code?: string
   keyword?: string
   page?: number
   page_size?: number
@@ -21,7 +21,7 @@ export interface MonitoringRuleInput {
   rule_content?: string
   name?: string
   enabled?: boolean
-  monitor_type?: string
+  template_code?: string
   ack_job_ref_errors?: boolean
   ack_reason?: string
 }
@@ -88,7 +88,7 @@ function toView(rule: unknown): MonitoringRule {
     duration: raw.duration as string | undefined,
     labels: raw.labels as Record<string, string> | undefined,
     annotations: raw.annotations as Record<string, string> | undefined,
-    monitor_type: raw.monitor_type as string | undefined,
+    template_code: raw.template_code as string | undefined,
     exporter_template_id: raw.exporter_template_id as string | undefined,
     scope: (raw.scope as MonitoringRule['scope']) ?? 'central',
     enabled: Boolean(raw.enabled),
@@ -109,7 +109,7 @@ function toInput(input: MonitoringRuleInput | Partial<MonitoringRuleInput>): Rul
     name: input.name,
     content_mode: 'yaml_passthrough',
     rule_content: input.rule_content ?? '',
-    monitor_type: input.monitor_type,
+    template_code: input.template_code,
     enabled: input.enabled,
     ack_job_ref_errors: input.ack_job_ref_errors,
     ack_reason: input.ack_reason,

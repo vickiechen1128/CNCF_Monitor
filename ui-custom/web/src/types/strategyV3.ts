@@ -38,7 +38,6 @@ export interface ExporterTemplateV3 {
   default_port: number
   metrics_path: string
   scheme: string
-  supported_monitor_types: string[]
   os: string
   arch: string
   download_url: string
@@ -51,30 +50,27 @@ export interface ExporterTemplateV3 {
   updated_at: string
 }
 
-export interface CITypeExporterMappingV3 {
-  id: string
-  monitor_type: string
-  exporter_template_id: string
-  exporter_template_name: string
-  is_default: boolean
-  default_port: number
-  metrics_path: string
-  scheme: string
-  scrape_interval: string
-  scrape_timeout: string
-  label_template_id: string
-  label_template_name: string
-  is_builtin: boolean
-  created_at: string
-  updated_at: string
-}
+export type {
+  CandidateField,
+  CollectionTemplate,
+  CollectionTemplateImpact,
+  CollectionTemplateInput,
+  Selector,
+  SelectorFilter,
+  SelectorLogic,
+  SelectorOperator,
+} from './collectionTemplate'
+
+// 兼容旧命名：页面迁移到 collectionTemplate 类型后可删除该别名。
+export type { CollectionTemplate as CollectionTemplateV3 } from './collectionTemplate'
 
 export interface ScrapeJobV3 {
   id: string
   job_name: string
   job_type: JobType
   resource_category: ResourceCategory
-  monitor_type: string
+  template_code: string
+  selector: import('./collectionTemplate').Selector
   exporter_template_id: string
   exporter_template_name: string
   network_domain_id: string
@@ -109,7 +105,7 @@ export interface ScrapeJobV3 {
 export interface InstanceCandidateV3 {
   resource_id: string
   resource_category: ResourceCategory
-  monitor_type: string
+  template_code: string
   display_name: string
   instance_ip: string
   port: number
@@ -160,7 +156,7 @@ export interface MonitoringRuleV3 {
   duration: string
   labels: Record<string, string>
   annotations: Record<string, string>
-  monitor_type: string
+  template_code: string
   exporter_template_id: string
   scope: 'central' | 'edge' | 'both'
   enabled: boolean
@@ -193,7 +189,7 @@ export interface RuleValidationV3 {
 }
 
 export interface MetricAnchorV3 {
-  monitor_type: string
+  template_code: string
   source_exporter?: string
 }
 
@@ -204,7 +200,7 @@ export interface MetricV3 {
   help: string
   unit: string
   labels: string[]
-  monitor_types: MetricAnchorV3[]
+  collection_templates: MetricAnchorV3[]
   category: string
   exporter_template_id: string
   is_builtin: boolean

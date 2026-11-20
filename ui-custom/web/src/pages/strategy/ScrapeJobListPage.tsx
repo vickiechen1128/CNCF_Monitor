@@ -32,13 +32,14 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { jobGroupApi } from '../../api/jobGroups'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import type { JobGroup, JobGroupChild } from '../../types/jobGroup'
-import type { JobType, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { JobType, ScrapeJob } from '../../types/strategy'
 import type { ScrapeJobV3 } from '../../types/strategyV3'
+import type { Selector } from '../../types/collectionTemplate'
 import { useScrapeJobs } from './useScrapeJobs'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
 import { useSyncPolling } from './useSyncPolling'
 import { JOB_TYPE_MAP } from './strategyConstants'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import SyncStatusTag from './SyncStatusTag'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
@@ -47,6 +48,33 @@ import { JobGroupWizardDrawer } from './JobGroupWizardDrawer'
 import { JobGroupDetailDrawer } from './JobGroupDetailDrawer'
 
 const { Text } = Typography
+
+/** 选择器摘要：`全部满足：os_family=linux` / `满足任一：env∈PRD、UAT` / `不限条件` */
+function summarizeSelector(selector?: Selector | null): string {
+  const filters = selector?.filters ?? []
+  if (filters.length === 0) return '不限条件'
+  const opSymbol: Record<string, string> = {
+    eq: '=',
+    contains: '包含',
+    contains_any: '包含任一',
+    in: '∈',
+    regexp: '~',
+    always: '恒真',
+  }
+  const body = filters
+    .map((filter) => {
+      if (filter.operator === 'always') return `${filter.field}（不限）`
+      return `${filter.field}${opSymbol[filter.operator] ?? filter.operator}${(filter.values ?? []).join('、')}`
+    })
+    .join('，')
+  return `${selector?.logic === 'any' ? '满足任一' : '全部满足'}：${body}`
+}
+
+/**
+ * 任务组类型迁移期兼容：`types/jobGroup.ts` 的 template_code / selector 由类型负责人补齐，
+ * 这里先按扩展字段读取，避免页面写 `as never`。
+ */
+type GroupWithTemplate = JobGroup & { template_code?: string; selector?: Selector }
 
 /** 列表行：一个采集任务（跨域任务 = 组；单域任务 = 无组 Job） */
 type TaskRow =
@@ -87,10 +115,10 @@ export function ScrapeJobListPage() {
 }
 
 function JobsTab() {
-  // 监控对象类型目录（SRS Module_01 v1.3 §5.6）：类型已配置化，筛选与列展示均取自注册表
-  const catalog = useMonitorTypeCatalog()
+  // 采集模板目录：筛选与列展示均取自模板目录（M01 v1.5 起不再有「监控对象类型」）
+  const { templates } = useCollectionTemplateCatalog()
   const [keyword, setKeyword] = useState('')
-  const [monitorType, setMonitorType] = useState<MonitorType | undefined>()
+  const [templateCode, setTemplateCode] = useState<string | undefined>()
   const [jobType, setJobType] = useState<JobType | undefined>()
   const [domainFilter, setDomainFilter] = useState<string | undefined>()
   const [groupsPage, setGroupsPage] = useState(1)
@@ -108,7 +136,7 @@ function JobsTab() {
     page: jobsPage,
     pageSize,
     onPageChange: onJobsPageChange,
-  } = useScrapeJobs({ ungrouped: true, keyword: keyword || undefined, monitor_type: monitorType, job_type: jobType, network_domain_id: domainFilter })
+  } = useScrapeJobs({ ungrouped: true, keyword: keyword || undefined, template_code: templateCode, job_type: jobType, network_domain_id: domainFilter })
 
   const loadGroups = useCallback((silent = false) => {
     if (!silent) {
@@ -198,7 +226,10 @@ function JobsTab() {
       job_name: job.job_name,
       job_type: job.job_type,
       resource_category: (job.resource_category ?? 'host') as JobGroup['resource_category'],
-      monitor_type: job.monitor_type,
+      // 任务组类型仍带 v2 的 monitor_type 必填字段（类型文件由类型负责人迁移）；
+      // 实际提交走 template_code + selector，故这里显式携带新字段。
+      template_code: job.template_code,
+      selector: job.selector,
       blackbox_module: job.blackbox_module,
       scrape_interval: job.scrape_interval,
       scrape_timeout: job.scrape_timeout,
@@ -210,7 +241,7 @@ function JobsTab() {
       updated_at: job.updated_at,
       domains: [],
       sync: { status: job.sync?.status ?? 'draft', total: 1, synced: 0, failed: 0, pending: 0, draft: 0 },
-    })
+    } as unknown as JobGroup)
     setAdoptJobID(job.id)
     setWizardOpen(true)
   }
@@ -323,13 +354,25 @@ function JobsTab() {
       },
     },
     {
-      title: '监控类型',
-      key: 'monitor_type',
-      width: 140,
+      title: '采集模板',
+      key: 'template_code',
+      width: 220,
       render: (_: unknown, row: TaskRow) => {
-        const value = row.kind === 'group' ? row.group.monitor_type : row.job.monitor_type
-        if (!value) return row.kind === 'group' && row.group.blackbox_module ? row.group.blackbox_module : '-'
-        return catalog.nameOf(value)
+        const group = row.kind === 'group' ? (row.group as GroupWithTemplate) : undefined
+        const code = group ? group.template_code : row.kind === 'job' ? row.job.template_code : ''
+        if (!code) {
+          return row.kind === 'group' && row.group.blackbox_module ? row.group.blackbox_module : '-'
+        }
+        const name = templates.find((template) => template.code === code)?.name ?? code
+        const selector = group ? group.selector : row.kind === 'job' ? row.job.selector : undefined
+        return (
+          <div>
+            <div>{name}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {summarizeSelector(selector)}
+            </Text>
+          </div>
+        )
       },
     },
     {
@@ -540,16 +583,16 @@ function JobsTab() {
               ]}
             />
           </FilterItem>
-          <FilterItem label="监控类型" width={200}>
+          <FilterItem label="采集模板" width={200}>
             <Select
               allowClear
               showSearch
               optionFilterProp="label"
-              placeholder="全部监控类型"
+              placeholder="全部采集模板"
               style={{ width: 180 }}
-              value={monitorType}
-              onChange={(value) => setMonitorType(value as MonitorType | undefined)}
-              options={catalog.allCodes().map((type) => ({ value: type, label: catalog.nameOf(type) }))}
+              value={templateCode}
+              onChange={(value) => setTemplateCode(value as string | undefined)}
+              options={templates.map((template) => ({ value: template.code, label: template.name }))}
             />
           </FilterItem>
           <FilterItem label="网域" width={180}>

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { RuleMountDrawer } from './RuleMountDrawer'
 import { validateYamlClient } from './rulesYaml'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 import { ApiError } from '../../api/client'
 
 const createMock = vi.fn()
@@ -12,6 +13,7 @@ const updateMock = vi.fn()
 const validateYamlMock = vi.fn()
 const inspectRuleLabelsMock = vi.fn()
 const triggerAllMock = vi.fn()
+const templateListMock = vi.fn()
 
 vi.mock('../../api/monitoringRules', () => ({
   monitoringRuleApi: {
@@ -27,12 +29,49 @@ vi.mock('../config-center/preview/triggerConfigDraft', () => ({
   triggerConfigDraftsForAllDomains: (...args: unknown[]) => triggerAllMock(...args),
 }))
 
+// M01 v2.0：规则的归属对象由「监控对象类型」改为「采集模板」，选项来自采集模板目录
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: {
+    list: (...args: unknown[]) => templateListMock(...args),
+  },
+  candidateFieldApi: {
+    list: vi.fn(),
+  },
+}))
+
+/** 采集模板目录夹具：host 与 database 各一个，用于验证级联收敛 */
+const TEMPLATES = [
+  {
+    code: 'host_linux',
+    name: 'Linux 主机采集',
+    resource_category: 'host',
+    enabled: true,
+    is_builtin: true,
+    sort_order: 10,
+  },
+  {
+    code: 'mysql',
+    name: 'MySQL 采集',
+    resource_category: 'database',
+    enabled: true,
+    is_builtin: true,
+    sort_order: 40,
+  },
+]
+
 beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
   validateYamlMock.mockReset()
   inspectRuleLabelsMock.mockReset()
   triggerAllMock.mockReset()
+  templateListMock.mockReset()
+  // 采集模板目录有进程内缓存，逐用例重置
+  resetCollectionCatalogCache()
+  templateListMock.mockResolvedValue({
+    status: 'success',
+    data: { list: TEMPLATES, total: TEMPLATES.length, page: 1, page_size: 100 },
+  })
   // 标签探查默认返回一个「无规则」结果：多数用例只关心检查/提交门禁，
   // 需要断言探查内容的用例各自覆盖（见 describe('规则可用标签清单与注解预览')）。
   inspectRuleLabelsMock.mockResolvedValue({ status: 'success', data: { rules: [] } })
@@ -341,18 +380,18 @@ describe('RuleMountDrawer', () => {
     })
   })
 
-  it('cascades monitor type by resource category and submits monitor_type', async () => {
+  it('cascades collection template by resource category and submits template_code', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
     validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true } })
     renderDrawer()
 
-    // 选中资源类别=数据库 → 监控对象类型候选按类别收敛（不含主机类型）
+    // 选中资源类别=数据库 → 采集模板候选按类别收敛（不含主机模板）
     fireEvent.mouseDown(screen.getByText('全部类别'))
     await selectAntdOption('数据库')
-    fireEvent.mouseDown(screen.getByText('请选择监控对象类型'))
-    expect(await screen.findByText('MySQL')).toBeInTheDocument()
-    expect(screen.queryByText('Linux 主机')).toBeNull()
-    await selectAntdOption('MySQL')
+    fireEvent.mouseDown(screen.getByText('请选择采集模板'))
+    expect(await screen.findByText('MySQL 采集')).toBeInTheDocument()
+    expect(screen.queryByText('Linux 主机采集')).toBeNull()
+    await selectAntdOption('MySQL 采集')
 
     await userEvent.type(
       screen.getByTestId('rule-content'),
@@ -365,7 +404,7 @@ describe('RuleMountDrawer', () => {
       expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已挂载' })),
     )
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
-    expect(body.monitor_type).toBe('mysql')
+    expect(body.template_code).toBe('mysql')
     // resource_category 仅用于表单级联，不进入提交载荷
     expect(body).not.toHaveProperty('resource_category')
     expect(body.enabled).toBe(true)
@@ -385,7 +424,7 @@ describe('RuleMountDrawer', () => {
               id: 1,
               name: 'my-rule',
               content_mode: 'yaml_passthrough',
-              monitor_type: 'mysql',
+              template_code: 'mysql',
               rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
             } as unknown as import('../../types/strategy').MonitoringRule
           }
@@ -395,8 +434,8 @@ describe('RuleMountDrawer', () => {
 
     expect(screen.getByText('编辑规则')).toBeInTheDocument()
     expect((screen.getByTestId('rule-name') as HTMLInputElement).value).toBe('my-rule')
-    // 监控对象类型回显（级联反推资源类别=数据库）
-    expect(screen.getByText('MySQL')).toBeInTheDocument()
+    // 采集模板回显（级联反推资源类别=数据库）
+    expect(await screen.findByText('MySQL 采集')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText(CHECK))
     fireEvent.click(await screen.findByText(SUBMIT))
@@ -406,7 +445,7 @@ describe('RuleMountDrawer', () => {
     // 编辑模式：PUT update，不携带 enabled，不改启停状态
     expect(updateMock).toHaveBeenCalledWith(1, {
       name: 'my-rule',
-      monitor_type: 'mysql',
+      template_code: 'mysql',
       rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
     })
     // 决策 66：编辑模式统一走后端 validate-yaml（含 job 引用校验），id 用编辑目标
@@ -435,7 +474,7 @@ describe('RuleMountDrawer', () => {
               id: 1,
               name: 'my-rule',
               content_mode: 'yaml_passthrough',
-              monitor_type: 'mysql',
+              template_code: 'mysql',
               rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
             } as unknown as import('../../types/strategy').MonitoringRule
           }

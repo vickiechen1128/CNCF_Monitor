@@ -11,7 +11,8 @@ import { queryApi } from '../../api/query'
 import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeExporterMapping } from '../../types/strategy'
 import type { PromVectorItem, TargetItem } from '../../types/query'
 import { SCRAPE_PARAM_FIELDS } from './strategyConstants'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
+import { summarizeSelector } from './selectorUtils'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 import { probeQueryForJob, probeStatusOfTarget, type ProbeTarget } from './upStatus'
 
@@ -161,6 +162,7 @@ function hostOf(instance?: string): string {
   return idx === -1 ? instance : instance.slice(0, idx)
 }
 
+/** 选择器摘要：`全部满足：os_family=linux` / `满足任一：env∈PRD、UAT` / `不限条件` */
 /** 实例 ↔ target 状态匹配（复用 useJobScrapeStatus 决策 47-2 口径：resource_id 回连，回落 host 地址） */
 function matchTarget(it: ScrapeJobInstanceItem, targets: TargetItem[], deployed: boolean) {
   if (!deployed) return { status: 'pending' as JobInstanceScrapeStatus, target: undefined }
@@ -205,8 +207,8 @@ export interface ScrapeJobDetailDrawerProps {
   resolveTemplateName?: (ref: string) => string | undefined
   /** 标签模板名解析 */
   resolveLabelTemplateName?: (id: string) => string | undefined
-  /** monitor_type → 默认映射快照（决策 34 字段来源标记 / 参数同步 / 标签待配置） */
-  getDefaultMapping?: (monitorType: string) => CITypeExporterMapping | undefined
+  /** template_code → 采集模板快照（决策 34 字段来源标记 / 参数同步 / 标签待配置） */
+  getDefaultMapping?: (templateCode: string) => CITypeExporterMapping | undefined
 }
 
 /**
@@ -226,8 +228,8 @@ export function ScrapeJobDetailDrawer({
   resolveLabelTemplateName,
   getDefaultMapping,
 }: ScrapeJobDetailDrawerProps) {
-  // 监控对象类型展示名取自注册表（类型已配置化，内置常量仅作降级）
-  const catalog = useMonitorTypeCatalog()
+  // 采集模板目录：template_code → 展示名（目录未就绪时直接展示 code）
+  const { templates } = useCollectionTemplateCatalog()
   const { tokens } = useSkin()
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
@@ -337,7 +339,9 @@ export function ScrapeJobDetailDrawer({
   const probeFail = probeRows.filter((r) => r.status === 'down').length
   const probePending = probeRows.filter((r) => r.status === 'pending').length
 
-  const defMapping = job ? getDefaultMapping?.(job.monitor_type) : undefined
+  const defMapping = job && job.template_code ? getDefaultMapping?.(job.template_code) : undefined
+  const templateName =
+    templates.find((template) => template.code === job?.template_code)?.name ?? job?.template_code
   const overridesCount = job?.mapping_overrides?.length ?? 0
   // 参数同步快照「映射默认值已变更」判定：任一采集参数与当前默认映射不一致（且未被显式覆盖）
   const syncChanged =
@@ -380,11 +384,23 @@ export function ScrapeJobDetailDrawer({
             <Descriptions.Item label="归属网域">
               <Tag>{resolveDomainName?.(job.network_domain_id) ?? job.network_domain_id}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="监控对象类型">
-              {job.job_type === 'blackbox' || !job.monitor_type ? (
+            <Descriptions.Item label="采集模板">
+              {job.job_type === 'blackbox' || !job.template_code ? (
                 <Text type="secondary">-</Text>
               ) : (
-                <Tag color="blue">{catalog.nameOf(job.monitor_type)}</Tag>
+                <Space size={4} wrap>
+                  <Tag color="blue">{templateName || job.template_code}</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {job.template_code}
+                  </Text>
+                </Space>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="采哪些对象">
+              {job.job_type === 'blackbox' ? (
+                <Text type="secondary">-</Text>
+              ) : (
+                <Text style={{ fontSize: 12 }}>{summarizeSelector(job.selector)}</Text>
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Exporter / Module">
@@ -444,7 +460,7 @@ export function ScrapeJobDetailDrawer({
                     renderFieldTag(getFieldStatusForJob(job, defMapping, 'label_template_id'))}
                 </Space>
               ) : job.job_type === 'standard' && defMapping?.label_template_id ? (
-                <Tooltip title="该监控对象类型的默认采集配置已挂标签模板，当前 Job 尚未关联，请点击补配">
+                <Tooltip title="该采集模板已挂标签模板，当前 Job 尚未关联，请点击补配">
                   <Tag color="warning">标签待配置</Tag>
                 </Tooltip>
               ) : (

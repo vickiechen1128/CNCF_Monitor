@@ -84,7 +84,8 @@ describe('scrapeJobs v3 adapter', () => {
     await scrapeJobApi.create({
       job_name: 'host-prod',
       resource_type: 'host',
-      monitor_type: 'host_linux',
+      template_code: 'host_linux',
+      selector: { logic: 'all', filters: [{ field: 'os_family', operator: 'eq', values: ['linux'] }] },
       network_domain_id: 'mc-demo',
       selected_instance_ids: ['res-1'],
       mapping_overrides: [{ field: 'scrape_interval', value: '30s' }],
@@ -94,6 +95,8 @@ describe('scrapeJobs v3 adapter', () => {
     expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs')
     const body = lastBody() as Record<string, unknown>
     expect(body.resource_category).toBe('host')
+    expect(body.template_code).toBe('host_linux')
+    expect(body).not.toHaveProperty('monitor_type')
     expect(body).not.toHaveProperty('mapping_overrides')
     expect(body).not.toHaveProperty('blackbox_targets')
   })
@@ -103,7 +106,7 @@ describe('scrapeJobs v3 adapter', () => {
       status: 'success',
       data: {
         list: [{
-          resource_id: 'res-1', resource_category: 'host', monitor_type: 'host_linux',
+          resource_id: 'res-1', resource_category: 'host', template_code: 'host_linux',
           display_name: 'web-01', instance_ip: '10.0.0.1', port: 0,
           target_address: '10.0.0.1:9100', network_domain_id: 'mc-demo',
           status: 'online', selectable: true, disabled_reason: '',
@@ -111,7 +114,7 @@ describe('scrapeJobs v3 adapter', () => {
         total: 1, page: 1, page_size: 20,
       },
     })
-    const res = await scrapeJobApi.instanceCandidates({ monitor_type: 'host_linux', network_domain_id: 'mc-demo' })
+    const res = await scrapeJobApi.instanceCandidates({ template_code: 'host_linux', network_domain_id: 'mc-demo' })
     expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/instance-candidates')
     expect(res.data.list[0]).toMatchObject({ resource_id: 'res-1', instance_name: 'web-01', disabled: false })
   })

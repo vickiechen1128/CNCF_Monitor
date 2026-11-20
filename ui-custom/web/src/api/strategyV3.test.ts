@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   businessMetricApiV3,
-  ciMappingApiV3,
+  collectionTemplateApi,
   exporterTemplateApiV3,
   metricApiV3,
   probeModuleApiV3,
@@ -55,7 +55,8 @@ describe('M01 v3 API clients', () => {
       job_name: 'host-prod',
       job_type: 'standard',
       resource_category: 'host',
-      monitor_type: 'host_linux',
+      template_code: 'host_linux',
+      selector: { logic: 'all', filters: [{ field: 'os_family', operator: 'eq', values: ['linux'] }] },
       network_domain_id: 'mc-demo',
       selected_instance_ids: ['res-1'],
     })
@@ -74,11 +75,10 @@ describe('M01 v3 API clients', () => {
     expect(lastUrl().pathname).toBe('/api/v3/platform/scrape-jobs/job-1/instances')
   })
 
-  it('changes mapping label templates through the dedicated endpoint', async () => {
-    mockSuccess({ id: 'map-1' })
-    await ciMappingApiV3.setLabelTemplate('map-1', 'lt-1')
-    expect(lastUrl().pathname).toBe('/api/v3/platform/ci-exporter-mappings/map-1/label-template')
-    expect(lastBody()).toEqual({ label_template_id: 'lt-1' })
+  it('loads collection template impact through the dedicated endpoint', async () => {
+    mockSuccess({ code: 'host_linux', reference_jobs: 2, metric_anchors: 1 })
+    await collectionTemplateApi.impact('host_linux')
+    expect(lastUrl().pathname).toBe('/api/v3/platform/collection-templates/host_linux/impact')
   })
 
   it('validates rules through POST /monitoring-rules/validate', async () => {

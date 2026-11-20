@@ -1,5 +1,5 @@
 /**
- * Module_09 网域与边缘配置中心 类型定义（config-center）。
+ * Module_09 配置与查询中心 类型定义（config-center）。
  * 权威契约：docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md（第一权威）。
  * v3 变更即自动同步，配置只读历史为「配置快照」；草稿 / 配置版本 / 下发记录类型已删除。
  * 字段名使用 snake_case 对齐后端 JSON；禁止反向以 platform/models/*.go 为实现依据。

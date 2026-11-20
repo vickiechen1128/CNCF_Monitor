@@ -9,8 +9,8 @@ import { metricApiV3 } from './strategyV3'
 import type { MetricInputV3 } from './strategyV3'
 
 export interface MetricLibraryListParams extends Record<string, string | number | boolean | undefined> {
-  monitor_type?: string
-  /** 粗粒度资源类别，后端按 monitor_types 锚点归属展开过滤 */
+  template_code?: string
+  /** 粗粒度资源类别，后端按 collection_templates 锚点归属展开过滤 */
   resource_category?: ResourceCategory
   metric_type?: MetricType
   /** 指标语义域（cpu / memory / ...），非资源类别 */
@@ -26,7 +26,7 @@ export interface MetricLibraryInput {
   help?: string
   unit?: string
   labels?: string[]
-  monitor_types: { monitor_type: string; source_exporter?: string }[]
+  collection_templates: { template_code: string; source_exporter?: string }[]
   category?: string
   exporter_template_id?: string
   enabled?: boolean
@@ -39,7 +39,7 @@ export interface MetricLibraryUpdateInput {
   enabled?: boolean
   help?: string
   unit?: string
-  monitor_types?: { monitor_type: string; source_exporter?: string }[]
+  collection_templates?: { template_code: string; source_exporter?: string }[]
   category?: string
 }
 
@@ -58,7 +58,7 @@ function toView(item: MetricViewSource): ExporterMetricLibraryItem {
     help: item.help ?? '',
     unit: item.unit ?? '',
     labels: item.labels ?? [],
-    monitor_types: item.monitor_types ?? [],
+    collection_templates: item.collection_templates ?? [],
     category: item.category,
     exporter_template_id: item.exporter_template_id,
     is_builtin: item.is_builtin,
@@ -88,7 +88,7 @@ export const metricLibraryApi = {
       help: input.help ?? current.data.help,
       unit: input.unit ?? current.data.unit,
       labels: input.labels ?? current.data.labels,
-      monitor_types: input.monitor_types ?? current.data.monitor_types,
+      collection_templates: input.collection_templates ?? current.data.collection_templates,
       category: input.category ?? current.data.category,
       exporter_template_id: current.data.exporter_template_id,
       enabled: input.enabled ?? current.data.enabled,

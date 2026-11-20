@@ -6,7 +6,6 @@ import type { ExporterSource, ExporterTemplate } from '../types/strategy'
 import { exporterTemplateApiV3 } from './strategyV3'
 
 export interface ExporterTemplateListParams extends Record<string, string | number | boolean | undefined> {
-  monitor_type?: string
   source?: ExporterSource
   page?: number
   page_size?: number
@@ -18,7 +17,6 @@ export interface ExporterTemplateInput {
   default_port?: number
   metrics_path?: string
   scheme?: string
-  supported_monitor_types?: string[]
   os?: string
   arch?: string
   download_url?: string

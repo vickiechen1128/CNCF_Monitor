@@ -7,7 +7,6 @@ import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'
 import type {
   BusinessMetricV3,
-  CITypeExporterMappingV3,
   ExporterTemplateV3,
   InstanceCandidateV3,
   JobInstanceV3,
@@ -31,7 +30,6 @@ export interface ExporterTemplateInputV3 {
   default_port?: number
   metrics_path?: string
   scheme?: string
-  supported_monitor_types?: string[]
   os?: string
   arch?: string
   download_url?: string
@@ -59,40 +57,10 @@ export const exporterTemplateApiV3 = {
   },
 }
 
-// ----------------------------------------------------------------- mappings
-
-export interface MappingInputV3 {
-  monitor_type: string
-  exporter_template_id: string
-  is_default?: boolean
-  default_port?: number
-  metrics_path?: string
-  scheme?: string
-  scrape_interval?: string
-  scrape_timeout?: string
-}
-
-export const ciMappingApiV3 = {
-  list(params?: ListParams): Promise<ApiResponse<Paginated<CITypeExporterMappingV3>>> {
-    return apiClient.get<Paginated<CITypeExporterMappingV3>>('/api/v3/platform/ci-exporter-mappings', { params })
-  },
-  create(input: MappingInputV3): Promise<ApiResponse<CITypeExporterMappingV3>> {
-    return apiClient.post<CITypeExporterMappingV3>('/api/v3/platform/ci-exporter-mappings', { body: input })
-  },
-  update(id: string, input: MappingInputV3): Promise<ApiResponse<CITypeExporterMappingV3>> {
-    return apiClient.put<CITypeExporterMappingV3>(`/api/v3/platform/ci-exporter-mappings/${id}`, { body: input })
-  },
-  /** label_template_id has a dedicated v3 endpoint. */
-  setLabelTemplate(id: string, labelTemplateId: string): Promise<ApiResponse<CITypeExporterMappingV3>> {
-    return apiClient.put<CITypeExporterMappingV3>(
-      `/api/v3/platform/ci-exporter-mappings/${id}/label-template`,
-      { body: { label_template_id: labelTemplateId } },
-    )
-  },
-  remove(id: string): Promise<ApiResponse<{ id: string }>> {
-    return apiClient.delete<{ id: string }>(`/api/v3/platform/ci-exporter-mappings/${id}`)
-  },
-}
+// 采集模板 / 选择器字段字典：新代码直接从 ./collectionTemplates 导入；
+// 这里 re-export 以兼容仍在过渡的页面。
+export { candidateFieldApi, collectionTemplateApi } from './collectionTemplates'
+export type { CollectionTemplateListParams } from './collectionTemplates'
 
 // --------------------------------------------------------------------- jobs
 
@@ -100,7 +68,8 @@ export interface JobInputV3 {
   job_name: string
   job_type?: 'standard' | 'blackbox'
   resource_category?: ResourceCategory
-  monitor_type?: string
+  template_code?: string
+  selector?: import('../types/collectionTemplate').Selector
   exporter_template_id?: string
   network_domain_id: string
   instance_selection_mode?: 'manual'
@@ -124,7 +93,7 @@ export interface JobInputV3 {
 
 export interface ScrapeJobListParamsV3 extends ListParams {
   network_domain_id?: string
-  monitor_type?: string
+  template_code?: string
   job_type?: 'standard' | 'blackbox'
   enabled?: boolean
   draft_status?: 'draft' | 'ready'
@@ -135,7 +104,7 @@ export interface ScrapeJobListParamsV3 extends ListParams {
 }
 
 export interface CandidateParamsV3 extends ListParams {
-  monitor_type?: string
+  template_code?: string
   resource_category?: ResourceCategory
   network_domain_id: string
   keyword?: string
@@ -195,7 +164,7 @@ export interface RuleInputV3 {
   name?: string
   content_mode?: 'yaml_passthrough'
   rule_content: string
-  monitor_type?: string
+  template_code?: string
   exporter_template_id?: string
   enabled?: boolean
   draft_status?: 'draft' | 'ready'
@@ -237,7 +206,7 @@ export interface MetricInputV3 {
   help?: string
   unit?: string
   labels?: string[]
-  monitor_types?: { monitor_type: string; source_exporter?: string }[]
+  collection_templates?: { template_code: string; source_exporter?: string }[]
   category?: string
   exporter_template_id?: string
   enabled?: boolean

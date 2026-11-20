@@ -71,7 +71,7 @@ export function JobGroupDetailDrawer({ open, group, onClose, onEdit, onDelete }:
           <Descriptions size="small" column={2} bordered>
             <Descriptions.Item label="任务名称">{group.name}</Descriptions.Item>
             <Descriptions.Item label="采集任务名">{group.job_name}</Descriptions.Item>
-            <Descriptions.Item label="监控对象类型">{group.monitor_type}</Descriptions.Item>
+            <Descriptions.Item label="采集模板">{group.template_code || '-'}</Descriptions.Item>
             <Descriptions.Item label="状态">{group.status === 'enabled' ? '启用' : '已停用'}</Descriptions.Item>
             <Descriptions.Item label="采集间隔">{group.scrape_interval}</Descriptions.Item>
             <Descriptions.Item label="采集超时">{group.scrape_timeout}</Descriptions.Item>

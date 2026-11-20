@@ -3,7 +3,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, mockAntdMessage } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
 import type { JobGroup } from '../../types/jobGroup'
+import type { CollectionTemplate } from '../../types/collectionTemplate'
 
 const groupsListMock = vi.fn()
 const groupsGetMock = vi.fn()
@@ -22,6 +24,7 @@ const queryMock = vi.fn()
 const childGetMock = vi.fn()
 const instancesMock = vi.fn()
 const confirmMock = vi.fn()
+const templateListMock = vi.fn()
 
 vi.mock('../../api/jobGroups', () => ({
   jobGroupApi: {
@@ -61,6 +64,30 @@ vi.mock('../../api/query', () => ({
   queryApi: { query: (...a: unknown[]) => queryMock(...a) },
 }))
 
+// M01 v1.5：列表「采集模板」列 / 筛选取自模板目录
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: { list: (...a: unknown[]) => templateListMock(...a) },
+  candidateFieldApi: { list: () => Promise.resolve({ status: 'success', data: { list: [], total: 0 } }) },
+}))
+
+const HOST_LINUX_TEMPLATE: CollectionTemplate = {
+  code: 'host_linux',
+  name: 'Linux 主机采集',
+  resource_category: 'host',
+  exporter_template_id: 'node-exporter',
+  default_port: 9100,
+  metrics_path: '/metrics',
+  scheme: 'http',
+  scrape_interval: '15s',
+  scrape_timeout: '10s',
+  label_template_id: '',
+  default_selector: { logic: 'all', filters: [] },
+  sort_order: 1,
+  enabled: true,
+  is_builtin: true,
+  reference_job_count: 0,
+}
+
 vi.mock('./ScrapeJobFormDrawer', () => ({
   ScrapeJobFormDrawer: () => <div data-testid="job-form-drawer" />,
 }))
@@ -85,7 +112,7 @@ const childJob = (domainID: string, domainName: string, jobID: string) => ({
   job_name: 'host-base',
   job_type: 'standard',
   resource_category: 'host',
-  monitor_type: 'host_linux',
+  template_code: 'host_linux',
   exporter_template_id: '',
   exporter_template_name: 'node-exporter',
   network_domain_id: domainID,
@@ -120,7 +147,7 @@ const group = (over: Partial<JobGroup> = {}): JobGroup => ({
   job_name: 'host-base',
   job_type: 'standard',
   resource_category: 'host',
-  monitor_type: 'host_linux',
+  template_code: 'host_linux',
   scrape_interval: '15s',
   scrape_timeout: '10s',
   metrics_path: '/metrics',
@@ -181,6 +208,12 @@ describe('ScrapeJobListPage（统一采集任务视图）', () => {
   setupAntdTest()
 
   beforeEach(() => {
+    // useCollectionTemplateCatalog 有进程内缓存，用例之间清空以保证取到本文件的 mock
+    resetCollectionCatalogCache()
+    templateListMock.mockReset().mockResolvedValue({
+      status: 'success',
+      data: { list: [HOST_LINUX_TEMPLATE], total: 1, page: 1, page_size: 100 },
+    })
     groupsListMock.mockReset().mockResolvedValue({
       status: 'success',
       data: { list: [group()], total: 1, page: 1, page_size: 20 },
@@ -249,6 +282,11 @@ describe('ScrapeJobListPage（统一采集任务视图）', () => {
     expect(await screen.findByText('主机基础采集')).toBeInTheDocument()
     expect(screen.getByText('2 个网域')).toBeInTheDocument()
     expect(screen.getAllByText('覆盖网域').length).toBeGreaterThan(0)
+    // M01 v1.5：列展示「采集模板」（模板目录名 + 选择器摘要），不再有监控对象类型
+    expect(screen.getAllByText('采集模板').length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Linux 主机采集')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('不限条件').length).toBeGreaterThan(0)
+    expect(screen.queryByText('监控对象类型')).not.toBeInTheDocument()
     expect(screen.queryByText('所属任务组')).not.toBeInTheDocument()
     expect(screen.queryByText('未分组')).not.toBeInTheDocument()
     expect(screen.queryByText('按任务组')).not.toBeInTheDocument()

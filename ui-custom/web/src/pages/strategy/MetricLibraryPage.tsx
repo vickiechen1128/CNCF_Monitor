@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Badge, Button, Card, Empty, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { DatabaseOutlined, LockOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -13,7 +13,7 @@ import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
 import { CATEGORY_MAP, METRIC_TYPE_MAP } from './strategyConstants'
 import { MetricLibraryDrawer } from './MetricLibraryDrawer'
-import { refreshMonitorTypeCatalog, useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 
 const { Text } = Typography
 
@@ -26,15 +26,18 @@ const EMPTY_LIBRARY: MetricLibraryState = { list: [], total: 0 }
 
 /**
  * 技术指标库页（Module_01 §3.1/§5.3/§9.1/§11.1，F7）。
- * - 筛选：资源类别 → 监控对象类型两级 / 指标类型 / 关键字；分页默认 20/页；
- *   监控对象类型下拉读注册表（类型可手动新增/停用），打开下拉时重新拉取，选项随注册表同步更新；
- * - 列名与筛选条件一一对应：资源类别 / 监控对象类型 / 指标类型；其余为指标元数据与来源标注；
- * - 用户扩展：仅管理员可新增/编辑/删除（内置指标只读），保存后即可为新建的监控对象类型挂指标；
+ * - 筛选：资源类别 → 采集模板两级 / 指标类型 / 关键字；分页默认 20/页；
+ *   采集模板下拉读 `useCollectionTemplateCatalog()`（模板为数据，可新增/停用，禁止前端写死）；
+ * - 列名与筛选条件一一对应：资源类别 / 采集模板 / 指标类型；其余为指标元数据与来源标注；
+ * - 用户扩展：仅管理员可新增/编辑/删除（内置指标只读），保存后即可为新建的采集模板挂指标；
  * - 顶部统计：共 n 个指标（服务端筛选后的总数）；
  * - 加载 / 空态 / 错误态。
+ *
+ * M01 重构（v2.0）：指标锚点由「监控对象类型」改为「采集模板」，
+ * 锚点结构为 `{template_code, source_exporter}`，列表载荷字段 `collection_templates`。
  */
 export function MetricLibraryPage() {
-  const catalog = useMonitorTypeCatalog()
+  const templateCatalog = useCollectionTemplateCatalog()
   // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
   const { tokens } = useSkin()
   // 指标库写入仅管理员（2026-11-19 用户裁定；后端 Routes 同步挂 RequireAdmin）
@@ -43,7 +46,7 @@ export function MetricLibraryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [category, setCategory] = useState<ResourceCategory>()
-  const [monitorType, setMonitorType] = useState<string | undefined>()
+  const [templateCode, setTemplateCode] = useState<string | undefined>()
   const [metricType, setMetricType] = useState<MetricType | undefined>()
   const [keyword, setKeyword] = useState<string | undefined>()
   const [page, setPage] = useState(1)
@@ -58,7 +61,7 @@ export function MetricLibraryPage() {
     try {
       const res = await metricLibraryApi.list({
         resource_category: category,
-        monitor_type: monitorType,
+        template_code: templateCode,
         metric_type: metricType,
         keyword,
         page,
@@ -71,7 +74,7 @@ export function MetricLibraryPage() {
     } finally {
       setLoading(false)
     }
-  }, [category, monitorType, metricType, keyword, page, pageSize])
+  }, [category, templateCode, metricType, keyword, page, pageSize])
 
   useEffect(() => {
     // 异步请求回调内 setState；沿用本模块既有抓取 effect 模式
@@ -111,21 +114,32 @@ export function MetricLibraryPage() {
     [reload],
   )
 
-  // 资源类别由监控对象类型反查（M07 资源类别），保证「资源类别」筛选与列展示同源
+  /** 采集模板 code → 展示名；模板已删除时回落展示 code，避免历史指标显示空白 */
+  const templateName = useCallback(
+    (code: string) => templateCatalog.templates.find((t) => t.code === code)?.name ?? code,
+    [templateCatalog.templates],
+  )
+
+  // 资源类别由指标锚点的采集模板反查（模板自带 resource_category），保证「资源类别」筛选与列展示同源
   const categoryText = useCallback(
     (item: ExporterMetricLibraryItem) => {
       const names = new Set<string>()
-      item.monitor_types.forEach((anchor) => {
-        const resolved = catalog.categoryFor(anchor.monitor_type)
+      item.collection_templates.forEach((anchor) => {
+        const resolved = templateCatalog.templates.find((t) => t.code === anchor.template_code)?.resource_category
         if (resolved) names.add(CATEGORY_MAP[resolved])
       })
       return [...names].join(', ')
     },
-    [catalog],
+    [templateCatalog.templates],
   )
 
-  // 当前类别下的监控对象类型；未选类别时给全量启用类型（与注册表同步）
-  const currentTypes = catalog.optionsForCategory(category)
+  // 当前类别下的采集模板；未选类别时给全量模板（与采集模板目录同步）
+  const templateOptions = useMemo(() => {
+    const list = category
+      ? templateCatalog.templates.filter((t) => t.resource_category === category)
+      : templateCatalog.templates
+    return list.map((t) => ({ value: t.code, label: t.name }))
+  }, [templateCatalog.templates, category])
 
   const columns: ColumnsType<ExporterMetricLibraryItem> = [
     {
@@ -155,13 +169,18 @@ export function MetricLibraryPage() {
       },
     },
     {
-      // 列名与筛选条件「监控对象类型」对应
-      title: '监控对象类型',
-      key: 'monitor_types',
-      width: 170,
-      render: (_: unknown, r: ExporterMetricLibraryItem) => (
-        <EllipsisText>{r.monitor_types.map((m) => catalog.nameOf(m.monitor_type)).join(', ')}</EllipsisText>
-      ),
+      // 列名与筛选条件「采集模板」对应（M01 重构：锚点即采集模板）
+      title: '采集模板',
+      key: 'collection_templates',
+      width: 190,
+      render: (_: unknown, r: ExporterMetricLibraryItem) =>
+        r.collection_templates.length > 0 ? (
+          <EllipsisText>
+            {r.collection_templates.map((anchor) => templateName(anchor.template_code)).join(', ')}
+          </EllipsisText>
+        ) : (
+          <Text type="secondary">未挂接采集模板</Text>
+        ),
     },
     {
       title: 'HELP',
@@ -195,7 +214,7 @@ export function MetricLibraryPage() {
       key: 'source_exporter',
       width: 140,
       render: (_: unknown, r: ExporterMetricLibraryItem) => {
-        const s = [...new Set(r.monitor_types.map((m) => m.source_exporter).filter(Boolean))].join(', ')
+        const s = [...new Set(r.collection_templates.map((a) => a.source_exporter).filter(Boolean))].join(', ')
         return s ? <EllipsisText>{s}</EllipsisText> : <Text type="secondary">-</Text>
       },
     },
@@ -254,9 +273,9 @@ export function MetricLibraryPage() {
       : []),
   ]
 
-  // 空态按当前筛选项给出可行动说明：新类型无指标时解释「挂接后才有数据」
-  const emptyDescription = monitorType
-    ? `「${catalog.nameOf(monitorType)}」暂无指标`
+  // 空态按当前筛选项给出可行动说明：模板无指标时解释「挂接后才有数据」
+  const emptyDescription = templateCode
+    ? `「${templateName(templateCode)}」暂无指标`
     : category
       ? `「${CATEGORY_MAP[category]}」暂无指标`
       : '暂无指标'
@@ -278,8 +297,8 @@ export function MetricLibraryPage() {
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          技术指标库（ExporterMetricLibrary）：面向采集目标的标准指标字典；筛选维度为「资源类别 / 监控对象类型 /
-          指标类型」。内置指标只读，管理员可新增用户扩展指标并挂接到监控对象类型。
+          技术指标库（ExporterMetricLibrary）：面向采集目标的标准指标字典；筛选维度为「资源类别 / 采集模板 /
+          指标类型」。内置指标只读，管理员可新增用户扩展指标并挂接到采集模板。
         </Typography.Paragraph>
 
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -310,38 +329,35 @@ export function MetricLibraryPage() {
               value={category}
               onChange={(v: ResourceCategory | undefined) => {
                 setCategory(v)
-                setMonitorType(undefined)
+                setTemplateCode(undefined)
                 setPage(1)
               }}
             >
-              {catalog.cascade.map((g) => (
-                <Select.Option key={g.category} value={g.category}>
-                  {CATEGORY_MAP[g.category]}
+              {Object.entries(CATEGORY_MAP).map(([value, label]) => (
+                <Select.Option key={value} value={value}>
+                  {label}
                 </Select.Option>
               ))}
             </Select>
           </FilterItem>
-          <FilterItem label="监控对象类型" width={230}>
+          <FilterItem label="采集模板" width={230}>
             <Select
               allowClear
-              placeholder="全部类型"
+              showSearch
+              optionFilterProp="label"
+              placeholder="全部模板"
               style={{ width: 190 }}
-              value={monitorType}
-              // 类型可手动新增/停用：每次展开下拉都向注册表取最新列表，避免选项滞后
+              value={templateCode}
+              // 采集模板是数据（可新增/停用）：每次展开下拉都重新拉取，避免选项滞后
               onOpenChange={(open) => {
-                if (open) refreshMonitorTypeCatalog()
+                if (open) templateCatalog.reload()
               }}
               onChange={(v: string | undefined) => {
-                setMonitorType(v)
+                setTemplateCode(v)
                 setPage(1)
               }}
-            >
-              {(currentTypes.length > 0 ? currentTypes : catalog.allCodes()).map((t) => (
-                <Select.Option key={t} value={t}>
-                  {catalog.nameOf(t)}
-                </Select.Option>
-              ))}
-            </Select>
+              options={templateOptions}
+            />
           </FilterItem>
           <FilterItem label="指标类型" width={160}>
             <Select
@@ -385,8 +401,10 @@ export function MetricLibraryPage() {
           locale={{
             emptyText: (
               <Empty description={emptyDescription}>
-                {monitorType && (
-                  <Text type="secondary">该类型还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该类型</Text>
+                {templateCode && (
+                  <Text type="secondary">
+                    该采集模板还没有挂接指标；管理员可点「新增指标」创建用户扩展指标并选择该模板
+                  </Text>
                 )}
               </Empty>
             ),

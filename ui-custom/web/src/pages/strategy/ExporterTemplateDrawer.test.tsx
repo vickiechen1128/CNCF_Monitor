@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
-import type { MonitorType } from '../../types/strategy'
 
 const exporterCreateMock = vi.fn()
 
@@ -11,10 +10,8 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
 }))
 
-function renderDrawer(initialMonitorTypes?: MonitorType[]) {
-  render(
-    <ExporterTemplateDrawer open onCancel={() => {}} onSuccess={() => {}} initialMonitorTypes={initialMonitorTypes} />,
-  )
+function renderDrawer() {
+  render(<ExporterTemplateDrawer open onCancel={() => {}} onSuccess={() => {}} />)
 }
 
 describe('ExporterTemplateDrawer', () => {
@@ -32,16 +29,12 @@ describe('ExporterTemplateDrawer', () => {
     expect(screen.getByText('登 记')).toBeInTheDocument()
   })
 
-  it('prefills supported_monitor_types from initialMonitorTypes (O2/T01-F15)', async () => {
-    renderDrawer(['mysql'])
-    // 预填后「支持监控类型」多选 Select 展示当前监控对象类型 MySQL（MONITOR_TYPE_MAP）
-    expect(screen.getByText('MySQL')).toBeInTheDocument()
-  })
-
-  it('does not prefill supported_monitor_types when initialMonitorTypes omitted (O2/T01-F15)', async () => {
+  // M01 v2.0：采集器模板不再声明「支持的监控对象类型」（后端已删除 supported_monitor_types），
+  // 采集模板与指标锚点各自直接引用 template_code。
+  it('does not render 支持监控类型 anymore (supported_monitor_types 已删除)', () => {
     renderDrawer()
-    // 采集器管理 Tab 直接登记不传该 prop → 不预填，无选中项
-    expect(screen.queryByText('MySQL')).toBeNull()
+    expect(screen.queryByText('支持监控类型')).toBeNull()
+    expect(screen.queryByText('关联的监控对象类型')).toBeNull()
   })
 
   it('offers 官方 / 第三方 / 内部自建 source options (F-29 D 放开来源登记)', async () => {
@@ -53,12 +46,12 @@ describe('ExporterTemplateDrawer', () => {
     expect(screen.getAllByText('内部自建').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('submits prefilled supported_monitor_types on register (O2/T01-F15)', async () => {
+  it('submits without supported_monitor_types', async () => {
     exporterCreateMock.mockResolvedValue({
       status: 'success',
       data: { id: 9, name: 'mysql-exporter-custom', source: 'internal' },
     })
-    renderDrawer(['mysql'])
+    renderDrawer()
 
     await userEvent.type(screen.getByPlaceholderText('例如：mysql-exporter'), 'mysql-exporter-custom')
     await userEvent.type(screen.getByPlaceholderText('例如：9104'), '9104')
@@ -72,7 +65,7 @@ describe('ExporterTemplateDrawer', () => {
     await waitFor(() => expect(exporterCreateMock).toHaveBeenCalled())
     const body = exporterCreateMock.mock.calls[0][0] as Record<string, unknown>
     expect(body.name).toBe('mysql-exporter-custom')
-    expect(body.supported_monitor_types).toEqual(['mysql'])
+    expect(body).not.toHaveProperty('supported_monitor_types')
   })
 
   it('submits os/arch default any and download_url/homepage on register (原型字段对齐)', async () => {

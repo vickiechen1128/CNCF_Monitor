@@ -1,8 +1,10 @@
 /**
- * 采集策略领域类型：ScrapeJob / CITypeExporterMapping / ExporterTemplate / MonitoringRule
+ * 采集策略领域类型：ScrapeJob / CollectionTemplate / ExporterTemplate / MonitoringRule
  *
  * 与 Module_01 §5 对齐。
  */
+
+import type { CollectionTemplate, Selector } from './collectionTemplate'
 
 /** 采集任务类型 */
 export type JobType = 'standard' | 'blackbox'
@@ -26,7 +28,8 @@ export interface ScrapeJob {
   job_type: JobType
   resource_type: string
   resource_category?: string
-  monitor_type: string
+  template_code: string
+  selector?: Selector
   exporter_template_id?: string
   network_domain_id: string
   instance_selection_mode: InstanceSelectionMode
@@ -69,33 +72,12 @@ export interface ScrapeJob {
   deleted_at?: string
 }
 
-/** CI 类型 → Exporter 映射（各 monitor_type 下的默认采集实现） */
-export interface CITypeExporterMapping {
-  id: string
-  monitor_type: string
-  exporter_template_id: string
-  is_default: boolean
-  default_port: number
-  metrics_path: string
-  scheme: string
-  scrape_interval: string
-  scrape_timeout: string
-  label_template_id?: string
-  is_builtin: boolean
-  /** M07 只读透传：该映射是否已挂标签模板（列表附加，§6.2.1） */
-  has_label_template?: boolean
-  /** 未被任何 ScrapeJob 引用（采集器池「未被引用」标记，§11.1） */
-  is_referenced?: boolean
-  /** 采集器安装指引：只读透传自 ExporterTemplate（§11.1） */
-  install_guide?: string
-  created_at: string
-  updated_at: string
-}
+/** 采集模板（原「默认采集配置」）：一个采集实现 + 一套参数 + 一个标签模板。 */
+export type CITypeExporterMapping = CollectionTemplate
 
-/** Exporter 来源 */
+/** 采集实现来源（与后端 domain.ExporterSource 对齐）。 */
 export type ExporterSource = 'official' | 'third_party' | 'internal'
 
-/** Exporter 模板（采集实现片段） */
 export interface ExporterTemplate {
   id: string
   name: string
@@ -103,7 +85,6 @@ export interface ExporterTemplate {
   default_port: number
   metrics_path: string
   scheme: string
-  supported_monitor_types: string[]
   os: string
   arch: string
   download_url: string
@@ -134,7 +115,7 @@ export interface MonitoringRule {
   duration?: string
   labels?: Record<string, string>
   annotations?: Record<string, string>
-  monitor_type?: string
+  template_code?: string
   exporter_template_id?: string
   scope: ScopeType
   enabled: boolean
@@ -168,8 +149,8 @@ export interface BlackboxTarget {
  * 监控对象类型编码。
  *
  * 类型集合已配置化（M01 SRS v1.3 §5.6）：后端可新增任意类型，因此这里是开放字符串，
- * 不再使用闭集联合类型。内置编码见后端 `domain.BuiltinMonitorTypeEntries()`；
- * 前端下拉一律经 `useMonitorTypeCatalog()` 从注册表取数，禁止再写死列表。
+ * 兼容别名：现指「采集模板编码」。前端下拉一律经 `useCollectionTemplateCatalog()`
+ * 取数，禁止写死列表。
  */
 export type MonitorType = string
 
@@ -179,9 +160,9 @@ export type BlackboxModule = 'http_2xx' | 'icmp_ping' | 'tcp_connect' | 'dns_que
 /** 指标类型（§5.3 / §9） */
 export type MetricType = 'counter' | 'gauge' | 'histogram' | 'summary' | 'unknown'
 
-/** 指标库多对多锚点：monitor_type + 来源采集器（source_exporter，同名不同义区分，§5.3） */
+/** 指标库多对多锚点：采集模板 + 来源采集器（source_exporter，同名不同义区分，§5.3） */
 export interface ExporterMetricAnchor {
-  monitor_type: string
+  template_code: string
   source_exporter?: string
 }
 
@@ -193,7 +174,7 @@ export interface ExporterMetricLibraryItem {
   help: string
   unit: string
   labels: string[]
-  monitor_types: ExporterMetricAnchor[]
+  collection_templates: ExporterMetricAnchor[]
   category?: string
   exporter_template_id?: string
   is_builtin: boolean

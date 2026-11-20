@@ -26,7 +26,7 @@ import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { CONTENT_MODE_MAP } from './strategyConstants'
-import { useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 import SyncStatusTag from './SyncStatusTag'
 import { aggregateJobSyncStatus } from './syncStatus'
 import { RuleMountDrawer } from './RuleMountDrawer'
@@ -60,26 +60,37 @@ const EMPTY_RULES: RulesState = { list: [], total: 0 }
 
 /**
  * 规则编辑（文件挂载）页（Module_01 §3.1/§5.5/§6.2.4/§11.1/§11.2，F6）。
- * - 列表：规则名 / 内容形态 / 监控对象类型 / 规则条数 / 更新时间 / 变更进度 / 生效状态；
+ * - 列表：规则名 / 内容形态 / 采集模板 / 规则条数 / 更新时间 / 变更进度 / 生效状态；
  * - 操作：详情 / 启停（文字按钮 + Popconfirm 二次确认）/ 删除（YAML 只读 Drawer）；
  * - 「变更进度」= M09 管线视角，「生效状态」= 用户视角生命周期，与采集 Job 列同源同机制（F21 对齐）；
  * - 保存成功提示 M09 变更引导 + 乐观待下发；加载 / 空态「暂无规则」/ 错误态。
  */
 export function RulesPage() {
-  const catalog = useMonitorTypeCatalog()
+  const templateCatalog = useCollectionTemplateCatalog()
   const navigate = useNavigate()
   const [rules, setRules] = useState<RulesState>(EMPTY_RULES)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [keyword, setKeyword] = useState<string | undefined>()
   const [enabled, setEnabled] = useState<boolean | undefined>()
-  const [monitorType, setMonitorType] = useState<string | undefined>()
+  const [templateCode, setTemplateCode] = useState<string | undefined>()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [refresh, setRefresh] = useState(0)
   const [mountOpen, setMountOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<MonitoringRule | null>(null)
   const [detail, setDetail] = useState<MonitoringRule | null>(null)
+
+  /** 采集模板 code → 展示名；模板已删除时回落展示 code，避免历史规则显示空白 */
+  const templateName = useCallback(
+    (code: string) => templateCatalog.templates.find((t) => t.code === code)?.name ?? code,
+    [templateCatalog.templates],
+  )
+
+  const templateOptions = useMemo(
+    () => templateCatalog.templates.map((t) => ({ value: t.code, label: t.name })),
+    [templateCatalog.templates],
+  )
 
   const load = useCallback(async (silent = false) => {
     if (!silent) {
@@ -90,7 +101,7 @@ export function RulesPage() {
       const res = await monitoringRuleApi.list({
         keyword,
         enabled,
-        monitor_type: monitorType,
+        template_code: templateCode,
         page,
         page_size: pageSize,
       })
@@ -103,7 +114,7 @@ export function RulesPage() {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [keyword, enabled, monitorType, page, pageSize])
+  }, [keyword, enabled, templateCode, page, pageSize])
 
   useEffect(() => {
     // 异步请求回调后 setState；沿用本模块既有抓取 effect 模式
@@ -188,12 +199,13 @@ export function RulesPage() {
         render: (v: string) => CONTENT_MODE_MAP[v as keyof typeof CONTENT_MODE_MAP] ?? v,
       },
       {
-        title: '监控对象类型',
-        dataIndex: 'monitor_type',
-        key: 'monitor_type',
-        width: 130,
+        // M01 v2.0：规则归属由「监控对象类型」改为「采集模板」（可选）
+        title: '采集模板',
+        dataIndex: 'template_code',
+        key: 'template_code',
+        width: 150,
         render: (v: string) =>
-          v ? catalog.nameOf(v) : <Text type="secondary">-</Text>,
+          v ? templateName(v) : <Text type="secondary">-</Text>,
       },
       {
         title: '规则条数',
@@ -275,7 +287,7 @@ export function RulesPage() {
         },
       },
     ]
-  }, [toggleEnabled, removeRule, openEdit, catalog])
+  }, [toggleEnabled, removeRule, openEdit, templateName])
 
   return (
     <MainLayout>
@@ -334,23 +346,24 @@ export function RulesPage() {
             <Select.Option value={false as unknown as string}>停用</Select.Option>
           </Select>
         </FilterItem>
-        <FilterItem label="监控对象类型" width={230}>
+        <FilterItem label="采集模板" width={230}>
           <Select
             allowClear
-            placeholder="全部类型"
+            showSearch
+            optionFilterProp="label"
+            placeholder="全部模板"
             style={{ width: 190 }}
-            value={monitorType}
+            value={templateCode}
+            // 采集模板是数据（可新增/停用）：每次展开下拉都重新拉取，避免选项滞后
+            onOpenChange={(open) => {
+              if (open) templateCatalog.reload()
+            }}
             onChange={(v) => {
-              setMonitorType(v ?? undefined)
+              setTemplateCode(v ?? undefined)
               setPage(1)
             }}
-          >
-            {catalog.allCodes().map((t) => (
-              <Select.Option key={t} value={t}>
-                {catalog.nameOf(t)}
-              </Select.Option>
-            ))}
-          </Select>
+            options={templateOptions}
+          />
         </FilterItem>
         <FilterItem label="关键字" width={260}>
           <Input.Search
@@ -420,13 +433,9 @@ export function RulesPage() {
               <Text strong>内容形态：</Text>
               <Text>{CONTENT_MODE_MAP[detail.content_mode] ?? detail.content_mode}</Text>
               <Text strong style={{ marginLeft: 16 }}>
-                监控对象类型：
+                采集模板：
               </Text>
-              <Text>
-                {detail.monitor_type
-                  ? catalog.nameOf(detail.monitor_type)
-                  : '-'}
-              </Text>
+              <Text>{detail.template_code ? templateName(detail.template_code) : '-'}</Text>
               <Text strong style={{ marginLeft: 16 }}>
                 同步状态：
               </Text>

@@ -1,25 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Drawer, Form, Input, Select, Space, Switch, Typography, message } from 'antd'
-import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { metricLibraryApi } from '../../api/metricLibrary'
 import type { ExporterMetricLibraryItem, MetricType } from '../../types/strategy'
-import { CATEGORY_MAP, METRIC_TYPE_MAP } from './strategyConstants'
-import { refreshMonitorTypeCatalog, useMonitorTypeCatalog } from './useMonitorTypeCatalog'
+import { METRIC_TYPE_MAP } from './strategyConstants'
+import { useCollectionTemplateCatalog } from './useCollectionTemplateCatalog'
 
 const { Text } = Typography
 
 /** Prometheus 指标命名规则（与后端 service.validateMetric 一致） */
 const METRIC_NAME_PATTERN = /^[a-zA-Z_:][a-zA-Z0-9_:]*$/
 
-interface AnchorRow {
-  monitor_type?: string
-  source_exporter?: string
-}
-
 interface MetricFormValues {
   metric_name: string
   metric_type: MetricType
-  anchors: AnchorRow[]
+  /** 挂接的采集模板 code（多选） */
+  template_codes?: string[]
+  /** 按采集模板记录来源采集器（选填，同名不同义区分） */
+  sources?: Record<string, string | undefined>
   help?: string
   unit?: string
   labels?: string[]
@@ -40,32 +37,35 @@ export interface MetricLibraryDrawerProps {
  * 指标库新增 / 编辑抽屉（用户扩展指标）。
  *
  * - 内置指标只读，只能在列表查看；本抽屉只处理 is_builtin=false 的行。
- * - 「挂接监控对象类型」是核心：新建的监控对象类型保存后即可在此挂指标，
- *   下拉选项来自注册表（打开抽屉时重新拉取，避免选项滞后）。
+ * - 「挂接采集模板」是核心：指标锚点为 `{template_code, source_exporter}`（M01 v2.0 重构，
+ *   监控对象类型已退场），下拉选项来自 `useCollectionTemplateCatalog()`，禁止写死列表。
+ * - 每个模板可选填「来源采集器」，用于区分同名不同义的指标；不填则仅按模板归属。
  * - 同名 + 同锚点重复登记由后端返回 409，抽屉内展示错误信息。
  */
 export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricLibraryDrawerProps) {
-  const catalog = useMonitorTypeCatalog()
+  const templateCatalog = useCollectionTemplateCatalog()
   const [form] = Form.useForm<MetricFormValues>()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const templateOptions = useMemo(
+    () => templateCatalog.templates.map((t) => ({ value: t.code, label: t.name })),
+    [templateCatalog.templates],
+  )
+  // 采集模板是数据（可新增/停用）：每次打开抽屉都重新拉取，避免选项滞后
+  const reloadTemplates = templateCatalog.reload
+
   useEffect(() => {
     if (!open) return
-    // 新建监控对象类型后立刻给新类型挂指标：打开抽屉时刷新注册表
-    refreshMonitorTypeCatalog()
+    reloadTemplates()
     form.resetFields()
     if (editing) {
+      const anchors = editing.collection_templates ?? []
       form.setFieldsValue({
         metric_name: editing.metric_name,
         metric_type: editing.metric_type,
-        anchors:
-          editing.monitor_types.length > 0
-            ? editing.monitor_types.map((anchor) => ({
-                monitor_type: anchor.monitor_type,
-                source_exporter: anchor.source_exporter,
-              }))
-            : [{}],
+        template_codes: anchors.map((anchor) => anchor.template_code),
+        sources: Object.fromEntries(anchors.map((anchor) => [anchor.template_code, anchor.source_exporter ?? ''])),
         help: editing.help,
         unit: editing.unit,
         labels: editing.labels,
@@ -73,14 +73,14 @@ export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricL
         enabled: editing.enabled,
       })
     } else {
-      form.setFieldsValue({ metric_type: 'gauge', anchors: [{}], labels: [], enabled: true })
+      form.setFieldsValue({ metric_type: 'gauge', template_codes: [], sources: {}, labels: [], enabled: true })
     }
-  }, [open, editing, form])
+  }, [open, editing, form, reloadTemplates])
 
-  const typeOptions = catalog.cascade.map((group) => ({
-    label: CATEGORY_MAP[group.category],
-    options: group.types.map((code) => ({ value: code, label: catalog.nameOf(code) })),
-  }))
+  // 选中的模板决定「来源采集器」输入行；useWatch 保证勾选后即时出现
+  const selectedCodes = Form.useWatch('template_codes', form) ?? []
+
+  const templateName = (code: string) => templateCatalog.templates.find((t) => t.code === code)?.name ?? code
 
   const handleClose = () => {
     if (saving) return
@@ -96,14 +96,13 @@ export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricL
     } catch {
       return
     }
-    const anchors = (values.anchors ?? [])
-      .filter((row) => row?.monitor_type)
-      .map((row) => ({
-        monitor_type: row.monitor_type as string,
-        source_exporter: row.source_exporter?.trim() || undefined,
-      }))
-    if (anchors.length === 0) {
-      setError('请至少挂接一个监控对象类型')
+    const codes = values.template_codes ?? []
+    const collectionTemplates = codes.map((code) => ({
+      template_code: code,
+      source_exporter: values.sources?.[code]?.trim() || undefined,
+    }))
+    if (collectionTemplates.length === 0) {
+      setError('请至少挂接一个采集模板')
       return
     }
     const payload = {
@@ -112,7 +111,7 @@ export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricL
       help: values.help?.trim(),
       unit: values.unit?.trim(),
       labels: (values.labels ?? []).map((label) => label.trim()).filter(Boolean),
-      monitor_types: anchors,
+      collection_templates: collectionTemplates,
       category: values.category?.trim(),
       enabled: values.enabled,
     }
@@ -124,7 +123,7 @@ export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricL
         message.success('指标已更新')
       } else {
         await metricLibraryApi.create(payload)
-        message.success('指标已创建，已挂接到所选监控对象类型')
+        message.success('指标已创建，已挂接到所选采集模板')
       }
       setSaving(false)
       onSaved()
@@ -178,39 +177,45 @@ export function MetricLibraryDrawer({ open, editing, onClose, onSaved }: MetricL
           <Select options={Object.entries(METRIC_TYPE_MAP).map(([value, label]) => ({ value, label }))} />
         </Form.Item>
 
-        <Form.Item label="挂接监控对象类型" required extra="至少挂接一个类型；该指标会出现在这些类型的指标库筛选中">
-          <Form.List name="anchors">
-            {(fields, { add, remove }) => (
-              <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                {fields.map((field) => (
-                  <Space key={field.key} align="start" wrap>
-                    <Form.Item
-                      name={[field.name, 'monitor_type']}
-                      rules={[{ required: true, message: '请选择监控对象类型' }]}
-                      style={{ marginBottom: 8, minWidth: 240 }}
-                    >
-                      <Select placeholder="请选择监控对象类型" options={typeOptions} data-testid={`anchor-type-${field.name}`} />
-                    </Form.Item>
-                    <Form.Item name={[field.name, 'source_exporter']} style={{ marginBottom: 8, minWidth: 200 }}>
-                      <Input placeholder="来源采集器（选填）" allowClear />
-                    </Form.Item>
-                    {fields.length > 1 && (
-                      <Button
-                        type="text"
-                        icon={<MinusCircleOutlined />}
-                        onClick={() => remove(field.name)}
-                        aria-label={`删除第 ${field.name + 1} 个挂接类型`}
-                      />
-                    )}
-                  </Space>
-                ))}
-                <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({})} data-testid="add-anchor">
-                  添加挂接类型
-                </Button>
-              </Space>
-            )}
-          </Form.List>
+        <Form.Item
+          label="采集模板"
+          name="template_codes"
+          rules={[{ required: true, message: '请至少选择一个采集模板' }]}
+          extra="至少挂接一个采集模板；该指标会出现在这些模板的指标库筛选中"
+        >
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="请选择采集模板"
+            data-testid="anchor-templates"
+            options={templateOptions}
+          />
         </Form.Item>
+
+        {selectedCodes.length > 0 && (
+          <Form.Item
+            label="来源采集器（按采集模板，选填）"
+            extra="同名指标在不同采集器下含义不同时填写，便于区分来源"
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size={6}>
+              {selectedCodes.map((code) => (
+                <Space key={code} align="center" wrap>
+                  <Text style={{ display: 'inline-block', minWidth: 150 }}>{templateName(code)}</Text>
+                  <Form.Item name={['sources', code]} noStyle>
+                    <Input
+                      placeholder="来源采集器（选填）"
+                      aria-label={`来源采集器-${code}`}
+                      allowClear
+                      style={{ width: 220 }}
+                    />
+                  </Form.Item>
+                </Space>
+              ))}
+            </Space>
+          </Form.Item>
+        )}
 
         <Form.Item label="说明（HELP）" name="help">
           <Input.TextArea rows={2} maxLength={500} showCount placeholder="指标含义，便于规则编辑时理解" />

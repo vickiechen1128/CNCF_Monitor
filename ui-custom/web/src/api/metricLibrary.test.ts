@@ -81,7 +81,7 @@ describe('metricLibrary API', () => {
     const res = await metricLibraryApi.create({
       metric_name: 'mysql_slow_queries_total',
       metric_type: 'counter',
-      monitor_types: [{ monitor_type: 'mysql', source_exporter: 'mysqld-exporter' }],
+      collection_templates: [{ template_code: 'mysql', source_exporter: 'mysqld-exporter' }],
       help: 'Total slow queries',
       unit: 'count',
     })
@@ -92,7 +92,7 @@ describe('metricLibrary API', () => {
     expect(lastInitBody()).toEqual({
       metric_name: 'mysql_slow_queries_total',
       metric_type: 'counter',
-      monitor_types: [{ monitor_type: 'mysql', source_exporter: 'mysqld-exporter' }],
+      collection_templates: [{ template_code: 'mysql', source_exporter: 'mysqld-exporter' }],
       help: 'Total slow queries',
       unit: 'count',
     })

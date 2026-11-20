@@ -4,22 +4,21 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
+import { resetCollectionCatalogCache } from './useCollectionTemplateCatalog'
+import type { CandidateField, CollectionTemplate } from '../../types/collectionTemplate'
+import type { ScrapeJob } from '../../types/strategy'
 
 const createMock = vi.fn()
 const updateMock = vi.fn()
 const instancesMock = vi.fn()
 const domainListMock = vi.fn()
-const mappingListMock = vi.fn()
 const labelListMock = vi.fn()
-const exporterCreateMock = vi.fn()
 const blackboxModuleListMock = vi.fn()
+const templateListMock = vi.fn()
+const candidateFieldsMock = vi.fn()
 
 vi.mock('../../api/domain', () => ({
   networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
-}))
-
-vi.mock('../../api/ciExporterMappings', () => ({
-  ciExporterMappingApi: { list: (...args: unknown[]) => mappingListMock(...args) },
 }))
 
 vi.mock('../../api/scrapeJobs', () => ({
@@ -35,16 +34,19 @@ vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: { list: (...args: unknown[]) => labelListMock(...args) },
 }))
 
-vi.mock('../../api/exporterTemplates', () => ({
-  exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
+// M01 v1.5：采集模板目录 + 选择器字段字典（「监控对象类型」下拉已下线）
+vi.mock('../../api/collectionTemplates', () => ({
+  collectionTemplateApi: { list: (...args: unknown[]) => templateListMock(...args) },
+  candidateFieldApi: { list: (...args: unknown[]) => candidateFieldsMock(...args) },
 }))
 
 vi.mock('../../api/blackboxModules', () => ({
   blackboxModuleApi: { list: (...args: unknown[]) => blackboxModuleListMock(...args) },
 }))
 
-vi.mock('../../api/configCenter', () => ({
-  configSyncTriggerApi: { trigger: vi.fn().mockResolvedValue({ status: 'success', data: { accepted: true } }) },
+// 保存成功后 best-effort 触发配置生成：测试内静默，避免真实请求
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDrafts: vi.fn().mockResolvedValue(undefined),
 }))
 
 // 实例选择器独立测试（F5），抽屉内直接 stub
@@ -56,15 +58,83 @@ vi.mock('./ExporterInstallationPanel', () => ({
   ExporterInstallationPanel: () => null,
 }))
 
+/** 采集模板 fixture（M01 v1.5：模板决定资源类别 / 采集器 / 默认参数 / 推荐选择器） */
+function makeTemplate(over: Partial<CollectionTemplate>): CollectionTemplate {
+  return {
+    code: 'mysql',
+    name: 'MySQL 采集',
+    resource_category: 'database',
+    exporter_template_id: 'exp-1',
+    default_port: 9104,
+    metrics_path: '',
+    scheme: '',
+    scrape_interval: '',
+    scrape_timeout: '',
+    label_template_id: '',
+    default_selector: { logic: 'all', filters: [] },
+    sort_order: 1,
+    enabled: true,
+    is_builtin: true,
+    reference_job_count: 0,
+    ...over,
+  }
+}
+
+const MYSQL_TEMPLATE = makeTemplate({
+  default_selector: { logic: 'all', filters: [{ field: 'database_type', operator: 'eq', values: ['mysql'] }] },
+})
+const HOST_TEMPLATE = makeTemplate({
+  code: 'host_linux',
+  name: 'Linux 主机采集',
+  resource_category: 'host',
+  exporter_template_id: 'node-exporter',
+  default_port: 9100,
+  sort_order: 2,
+})
+// 停用模板不得出现在下拉中
+const REDIS_TEMPLATE = makeTemplate({
+  code: 'redis',
+  name: 'Redis 采集',
+  exporter_template_id: 'exp-redis',
+  default_port: 6379,
+  enabled: false,
+  sort_order: 3,
+})
+const APP_TEMPLATE = makeTemplate({
+  code: 'application_http',
+  name: 'HTTP 应用采集',
+  resource_category: 'application',
+  exporter_template_id: 'exp-app',
+  default_port: 8080,
+  sort_order: 4,
+})
+const TEMPLATES = [MYSQL_TEMPLATE, HOST_TEMPLATE, REDIS_TEMPLATE, APP_TEMPLATE]
+
+/** 选择器字段字典 fixture（SelectorEditor 下拉取值来源） */
+const CANDIDATE_FIELDS: CandidateField[] = [
+  { key: 'database_type', label: '数据库类型', kind: 'text', categories: ['database'], custom: false },
+  { key: 'os_family', label: '操作系统', kind: 'os_family', categories: ['host'], custom: false },
+]
+
 beforeEach(() => {
+  // useCollectionTemplateCatalog 有进程内缓存，用例之间必须清空才能重新取 mock 数据
+  resetCollectionCatalogCache()
   createMock.mockReset()
   updateMock.mockReset()
   instancesMock.mockReset()
   domainListMock.mockReset()
-  mappingListMock.mockReset()
   labelListMock.mockReset()
-  exporterCreateMock.mockReset()
   blackboxModuleListMock.mockReset()
+  templateListMock.mockReset()
+  candidateFieldsMock.mockReset()
+  templateListMock.mockResolvedValue({
+    status: 'success',
+    data: { list: TEMPLATES, total: TEMPLATES.length, page: 1, page_size: 100 },
+  })
+  candidateFieldsMock.mockResolvedValue({
+    status: 'success',
+    data: { list: CANDIDATE_FIELDS, total: CANDIDATE_FIELDS.length },
+  })
   blackboxModuleListMock.mockResolvedValue({
     status: 'success',
     data: {
@@ -115,13 +185,13 @@ beforeEach(() => {
 })
 
 /** 渲染抽屉：MemoryRouter + Routes 供网域空态「前往网域管理」与端口来源「前往 M07 修改」跳转断言 */
-function renderDrawer(record?: unknown) {
+function renderDrawer(record?: ScrapeJob | null) {
   render(
     <MemoryRouter initialEntries={['/scrape-jobs']}>
       <Routes>
         <Route
           path="/scrape-jobs"
-          element={<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />}
+          element={<ScrapeJobFormDrawer open record={record ?? null} onCancel={() => {}} onSuccess={() => {}} />}
         />
         <Route path="/admin/domains" element={<div>domains-page</div>} />
         <Route path="/resources" element={<div>resources-page</div>} />
@@ -131,26 +201,37 @@ function renderDrawer(record?: unknown) {
 }
 
 /** {T01-P6} 编辑态标准 Job 记录（回显用例共用基线） */
-const EDIT_RECORD = {
-  id: 1,
+const EDIT_RECORD: ScrapeJob = {
+  id: '1',
   job_name: 'job-mysql-1',
   job_type: 'standard',
-  monitor_type: 'mysql',
+  resource_type: 'host',
+  template_code: 'mysql',
   network_domain_id: 'mc-a',
+  instance_selection_mode: 'manual',
+  selected_instance_ids: [],
   scrape_interval: '15s',
   scrape_timeout: '10s',
   metrics_path: '/metrics',
   scheme: 'http',
   auth_type: 'none',
   tls_skip_verify: false,
+  filter_rules: '',
+  draft_status: 'ready',
+  enabled: true,
+  created_at: '2026-08-23T00:00:00Z',
+  updated_at: '2026-08-23T00:00:00Z',
 }
 
-// F1-8 两级级联：先选资源类别，再选监控对象类型
-async function selectCategoryAndType(categoryText: string, typeText: string) {
-  fireEvent.mouseDown(screen.getByText('请选择'))
-  await selectAntdOption(categoryText)
-  fireEvent.mouseDown(screen.getByText('请选择监控对象类型'))
-  await selectAntdOption(typeText)
+/** M01 v1.5：标准采集的第一步是选采集模板（option label = `名称（资源类别）`） */
+async function selectTemplate(optionLabel: string) {
+  fireEvent.mouseDown(screen.getByText('请选择采集模板'))
+  await selectAntdOption(optionLabel)
+}
+
+async function selectDomain() {
+  fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+  await selectAntdOption('网域A')
 }
 
 describe('ScrapeJobFormDrawer', () => {
@@ -160,12 +241,17 @@ describe('ScrapeJobFormDrawer', () => {
     renderDrawer()
     expect(screen.getByText('新增采集任务')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：prod-mysql-01')).toBeInTheDocument()
-    expect(screen.getByText('监控对象类型')).toBeInTheDocument()
-    expect(screen.getByText('资源类别')).toBeInTheDocument()
+    // M01 v1.5：采集模板取代「监控对象类型」
+    expect(screen.getByText('采集模板')).toBeInTheDocument()
+    expect(screen.getByText('请选择采集模板')).toBeInTheDocument()
+    expect(screen.getByText('采哪些对象')).toBeInTheDocument()
+    expect(screen.getByText('不限条件：该模板类别下全部对象')).toBeInTheDocument()
+    expect(screen.getByText('网域')).toBeInTheDocument()
+    expect(screen.queryByText('监控对象类型')).toBeNull()
     expect(screen.getByTestId('instance-selector')).toBeInTheDocument()
   })
 
-  it('switching to blackbox hides monitor/exporter and shows blackbox fields', async () => {
+  it('switching to blackbox hides template/selector and shows blackbox fields', async () => {
     renderDrawer()
 
     fireEvent.click(screen.getByRole('radio', { name: '拨测' }))
@@ -176,7 +262,10 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.getByText('拨测目标')).toBeInTheDocument()
     // 探测地址字段已写死（接口服务→接口地址、应用服务→健康检查 URL），不再是输入项
     expect(screen.queryByText('探测地址字段')).toBeNull()
+    // 拨测没有采集模板与选择器
     expect(screen.queryByText('监控对象类型')).toBeNull()
+    expect(screen.queryByText('采集模板')).toBeNull()
+    expect(screen.queryByText('采哪些对象')).toBeNull()
   })
 
   it('loads custom blackbox modules from the module API', async () => {
@@ -219,11 +308,10 @@ describe('ScrapeJobFormDrawer', () => {
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'probe-x')
 
     // 选择网域
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
 
     // 选择拨测模块（placeholder 文本，非属性）；antd 会同时渲染 accessibility role=option 与 option-content，
-// 因此用 selector 精确定位可点击的 option-content
+    // 因此用 selector 精确定位可点击的 option-content
     fireEvent.mouseDown(await screen.findByText('选择拨测模块'))
     const moduleOption = await screen.findByText('http_2xx', { selector: '.ant-select-item-option-content' })
     await userEvent.click(moduleOption)
@@ -249,6 +337,9 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.resource_type).toBe('interface_service')
     expect(body.target_field).toBeUndefined()
     expect(body.blackbox_targets).toBeUndefined()
+    // 拨测没有采集模板 / 选择器
+    expect(body.template_code).toBe('')
+    expect(body.selector).toEqual({ logic: 'all', filters: [] })
   })
 
   it('blackbox：资源类别只提供接口服务 / 应用服务两类', async () => {
@@ -297,8 +388,7 @@ describe('ScrapeJobFormDrawer', () => {
     // 切换为自定义方案并提交
     fireEvent.click(screen.getByRole('radio', { name: /接口服务自定义模板/ }))
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'probe-label')
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
     fireEvent.mouseDown(await screen.findByText('选择拨测模块'))
     await userEvent.click(await screen.findByText('http_2xx', { selector: '.ant-select-item-option-content' }))
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
@@ -307,45 +397,32 @@ describe('ScrapeJobFormDrawer', () => {
     expect((createMock.mock.calls[0][0] as Record<string, unknown>).label_template_id).toBe('lt-if-2')
   })
 
-  it('standard：不使用标签模板时提交空模板 ID 与资源类别', async () => {
+  it('standard：选择采集模板后带出类别 / 采集器 / 推荐选择器，不使用标签模板时提交空模板 ID', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 13, job_name: 'default-label', job_type: 'standard' } })
-    labelListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          { id: 'lt-db-mysql', name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 100,
-      },
-    })
-    mappingListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        // 监控对象类型的默认采集配置未配标签模板 → 表单停在「使用默认标签模板」
-        list: [
-          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-1', scrape_interval: '30s', scrape_timeout: '20s', metrics_path: '/m', scheme: 'http', label_template_id: undefined },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      },
-    })
     renderDrawer()
 
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'default-label')
-    await selectCategoryAndType('数据库', 'MySQL')
+    await selectTemplate('MySQL 采集（数据库）')
+    // 模板默认不带标签模板 → 表单停在「不使用标签模板」
     expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
+    // 模板 extra 回显资源类别与默认端口
+    expect(await screen.findByText(/资源类别：数据库 · 默认端口 9104/)).toBeInTheDocument()
 
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.template_code).toBe('mysql')
+    expect(body.resource_category).toBe('database')
+    expect(body.exporter_template_id).toBe('exp-1')
     expect(body.label_template_id).toBe('')
-    expect(body.resource_type).toBe('database')
+    // 提交契约：template_code + selector，不再有 monitor_type
+    expect(body.monitor_type).toBeUndefined()
+    expect(body.selector).toEqual({
+      logic: 'all',
+      filters: [{ field: 'database_type', operator: 'eq', values: ['mysql'] }],
+    })
   })
 
   it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {
@@ -355,8 +432,7 @@ describe('ScrapeJobFormDrawer', () => {
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'draft-job')
 
     // 选择网域
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
 
     // 点击保存草稿（仅校验 job_name / job_type）
     fireEvent.click(screen.getByRole('button', { name: /保\s*存\s*草\s*稿/ }))
@@ -370,50 +446,62 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.enabled).toBe(true)
   })
 
-  it('leaves scrape params optional with inheritance placeholders and submits sparse values (F-28)', async () => {
-    createMock.mockResolvedValue({ status: 'success', data: { id: 11, job_name: 'sparse-job', job_type: 'standard' } })
-    mappingListMock.mockResolvedValue({
+  it('prefills params from the template and submits sparse values after clearing (F-28)', async () => {
+    templateListMock.mockResolvedValue({
       status: 'success',
       data: {
         list: [
-          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-1', scrape_interval: '30s', scrape_timeout: '20s', metrics_path: '/m', scheme: 'https', label_template_id: undefined },
+          makeTemplate({ ...MYSQL_TEMPLATE, scrape_interval: '30s', scrape_timeout: '20s', metrics_path: '/m', scheme: 'https' }),
+          HOST_TEMPLATE,
         ],
-        total: 1,
+        total: 2,
         page: 1,
-        page_size: 20,
+        page_size: 100,
       },
     })
+    createMock.mockResolvedValue({ status: 'success', data: { id: 11, job_name: 'sparse-job', job_type: 'standard' } })
     renderDrawer()
 
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'sparse-job')
-    await selectCategoryAndType('数据库', 'MySQL')
+    await selectTemplate('MySQL 采集（数据库）')
 
-    // F-28：映射默认值以 placeholder 提示，不再值预填进表单
-    expect(await screen.findByPlaceholderText('留空继承默认采集配置（30s）')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('留空继承默认采集配置（/m）')).toBeInTheDocument()
+    // 选模板后参数按模板值预填（可覆盖）
+    const intervalInput = await screen.findByDisplayValue('30s')
+    const timeoutInput = screen.getByDisplayValue('20s')
+    const pathInput = screen.getByDisplayValue('/m')
+    const schemeInput = screen.getByDisplayValue('https')
+
+    // 清空 = 回到继承：placeholder 仍提示模板生效值（F-28）
+    await userEvent.clear(intervalInput)
+    await userEvent.clear(timeoutInput)
+    await userEvent.clear(pathInput)
+    await userEvent.clear(schemeInput)
+    expect(await screen.findByPlaceholderText('留空继承采集模板（30s）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('留空继承采集模板（20s）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('留空继承采集模板（/m）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('留空继承采集模板（https）')).toBeInTheDocument()
 
     // 选择网域后直接提交生效（采集参数全部留空 = 继承）
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
-    // 留空字段显式归一为 '' 提交，由后端按 映射→模板→全局 链解析生效快照
+    // 留空字段显式归一为 '' 提交，由后端按 模板→采集器→全局 链解析生效快照
     expect(body.scrape_interval).toBe('')
     expect(body.scrape_timeout).toBe('')
     expect(body.metrics_path).toBe('')
     expect(body.scheme).toBe('')
-    // 默认采集器仍自动带出
+    // 默认采集器由采集模板带出
     expect(body.exporter_template_id).toBe('exp-1')
   })
 
   // 采集地址拆分（M01 侧）：application_http 的采集地址来自资源台账「端点 + 端口」，
   // metrics_path 无通用默认值，必须显式填写，否则后端 bad_request。
-  it('requires metrics_path and shows guidance for application_http', async () => {
+  it('requires metrics_path and shows guidance for application_http template', async () => {
     renderDrawer()
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'app-job')
-    await selectCategoryAndType('应用服务', 'HTTP 应用')
+    await selectTemplate('HTTP 应用采集（应用服务）')
 
     // 引导文案 + 应用口径 placeholder
     expect(await screen.findByText(/应用采集地址来自资源台账/)).toBeInTheDocument()
@@ -422,8 +510,7 @@ describe('ScrapeJobFormDrawer', () => {
     ).toBeInTheDocument()
 
     // 选网域后留空 metrics_path 提交 → 必填校验拦截且不提交
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() =>
@@ -432,32 +519,24 @@ describe('ScrapeJobFormDrawer', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('keeps metrics_path optional for non-application monitor type', async () => {
+  it('keeps metrics_path optional for non-application templates', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 12, job_name: 'host-job', job_type: 'standard' } })
     renderDrawer()
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'host-job')
-    await selectCategoryAndType('主机', 'Linux 主机')
+    await selectTemplate('Linux 主机采集（主机）')
 
     // 非 application_http：无必填、无引导文案，保持「留空=继承」
     expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
     expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
 
-    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
-    await selectAntdOption('网域A')
+    await selectDomain()
     fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
-    expect((createMock.mock.calls[0][0] as Record<string, unknown>).metrics_path).toBe('')
-  })
-
-  it('offers NPU under the host category without application-specific path requirements', async () => {
-    renderDrawer()
-    // npu 已更名为 host_npu、展示名「NPU 主机」（M01 SRS v1.3）
-    await selectCategoryAndType('主机', 'NPU 主机')
-
-    expect(screen.getAllByText(/NPU/).length).toBeGreaterThan(0)
-    expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
-    expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
+    const body = createMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.metrics_path).toBe('')
+    expect(body.template_code).toBe('host_linux')
+    expect(body.resource_category).toBe('host')
   })
 
   it('renders label template as card filtered by resource category (F1-4)', async () => {
@@ -475,8 +554,8 @@ describe('ScrapeJobFormDrawer', () => {
     })
     renderDrawer()
 
-    // F1-8：资源类别=数据库 → 监控对象类型=MySQL（两级级联）
-    await selectCategoryAndType('数据库', 'MySQL')
+    // 采集模板=MySQL → 资源类别=数据库，标签模板按该类别过滤
+    await selectTemplate('MySQL 采集（数据库）')
 
     // 仅展示 database 类别模板（默认模板选项文本包含模板名），host 类别不展示
     expect(await screen.findByText(/MySQL 标准标签/)).toBeInTheDocument()
@@ -489,66 +568,40 @@ describe('ScrapeJobFormDrawer', () => {
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
-    await selectCategoryAndType('数据库', 'MySQL')
+    await selectTemplate('MySQL 采集（数据库）')
     expect(await screen.findByText('不使用标签模板')).toBeInTheDocument()
   })
 
-  it('filters monitor type options by resource category and triggers default collector (F1-8)', async () => {
-    mappingListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          {
-            id: 1,
-            monitor_type: 'mysql',
-            exporter_template_id: 'exp-1',
-            scrape_interval: '15s',
-            scrape_timeout: '10s',
-            metrics_path: '/metrics',
-            scheme: 'http',
-            label_template_id: undefined,
-          },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      },
-    })
+  it('lists only enabled templates with 「名称（资源类别）」 option labels (F1-8)', async () => {
     renderDrawer()
 
-    // 选中资源类别=数据库
-    fireEvent.mouseDown(screen.getByText('请选择'))
-    await selectAntdOption('数据库')
-
-    // 打开监控对象类型下拉：仅展示数据库下类型，不含主机类型
-    fireEvent.mouseDown(screen.getByText('请选择监控对象类型'))
-    expect(await screen.findByText('MySQL')).toBeInTheDocument()
-    expect(screen.queryByText('Linux 主机')).toBeNull()
-
-    // 选中 MySQL → 沿用 handleMonitorTypeChange 带出默认采集器与参数
-    await selectAntdOption('MySQL')
-    await waitFor(() =>
-      expect(mappingListMock).toHaveBeenCalledWith({ monitor_type: 'mysql', is_default: true, page: 1, page_size: 20 }),
-    )
+    fireEvent.mouseDown(screen.getByText('请选择采集模板'))
+    // option label = `${name}（${resource_category 展示名}）`
+    expect(await screen.findByText('MySQL 采集（数据库）', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    expect(screen.getByText('Linux 主机采集（主机）', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    expect(screen.getByText('HTTP 应用采集（应用服务）', { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+    // 停用模板不进下拉
+    expect(screen.queryByText('Redis 采集（数据库）', { selector: '.ant-select-item-option-content' })).toBeNull()
   })
 
-  it('echoes resource category derived from monitor_type in edit mode (F1-8)', async () => {
-    renderDrawer({
-      id: 1,
-      job_name: 'job-mysql-1',
-      job_type: 'standard',
-      monitor_type: 'mysql',
-      network_domain_id: 'mc-a',
-      scrape_interval: '15s',
-      scrape_timeout: '10s',
-      metrics_path: '/metrics',
-      scheme: 'http',
-      auth_type: 'none',
-      tls_skip_verify: false,
-    })
-    // 编辑态回显：由 monitor_type=mysql 反推资源类别=数据库，监控对象类型=MySQL
-    expect(await screen.findByText('数据库')).toBeInTheDocument()
-    expect(screen.getByText('MySQL')).toBeInTheDocument()
+  it('prefills the recommended selector from template.default_selector', async () => {
+    renderDrawer()
+    await selectTemplate('MySQL 采集（数据库）')
+
+    // 模板推荐条件（database_type = mysql）预填 + 明示可修改
+    expect(await screen.findByText('已按模板推荐条件预填，可修改')).toBeInTheDocument()
+    // 条件行已按模板推荐值渲染：字段=数据库类型 / 操作符=等于 / 取值含 mysql
+    expect(screen.getByText('数据库类型')).toBeInTheDocument()
+    expect(screen.getByText('等于')).toBeInTheDocument()
+    expect(screen.getAllByText('mysql').length).toBeGreaterThan(0)
+  })
+
+  it('echoes selected template and its resource category in edit mode (F1-8)', async () => {
+    renderDrawer(EDIT_RECORD)
+    // 编辑态回显：采集模板=MySQL，资源类别由模板带出（数据库）
+    expect(await screen.findByText('MySQL 采集（数据库）')).toBeInTheDocument()
+    expect(await screen.findByText(/资源类别：数据库 · 默认端口 9104/)).toBeInTheDocument()
+    expect(screen.queryByText('监控对象类型')).toBeNull()
   })
 
   it('echoes standard params and label template selection in edit mode', async () => {
@@ -564,40 +617,18 @@ describe('ScrapeJobFormDrawer', () => {
         page_size: 100,
       },
     })
-    // 决定性实验：默认映射返回与 record 不同的间隔 99s，
-    // 若编辑回显显示 15s（record 值）则证明 setFieldsValue 不触发 handleMonitorTypeChange 覆盖；显示 99s 则证明被覆盖。
-    mappingListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        list: [
-          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-x', scrape_interval: '99s', scrape_timeout: '90s', metrics_path: '/x', scheme: 'ftp', label_template_id: undefined },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      },
-    })
     renderDrawer({
-      id: 1,
-      job_name: 'job-mysql-1',
-      job_type: 'standard',
-      monitor_type: 'mysql',
-      network_domain_id: 'mc-a',
-      scrape_interval: '15s',
-      scrape_timeout: '10s',
-      metrics_path: '/metrics',
+      ...EDIT_RECORD,
       scheme: 'https',
-      auth_type: 'none',
-      tls_skip_verify: false,
       label_template_id: 'lt-db-mysql',
     })
-    // 采集参数（SCRAPE_PARAM_FIELDS）由 record 回显，而非被默认映射（99s）覆盖
+    // 采集参数（SCRAPE_PARAM_FIELDS）由 record 回显，而非被模板默认值覆盖
+    // （模板 mysql 的默认参数为空）
     expect(await screen.findByDisplayValue('15s')).toBeInTheDocument()
     expect(screen.getByDisplayValue('10s')).toBeInTheDocument()
     expect(screen.getByDisplayValue('/metrics')).toBeInTheDocument()
     expect(screen.getByDisplayValue('https')).toBeInTheDocument()
-    expect(screen.queryByDisplayValue('99s')).toBeNull()
-    // 标签模板默认选项携带默认模板 ID（value=7）；默认模板不再重复渲染为普通卡片
+    // 标签模板默认选项携带默认模板 ID；默认模板不再重复渲染为普通卡片
     expect(await screen.findByText(/MySQL 标准标签/)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /MySQL 标准标签/ })).toBeChecked()
   })
@@ -607,19 +638,6 @@ describe('ScrapeJobFormDrawer', () => {
   // 晚于父组件 useEffect 的 setFieldsValue），字段注册前 setFieldsValue 被吞；forceRender 保证
   // Form 常驻挂载后，首次打开（含刷新后第一次点编辑）即正确回显，不再依赖勾选等交互垫时序。
   it('edit mode echoes fields when drawer transitions from closed to open (first open)', async () => {
-    const record = {
-      id: 1,
-      job_name: 'job-mysql-1',
-      job_type: 'standard',
-      monitor_type: 'mysql',
-      network_domain_id: 'mc-a',
-      scrape_interval: '15s',
-      scrape_timeout: '10s',
-      metrics_path: '/metrics',
-      scheme: 'http',
-      auth_type: 'none',
-      tls_skip_verify: false,
-    }
     const { rerender } = render(
       <MemoryRouter initialEntries={['/scrape-jobs']}>
         <Routes>
@@ -635,7 +653,7 @@ describe('ScrapeJobFormDrawer', () => {
         <Routes>
           <Route
             path="/scrape-jobs"
-            element={<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />}
+            element={<ScrapeJobFormDrawer open record={EDIT_RECORD} onCancel={() => {}} onSuccess={() => {}} />}
           />
         </Routes>
       </MemoryRouter>,
@@ -644,15 +662,6 @@ describe('ScrapeJobFormDrawer', () => {
     expect(await screen.findByDisplayValue('job-mysql-1')).toBeInTheDocument()
     expect(screen.getByDisplayValue('15s')).toBeInTheDocument()
     expect(screen.getByDisplayValue('/metrics')).toBeInTheDocument()
-  })
-
-  it('opens collector register drawer from inline button only in empty state (C1)', async () => {
-    renderDrawer()
-    // Q1a：登记入口仅空态展示（已选监控对象类型但无默认采集器）；未选类型时不出现
-    expect(screen.queryByRole('button', { name: /登记采集器/ })).toBeNull()
-    await selectCategoryAndType('数据库', 'MySQL')
-    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
-    expect(await screen.findByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
   })
 
   it('shows cross-module guidance to M06 domain management when no monitored domain (O3/T01-F16)', async () => {
@@ -723,6 +732,10 @@ describe('ScrapeJobFormDrawer', () => {
     expect(saveBtn).toBeEnabled()
     fireEvent.click(saveBtn)
     await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    // 编辑保存同样提交 template_code（不再有 monitor_type）
+    const body = updateMock.mock.calls[0][1] as Record<string, unknown>
+    expect(body.template_code).toBe('mysql')
+    expect(body.monitor_type).toBeUndefined()
   })
 
   // {T01-P6} unresolved：端口展示 '-'（非 0，§9 失败态口径）+ 「前往 M07 修改」引导
@@ -752,7 +765,7 @@ describe('ScrapeJobFormDrawer', () => {
       ...EDIT_RECORD,
       job_type: 'blackbox',
       blackbox_module: 'http_2xx',
-      blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }],
+      resource_type: 'interface_service',
     })
     expect(await screen.findByText('拨测模块')).toBeInTheDocument()
     expect(instancesMock).not.toHaveBeenCalled()
