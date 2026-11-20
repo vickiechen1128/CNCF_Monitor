@@ -53,14 +53,3 @@ func ValidateMatchers(field string, matchers []Matcher) []ValidationIssue {
 	}
 	return issues
 }
-
-// LabelValue returns the matcher value for the given label name (exact
-// matchers only); used for network-domain scoping checks.
-func LabelValue(matchers []Matcher, name string) (string, bool) {
-	for _, m := range matchers {
-		if m.Name == name && !m.IsRegex {
-			return m.Value, true
-		}
-	}
-	return "", false
-}

@@ -16,11 +16,7 @@
 // 便于直接查看与按自然日统计；occurrence_key 归一化时使用 UTC（去重键与时区无关）。
 package models
 
-import (
-	"crypto/sha256"
-	"encoding/hex"
-	"time"
-)
+import "time"
 
 // AlertEventLocation 是历史告警时间字段的统一存储时区（UTC+8）。
 // 只用于落库与查询边界归一化，不改变时间点本身。
@@ -70,53 +66,6 @@ var AlertEventInferredTerminalStatuses = []AlertEventStatus{
 	AlertEventStatusSilencedClosed,
 	AlertEventStatusInhibitedClosed,
 	AlertEventStatusLost,
-}
-
-// IsOpenAlertEventStatus 判定是否为未结三态。
-func IsOpenAlertEventStatus(s AlertEventStatus) bool {
-	return s == AlertEventStatusFiring || s == AlertEventStatusSilenced || s == AlertEventStatusInhibited
-}
-
-// IsInferredAlertEventStatus 判定是否为「恢复时间未知」的终态。
-func IsInferredAlertEventStatus(s AlertEventStatus) bool {
-	return s == AlertEventStatusSilencedClosed || s == AlertEventStatusInhibitedClosed ||
-		s == AlertEventStatusLost
-}
-
-// IsValidAlertEventStatus 判定是否为合法七态取值。
-func IsValidAlertEventStatus(s AlertEventStatus) bool {
-	return IsOpenAlertEventStatus(s) || s == AlertEventStatusResolved ||
-		s == AlertEventStatusSilencedClosed || s == AlertEventStatusInhibitedClosed ||
-		s == AlertEventStatusLost
-}
-
-// NormalizeAlertEventTime 把时刻转换为历史告警表的统一存储时区（UTC+8）。
-func NormalizeAlertEventTime(t time.Time) time.Time {
-	return t.In(AlertEventLocation)
-}
-
-// NormalizeAlertEventTimePtr 是 NormalizeAlertEventTime 的指针版本（nil 透传）。
-func NormalizeAlertEventTimePtr(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	v := NormalizeAlertEventTime(*t)
-	return &v
-}
-
-// AlertEventOccurrenceKey 返回一次告警发生的去重键：
-// SHA-256(指纹 + "|" + 归一化到 UTC 毫秒的开始时间)。
-//
-// 归一化只用于哈希：统一转 UTC、截到毫秒、固定格式，避免 webhook 与对账
-// 两个通道拿到的同一时刻因时区/精度写法不同而算出不同键。指纹为空时返回空串，
-// 这类记录不参与 occurrence 唯一约束（保持「无指纹原样落库」的既有口径）。
-func AlertEventOccurrenceKey(fingerprint string, startsAt time.Time) string {
-	if fingerprint == "" {
-		return ""
-	}
-	canonical := startsAt.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
-	sum := sha256.Sum256([]byte(fingerprint + "|" + canonical))
-	return hex.EncodeToString(sum[:])
 }
 
 // AlertEvent 是历史告警记录（历史告警表 alert_events）。

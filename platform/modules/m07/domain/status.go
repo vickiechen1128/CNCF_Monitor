@@ -1,7 +1,5 @@
 package domain
 
-import "strings"
-
 // Status is the resource running status.
 type Status string
 
@@ -60,31 +58,4 @@ func (e Environment) Valid() bool {
 	default:
 		return false
 	}
-}
-
-// NormalizeStatus parses a status string.
-func NormalizeStatus(raw string) (Status, error) {
-	s := Status(strings.TrimSpace(raw))
-	if !s.Valid() {
-		return "", newValidationError("status", "must be online/offline/maintenance")
-	}
-	return s, nil
-}
-
-// NormalizeSourceType parses a source type string.
-func NormalizeSourceType(raw string) (SourceType, error) {
-	s := SourceType(strings.TrimSpace(raw))
-	if !s.Valid() {
-		return "", newValidationError("source_type", "must be manual/import/cmdb")
-	}
-	return s, nil
-}
-
-// NormalizeEnvironment parses an environment string.
-func NormalizeEnvironment(raw string) (Environment, error) {
-	e := Environment(strings.TrimSpace(raw))
-	if !e.Valid() {
-		return "", newValidationError("env", "must be OPS/PRD/UAT")
-	}
-	return e, nil
 }

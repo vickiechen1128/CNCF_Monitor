@@ -10,17 +10,6 @@ import "strings"
 // snapshot once the M01 module boots. Adding a type therefore requires no code
 // change (NFR-11).
 
-// ValidMonitorTypes returns the code of every known monitor type, ordered by
-// resource category, sort order and code.
-func ValidMonitorTypes() []string {
-	entries := ActiveMonitorTypeRegistry().All()
-	out := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry.Definition.Code)
-	}
-	return out
-}
-
 // ValidMonitorType reports whether monitorType exists and is enabled.
 func ValidMonitorType(monitorType string) bool {
 	return ActiveMonitorTypeRegistry().Valid(strings.TrimSpace(monitorType))

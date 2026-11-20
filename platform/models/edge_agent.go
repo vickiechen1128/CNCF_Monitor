@@ -1,9 +1,6 @@
 package models
 
-import (
-	"errors"
-	"time"
-)
+import "time"
 
 // EdgeAgent status constants (决策 82-1：新增 retired 终态)
 const (
@@ -12,26 +9,6 @@ const (
 	EdgeAgentStatusUnknown = "unknown"
 	EdgeAgentStatusRetired = "retired" // 终态：已退场，保留供审计追溯
 )
-
-// IsValidEdgeAgentStatus checks if the status is valid
-func IsValidEdgeAgentStatus(status string) bool {
-	switch status {
-	case EdgeAgentStatusOnline, EdgeAgentStatusOffline, EdgeAgentStatusUnknown, EdgeAgentStatusRetired:
-		return true
-	}
-	return false
-}
-
-// CanTransitionToEdgeAgentStatus validates status transition (retired is terminal)
-func CanTransitionToEdgeAgentStatus(from, to string) error {
-	if from == EdgeAgentStatusRetired {
-		return errors.New("retired is a terminal status, cannot transition")
-	}
-	if !IsValidEdgeAgentStatus(to) {
-		return errors.New("invalid target status")
-	}
-	return nil
-}
 
 // EdgeAgent represents an edge agent deployment (Edge Sync Agent + collector),
 // aligned with Module_11 §5.2. MVP only models it; no runtime logic is

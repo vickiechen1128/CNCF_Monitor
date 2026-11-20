@@ -12,27 +12,6 @@ const (
 	MetricTypeUnknown   MetricType = "unknown"
 )
 
-// ValidMetricTypes returns the authoritative metric type set.
-func ValidMetricTypes() []MetricType {
-	return []MetricType{
-		MetricTypeCounter,
-		MetricTypeGauge,
-		MetricTypeHistogram,
-		MetricTypeSummary,
-		MetricTypeUnknown,
-	}
-}
-
-// ValidMetricType reports whether mt is a known metric type.
-func ValidMetricType(mt string) bool {
-	for _, v := range ValidMetricTypes() {
-		if string(v) == mt {
-			return true
-		}
-	}
-	return false
-}
-
 // ExporterMetricAnchor 是技术指标库的分组锚点：指标的 monitor_type 归属 + 来源采集器
 // 标注（解决同名不同义，Module_01 §5.3）。
 type ExporterMetricAnchor struct {

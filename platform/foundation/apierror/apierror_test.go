@@ -31,17 +31,6 @@ func TestErrorDefaults(t *testing.T) {
 	assert.Equal(t, "bad_request", New(BadRequest, "").Error())
 }
 
-func TestStatusCode(t *testing.T) {
-	cases := map[Kind]int{
-		BadRequest: 400, Unauthorized: 401, Forbidden: 403,
-		NotFound: 404, Conflict: 409, Unavailable: 503, Internal: 500,
-		Kind("unknown"): 500,
-	}
-	for kind, want := range cases {
-		assert.Equal(t, want, StatusCode(kind), kind)
-	}
-}
-
 type legacyCoded struct{}
 
 func (legacyCoded) Error() string   { return "legacy" }

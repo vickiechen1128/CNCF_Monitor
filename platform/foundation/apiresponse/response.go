@@ -114,13 +114,6 @@ func BadRequest(c *gin.Context, err error) {
 	c.JSON(http.StatusBadRequest, Fail(ErrorTypeBadRequest, err))
 }
 
-// BadRequestWithType writes a 400 response with a caller-specified errorType,
-// 保持统一信封的同时让前端可区分可预期的业务拒绝（如 job_ref_unresolved，
-// 决策 67-2）。仅用于 400 族，勿传 ErrorTypeInternal（会走内部错误脱敏路径）。
-func BadRequestWithType(c *gin.Context, errorType string, err error) {
-	c.JSON(http.StatusBadRequest, Fail(errorType, err))
-}
-
 // BadRequestWithDetails writes a 400 response that carries a structured data
 // block (for example line-level validation issues). It keeps the shared
 // envelope while letting clients branch on data instead of parsing messages.

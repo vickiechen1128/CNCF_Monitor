@@ -103,23 +103,3 @@ func KindOf(err error) Kind {
 	}
 	return Internal
 }
-
-// StatusCode maps a kind to its HTTP status code.
-func StatusCode(kind Kind) int {
-	switch kind {
-	case BadRequest:
-		return 400
-	case Unauthorized:
-		return 401
-	case Forbidden:
-		return 403
-	case NotFound:
-		return 404
-	case Conflict:
-		return 409
-	case Unavailable:
-		return 503
-	default:
-		return 500
-	}
-}

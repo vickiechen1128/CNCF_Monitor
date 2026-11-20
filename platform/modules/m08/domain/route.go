@@ -92,24 +92,6 @@ func walkRoute(node *RouteNode, path string, depth int, allowed map[string]bool,
 	}
 }
 
-// EnabledRoute returns a copy of the tree with disabled nodes (and their
-// subtrees) removed; the generator renders only enabled branches.
-func EnabledRoute(nodes []RouteNode) []RouteNode {
-	out := make([]RouteNode, 0, len(nodes))
-	for _, node := range nodes {
-		if !node.Enabled && len(nodes) == 1 && node.ID != "" {
-			// Keep the root even when disabled: AM requires a route root.
-			node.Enabled = true
-		}
-		if !node.Enabled {
-			continue
-		}
-		node.Children = EnabledRoute(node.Children)
-		out = append(out, node)
-	}
-	return out
-}
-
 // CollectReceivers returns every receiver referenced by an enabled node.
 func CollectReceivers(nodes []RouteNode) map[string]bool {
 	out := make(map[string]bool)

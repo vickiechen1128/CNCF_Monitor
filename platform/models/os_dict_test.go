@@ -8,32 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeOSType(t *testing.T) {
-	// 1. 精确匹配（大小写不敏感）→ 返回字典规范名
-	assert.Equal(t, "Ubuntu", NormalizeOSType("ubuntu"))
-	assert.Equal(t, "Ubuntu", NormalizeOSType("  Ubuntu  "))
-	assert.Equal(t, "Windows Server 2019", NormalizeOSType("windows server 2019"))
-	// 2. 规范名前缀 + 版本归一化（后随空格/点/数字边界）
-	assert.Equal(t, "Ubuntu", NormalizeOSType("ubuntu 22.04 LTS"))
-	assert.Equal(t, "CentOS", NormalizeOSType("CentOS 7.9"))
-	assert.Equal(t, "Windows Server 2019", NormalizeOSType("Windows Server 2019 DataCenter"))
-	// 3. 非字典值但含家族 token → 回落为家族标签
-	assert.Equal(t, "Linux", NormalizeOSType("Amazon Linux"))
-	assert.Equal(t, "Linux", NormalizeOSType("Linux Mint"))
-	assert.Equal(t, "Windows", NormalizeOSType("Windows Server 2008"))
-	// 4. 未知/自定义（不含家族 token）→ 保留原样
-	assert.Equal(t, "custom os", NormalizeOSType("custom os"))
-}
-
-func TestResolveOSFamily(t *testing.T) {
-	assert.Equal(t, OSFamilyLinux, ResolveOSFamily("Ubuntu"))
-	assert.Equal(t, OSFamilyLinux, ResolveOSFamily("centos"))
-	assert.Equal(t, OSFamilyWindows, ResolveOSFamily("Windows 10"))
-	assert.Equal(t, OSFamilyLinux, ResolveOSFamily("AIX"))
-	assert.Equal(t, OSFamilyWindows, ResolveOSFamily("win11"))
-	assert.Equal(t, "", ResolveOSFamily("UnknownOS"))
-}
-
 func TestOSKeywordsFor(t *testing.T) {
 	linuxKws := OSKeywordsForLinux()
 	winKws := OSKeywordsForWindows()

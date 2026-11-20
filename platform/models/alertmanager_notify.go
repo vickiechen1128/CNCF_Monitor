@@ -10,25 +10,7 @@
 // AlertmanagerConfigChecksum（sha256 十六进制小写）。
 package models
 
-import (
-	"regexp"
-	"strconv"
-	"strings"
-)
-
-// receiverNamePattern 匹配非 [a-z0-9] 连续片段，用于归一为单个 '-'。
-var receiverNamePattern = regexp.MustCompile(`[^a-z0-9]+`)
-
-// SanitizeReceiverName 把用户显式指定的 receiver 名归一为合法 AM 名：转小写、非 [a-z0-9]
-// 字符归一为 '-'、压缩连续 '-'、去首尾 '-'；结果可为空（调用方负责报错）。
-//
-// 仅用于「接收人配置片段」里用户覆盖名的清洗。平台物化 receiver 名恒为 notify-<id>
-// （见 ReceiverName），不再由渠道名派生，避免改名影响已下发的路由配置。
-func SanitizeReceiverName(raw string) string {
-	s := strings.ToLower(strings.TrimSpace(raw))
-	s = receiverNamePattern.ReplaceAllString(s, "-")
-	return strings.Trim(s, "-")
-}
+import "strconv"
 
 // ReceiverName 返回渠道在 alertmanager.yml 中的稳定 receiver 名：恒为 notify-<id>。
 //

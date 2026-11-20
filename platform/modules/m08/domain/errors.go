@@ -28,11 +28,6 @@ func NewValidationError(field, message string) *ValidationError {
 	return &ValidationError{Field: field, Message: message}
 }
 
-// NewValidationErrorf builds a field validation error with a formatted message.
-func NewValidationErrorf(field, format string, args ...any) *ValidationError {
-	return &ValidationError{Field: field, Message: fmt.Sprintf(format, args...)}
-}
-
 // ValidationIssue is one line-level problem reported by the config validator.
 type ValidationIssue struct {
 	Line    int    `json:"line"`

@@ -134,14 +134,3 @@ func AllowedScopeFieldKeys() []string {
 	}
 	return out
 }
-
-// ScopeFieldSpecsForCategory returns the fields usable by one category.
-func ScopeFieldSpecsForCategory(category ResourceCategory) []ScopeFieldSpec {
-	out := make([]ScopeFieldSpec, 0, len(scopeFieldSpecs))
-	for _, spec := range scopeFieldSpecs {
-		if spec.AppliesTo(category) {
-			out = append(out, spec)
-		}
-	}
-	return out
-}

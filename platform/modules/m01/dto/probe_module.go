@@ -13,15 +13,6 @@ type ProbeModuleRequest struct {
 	Enabled *bool  `json:"enabled"`
 }
 
-// ToDomain converts the request into a domain probe module.
-func (r ProbeModuleRequest) ToDomain() *domain.ProbeModule {
-	enabled := true
-	if r.Enabled != nil {
-		enabled = *r.Enabled
-	}
-	return &domain.ProbeModule{Name: r.Name, Content: r.Content, Enabled: enabled}
-}
-
 // ProbeModuleResponse is the blackbox module projection.
 type ProbeModuleResponse struct {
 	ID                 string    `json:"id"`

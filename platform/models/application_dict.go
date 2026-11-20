@@ -1,9 +1,6 @@
 package models
 
-import (
-	"regexp"
-	"strings"
-)
+import "regexp"
 
 // AppStatus 是应用字典条目的启用状态（决策 92，对齐业务分组双层编码）：
 //   - enabled  启用：可被资源录入 / 编辑 / Excel 导入引用；
@@ -42,38 +39,4 @@ type ApplicationDict struct {
 	// PlatformCode {v2.49} 已废弃，仅供一次性迁移读取。应用↔平台关系由
 	// AppPlatformRel 承载，写链路不再维护此字段。
 	PlatformCode string `gorm:"size:64" json:"platform_code"`
-}
-
-// NormalizeAppCode 把任意存量取值归一化为合法 app_code（决策 92 存量迁移）：
-// 转小写；非 [a-z0-9-] 字符替换为 -；合并连续 -；去首尾 -。已合规取值归一化为恒等变换。
-func NormalizeAppCode(raw string) string {
-	s := strings.ToLower(strings.TrimSpace(raw))
-	var b strings.Builder
-	prevDash := false
-	for _, r := range s {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-			prevDash = false
-		case r == '-':
-			if !prevDash && b.Len() > 0 {
-				b.WriteRune('-')
-				prevDash = true
-			}
-		default:
-			if !prevDash && b.Len() > 0 {
-				b.WriteRune('-')
-				prevDash = true
-			}
-		}
-	}
-	out := b.String()
-	out = strings.Trim(out, "-")
-	if out == "" {
-		return ""
-	}
-	if len(out) > 64 {
-		out = out[:64]
-	}
-	return out
 }

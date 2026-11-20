@@ -9,7 +9,7 @@ package models
 // 沿用既有默认值。
 //
 // APIURL 是**完整 URL**（含 `?` 查询参数），拨测目标地址直接取该值 ——
-// 不拼端口、不经 instanceAddress（见 configcenter/generator/targets.go）。
+// 不拼端口；v3 目标解析在 M09 configgen 基于选中实例快照完成。
 type InterfaceService struct {
 	BaseModel
 	ResourceBase
