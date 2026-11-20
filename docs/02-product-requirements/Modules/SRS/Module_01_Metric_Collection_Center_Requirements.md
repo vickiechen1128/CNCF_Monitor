@@ -47,7 +47,7 @@
 |---|---|---|
 | 本文档（SRS） | 做什么、为什么、验收口径 | 需求变更 |
 | [概要设计](../../../07-design/Module_01_Metric_Collection_Center_High_Level_Design.md) | 模块边界、接口清单、数据归属、关键流程、状态机、安全与性能约束 | 架构 / 接口变更 |
-| [接口契约](../../05-execution-records/rewrite/v2.0/modules/module-01/api-contract-snapshot-v3.md) | 字段、错误码、分页 | 接口变更 |
+| [接口契约](../../../05-execution-records/rewrite/v2.0/modules/module-01/api-contract-snapshot-v3.md) | 字段、错误码、分页 | 接口变更 |
 | 关键设计专题 `docs/07-design/design-notes/m01-*.md` | 高风险 / 反直觉实现（如规则检查门禁） | 算法或交互变更 |
 
 原则：代码与测试是实现细节的最终事实来源；本文档不复制字段表、组件与用例清单。

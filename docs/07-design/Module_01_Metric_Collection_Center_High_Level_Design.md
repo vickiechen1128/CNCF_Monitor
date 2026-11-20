@@ -7,8 +7,8 @@
 > **编写日期**：2026-11-20
 > **对应模块**：Module 01 — 监控策略与指标管理
 > **需求基线**：
-> - [M01 监控策略与指标管理 SRS](../../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)（v1.4）
-> - [M01 采集 Job 组与对象优先动线 SRS（增量，已并入基线 §5.7）](../../02-product-requirements/Modules/SRS/Module_01_Job_Group_and_Object_First_SRS.md)
+> - [M01 监控策略与指标管理 SRS](../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)（v1.4）
+> - [M01 采集 Job 组与对象优先动线 SRS（增量，已并入基线 §5.7）](../02-product-requirements/Modules/SRS/Module_01_Job_Group_and_Object_First_SRS.md)
 > **接口契约**：`docs/05-execution-records/rewrite/v2.0/modules/module-01/api-contract-snapshot-v3.md`（字段级权威）
 > **关键设计专题**：
 > - [规则检查与提交门禁](design-notes/m01-rule-validation-gate.md)
@@ -36,7 +36,7 @@
 
 ### 1.3 参考
 
-- [SRS](../../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)
+- [SRS](../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)
 - [API 设计标准](../03-engineering-standards/03_API_Standard.md)
 - [后端架构与技术债控制](../03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md)
 - [前端开发规范](../03-engineering-standards/02_Frontend_Standard.md)
