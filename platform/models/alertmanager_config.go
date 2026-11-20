@@ -1,7 +1,6 @@
 // Package models 承载 MetricCenter 领域模型。
 // 本文件集中定义 Module_08 告警收敛与通知管理的模型与 JSON 载体：
 // （AlertmanagerConfigVersion 版本留痕 / AlertmanagerConfigStatus 状态枚举 /
-// SilenceMatcher 静默 matcher DTO / AuthorizedMatcherScope 授权网域集合校验载体 /
 // ValidateErrorItem 挂载校验行级错误）。
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
 //
@@ -13,8 +12,6 @@
 package models
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"time"
@@ -99,12 +96,6 @@ func formatAMTimeOrNil(t *time.Time) *string {
 	return &s
 }
 
-// AlertmanagerConfigChecksum 计算 alertmanager.yml 内容的 sha256（十六进制小写）。
-func AlertmanagerConfigChecksum(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(sum[:])
-}
-
 // SilenceMatcher 是静默匹配条件 DTO（契约 §4 Matcher）。
 //
 //	Name    标签名（如 network_domain）
@@ -127,52 +118,6 @@ const (
 	SilenceStatusPending SilenceStatus = "pending"
 	SilenceStatusExpired SilenceStatus = "expired"
 )
-
-// ValidSilenceStatus 返回合法的静默状态取值集合。
-func ValidSilenceStatus() []string {
-	return []string{
-		string(SilenceStatusActive),
-		string(SilenceStatusPending),
-		string(SilenceStatusExpired),
-	}
-}
-
-// AuthorizedMatcherScope 是服务端授权网域集合校验载体（决策 56）：
-// 创建静默时校验每个 matcher 的值收敛于当前用户授权网域集合，越权 matcher 拒绝
-// bad_request。MVP 单租户恒为 AllDomains=true（全部网域），作为机制骨架保留。
-type AuthorizedMatcherScope struct {
-	// AllDomains 为 true 表示授权全部网域（MVP 单租户恒 true），此时不附加任何约束。
-	AllDomains bool
-	// Domains 为授权网域 ID 集合；仅当 AllDomains=false 时参与收敛判定。
-	Domains []string
-}
-
-// Violations 返回越权（不收敛于授权网域集合）的 matcher 列表。
-// 判定规则：
-//   - matcher 的 name 非网域标签（network_domain）时视为不涉及网域授权，不判越权；
-//   - 授权全部网域（AllDomains）时恒返回空（MVP 单租户恒通过）；
-//   - 否则对 name=network_domain 的 matcher，其 value 必须命中 Domains 集合。
-//
-// 返回空切片表示全部 matcher 合规。
-func (s *AuthorizedMatcherScope) Violations(matchers []SilenceMatcher) []SilenceMatcher {
-	if s.AllDomains {
-		return nil
-	}
-	allowed := make(map[string]struct{}, len(s.Domains))
-	for _, d := range s.Domains {
-		allowed[d] = struct{}{}
-	}
-	violations := make([]SilenceMatcher, 0)
-	for _, m := range matchers {
-		if m.Name != "network_domain" {
-			continue
-		}
-		if _, ok := allowed[m.Value]; !ok {
-			violations = append(violations, m)
-		}
-	}
-	return violations
-}
 
 // ValidateErrorItem 是挂载校验失败的行级错误项（契约 §3：file/line/message）。
 // file 恒为 alertmanager.yml（单文件挂载）；line=0 表示无行号信息。

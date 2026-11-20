@@ -21,21 +21,12 @@ func TestAlertmanagerConfigStatusEnum(t *testing.T) {
 	}, 1)
 }
 
-func TestAlertmanagerConfigChecksum(t *testing.T) {
-	c1 := AlertmanagerConfigChecksum("global:\n  resolve_timeout: 5m\n")
-	assert.NotEmpty(t, c1)
-	assert.Len(t, c1, 64, "sha256 hex 应为 64 字符")
-	// 同内容幂等、异内容不同。
-	assert.Equal(t, c1, AlertmanagerConfigChecksum("global:\n  resolve_timeout: 5m\n"))
-	assert.NotEqual(t, c1, AlertmanagerConfigChecksum("global:\n  resolve_timeout: 1m\n"))
-}
-
 func TestAlertmanagerConfigVersionSerializationRoundTrip(t *testing.T) {
 	now := time.Now().UTC()
 	v := &AlertmanagerConfigVersion{
 		BaseModel:      BaseModel{ID: 42, CreatedAt: now, UpdatedAt: now},
 		Content:        "route:\n  receiver: default\n",
-		Checksum:       AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Checksum:       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		AppliedBy:      "chenrt",
 		Status:         AlertmanagerConfigStatusApplied,
 		SourceChangeNo: "CHG-20260902-001",
@@ -82,7 +73,7 @@ func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T) {
 
 	v := &AlertmanagerConfigVersion{
 		Content:   "route:\n  receiver: default\n",
-		Checksum:  AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Checksum:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		AppliedBy: "chenrt",
 		Status:    AlertmanagerConfigStatusApplied,
 	}
@@ -107,37 +98,6 @@ func TestSilenceMatcherJSONRoundTrip(t *testing.T) {
 	var back SilenceMatcher
 	require.NoError(t, json.Unmarshal(b, &back))
 	assert.Equal(t, m, back)
-}
-
-func TestSilenceStatusEnum(t *testing.T) {
-	assert.Equal(t, SilenceStatus("active"), SilenceStatusActive)
-	assert.Equal(t, SilenceStatus("pending"), SilenceStatusPending)
-	assert.Equal(t, SilenceStatus("expired"), SilenceStatusExpired)
-	assert.Equal(t, []string{"active", "pending", "expired"}, ValidSilenceStatus())
-}
-
-// --- AuthorizedMatcherScope（决策 56 骨架） ---
-
-func TestAuthorizedMatcherScopeAllDomainsAlwaysPasses(t *testing.T) {
-	// MVP 单租户：AllDomains=true 恒通过。
-	scope := &AuthorizedMatcherScope{AllDomains: true}
-	matchers := []SilenceMatcher{
-		{Name: "network_domain", Value: "finance"},
-		{Name: "severity", Value: "critical"},
-	}
-	assert.Empty(t, scope.Violations(matchers))
-}
-
-func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T) {
-	scope := &AuthorizedMatcherScope{AllDomains: false, Domains: []string{"finance", "ops"}}
-	// 越权 matcher 被判定。
-	violations := scope.Violations([]SilenceMatcher{
-		{Name: "network_domain", Value: "hr"},      // 不在授权集合 → 越权
-		{Name: "severity", Value: "critical"},      // 非网域标签 → 不判
-		{Name: "network_domain", Value: "finance"}, // 命中 → 合规
-	})
-	require.Len(t, violations, 1)
-	assert.Equal(t, "hr", violations[0].Value)
 }
 
 func TestValidateErrorItemJSON(t *testing.T) {

@@ -5,21 +5,7 @@
 // 参见 docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md
 //
 //	§3.3.2（数据模型）/ §3.3.8（接口契约汇总）；docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md。
-//
-// 决策口径：模板校验失败不落库（照抄决策 59/60），status 恒 applied；checksum 复用
-// AlertmanagerConfigChecksum（sha256 十六进制小写）。
 package models
-
-import "strconv"
-
-// ReceiverName 返回渠道在 alertmanager.yml 中的稳定 receiver 名：恒为 notify-<id>。
-//
-// 2026-10-22 收口：receiver 名只由**不可变的渠道 ID** 决定，渠道名仅用于界面展示。
-// 旧实现优先用渠道名 sanitize 的结果，改名会改变 receiver 名并导致路由引用失效；
-// 改为 ID 后，改名 / 改 webhook / 改类型 / 换绑模板都不会影响 alertmanager.yml。
-func (c NotifyChannel) ReceiverName() string {
-	return "notify-" + strconv.FormatUint(uint64(c.ID), 10)
-}
 
 // NotifyChannelType 表示通知渠道类型。
 //
@@ -34,37 +20,6 @@ const (
 	NotifyChannelTypeWecom    NotifyChannelType = "wecom"
 	NotifyChannelTypeWebhook  NotifyChannelType = "webhook"
 )
-
-// ValidNotifyChannelTypes 返回合法的通知渠道类型取值集合。
-func ValidNotifyChannelTypes() []string {
-	return []string{
-		string(NotifyChannelTypeFeishu),
-		string(NotifyChannelTypeDingtalk),
-		string(NotifyChannelTypeWecom),
-		string(NotifyChannelTypeWebhook),
-	}
-}
-
-// IsValidNotifyChannelType 判定给定字符串是否为合法渠道类型。
-func IsValidNotifyChannelType(t string) bool {
-	switch NotifyChannelType(t) {
-	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom, NotifyChannelTypeWebhook:
-		return true
-	default:
-		return false
-	}
-}
-
-// IsTemplateChannelType 判定该渠道类型是否使用通知模板。
-// 自定义 Webhook 原样转发 AM JSON，不使用模板。
-func IsTemplateChannelType(t string) bool {
-	switch NotifyChannelType(t) {
-	case NotifyChannelTypeFeishu, NotifyChannelTypeDingtalk, NotifyChannelTypeWecom:
-		return true
-	default:
-		return false
-	}
-}
 
 // NotifyChannel 是通知渠道（设计提案 §3.3.2）：AM 侧只引用 ID、不暴露目标地址；
 // WebhookURL / Secret 仅在平台侧存储（列表响应按需脱敏，脱敏在 notify 包的视图层完成）。

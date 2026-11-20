@@ -44,21 +44,7 @@ func TestNotifyChannelMigrateAndPersist(t *testing.T) {
 	assert.Equal(t, "notify_channels", NotifyChannel{}.TableName())
 }
 
-// TestNotifyChannelReceiverNameIsStable 覆盖 receiver 名恒为 notify-<id>，与渠道名无关：
-// 改名不会改变 receiver 名，因此 alertmanager.yml / 路由引用不受影响。
-func TestNotifyChannelReceiverNameIsStable(t *testing.T) {
-	db := newNotifyModelDB(t)
-
-	ch := NotifyChannel{Name: "sre-feishu", Type: NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/x"}
-	require.NoError(t, db.Create(&ch).Error)
-	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName())
-
-	ch.Name = "改名后的渠道"
-	require.NoError(t, db.Save(&ch).Error)
-	assert.Equal(t, fmt.Sprintf("notify-%d", ch.ID), ch.ReceiverName(), "改名不得改变 receiver 名")
-}
-
-// TestNotifyTemplateMigrateAndChecksum 覆盖模板建表 / checksum 复用 config 口径 / status 恒 applied。
+// TestNotifyTemplateMigrateAndChecksum 覆盖模板建表 / checksum 落库 / status 恒 applied。
 func TestNotifyTemplateMigrateAndChecksum(t *testing.T) {
 	db := newNotifyModelDB(t)
 
@@ -68,7 +54,7 @@ func TestNotifyTemplateMigrateAndChecksum(t *testing.T) {
 		ChannelType: NotifyChannelTypeFeishu,
 		Content:     content,
 		IsBuiltin:   true,
-		Checksum:    AlertmanagerConfigChecksum(content),
+		Checksum:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		Status:      NotifyTemplateStatusApplied,
 	}
 	require.NoError(t, db.Create(&tpl).Error)
@@ -78,24 +64,6 @@ func TestNotifyTemplateMigrateAndChecksum(t *testing.T) {
 	require.NoError(t, db.First(&got, tpl.ID).Error)
 	assert.True(t, got.IsBuiltin)
 	assert.Equal(t, NotifyTemplateStatusApplied, got.Status)
-	// checksum 复用 AlertmanagerConfigChecksum（sha256 十六进制小写，64 字节）。
-	assert.Equal(t, AlertmanagerConfigChecksum(content), got.Checksum)
 	assert.Len(t, got.Checksum, 64)
 	assert.Equal(t, "notify_templates", NotifyTemplate{}.TableName())
-}
-
-// TestValidNotifyChannelTypes 覆盖渠道类型枚举校验。
-func TestValidNotifyChannelTypes(t *testing.T) {
-	assert.True(t, IsValidNotifyChannelType("feishu"))
-	assert.True(t, IsValidNotifyChannelType("dingtalk"))
-	assert.True(t, IsValidNotifyChannelType("wecom"))
-	assert.False(t, IsValidNotifyChannelType("email"))
-	assert.False(t, IsValidNotifyChannelType(""))
-
-	types := ValidNotifyChannelTypes()
-	assert.ElementsMatch(t, []string{"feishu", "dingtalk", "wecom", "webhook"}, types)
-	assert.True(t, IsTemplateChannelType("feishu"))
-	assert.True(t, IsTemplateChannelType("dingtalk"))
-	assert.True(t, IsTemplateChannelType("wecom"))
-	assert.False(t, IsTemplateChannelType("webhook"))
 }
