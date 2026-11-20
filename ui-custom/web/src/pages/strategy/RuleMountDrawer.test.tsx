@@ -114,6 +114,8 @@ describe('RuleMountDrawer', () => {
 
     expect(await screen.findByText(/缺少顶层 groups 数组/)).toBeInTheDocument()
     expect(screen.getByText('规则检查未通过')).toBeInTheDocument()
+    // 未解析出组时不展示「已解析 0 个组 / 0 条规则」这类无效提示
+    expect(screen.queryByText(/已解析 \d+ 个组/)).toBeNull()
     expect(screen.queryByText(SUBMIT)).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
   })

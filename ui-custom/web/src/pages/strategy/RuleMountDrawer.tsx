@@ -587,7 +587,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           description={
             <Space direction="vertical" size={2}>
               <span data-testid="rule-check-error">{checkOutcome.error}</span>
-              {checkOutcome.groups != null && checkOutcome.rules != null && (
+              {checkOutcome.groups != null && checkOutcome.groups > 0 && checkOutcome.rules != null && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   已解析 {checkOutcome.groups} 个组 / {checkOutcome.rules} 条规则，请按报错中的组名或规则位置定位。
                 </Text>
