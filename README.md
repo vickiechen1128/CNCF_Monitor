@@ -233,7 +233,7 @@ make run-metric-center
 
 ```bash
 export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)/upstream/alertmanager:$PATH"
-./platform/cmd/metric-center/metric-center --config.reload-url=http://localhost:9090/-/reload
+./platform/cmd/metric-center/metric-center --prometheus.url=http://localhost:9090
 ```
 
 否则变更单会卡在 `validation_status=pending`，提示「promtool / amtool 不可调用」。

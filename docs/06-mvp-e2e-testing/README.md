@@ -26,12 +26,13 @@
    `draft_status=ready` 的 Job。没走「提交 ready」就直接生成草稿下发，下发记录是 success
    但 Job 状态不会变 —— 这是设计行为，不是 bug。
 
-4. **两个启动参数已固化进 Makefile**（2026-08-25 修复）：
+4. **启动参数已固化进 Makefile**（2026-08-25 修复）：
    - `make run-prometheus`：`--config.file` 指向 `config-output/prometheus.yml`（首次自动从
      项目自有模板 `deploy/prometheus/prometheus.yml` seed），并开启 `--web.enable-lifecycle`；
-   - `make run-metric-center`：默认传 `--config.reload-url=http://localhost:9090/-/reload`。
-   少任何一个都会出现「下发 failed」或「假 success」（生成的 file_sd 用相对路径
-   `targets/<job>.json`，按配置文件所在目录解析，`config.file` 指错目录时 targets 永远加载不到）。
+   - `make run-metric-center`：默认 `--prometheus.url=http://localhost:9090`，M09 以该地址的
+     `/-/reload` 触发热加载。
+   Prometheus 的 `--config.file` 指错目录时 file_sd 相对路径 `targets/<job>.json` 永远加载不到，
+   会出现「下发 failed」或「假 success」；`--prometheus.url` 指错实例时 reload 会失败。
 
 5. **后端改动后必须重编译重启，且不要手动绕过 Makefile 的 PATH**（2026-08-26 追加）：
    - 修改 `platform/` 后，旧的 `metric-center` 二进制仍在跑，新逻辑不会生效；须先 `make build-metric-center`，再用 `make run-metric-center` 启动。Makefile 会自动把 `upstream/prometheus` 和 `upstream/blackbox_exporter` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`。
@@ -48,7 +49,7 @@ cd /Users/chenrt/S-03Python/03\ AIopsAgent-study/CNCF_Monitor-feature
 # 终端 1：Prometheus（数据面，:9090，config.file 指向 config-output/，已开 lifecycle）
 make run-prometheus
 
-# 终端 2：控制面（:8080，已带 --config.reload-url）
+# 终端 2：控制面（:8080，默认 --prometheus.url=:9090）
 make run-metric-center
 
 # 终端 3：前端（:5173，本手册以 API 为主，UI 动线见附录）
@@ -291,7 +292,6 @@ curl -s -X POST "$BASE/deployments/<CONFIG_VERSION_ID>/rollback" -H 'Content-Typ
 
 | 现象 | 最可能原因 | 定位 |
 |------|-----------|------|
-| confirm 后 deployment `status=failed`，error 含 `refusing silent success` | metric-center 没带 `--config.reload-url` | 用 `make run-metric-center` 启动 |
 | deployment `status=failed`，error 含 `unexpected status 403/404` 或连接拒绝 | Prometheus 没开 `--web.enable-lifecycle` 或没在跑 | Step 0.2 |
 | deployment `success` 但 `/targets` 没有新 job | Prometheus 的 `--config.file` 没指向 `config-output/prometheus.yml`（假成功） | 用 `make run-prometheus` 启动 |
 | job 显示 active 但 health=down | host 类资源 target 是裸 IP（:80）；或 9100 没有采集端在跑 | §1 事实 2；Step 2 终端 4 |
