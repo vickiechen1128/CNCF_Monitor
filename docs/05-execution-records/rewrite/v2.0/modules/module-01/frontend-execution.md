@@ -177,3 +177,27 @@ $ vite --port 5199         # GET / → 200
 - 单域任务的既有启停按钮保持不变（仍走整单 PUT）。
 - 测试：`ScrapeJobListPage.test.tsx` 10 项通过（新增「停用二次确认」「停用后再启用」两项）。
 - 验证：`vitest run src/pages/strategy` 20 文件 / 165 项通过；`typecheck:test`、`eslint` 通过。
+
+## 11. 2026-11-20 规则检查结果明细（增量，commit 9a0d6da）
+
+**背景**：SRS/HLD 分层完成后，规则编辑的「检查」只显示通过/失败与 job 引用问题；接口已返回 `groups`/`rules`/`promql`，但前端兼容层把它们丢弃，用户无法确认本次检查覆盖了多少内容。
+
+### 11.1 变更
+
+- `api/monitoringRules.ts`：`YamlValidationResult` 补 `groups` / `rules`，`validateYaml` 映射 v3 响应时保留；`promql_check` 维持三态。
+- `pages/strategy/RuleMountDrawer.tsx`：
+  - `CheckOutcome` 记录 `groups` / `rules`；新增 `checkSummaryText()`；
+  - 检查通过：面板首行展示「N 个组 / M 条规则 · PromQL 校验通过（或未执行 PromQL 语义校验）」，promtool 不可用时明确「未执行」；
+  - 检查失败：错误文本旁提示「已解析 N 个组 / M 条规则，请按报错中的组名或规则位置定位」；本地回落（无服务端数据）时不展示计数。
+- 设计专题 [m01-rule-validation-gate §6](../../../07-design/design-notes/m01-rule-validation-gate.md) 已按此口径描述。
+
+### 11.2 验证
+
+- `pnpm vitest run src/pages/strategy/RuleMountDrawer.test.tsx`：26 项通过（新增「通过时展示组数/规则数/PromQL 状态」「失败时展示已解析计数」；promtool 不可用用例补「未执行」断言）。
+- `pnpm vitest run src/api/monitoringRules.test.ts`：6 项通过（validateYaml 断言 groups/rules/promql）。
+- `pnpm vitest run src/pages/strategy src/api`：37 文件 / 301 项通过；`typecheck:test`、`eslint`、`pnpm build`、dev server 200 均通过。
+
+### 11.3 未做（用户裁定延后）
+
+- 规则表达式的指标存在性校验（指标库 / Prometheus）；
+- 标签/注解实时预览（v3 接口当前为空实现）。
