@@ -45,8 +45,6 @@ UNAME_M := $(shell uname -m)
 # 生产部署必须显式注入强随机令牌（package-center.sh / 部署文档已走环境变量路径），
 # 此处默认值仅供本地开发，切勿用于生产。
 NOTIFY_BRIDGE_URL ?= http://127.0.0.1:8080
-# 渲染时区：空 → 平台回落 UTC（告警卡片时间会显示 UTC 而非本地时）。
-NOTIFY_RENDER_TIMEZONE ?= Asia/Shanghai
 
 # 默认（类 Unix：macOS / Linux）
 GO_BIN := $(GO_DIR)/bin/go
@@ -447,9 +445,7 @@ run-metric-center: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
 	@echo ">>> Starting metric-center"
 	@cd "$(PROJECT_ROOT)" && \
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
-		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
-		./platform/cmd/metric-center/metric-center$(EXE) \
-		--config.reload-url=http://localhost:9090/-/reload
+		./platform/cmd/metric-center/metric-center$(EXE)
 
 # v3-only 启动（M01 v3 改造验证）：独立 SQLite，只挂 /api/v3，不跑任何依赖旧
 # AutoMigrate schema 的后台任务；/api/v2 不注册，未迁移页面 404 属预期
@@ -463,10 +459,8 @@ run-metric-center-v3: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
 		METRIC_CENTER_DB_DRIVER=sqlite \
 		METRIC_CENTER_DB_DSN="$(V3_DB_DSN)" \
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
-		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
 		./platform/cmd/metric-center/metric-center$(EXE) \
-		--database.mode=v3 \
-		--config.reload-url=http://localhost:9090/-/reload
+		--database.mode=v3
 
 # M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
 # DiskApplier 的写盘目录），且 file_sd 相对路径 targets/*.json 按配置文件所在目录
