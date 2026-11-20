@@ -46,7 +46,8 @@ type JobGroupInput struct {
 	JobName             string
 	JobType             domain.JobType
 	ResourceCategory    domain.ResourceCategory
-	MonitorType         string
+	TemplateCode        string
+	Selector            domain.Selector
 	ExporterTemplateID  string
 	ScrapeInterval      string
 	ScrapeTimeout       string
@@ -364,7 +365,8 @@ func (s *JobGroupService) buildPlan(
 			JobName:             strings.TrimSpace(input.JobName),
 			JobType:             input.JobType,
 			ResourceCategory:    input.ResourceCategory,
-			MonitorType:         input.MonitorType,
+			TemplateCode:        input.TemplateCode,
+			Selector:            input.Selector,
 			ExporterTemplateID:  input.ExporterTemplateID,
 			NetworkDomainID:     domainID,
 			SelectedInstanceIDs: byDomain[domainID],
@@ -425,7 +427,8 @@ func (s *JobGroupService) buildPlan(
 	}
 	group.JobType = sample.JobType
 	group.ResourceCategory = sample.ResourceCategory
-	group.MonitorType = sample.MonitorType
+	group.TemplateCode = sample.TemplateCode
+	group.Selector = sample.Selector
 	group.ExporterTemplateID = sample.ExporterTemplateID
 	group.ScrapeInterval = sample.ScrapeInterval
 	group.ScrapeTimeout = sample.ScrapeTimeout

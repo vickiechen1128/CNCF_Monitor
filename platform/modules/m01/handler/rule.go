@@ -27,12 +27,12 @@ func NewRuleHandler(svc *service.RuleService) *RuleHandler {
 func (h *RuleHandler) List(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.RuleFilter{
-		Enabled:     boolQuery(c, "enabled"),
-		DraftStatus: domain.DraftStatus(strings.TrimSpace(c.Query("draft_status"))),
-		MonitorType: strings.TrimSpace(c.Query("monitor_type")),
-		Keyword:     strings.TrimSpace(c.Query("keyword")),
-		Page:        page,
-		PageSize:    pageSize,
+		Enabled:      boolQuery(c, "enabled"),
+		DraftStatus:  domain.DraftStatus(strings.TrimSpace(c.Query("draft_status"))),
+		TemplateCode: strings.TrimSpace(c.Query("template_code")),
+		Keyword:      strings.TrimSpace(c.Query("keyword")),
+		Page:         page,
+		PageSize:     pageSize,
 	}
 	rules, total, err := h.svc.List(c.Request.Context(), filter)
 	if err != nil {

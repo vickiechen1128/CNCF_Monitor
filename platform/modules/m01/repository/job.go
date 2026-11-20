@@ -19,7 +19,7 @@ type JobFilter struct {
 	// that count "grouped execution jobs" must not accidentally include
 	// standalone jobs（口径显式化）。
 	GroupedOnly     bool
-	MonitorType     string
+	TemplateCode    string
 	JobType         domain.JobType
 	Enabled         *bool
 	DraftStatus     domain.DraftStatus
@@ -39,7 +39,6 @@ type JobRepository interface {
 	CountByLabelTemplate(ctx context.Context, labelTemplateID string) (int64, error)
 	CountByNetworkDomain(ctx context.Context, domainID string) (int64, error)
 	CountByProbeModule(ctx context.Context, name string) (int64, error)
-	CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error)
 	ListActiveNames(ctx context.Context) ([]string, error)
 	ListAll(ctx context.Context) ([]*domain.Job, error)
 }
@@ -96,8 +95,8 @@ func (r *GORMJobRepository) List(ctx context.Context, filter JobFilter) ([]*doma
 		if filter.GroupedOnly {
 			q = q.Where("job_group_id IS NOT NULL")
 		}
-		if filter.MonitorType != "" {
-			q = q.Where("monitor_type = ?", filter.MonitorType)
+		if filter.TemplateCode != "" {
+			q = q.Where("template_code = ?", filter.TemplateCode)
 		}
 		if filter.JobType != "" {
 			q = q.Where("job_type = ?", string(filter.JobType))
@@ -192,16 +191,6 @@ func (r *GORMJobRepository) ListAll(ctx context.Context) ([]*domain.Job, error) 
 		out = append(out, rec.toDomain())
 	}
 	return out, nil
-}
-
-// CountByMapping counts jobs that inherited a mapping (same monitor type and
-// exporter implementation). Used to protect mapping deletion.
-func (r *GORMJobRepository) CountByMapping(ctx context.Context, monitorType, exporterTemplateID string) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&jobRecord{}).
-		Where("monitor_type = ? AND exporter_template_id = ?", monitorType, exporterTemplateID).
-		Count(&count).Error
-	return count, err
 }
 
 // ListActiveNames returns ready+enabled job names (the rule job-reference set).

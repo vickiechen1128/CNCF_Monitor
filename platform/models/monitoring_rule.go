@@ -32,7 +32,7 @@ type MonitoringRule struct {
 	Duration           string            `gorm:"size:20" json:"duration,omitempty"`
 	Labels             map[string]string `gorm:"serializer:json" json:"labels,omitempty"`
 	Annotations        map[string]string `gorm:"serializer:json" json:"annotations,omitempty"`
-	MonitorType        string            `gorm:"size:64" json:"monitor_type,omitempty"`
+	TemplateCode       string            `gorm:"size:64" json:"template_code,omitempty"`
 	ExporterTemplateID string            `gorm:"size:64" json:"exporter_template_id,omitempty"`
 	Scope              ScopeType         `gorm:"size:20;not null" json:"scope"`
 	Enabled            bool              `json:"enabled"`

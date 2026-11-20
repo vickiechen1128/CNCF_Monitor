@@ -152,7 +152,8 @@ type jobGroupRecord struct {
 	Name               string                   `gorm:"column:name;not null"`
 	JobType            string                   `gorm:"column:job_type;not null"`
 	ResourceCategory   string                   `gorm:"column:resource_category;not null"`
-	MonitorType        string                   `gorm:"column:monitor_type;not null"`
+	TemplateCode       string                   `gorm:"column:template_code;not null"`
+	Selector           domain.Selector          `gorm:"column:selector;serializer:json;not null"`
 	ExporterTemplateID *string                  `gorm:"column:exporter_template_id"`
 	ScrapeInterval     string                   `gorm:"column:scrape_interval;not null"`
 	ScrapeTimeout      string                   `gorm:"column:scrape_timeout;not null"`
@@ -183,7 +184,8 @@ func (r jobGroupRecord) toDomain() *domain.JobGroup {
 		Name:               r.Name,
 		JobType:            domain.JobType(r.JobType),
 		ResourceCategory:   domain.ResourceCategory(r.ResourceCategory),
-		MonitorType:        r.MonitorType,
+		TemplateCode:       r.TemplateCode,
+		Selector:           r.Selector,
 		ExporterTemplateID: derefString(r.ExporterTemplateID),
 		ScrapeInterval:     r.ScrapeInterval,
 		ScrapeTimeout:      r.ScrapeTimeout,
@@ -229,7 +231,8 @@ func jobGroupFromDomain(g *domain.JobGroup) jobGroupRecord {
 		Name:               g.Name,
 		JobType:            jobType,
 		ResourceCategory:   string(g.ResourceCategory),
-		MonitorType:        g.MonitorType,
+		TemplateCode:       g.TemplateCode,
+		Selector:           nonNilSelector(g.Selector),
 		ExporterTemplateID: nilIfEmpty(g.ExporterTemplateID),
 		ScrapeInterval:     g.ScrapeInterval,
 		ScrapeTimeout:      g.ScrapeTimeout,

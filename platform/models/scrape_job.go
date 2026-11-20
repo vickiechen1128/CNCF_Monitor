@@ -63,7 +63,7 @@ type ScrapeJob struct {
 	JobName               string                `gorm:"size:100;uniqueIndex" json:"job_name"`
 	JobType               JobType               `gorm:"size:20;not null" json:"job_type"` // standard / blackbox
 	ResourceType          ResourceType          `gorm:"size:20;not null" json:"resource_type"`
-	MonitorType           string                `gorm:"size:64" json:"monitor_type"` // 细粒度监控对象类型（推导）
+	TemplateCode          string                `gorm:"size:64" json:"template_code"` // 采集模板编码
 	ExporterTemplateID    string                `gorm:"size:64" json:"exporter_template_id,omitempty"`
 	NetworkDomainID       string                `gorm:"size:64;not null;index" json:"network_domain_id"` // 必填且须已纳管
 	InstanceSelectionMode InstanceSelectionMode `gorm:"size:20;not null" json:"instance_selection_mode"` // manual

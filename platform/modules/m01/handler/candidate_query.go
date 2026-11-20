@@ -42,7 +42,7 @@ func (h *JobHandler) QueryCandidates(c *gin.Context) {
 
 	list := make([]dto.CandidateResponse, 0, len(out.Views))
 	for _, view := range out.Views {
-		list = append(list, dto.FromCandidate(view.Ref, view.MonitorType, view.TargetAddress, view.Selectable, view.DisabledReason))
+		list = append(list, dto.FromCandidate(view.Ref, view.TemplateCode, view.TargetAddress, view.Selectable, view.DisabledReason))
 	}
 	domains := make([]dto.DomainHitResponse, 0, len(out.Domains))
 	for _, hit := range out.Domains {
@@ -67,8 +67,8 @@ func (h *JobHandler) QueryCandidateIDs(c *gin.Context) {
 		return
 	}
 	query := candidateQuery(c, dto.CandidateQueryRequest{
-		MonitorType: req.MonitorType, ResourceCategory: req.ResourceCategory,
-		Filters: req.Filters, Keyword: req.Keyword,
+		TemplateCode: req.TemplateCode, ResourceCategory: req.ResourceCategory,
+		Selector: req.Selector, Filters: req.Filters, Keyword: req.Keyword,
 	}, 0, 0)
 	query.IDsOnly = true
 	query.MaxIDs = candidateMaxIDs
@@ -112,13 +112,14 @@ func candidateQuery(c *gin.Context, req dto.CandidateQueryRequest, page, pageSiz
 		})
 	}
 	return domain.CandidateQuery{
-		MonitorType: strings.TrimSpace(req.MonitorType),
-		Category:    domain.ResourceCategory(strings.TrimSpace(req.ResourceCategory)),
-		Filters:     filters,
-		Keyword:     strings.TrimSpace(req.Keyword),
-		TenantIDs:   candidateTenantScope(c),
-		Page:        page,
-		PageSize:    pageSize,
+		TemplateCode: strings.TrimSpace(req.TemplateCode),
+		Category:     domain.ResourceCategory(strings.TrimSpace(req.ResourceCategory)),
+		Selector:     req.Selector.ToDomain(),
+		Filters:      filters,
+		Keyword:      strings.TrimSpace(req.Keyword),
+		TenantIDs:    candidateTenantScope(c),
+		Page:         page,
+		PageSize:     pageSize,
 	}
 }
 

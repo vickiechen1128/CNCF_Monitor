@@ -11,32 +11,26 @@ import (
 //
 // Implemented:
 //
-//	/exporter-templates        (B2, FR-02)
-//	/ci-exporter-mappings      (B2, FR-01/FR-03)
+//	/collection-templates      (B2, FR-01/FR-03/FR-21)
+//	/candidate-fields          (B2, FR-22)
 //
 // Pending: /monitoring-rules (B5), /metric-library, /business-metrics and
 // /blackbox-modules (B6).
-func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, mappings *MappingHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler, monitorTypes *MonitorTypeHandler) {
-	// Configurable monitor object types (SRS Module_01 v1.3 §5.6). Registered
-	// first because every other M01 resource references a monitor type.
-	//
-	// 读接口对所有登录用户开放；新增/编辑/删除/停用涉及策略基线，仅管理员
-	// （RequireAdmin）可写——与 M05/M06/M09 的管理写接口口径一致。
-	monitorTypeGroup := platform.Group("/monitor-types")
+func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, templates *CollectionTemplateHandler, jobs *JobHandler, rules *RuleHandler, metrics *MetricHandler, business *BusinessMetricHandler, probes *ProbeModuleHandler, jobGroups *JobGroupHandler) {
+	// 采集模板（SRS Module_01 v1.5 §5.1/§5.6）：模板 = 采集实现 + 参数 + 标签模板。
+	// 读接口对所有登录用户开放；写接口对登录用户开放，内置模板的管理员限制由
+	// service 层按 is_builtin 判定（FR-29），因为同一路由同时承载两类资源。
+	templateGroup := platform.Group("/collection-templates")
 	{
-		monitorTypeGroup.GET("", monitorTypes.List)
-		// Static routes must be registered before the :code parameter route.
-		monitorTypeGroup.GET("/scope-fields", monitorTypes.ScopeFields)
-		monitorTypeGroup.GET("/:code", monitorTypes.Get)
-		monitorTypeGroup.GET("/:code/impact", monitorTypes.Impact)
+		templateGroup.GET("", templates.List)
+		templateGroup.GET("/:code", templates.Get)
+		templateGroup.GET("/:code/impact", templates.Impact)
+		templateGroup.POST("", templates.Create)
+		templateGroup.PUT("/:code", templates.Update)
+		templateGroup.DELETE("/:code", templates.Delete)
 	}
-	monitorTypeAdmin := platform.Group("/monitor-types")
-	monitorTypeAdmin.Use(auth.RequireAdmin())
-	{
-		monitorTypeAdmin.POST("", monitorTypes.Create)
-		monitorTypeAdmin.PUT("/:code", monitorTypes.Update)
-		monitorTypeAdmin.DELETE("/:code", monitorTypes.Delete)
-	}
+	// 选择器字段字典：内置字段（M01）+ 自定义字段（M07，只读）。
+	platform.GET("/candidate-fields", templates.CandidateFields)
 
 	exporterGroup := platform.Group("/exporter-templates")
 	{
@@ -45,15 +39,6 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		exporterGroup.GET("/:id", exporters.Get)
 		exporterGroup.PUT("/:id", exporters.Update)
 		exporterGroup.DELETE("/:id", exporters.Delete)
-	}
-
-	mappingGroup := platform.Group("/ci-exporter-mappings")
-	{
-		mappingGroup.GET("", mappings.List)
-		mappingGroup.POST("", mappings.Create)
-		mappingGroup.PUT("/:id", mappings.Update)
-		mappingGroup.PUT("/:id/label-template", mappings.SetLabelTemplate)
-		mappingGroup.DELETE("/:id", mappings.Delete)
 	}
 
 	jobGroup := platform.Group("/scrape-jobs")

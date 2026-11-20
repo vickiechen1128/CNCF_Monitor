@@ -14,125 +14,66 @@ import (
 
 // exporterTemplateRecord maps m01_exporter_templates.
 type exporterTemplateRecord struct {
-	ID                    string         `gorm:"column:id;primaryKey"`
-	Name                  string         `gorm:"column:name;not null"`
-	Version               string         `gorm:"column:version;not null"`
-	DefaultPort           int            `gorm:"column:default_port;not null"`
-	MetricsPath           string         `gorm:"column:metrics_path;not null"`
-	Scheme                string         `gorm:"column:scheme;not null"`
-	SupportedMonitorTypes []string       `gorm:"column:supported_monitor_types;serializer:json;not null"`
-	OS                    string         `gorm:"column:os;not null"`
-	Arch                  string         `gorm:"column:arch;not null"`
-	DownloadURL           string         `gorm:"column:download_url;not null"`
-	Homepage              string         `gorm:"column:homepage;not null"`
-	InstallGuide          string         `gorm:"column:install_guide;not null"`
-	Description           string         `gorm:"column:description;not null"`
-	IsBuiltin             bool           `gorm:"column:is_builtin;not null"`
-	Source                string         `gorm:"column:source;not null"`
-	CreatedAt             time.Time      `gorm:"column:created_at"`
-	UpdatedAt             time.Time      `gorm:"column:updated_at"`
-	DeletedAt             gorm.DeletedAt `gorm:"column:deleted_at;index"`
+	ID           string         `gorm:"column:id;primaryKey"`
+	Name         string         `gorm:"column:name;not null"`
+	Version      string         `gorm:"column:version;not null"`
+	DefaultPort  int            `gorm:"column:default_port;not null"`
+	MetricsPath  string         `gorm:"column:metrics_path;not null"`
+	Scheme       string         `gorm:"column:scheme;not null"`
+	OS           string         `gorm:"column:os;not null"`
+	Arch         string         `gorm:"column:arch;not null"`
+	DownloadURL  string         `gorm:"column:download_url;not null"`
+	Homepage     string         `gorm:"column:homepage;not null"`
+	InstallGuide string         `gorm:"column:install_guide;not null"`
+	Description  string         `gorm:"column:description;not null"`
+	IsBuiltin    bool           `gorm:"column:is_builtin;not null"`
+	Source       string         `gorm:"column:source;not null"`
+	CreatedAt    time.Time      `gorm:"column:created_at"`
+	UpdatedAt    time.Time      `gorm:"column:updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"column:deleted_at;index"`
 }
 
 func (exporterTemplateRecord) TableName() string { return "m01_exporter_templates" }
 
 func (r exporterTemplateRecord) toDomain() *domain.ExporterTemplate {
 	return &domain.ExporterTemplate{
-		ID:                    r.ID,
-		Name:                  r.Name,
-		Version:               r.Version,
-		DefaultPort:           r.DefaultPort,
-		MetricsPath:           r.MetricsPath,
-		Scheme:                domain.Scheme(r.Scheme),
-		SupportedMonitorTypes: nonNilStrings(r.SupportedMonitorTypes),
-		OS:                    r.OS,
-		Arch:                  r.Arch,
-		DownloadURL:           r.DownloadURL,
-		Homepage:              r.Homepage,
-		InstallGuide:          r.InstallGuide,
-		Description:           r.Description,
-		IsBuiltin:             r.IsBuiltin,
-		Source:                domain.ExporterSource(r.Source),
-		CreatedAt:             r.CreatedAt,
-		UpdatedAt:             r.UpdatedAt,
+		ID:           r.ID,
+		Name:         r.Name,
+		Version:      r.Version,
+		DefaultPort:  r.DefaultPort,
+		MetricsPath:  r.MetricsPath,
+		Scheme:       domain.Scheme(r.Scheme),
+		OS:           r.OS,
+		Arch:         r.Arch,
+		DownloadURL:  r.DownloadURL,
+		Homepage:     r.Homepage,
+		InstallGuide: r.InstallGuide,
+		Description:  r.Description,
+		IsBuiltin:    r.IsBuiltin,
+		Source:       domain.ExporterSource(r.Source),
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
 	}
 }
 
 func exporterTemplateFromDomain(e *domain.ExporterTemplate) exporterTemplateRecord {
 	return exporterTemplateRecord{
-		ID:                    e.ID,
-		Name:                  e.Name,
-		Version:               e.Version,
-		DefaultPort:           e.DefaultPort,
-		MetricsPath:           e.MetricsPath,
-		Scheme:                string(e.Scheme),
-		SupportedMonitorTypes: nonNilStrings(e.SupportedMonitorTypes),
-		OS:                    e.OS,
-		Arch:                  e.Arch,
-		DownloadURL:           e.DownloadURL,
-		Homepage:              e.Homepage,
-		InstallGuide:          e.InstallGuide,
-		Description:           e.Description,
-		IsBuiltin:             e.IsBuiltin,
-		Source:                string(e.Source),
-		CreatedAt:             e.CreatedAt,
-		UpdatedAt:             e.UpdatedAt,
-	}
-}
-
-// mappingRecord maps m01_ci_type_exporter_mappings.
-type mappingRecord struct {
-	ID                 string         `gorm:"column:id;primaryKey"`
-	MonitorType        string         `gorm:"column:monitor_type;not null"`
-	ExporterTemplateID string         `gorm:"column:exporter_template_id;not null"`
-	IsDefault          bool           `gorm:"column:is_default;not null"`
-	DefaultPort        int            `gorm:"column:default_port;not null"`
-	MetricsPath        string         `gorm:"column:metrics_path;not null"`
-	Scheme             string         `gorm:"column:scheme;not null"`
-	ScrapeInterval     string         `gorm:"column:scrape_interval;not null"`
-	ScrapeTimeout      string         `gorm:"column:scrape_timeout;not null"`
-	LabelTemplateID    *string        `gorm:"column:label_template_id"`
-	IsBuiltin          bool           `gorm:"column:is_builtin;not null"`
-	CreatedAt          time.Time      `gorm:"column:created_at"`
-	UpdatedAt          time.Time      `gorm:"column:updated_at"`
-	DeletedAt          gorm.DeletedAt `gorm:"column:deleted_at;index"`
-}
-
-func (mappingRecord) TableName() string { return "m01_ci_type_exporter_mappings" }
-
-func (r mappingRecord) toDomain() *domain.Mapping {
-	return &domain.Mapping{
-		ID:                 r.ID,
-		MonitorType:        r.MonitorType,
-		ExporterTemplateID: r.ExporterTemplateID,
-		IsDefault:          r.IsDefault,
-		DefaultPort:        r.DefaultPort,
-		MetricsPath:        r.MetricsPath,
-		Scheme:             domain.Scheme(r.Scheme),
-		ScrapeInterval:     r.ScrapeInterval,
-		ScrapeTimeout:      r.ScrapeTimeout,
-		LabelTemplateID:    derefString(r.LabelTemplateID),
-		IsBuiltin:          r.IsBuiltin,
-		CreatedAt:          r.CreatedAt,
-		UpdatedAt:          r.UpdatedAt,
-	}
-}
-
-func mappingFromDomain(m *domain.Mapping) mappingRecord {
-	return mappingRecord{
-		ID:                 m.ID,
-		MonitorType:        m.MonitorType,
-		ExporterTemplateID: m.ExporterTemplateID,
-		IsDefault:          m.IsDefault,
-		DefaultPort:        m.DefaultPort,
-		MetricsPath:        m.MetricsPath,
-		Scheme:             string(m.Scheme),
-		ScrapeInterval:     m.ScrapeInterval,
-		ScrapeTimeout:      m.ScrapeTimeout,
-		LabelTemplateID:    nilIfEmpty(m.LabelTemplateID),
-		IsBuiltin:          m.IsBuiltin,
-		CreatedAt:          m.CreatedAt,
-		UpdatedAt:          m.UpdatedAt,
+		ID:           e.ID,
+		Name:         e.Name,
+		Version:      e.Version,
+		DefaultPort:  e.DefaultPort,
+		MetricsPath:  e.MetricsPath,
+		Scheme:       string(e.Scheme),
+		OS:           e.OS,
+		Arch:         e.Arch,
+		DownloadURL:  e.DownloadURL,
+		Homepage:     e.Homepage,
+		InstallGuide: e.InstallGuide,
+		Description:  e.Description,
+		IsBuiltin:    e.IsBuiltin,
+		Source:       string(e.Source),
+		CreatedAt:    e.CreatedAt,
+		UpdatedAt:    e.UpdatedAt,
 	}
 }
 
@@ -142,7 +83,8 @@ type jobRecord struct {
 	JobName               string                   `gorm:"column:job_name;not null"`
 	JobType               string                   `gorm:"column:job_type;not null"`
 	ResourceCategory      string                   `gorm:"column:resource_category;not null"`
-	MonitorType           string                   `gorm:"column:monitor_type;not null"`
+	TemplateCode          string                   `gorm:"column:template_code;not null"`
+	Selector              domain.Selector          `gorm:"column:selector;serializer:json;not null"`
 	ExporterTemplateID    *string                  `gorm:"column:exporter_template_id"`
 	NetworkDomainID       string                   `gorm:"column:network_domain_id;not null"`
 	InstanceSelectionMode string                   `gorm:"column:instance_selection_mode;not null"`
@@ -183,7 +125,8 @@ func (r jobRecord) toDomain() *domain.Job {
 		JobName:               r.JobName,
 		JobType:               domain.JobType(r.JobType),
 		ResourceCategory:      domain.ResourceCategory(r.ResourceCategory),
-		MonitorType:           r.MonitorType,
+		TemplateCode:          r.TemplateCode,
+		Selector:              r.Selector,
 		ExporterTemplateID:    derefString(r.ExporterTemplateID),
 		NetworkDomainID:       r.NetworkDomainID,
 		InstanceSelectionMode: domain.InstanceSelectionMode(r.InstanceSelectionMode),
@@ -222,7 +165,8 @@ func jobFromDomain(j *domain.Job) jobRecord {
 		JobName:               j.JobName,
 		JobType:               string(j.JobType),
 		ResourceCategory:      string(j.ResourceCategory),
-		MonitorType:           j.MonitorType,
+		TemplateCode:          j.TemplateCode,
+		Selector:              nonNilSelector(j.Selector),
 		ExporterTemplateID:    nilIfEmpty(j.ExporterTemplateID),
 		NetworkDomainID:       j.NetworkDomainID,
 		InstanceSelectionMode: string(j.InstanceSelectionMode),
@@ -264,7 +208,7 @@ type ruleRecord struct {
 	Duration           string            `gorm:"column:duration;not null"`
 	Labels             map[string]string `gorm:"column:labels;serializer:json;not null"`
 	Annotations        map[string]string `gorm:"column:annotations;serializer:json;not null"`
-	MonitorType        string            `gorm:"column:monitor_type;not null"`
+	TemplateCode       string            `gorm:"column:template_code;not null"`
 	ExporterTemplateID *string           `gorm:"column:exporter_template_id"`
 	Scope              string            `gorm:"column:scope;not null"`
 	Enabled            bool              `gorm:"column:enabled;not null"`
@@ -293,7 +237,7 @@ func (r ruleRecord) toDomain() *domain.Rule {
 		Duration:           r.Duration,
 		Labels:             nonNilMap(r.Labels),
 		Annotations:        nonNilMap(r.Annotations),
-		MonitorType:        r.MonitorType,
+		TemplateCode:       r.TemplateCode,
 		ExporterTemplateID: derefString(r.ExporterTemplateID),
 		Scope:              domain.RuleScope(r.Scope),
 		Enabled:            r.Enabled,
@@ -322,7 +266,7 @@ func ruleFromDomain(r *domain.Rule) ruleRecord {
 		Duration:           r.Duration,
 		Labels:             nonNilMap(r.Labels),
 		Annotations:        nonNilMap(r.Annotations),
-		MonitorType:        r.MonitorType,
+		TemplateCode:       r.TemplateCode,
 		ExporterTemplateID: nilIfEmpty(r.ExporterTemplateID),
 		Scope:              string(r.Scope),
 		Enabled:            r.Enabled,
@@ -340,57 +284,57 @@ func ruleFromDomain(r *domain.Rule) ruleRecord {
 
 // metricRecord maps m01_metric_library.
 type metricRecord struct {
-	ID                 string                `gorm:"column:id;primaryKey"`
-	MetricName         string                `gorm:"column:metric_name;not null"`
-	MetricType         string                `gorm:"column:metric_type;not null"`
-	Help               string                `gorm:"column:help;not null"`
-	Unit               string                `gorm:"column:unit;not null"`
-	Labels             []string              `gorm:"column:labels;serializer:json;not null"`
-	MonitorTypes       []domain.MetricAnchor `gorm:"column:monitor_types;serializer:json;not null"`
-	Category           string                `gorm:"column:category;not null"`
-	ExporterTemplateID *string               `gorm:"column:exporter_template_id"`
-	IsBuiltin          bool                  `gorm:"column:is_builtin;not null"`
-	Enabled            bool                  `gorm:"column:enabled;not null"`
-	CreatedAt          time.Time             `gorm:"column:created_at"`
-	UpdatedAt          time.Time             `gorm:"column:updated_at"`
-	DeletedAt          gorm.DeletedAt        `gorm:"column:deleted_at;index"`
+	ID                  string                `gorm:"column:id;primaryKey"`
+	MetricName          string                `gorm:"column:metric_name;not null"`
+	MetricType          string                `gorm:"column:metric_type;not null"`
+	Help                string                `gorm:"column:help;not null"`
+	Unit                string                `gorm:"column:unit;not null"`
+	Labels              []string              `gorm:"column:labels;serializer:json;not null"`
+	CollectionTemplates []domain.MetricAnchor `gorm:"column:collection_templates;serializer:json;not null"`
+	Category            string                `gorm:"column:category;not null"`
+	ExporterTemplateID  *string               `gorm:"column:exporter_template_id"`
+	IsBuiltin           bool                  `gorm:"column:is_builtin;not null"`
+	Enabled             bool                  `gorm:"column:enabled;not null"`
+	CreatedAt           time.Time             `gorm:"column:created_at"`
+	UpdatedAt           time.Time             `gorm:"column:updated_at"`
+	DeletedAt           gorm.DeletedAt        `gorm:"column:deleted_at;index"`
 }
 
 func (metricRecord) TableName() string { return "m01_metric_library" }
 
 func (r metricRecord) toDomain() *domain.Metric {
 	return &domain.Metric{
-		ID:                 r.ID,
-		MetricName:         r.MetricName,
-		MetricType:         domain.MetricType(r.MetricType),
-		Help:               r.Help,
-		Unit:               r.Unit,
-		Labels:             nonNilStrings(r.Labels),
-		MonitorTypes:       nonNilAnchors(r.MonitorTypes),
-		Category:           r.Category,
-		ExporterTemplateID: derefString(r.ExporterTemplateID),
-		IsBuiltin:          r.IsBuiltin,
-		Enabled:            r.Enabled,
-		CreatedAt:          r.CreatedAt,
-		UpdatedAt:          r.UpdatedAt,
+		ID:                  r.ID,
+		MetricName:          r.MetricName,
+		MetricType:          domain.MetricType(r.MetricType),
+		Help:                r.Help,
+		Unit:                r.Unit,
+		Labels:              nonNilStrings(r.Labels),
+		CollectionTemplates: nonNilAnchors(r.CollectionTemplates),
+		Category:            r.Category,
+		ExporterTemplateID:  derefString(r.ExporterTemplateID),
+		IsBuiltin:           r.IsBuiltin,
+		Enabled:             r.Enabled,
+		CreatedAt:           r.CreatedAt,
+		UpdatedAt:           r.UpdatedAt,
 	}
 }
 
 func metricFromDomain(m *domain.Metric) metricRecord {
 	return metricRecord{
-		ID:                 m.ID,
-		MetricName:         m.MetricName,
-		MetricType:         string(m.MetricType),
-		Help:               m.Help,
-		Unit:               m.Unit,
-		Labels:             nonNilStrings(m.Labels),
-		MonitorTypes:       nonNilAnchors(m.MonitorTypes),
-		Category:           m.Category,
-		ExporterTemplateID: nilIfEmpty(m.ExporterTemplateID),
-		IsBuiltin:          m.IsBuiltin,
-		Enabled:            m.Enabled,
-		CreatedAt:          m.CreatedAt,
-		UpdatedAt:          m.UpdatedAt,
+		ID:                  m.ID,
+		MetricName:          m.MetricName,
+		MetricType:          string(m.MetricType),
+		Help:                m.Help,
+		Unit:                m.Unit,
+		Labels:              nonNilStrings(m.Labels),
+		CollectionTemplates: nonNilAnchors(m.CollectionTemplates),
+		Category:            m.Category,
+		ExporterTemplateID:  nilIfEmpty(m.ExporterTemplateID),
+		IsBuiltin:           m.IsBuiltin,
+		Enabled:             m.Enabled,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
 	}
 }
 
@@ -563,4 +507,14 @@ func nonNilMap(in map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	return in
+}
+
+func nonNilSelector(selector domain.Selector) domain.Selector {
+	if selector.Logic == "" {
+		selector.Logic = domain.RuleLogicAll
+	}
+	if selector.Filters == nil {
+		selector.Filters = []domain.ScopeFilter{}
+	}
+	return selector
 }

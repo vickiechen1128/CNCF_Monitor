@@ -22,41 +22,22 @@ type MappingOverride struct {
 
 // ExporterTemplate is one collector implementation in the exporter pool.
 type ExporterTemplate struct {
-	ID                    string
-	Name                  string
-	Version               string
-	DefaultPort           int
-	MetricsPath           string
-	Scheme                Scheme
-	SupportedMonitorTypes []string
-	OS                    string
-	Arch                  string
-	DownloadURL           string
-	Homepage              string
-	InstallGuide          string
-	Description           string
-	IsBuiltin             bool
-	Source                ExporterSource
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-}
-
-// Mapping links a fine-grained monitor type to an exporter implementation and
-// carries the default scrape parameters inherited by new jobs.
-type Mapping struct {
-	ID                 string
-	MonitorType        string
-	ExporterTemplateID string
-	IsDefault          bool
-	DefaultPort        int
-	MetricsPath        string
-	Scheme             Scheme
-	ScrapeInterval     string
-	ScrapeTimeout      string
-	LabelTemplateID    string
-	IsBuiltin          bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID           string
+	Name         string
+	Version      string
+	DefaultPort  int
+	MetricsPath  string
+	Scheme       Scheme
+	OS           string
+	Arch         string
+	DownloadURL  string
+	Homepage     string
+	InstallGuide string
+	Description  string
+	IsBuiltin    bool
+	Source       ExporterSource
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Job is a scrape or blackbox job bound to one collection network domain.
@@ -65,7 +46,8 @@ type Job struct {
 	JobName               string
 	JobType               JobType
 	ResourceCategory      ResourceCategory
-	MonitorType           string
+	TemplateCode          string
+	Selector              Selector
 	ExporterTemplateID    string
 	NetworkDomainID       string
 	InstanceSelectionMode InstanceSelectionMode
@@ -105,7 +87,8 @@ type JobGroup struct {
 	Name               string
 	JobType            JobType
 	ResourceCategory   ResourceCategory
-	MonitorType        string
+	TemplateCode       string
+	Selector           Selector
 	ExporterTemplateID string
 	ScrapeInterval     string
 	ScrapeTimeout      string
@@ -139,7 +122,7 @@ type Rule struct {
 	Duration           string
 	Labels             map[string]string
 	Annotations        map[string]string
-	MonitorType        string
+	TemplateCode       string
 	ExporterTemplateID string
 	Scope              RuleScope
 	Enabled            bool
@@ -151,28 +134,28 @@ type Rule struct {
 	UpdatedAt          time.Time
 }
 
-// MetricAnchor ties a technical metric to a monitor type and its source
+// MetricAnchor ties a technical metric to a collection template and its source
 // exporter (same metric name may carry different meanings per anchor).
 type MetricAnchor struct {
-	MonitorType    string `json:"monitor_type"`
+	TemplateCode   string `json:"template_code"`
 	SourceExporter string `json:"source_exporter,omitempty"`
 }
 
 // Metric is one technical metric catalogue entry.
 type Metric struct {
-	ID                 string
-	MetricName         string
-	MetricType         MetricType
-	Help               string
-	Unit               string
-	Labels             []string
-	MonitorTypes       []MetricAnchor
-	Category           string
-	ExporterTemplateID string
-	IsBuiltin          bool
-	Enabled            bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                  string
+	MetricName          string
+	MetricType          MetricType
+	Help                string
+	Unit                string
+	Labels              []string
+	CollectionTemplates []MetricAnchor
+	Category            string
+	ExporterTemplateID  string
+	IsBuiltin           bool
+	Enabled             bool
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // BusinessMetric is the business-semantics contract of a metric.

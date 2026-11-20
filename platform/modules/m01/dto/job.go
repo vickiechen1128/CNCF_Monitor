@@ -8,29 +8,30 @@ import (
 
 // JobRequest is the create/update payload of a scrape job.
 type JobRequest struct {
-	JobName               string   `json:"job_name"`
-	JobType               string   `json:"job_type"`
-	ResourceCategory      string   `json:"resource_category"`
-	MonitorType           string   `json:"monitor_type"`
-	ExporterTemplateID    string   `json:"exporter_template_id"`
-	NetworkDomainID       string   `json:"network_domain_id"`
-	InstanceSelectionMode string   `json:"instance_selection_mode"`
-	SelectedInstanceIDs   []string `json:"selected_instance_ids"`
-	ScrapeInterval        string   `json:"scrape_interval"`
-	ScrapeTimeout         string   `json:"scrape_timeout"`
-	MetricsPath           string   `json:"metrics_path"`
-	Scheme                string   `json:"scheme"`
-	AuthType              string   `json:"auth_type"`
-	Username              string   `json:"username"`
-	Password              string   `json:"password"`
-	Token                 string   `json:"token"`
-	TLSSkipVerify         bool     `json:"tls_skip_verify"`
-	CAFile                string   `json:"ca_file"`
-	LabelTemplateID       string   `json:"label_template_id"`
-	BlackboxModule        string   `json:"blackbox_module"`
-	DraftStatus           string   `json:"draft_status"`
-	Enabled               *bool    `json:"enabled"`
-	// SyncMappingDefaults is a request-only action: refresh inherited mapping
+	JobName               string      `json:"job_name"`
+	JobType               string      `json:"job_type"`
+	ResourceCategory      string      `json:"resource_category"`
+	TemplateCode          string      `json:"template_code"`
+	Selector              SelectorDTO `json:"selector"`
+	ExporterTemplateID    string      `json:"exporter_template_id"`
+	NetworkDomainID       string      `json:"network_domain_id"`
+	InstanceSelectionMode string      `json:"instance_selection_mode"`
+	SelectedInstanceIDs   []string    `json:"selected_instance_ids"`
+	ScrapeInterval        string      `json:"scrape_interval"`
+	ScrapeTimeout         string      `json:"scrape_timeout"`
+	MetricsPath           string      `json:"metrics_path"`
+	Scheme                string      `json:"scheme"`
+	AuthType              string      `json:"auth_type"`
+	Username              string      `json:"username"`
+	Password              string      `json:"password"`
+	Token                 string      `json:"token"`
+	TLSSkipVerify         bool        `json:"tls_skip_verify"`
+	CAFile                string      `json:"ca_file"`
+	LabelTemplateID       string      `json:"label_template_id"`
+	BlackboxModule        string      `json:"blackbox_module"`
+	DraftStatus           string      `json:"draft_status"`
+	Enabled               *bool       `json:"enabled"`
+	// SyncMappingDefaults is a request-only action: refresh inherited template
 	// fields that the user has not overridden.
 	SyncMappingDefaults bool `json:"sync_mapping_defaults"`
 }
@@ -42,7 +43,8 @@ func (r JobRequest) ToDomain() *domain.Job {
 		JobName:               r.JobName,
 		JobType:               domain.JobType(r.JobType),
 		ResourceCategory:      domain.ResourceCategory(r.ResourceCategory),
-		MonitorType:           r.MonitorType,
+		TemplateCode:          r.TemplateCode,
+		Selector:              r.Selector.ToDomain(),
 		ExporterTemplateID:    r.ExporterTemplateID,
 		NetworkDomainID:       r.NetworkDomainID,
 		InstanceSelectionMode: domain.InstanceSelectionMode(r.InstanceSelectionMode),
@@ -77,15 +79,16 @@ type SyncResponse struct {
 
 // JobResponse is the v3 scrape job projection.
 type JobResponse struct {
-	ID                   string `json:"id"`
-	JobName              string `json:"job_name"`
-	JobType              string `json:"job_type"`
-	ResourceCategory     string `json:"resource_category"`
-	MonitorType          string `json:"monitor_type"`
-	ExporterTemplateID   string `json:"exporter_template_id"`
-	ExporterTemplateName string `json:"exporter_template_name"`
-	NetworkDomainID      string `json:"network_domain_id"`
-	NetworkDomainName    string `json:"network_domain_name"`
+	ID                   string      `json:"id"`
+	JobName              string      `json:"job_name"`
+	JobType              string      `json:"job_type"`
+	ResourceCategory     string      `json:"resource_category"`
+	TemplateCode         string      `json:"template_code"`
+	Selector             SelectorDTO `json:"selector"`
+	ExporterTemplateID   string      `json:"exporter_template_id"`
+	ExporterTemplateName string      `json:"exporter_template_name"`
+	NetworkDomainID      string      `json:"network_domain_id"`
+	NetworkDomainName    string      `json:"network_domain_name"`
 	// JobGroupID / JobGroupName identify the monitoring intent a job belongs to
 	// (empty for legacy standalone jobs). Needed by the merged task list.
 	JobGroupID            string                   `json:"job_group_id,omitempty"`
@@ -125,7 +128,8 @@ func FromJob(job *domain.Job, exporterName, domainName, labelName, groupName str
 		JobName:               job.JobName,
 		JobType:               string(job.JobType),
 		ResourceCategory:      string(job.ResourceCategory),
-		MonitorType:           job.MonitorType,
+		TemplateCode:          job.TemplateCode,
+		Selector:              FromSelector(job.Selector),
 		ExporterTemplateID:    job.ExporterTemplateID,
 		ExporterTemplateName:  exporterName,
 		NetworkDomainID:       job.NetworkDomainID,

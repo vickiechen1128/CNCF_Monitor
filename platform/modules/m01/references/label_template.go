@@ -60,12 +60,12 @@ func NewLabelTemplateUsageChecker(db *gorm.DB) *LabelTemplateUsageChecker {
 
 // CountReferences implements the M07 usage-checker port.
 func (c *LabelTemplateUsageChecker) CountReferences(ctx context.Context, templateID string) (int64, error) {
-	var mappingCount int64
+	var templateCount int64
 	if err := c.db.WithContext(ctx).
-		Table("m01_ci_type_exporter_mappings").
+		Table("m01_collection_templates").
 		Where("label_template_id = ? AND deleted_at IS NULL", templateID).
-		Count(&mappingCount).Error; err != nil {
-		return 0, fmt.Errorf("count mapping references for label template %q: %w", templateID, err)
+		Count(&templateCount).Error; err != nil {
+		return 0, fmt.Errorf("count collection template references for label template %q: %w", templateID, err)
 	}
 	var jobCount int64
 	if err := c.db.WithContext(ctx).
@@ -74,5 +74,5 @@ func (c *LabelTemplateUsageChecker) CountReferences(ctx context.Context, templat
 		Count(&jobCount).Error; err != nil {
 		return 0, fmt.Errorf("count job references for label template %q: %w", templateID, err)
 	}
-	return mappingCount + jobCount, nil
+	return templateCount + jobCount, nil
 }

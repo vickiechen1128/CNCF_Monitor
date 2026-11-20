@@ -11,7 +11,8 @@ type CandidateFilterRequest struct {
 // CandidateQueryRequest is the POST /scrape-jobs/instance-candidates/query body.
 // POST is used because composable filters do not fit comfortably in a URL.
 type CandidateQueryRequest struct {
-	MonitorType      string                   `json:"monitor_type"`
+	TemplateCode     string                   `json:"template_code"`
+	Selector         SelectorDTO              `json:"selector"`
 	ResourceCategory string                   `json:"resource_category"`
 	Filters          []CandidateFilterRequest `json:"filters"`
 	Keyword          string                   `json:"keyword"`
@@ -21,7 +22,8 @@ type CandidateQueryRequest struct {
 
 // CandidateIDsRequest is the select-all body: same filters, ids only.
 type CandidateIDsRequest struct {
-	MonitorType      string                   `json:"monitor_type"`
+	TemplateCode     string                   `json:"template_code"`
+	Selector         SelectorDTO              `json:"selector"`
 	ResourceCategory string                   `json:"resource_category"`
 	Filters          []CandidateFilterRequest `json:"filters"`
 	Keyword          string                   `json:"keyword"`

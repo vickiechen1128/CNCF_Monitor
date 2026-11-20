@@ -16,7 +16,7 @@ type RuleRequest struct {
 	Duration           string            `json:"duration"`
 	Labels             map[string]string `json:"labels"`
 	Annotations        map[string]string `json:"annotations"`
-	MonitorType        string            `json:"monitor_type"`
+	TemplateCode       string            `json:"template_code"`
 	ExporterTemplateID string            `json:"exporter_template_id"`
 	Scope              string            `json:"scope"`
 	Enabled            *bool             `json:"enabled"`
@@ -40,7 +40,7 @@ func (r RuleRequest) ToDomain() *domain.Rule {
 		Duration:           r.Duration,
 		Labels:             r.Labels,
 		Annotations:        r.Annotations,
-		MonitorType:        r.MonitorType,
+		TemplateCode:       r.TemplateCode,
 		ExporterTemplateID: r.ExporterTemplateID,
 		Scope:              domain.RuleScope(r.Scope),
 		Enabled:            enabled,
@@ -61,7 +61,7 @@ type RuleResponse struct {
 	Duration           string            `json:"duration"`
 	Labels             map[string]string `json:"labels"`
 	Annotations        map[string]string `json:"annotations"`
-	MonitorType        string            `json:"monitor_type"`
+	TemplateCode       string            `json:"template_code"`
 	ExporterTemplateID string            `json:"exporter_template_id"`
 	Scope              string            `json:"scope"`
 	Enabled            bool              `json:"enabled"`
@@ -100,7 +100,7 @@ func FromRule(rule *domain.Rule) RuleResponse {
 		Duration:           rule.Duration,
 		Labels:             labels,
 		Annotations:        annotations,
-		MonitorType:        rule.MonitorType,
+		TemplateCode:       rule.TemplateCode,
 		ExporterTemplateID: rule.ExporterTemplateID,
 		Scope:              string(rule.Scope),
 		Enabled:            rule.Enabled,

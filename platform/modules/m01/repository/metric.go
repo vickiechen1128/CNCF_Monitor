@@ -13,8 +13,8 @@ import (
 // MetricFilter filters technical metric listings.
 type MetricFilter struct {
 	MetricType domain.MetricType
-	// MonitorType matches metrics carrying the anchor inside monitor_types.
-	MonitorType string
+	// TemplateCode matches metrics carrying the anchor inside collection_templates.
+	TemplateCode string
 	// ResourceCategory is the coarse M07 category; it is expanded to the
 	// category's monitor types and matched against the monitor_types anchors.
 	ResourceCategory domain.ResourceCategory
@@ -103,11 +103,11 @@ func (r *GORMMetricRepository) List(ctx context.Context, filter MetricFilter) ([
 		if filter.MetricType != "" {
 			q = q.Where("metric_type = ?", string(filter.MetricType))
 		}
-		if filter.MonitorType != "" {
-			q = r.whereMonitorTypeIn(q, []string{filter.MonitorType})
+		if filter.TemplateCode != "" {
+			q = r.whereTemplateIn(q, []string{filter.TemplateCode})
 		}
 		if filter.ResourceCategory != "" {
-			q = r.whereMonitorTypeIn(q, domain.MonitorTypesForCategory(filter.ResourceCategory))
+			q = r.whereCategoryIn(q, string(filter.ResourceCategory))
 		}
 		if filter.Category != "" {
 			q = q.Where("category = ?", filter.Category)
@@ -133,25 +133,43 @@ func (r *GORMMetricRepository) List(ctx context.Context, filter MetricFilter) ([
 	return out, total, nil
 }
 
-// whereMonitorTypeIn keeps rows whose monitor_types anchor array contains at
-// least one of the given monitor types. An empty set matches nothing, which
-// lets an unknown resource category return an empty page instead of all rows.
-func (r *GORMMetricRepository) whereMonitorTypeIn(q *gorm.DB, monitorTypes []string) *gorm.DB {
+// whereTemplateIn keeps rows whose collection_templates anchor array contains at
+// least one of the given template codes. An empty set matches nothing, which
+// lets an unknown filter return an empty page instead of all rows.
+func (r *GORMMetricRepository) whereTemplateIn(q *gorm.DB, monitorTypes []string) *gorm.DB {
 	if len(monitorTypes) == 0 {
 		return q.Where("1 = 0")
 	}
 	if r.db.Dialector.Name() == "postgres" {
 		return q.Where(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(monitor_types) AS anchor WHERE anchor->>'monitor_type' IN ?)",
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' IN ?)",
 			monitorTypes,
 		)
 	}
 	// SQLite stores the serializer:json column as TEXT; json_each is built into
 	// modern SQLite (JSON1) and matches the PostgreSQL semantics above.
 	return q.Where(
-		"EXISTS (SELECT 1 FROM json_each(monitor_types) AS anchor WHERE json_extract(anchor.value, '$.monitor_type') IN ?)",
+		"EXISTS (SELECT 1 FROM json_each(collection_templates) AS anchor WHERE json_extract(anchor.value, '$.template_code') IN ?)",
 		monitorTypes,
 	)
+}
+
+// whereCategoryIn keeps rows anchored on any template of one resource category.
+// The template table is the source of truth, so the filter cannot drift from the
+// template list.
+func (r *GORMMetricRepository) whereCategoryIn(q *gorm.DB, category string) *gorm.DB {
+	if r.db.Dialector.Name() == "postgres" {
+		return q.Where(`EXISTS (
+			SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor
+			WHERE anchor->>'template_code' IN (
+				SELECT code FROM m01_collection_templates
+				WHERE resource_category = ? AND deleted_at IS NULL))`, category)
+	}
+	return q.Where(`EXISTS (
+		SELECT 1 FROM json_each(collection_templates) AS anchor
+		WHERE json_extract(anchor.value, '$.template_code') IN (
+			SELECT code FROM m01_collection_templates
+			WHERE resource_category = ? AND deleted_at IS NULL))`, category)
 }
 
 // HasAnchorConflict reports whether another live metric shares metricName and
@@ -167,7 +185,7 @@ func (r *GORMMetricRepository) HasAnchorConflict(ctx context.Context, metricName
 		q = q.Where("id <> ?", excludeID)
 	}
 	var count int64
-	if err := r.whereMonitorTypeIn(q, monitorTypes).Count(&count).Error; err != nil {
+	if err := r.whereTemplateIn(q, monitorTypes).Count(&count).Error; err != nil {
 		return false, fmt.Errorf("check metric anchor conflict: %w", err)
 	}
 	return count > 0, nil

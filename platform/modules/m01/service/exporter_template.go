@@ -12,13 +12,13 @@ import (
 
 // ExporterTemplateService implements exporter pool use cases (FR-02).
 type ExporterTemplateService struct {
-	repo     repository.ExporterTemplateRepository
-	mappings repository.MappingRepository
+	repo      repository.ExporterTemplateRepository
+	templates repository.CollectionTemplateRepository
 }
 
 // NewExporterTemplateService constructs the service.
-func NewExporterTemplateService(repo repository.ExporterTemplateRepository, mappings repository.MappingRepository) *ExporterTemplateService {
-	return &ExporterTemplateService{repo: repo, mappings: mappings}
+func NewExporterTemplateService(repo repository.ExporterTemplateRepository, templates repository.CollectionTemplateRepository) *ExporterTemplateService {
+	return &ExporterTemplateService{repo: repo, templates: templates}
 }
 
 // List returns a page of exporter templates.
@@ -81,7 +81,7 @@ func (s *ExporterTemplateService) Delete(ctx context.Context, id string) error {
 	if existing.IsBuiltin {
 		return &domain.ForbiddenError{Message: fmt.Sprintf("exporter template %q is built-in and cannot be deleted", existing.Name)}
 	}
-	count, err := s.mappings.CountByExporterTemplate(ctx, id)
+	count, err := s.templates.CountByExporterTemplate(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -144,11 +144,6 @@ func validateExporter(template *domain.ExporterTemplate) error {
 	}
 	if !template.Source.Valid() {
 		return domain.NewValidationError("source", "must be official, third_party or internal")
-	}
-	for _, monitorType := range template.SupportedMonitorTypes {
-		if !domain.ValidMonitorType(monitorType) {
-			return domain.NewValidationErrorf("supported_monitor_types", "unknown monitor type %q", monitorType)
-		}
 	}
 	if err := validateOptionalURL("download_url", template.DownloadURL); err != nil {
 		return err

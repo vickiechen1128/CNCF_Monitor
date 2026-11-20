@@ -20,26 +20,33 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 )
 
-// defaultMappingSeed is the canonical monitor-type → exporter binding shipped
-// with v3. Only the default implementation per type is seeded; additional
-// implementations remain a user decision.
-type defaultMappingSeed struct {
-	MonitorType    string
+// templateSeed is the canonical collection-template → exporter binding shipped
+// with v3. Its exporter name is resolved from the built-in exporter pool; an
+// empty name means "no exporter registered yet" and the template is seeded
+// disabled so it cannot be used by a job until someone binds one (FR-21).
+type templateSeed struct {
+	Code           string
 	Exporter       string
 	DefaultPort    int
+	MetricsPath    string
 	ScrapeInterval string
 	ScrapeTimeout  string
+	Unbound        bool
 }
 
-// DefaultMappings returns the built-in monitor-type bindings.
-func DefaultMappings() []defaultMappingSeed {
-	return []defaultMappingSeed{
-		{MonitorType: "host_linux", Exporter: "node-exporter", DefaultPort: 9100, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
-		{MonitorType: "host_windows", Exporter: "windows-exporter", DefaultPort: 9182, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
-		{MonitorType: "mysql", Exporter: "mysqld-exporter", DefaultPort: 9104, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
-		{MonitorType: "redis", Exporter: "redis-exporter", DefaultPort: 9121, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
-		{MonitorType: "kafka", Exporter: "kafka-exporter", DefaultPort: 9308, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
-		{MonitorType: "snmp", Exporter: "snmp-exporter", DefaultPort: 9116, ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+// DefaultTemplates returns the built-in template bindings.
+func DefaultTemplates() []templateSeed {
+	return []templateSeed{
+		{Code: "host_linux", Exporter: "node-exporter", DefaultPort: 9100, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "host_windows", Exporter: "windows-exporter", DefaultPort: 9182, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "host_npu", Unbound: true, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "mysql", Exporter: "mysqld-exporter", DefaultPort: 9104, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "redis", Exporter: "redis-exporter", DefaultPort: 9121, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "kafka", Exporter: "kafka-exporter", DefaultPort: 9308, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "elasticsearch", Unbound: true, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "nginx", Unbound: true, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "application_http", Unbound: true, MetricsPath: "/metrics", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
+		{Code: "snmp", Exporter: "snmp-exporter", DefaultPort: 9116, MetricsPath: "/snmp", ScrapeInterval: "15s", ScrapeTimeout: "10s"},
 	}
 }
 
@@ -50,16 +57,15 @@ func Run(db *gorm.DB) error {
 	}
 	ctx := context.Background()
 	exporters := repository.NewExporterTemplateRepository(db)
-	mappings := repository.NewMappingRepository(db)
+	templates := repository.NewCollectionTemplateRepository(db)
 	metrics := repository.NewMetricRepository(db)
 	probes := repository.NewProbeModuleRepository(db)
-	monitorTypes := repository.NewMonitorTypeRepository(db)
 
 	if err := seedExporters(ctx, exporters); err != nil {
 		return fmt.Errorf("seed m01 exporter templates: %w", err)
 	}
-	if err := seedMappings(ctx, exporters, mappings); err != nil {
-		return fmt.Errorf("seed m01 default mappings: %w", err)
+	if err := seedCollectionTemplates(ctx, exporters, templates); err != nil {
+		return fmt.Errorf("seed m01 collection templates: %w", err)
 	}
 	if err := seedMetrics(ctx, metrics); err != nil {
 		return fmt.Errorf("seed m01 metric library: %w", err)
@@ -67,25 +73,44 @@ func Run(db *gorm.DB) error {
 	if err := seedProbeModules(ctx, probes); err != nil {
 		return fmt.Errorf("seed m01 probe modules: %w", err)
 	}
-	if err := seedMonitorTypes(ctx, monitorTypes); err != nil {
-		return fmt.Errorf("seed m01 monitor types: %w", err)
-	}
 	return nil
 }
 
-// seedMonitorTypes inserts the built-in monitor types (SRS Module_01 v1.3
-// §5.6 FR-21). It is create-only: a type the user has edited or disabled is
-// never overwritten on restart, so the registry stays user-owned data
-// (NFR-11 idempotent seed).
-func seedMonitorTypes(ctx context.Context, repo repository.MonitorTypeRepository) error {
-	for _, entry := range domain.BuiltinMonitorTypeEntries() {
-		if _, found, err := repo.Get(ctx, entry.Definition.Code); err != nil {
+// seedCollectionTemplates inserts the built-in collection templates
+// (SRS Module_01 v1.5 FR-21). It is create-only: a template the user edited or
+// disabled is never overwritten on restart (NFR-11 idempotent seed).
+func seedCollectionTemplates(ctx context.Context, exporters *repository.GORMExporterTemplateRepository, templates *repository.GORMCollectionTemplateRepository) error {
+	for _, item := range DefaultTemplates() {
+		builtin, ok := domain.BuiltinCollectionTemplate(item.Code)
+		if !ok {
+			continue
+		}
+		if _, found, err := templates.Find(ctx, item.Code); err != nil {
 			return err
 		} else if found {
 			continue
 		}
-		if err := repo.Create(ctx, entry); err != nil {
-			return fmt.Errorf("create built-in monitor type %q: %w", entry.Definition.Code, err)
+		template := builtin
+		template.MetricsPath = item.MetricsPath
+		template.ScrapeInterval = item.ScrapeInterval
+		template.ScrapeTimeout = item.ScrapeTimeout
+		template.Enabled = true
+		if item.Exporter != "" {
+			exporter, err := exporters.GetByName(ctx, item.Exporter)
+			if err != nil {
+				return fmt.Errorf("resolve built-in exporter %q: %w", item.Exporter, err)
+			}
+			template.ExporterTemplateID = exporter.ID
+			template.DefaultPort = item.DefaultPort
+		}
+		if item.Unbound {
+			// No exporter registered yet: keep the recipe visible but unusable
+			// until an administrator binds an implementation.
+			template.Enabled = false
+			template.Description = template.Description + "（尚未绑定采集实现，登记后在采集模板页绑定并启用）"
+		}
+		if err := templates.Create(ctx, &template); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -99,59 +124,21 @@ func seedExporters(ctx context.Context, repo *repository.GORMExporterTemplateRep
 			return err
 		}
 		template := &domain.ExporterTemplate{
-			Name:                  tpl.Name,
-			Version:               tpl.Version,
-			DefaultPort:           tpl.DefaultPort,
-			MetricsPath:           tpl.MetricsPath,
-			Scheme:                domain.Scheme(tpl.Scheme),
-			SupportedMonitorTypes: tpl.SupportedMonitorTypes,
-			OS:                    tpl.OS,
-			Arch:                  tpl.Arch,
-			DownloadURL:           tpl.DownloadURL,
-			Homepage:              tpl.Homepage,
-			InstallGuide:          tpl.InstallGuide,
-			Description:           tpl.Description,
-			IsBuiltin:             true,
-			Source:                domain.ExporterSource(tpl.Source),
+			Name:         tpl.Name,
+			Version:      tpl.Version,
+			DefaultPort:  tpl.DefaultPort,
+			MetricsPath:  tpl.MetricsPath,
+			Scheme:       domain.Scheme(tpl.Scheme),
+			OS:           tpl.OS,
+			Arch:         tpl.Arch,
+			DownloadURL:  tpl.DownloadURL,
+			Homepage:     tpl.Homepage,
+			InstallGuide: tpl.InstallGuide,
+			Description:  tpl.Description,
+			IsBuiltin:    true,
+			Source:       domain.ExporterSource(tpl.Source),
 		}
 		if err := repo.Create(ctx, template); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func seedMappings(ctx context.Context, exporters *repository.GORMExporterTemplateRepository, mappings *repository.GORMMappingRepository) error {
-	for _, item := range DefaultMappings() {
-		exporter, err := exporters.GetByName(ctx, item.Exporter)
-		if err != nil {
-			return fmt.Errorf("resolve built-in exporter %q: %w", item.Exporter, err)
-		}
-		if _, found, err := mappings.FindByMonitorTypeAndExporter(ctx, item.MonitorType, exporter.ID); err != nil {
-			return err
-		} else if found {
-			continue
-		}
-		hasDefault, err := mappings.HasDefault(ctx, item.MonitorType, "")
-		if err != nil {
-			return err
-		}
-		if hasDefault {
-			// A user already chose another default; do not fight it.
-			continue
-		}
-		mapping := &domain.Mapping{
-			MonitorType:        item.MonitorType,
-			ExporterTemplateID: exporter.ID,
-			IsDefault:          true,
-			DefaultPort:        item.DefaultPort,
-			MetricsPath:        "/metrics",
-			Scheme:             domain.SchemeHTTP,
-			ScrapeInterval:     item.ScrapeInterval,
-			ScrapeTimeout:      item.ScrapeTimeout,
-			IsBuiltin:          true,
-		}
-		if err := mappings.Create(ctx, mapping); err != nil {
 			return err
 		}
 	}
@@ -166,22 +153,22 @@ func seedMetrics(ctx context.Context, repo *repository.GORMMetricRepository) err
 			continue
 		}
 		anchors := make([]domain.MetricAnchor, 0, len(item.MonitorTypes))
-		for _, monitorType := range item.MonitorTypes {
+		for _, templateCode := range item.MonitorTypes {
 			anchors = append(anchors, domain.MetricAnchor{
-				MonitorType:    monitorType,
+				TemplateCode:   templateCode,
 				SourceExporter: item.SourceExporter,
 			})
 		}
 		metric := &domain.Metric{
-			MetricName:   item.MetricName,
-			MetricType:   domain.MetricType(item.MetricType),
-			Help:         item.Help,
-			Unit:         item.Unit,
-			Labels:       item.Labels,
-			MonitorTypes: anchors,
-			Category:     item.Category,
-			IsBuiltin:    true,
-			Enabled:      true,
+			MetricName:          item.MetricName,
+			MetricType:          domain.MetricType(item.MetricType),
+			Help:                item.Help,
+			Unit:                item.Unit,
+			Labels:              item.Labels,
+			CollectionTemplates: anchors,
+			Category:            item.Category,
+			IsBuiltin:           true,
+			Enabled:             true,
 		}
 		if err := repo.Create(ctx, metric); err != nil {
 			return err

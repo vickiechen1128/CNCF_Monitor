@@ -239,13 +239,13 @@ func (r *GORMResourceReader) ListCandidates(ctx context.Context, query domain.Ca
 // QueryCandidates builds the candidate query from the composable filters.
 func (r *GORMResourceReader) QueryCandidates(ctx context.Context, query domain.CandidateQuery) (domain.CandidatePage, error) {
 	out := domain.CandidatePage{}
-	category, filters, logic, err := candidateScope(query.MonitorType, query.Category)
+	category, selector, err := r.resolveSelector(ctx, query)
 	if err != nil {
 		return out, err
 	}
-	// The monitor type scope is derived from its configurable rules and compiled
-	// once per query; every builder closure below reuses the same predicate.
-	predicate, predicateArgs, err := scopePredicate(filters, logic, r.db.Dialector.Name())
+	// The selector is compiled once per query; every builder closure below reuses
+	// the same predicate.
+	predicate, predicateArgs, err := r.selectorPredicate(ctx, selector.Filters, selector.Logic, r.db.Dialector.Name())
 	if err != nil {
 		return out, err
 	}
@@ -378,40 +378,54 @@ func (r *GORMResourceReader) GetMany(ctx context.Context, resourceIDs []string) 
 	return out, nil
 }
 
-// candidateScope resolves the M07 resource category and the derivation filters
-// of a monitor type.
+// resolveSelector validates the job selector against the field dictionary and
+// returns the resource category that bounds the candidate pool.
 //
-// The monitor type is configuration (SRS Module_01 v1.3 §5.6): the scope comes
-// from the registry snapshot, not from a hard-coded switch. ”always” rules
-// produce no filter, which is how category-wide types such as application_http
-// keep matching every resource of their category.
-func candidateScope(monitorType string, category domain.ResourceCategory) (domain.ResourceCategory, []domain.ScopeFilter, domain.RuleLogic, error) {
-	monitorType = strings.TrimSpace(monitorType)
-	if monitorType == "" {
-		if category == domain.CategoryInterfaceService || category == domain.CategoryApplication {
-			return category, nil, domain.RuleLogicAll, nil
-		}
-		return "", nil, domain.RuleLogicAll,
-			domain.NewValidationError("monitor_type", "is required for standard jobs")
+// A field key that is not a built-in field is accepted when M07 has registered it
+// as a custom field for the category; custom values live in a key/value table and
+// are matched by EXISTS, never by splicing a column name.
+func (r *GORMResourceReader) resolveSelector(ctx context.Context, query domain.CandidateQuery) (domain.ResourceCategory, domain.Selector, error) {
+	category := query.Category
+	if category == "" {
+		return "", domain.Selector{}, domain.NewValidationError("resource_category", "is required")
 	}
-	scope, ok := domain.MonitorTypeScopeFor(monitorType)
-	if !ok {
-		return "", nil, domain.RuleLogicAll,
-			domain.NewValidationErrorf("monitor_type", "unknown monitor type %q", monitorType)
+	if !category.Valid() {
+		return "", domain.Selector{}, domain.NewValidationErrorf("resource_category", "unknown category %q", category)
 	}
-	if category != "" && category != scope.Category {
-		return "", nil, domain.RuleLogicAll,
-			domain.NewValidationErrorf("monitor_type",
-				"monitor type %q belongs to resource category %q, not %q",
-				monitorType, scope.Category, category)
+	selector := query.Selector.Normalize()
+	custom, err := r.customFields(ctx, category)
+	if err != nil {
+		return "", domain.Selector{}, err
 	}
-	return scope.Category, scope.Filters, scope.Logic, nil
+	if err := domain.ValidateSelectorWith(selector, category, func(key string) bool {
+		_, ok := custom[key]
+		return ok
+	}); err != nil {
+		return "", domain.Selector{}, err
+	}
+	return category, selector, nil
 }
 
-// scopePredicate compiles scope filters into a single SQL predicate plus its
-// bound arguments. Field keys are resolved through the domain whitelist, so user
-// input never reaches the column list (NFR-11 / FR-22).
-func scopePredicate(filters []domain.ScopeFilter, logic domain.RuleLogic, dialect string) (string, []any, error) {
+// customFields returns the active custom field keys of one category.
+func (r *GORMResourceReader) customFields(ctx context.Context, category domain.ResourceCategory) (map[string]struct{}, error) {
+	var keys []string
+	err := r.db.WithContext(ctx).Table("m07_attribute_definitions").
+		Where("resource_category = ? AND status = ? AND deleted_at IS NULL", string(category), "active").
+		Pluck("attribute_key", &keys).Error
+	if err != nil {
+		return nil, fmt.Errorf("load custom fields of %q: %w", category, err)
+	}
+	out := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		out[key] = struct{}{}
+	}
+	return out, nil
+}
+
+// selectorPredicate compiles the selector into one SQL predicate plus its bound
+// arguments. Field keys are resolved through the dictionary, so user input never
+// reaches the column list (NFR-11 / FR-22).
+func (r *GORMResourceReader) selectorPredicate(ctx context.Context, filters []domain.ScopeFilter, logic domain.RuleLogic, dialect string) (string, []any, error) {
 	if len(filters) == 0 {
 		return "", nil, nil
 	}
@@ -441,25 +455,22 @@ func scopePredicate(filters []domain.ScopeFilter, logic domain.RuleLogic, dialec
 	return "(" + strings.Join(parts, joiner) + ")", args, nil
 }
 
-// scopeFilterClause compiles one derivation rule.
+// scopeFilterClause compiles one selector condition, built-in or custom.
 func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any, error) {
-	spec, ok := domain.ScopeFieldSpecFor(filter.Field)
+	spec, ok := domain.FieldSpecFor(filter.Field)
 	if !ok {
-		return "", nil, domain.NewValidationErrorf("monitor_type", "unknown scope field %q", filter.Field)
+		return customFieldClause(filter)
 	}
 	values := filter.Values
 	if filter.Operator == domain.RuleOpAlways {
 		return "", nil, nil
 	}
 	if len(values) == 0 {
-		return "", nil, domain.NewValidationErrorf("monitor_type",
+		return "", nil, domain.NewValidationErrorf("selector.filters",
 			"scope field %q has no value", filter.Field)
 	}
 	switch spec.Kind {
-	case domain.ScopeFieldOSFamily:
-		// Virtual field: expand the OS family into the built-in dictionary
-		// keywords so canonical names ("Ubuntu", "RedHat Enterprise Linux")
-		// match through a case-insensitive substring comparison.
+	case domain.FieldKindOSFamily:
 		keywords := make([]string, 0, len(values)*4)
 		for _, value := range values {
 			switch strings.ToLower(strings.TrimSpace(value)) {
@@ -468,12 +479,12 @@ func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any
 			case models.OSFamilyWindows:
 				keywords = append(keywords, models.OSKeywordsForWindows()...)
 			default:
-				return "", nil, domain.NewValidationErrorf("monitor_type",
+				return "", nil, domain.NewValidationErrorf("selector.filters",
 					"os_family takes linux or windows, got %q", value)
 			}
 		}
 		return containsAnyClause("h.os_type", keywords)
-	case domain.ScopeFieldBoolean:
+	case domain.FieldKindBoolean:
 		bools := make([]bool, 0, len(values))
 		for _, value := range values {
 			switch strings.ToLower(strings.TrimSpace(value)) {
@@ -482,7 +493,7 @@ func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any
 			case "false":
 				bools = append(bools, false)
 			default:
-				return "", nil, domain.NewValidationErrorf("monitor_type",
+				return "", nil, domain.NewValidationErrorf("selector.filters",
 					"field %q takes true or false, got %q", filter.Field, value)
 			}
 		}
@@ -503,13 +514,49 @@ func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any
 		return containsAnyClause(spec.Column, values)
 	case domain.RuleOpRegexp:
 		if dialect != "postgres" {
-			return "", nil, domain.NewValidationErrorf("monitor_type",
+			return "", nil, domain.NewValidationErrorf("selector.filters",
 				"operator regexp requires the postgres driver (current: %s)", dialect)
 		}
 		return spec.Column + " ~* ?", []any{values[0]}, nil
 	default:
-		return "", nil, domain.NewValidationErrorf("monitor_type",
+		return "", nil, domain.NewValidationErrorf("selector.filters",
 			"unsupported operator %q", filter.Operator)
+	}
+}
+
+// customFieldClause compiles a condition on a M07 custom field. Values are
+// matched through m07_resource_attributes, so a new custom field needs no M01
+// code change (NFR-11).
+func customFieldClause(filter domain.ScopeFilter) (string, []any, error) {
+	base := "EXISTS (SELECT 1 FROM m07_resource_attributes ra WHERE ra.resource_id = r.resource_id" +
+		" AND ra.deleted_at IS NULL AND ra.attribute_key = ?"
+	values := filter.Values
+	if filter.Operator == domain.RuleOpAlways {
+		return "", nil, nil
+	}
+	if len(values) == 0 {
+		return "", nil, domain.NewValidationErrorf("selector.filters",
+			"custom field %q has no value", filter.Field)
+	}
+	switch filter.Operator {
+	case domain.RuleOpEq:
+		return base + " AND ra.value = ?)", []any{filter.Field, values[0]}, nil
+	case domain.RuleOpIn:
+		return base + " AND ra.value IN ?)", []any{filter.Field, values}, nil
+	case domain.RuleOpContains:
+		return base + " AND LOWER(ra.value) LIKE ?)", []any{filter.Field, likeKeywordPattern(values[0])}, nil
+	case domain.RuleOpContainsAny:
+		clauses := make([]string, 0, len(values))
+		args := make([]any, 0, len(values)+1)
+		args = append(args, filter.Field)
+		for _, value := range values {
+			clauses = append(clauses, "LOWER(ra.value) LIKE ?")
+			args = append(args, likeKeywordPattern(value))
+		}
+		return base + " AND (" + strings.Join(clauses, " OR ") + "))", args, nil
+	default:
+		return "", nil, domain.NewValidationErrorf("selector.filters",
+			"operator %q is not supported on custom fields", filter.Operator)
 	}
 }
 
@@ -527,14 +574,33 @@ func containsAnyClause(column string, keywords []string) (string, []any, error) 
 	return "(" + strings.Join(clauses, " OR ") + ")", args, nil
 }
 
-// CountCandidates returns how many resources a monitor type currently matches.
-// It powers the change-impact preview (FR-24) and reuses the candidate query so
-// the preview can never drift from what the job form shows.
-func (r *GORMResourceReader) CountCandidates(ctx context.Context, monitorType string) (int64, error) {
+// ValidateSelector checks a selector against the field dictionary of one
+// category, including M07-registered custom fields.
+func (r *GORMResourceReader) ValidateSelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector) error {
+	if _, _, err := r.resolveSelector(ctx, domain.CandidateQuery{Category: category, Selector: selector}); err != nil {
+		return err
+	}
+	if r.db.Dialector.Name() == "postgres" {
+		return nil
+	}
+	for _, filter := range selector.Filters {
+		if filter.Operator == domain.RuleOpRegexp {
+			return domain.NewValidationErrorf("selector.filters.operator",
+				"operator regexp requires the postgres driver (current: %s)", r.db.Dialector.Name())
+		}
+	}
+	return nil
+}
+
+// CountBySelector returns how many resources a selector currently matches. It
+// powers the save-time preview and the template impact check, and reuses the
+// candidate query so the preview can never drift from the job form.
+func (r *GORMResourceReader) CountBySelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector) (int64, error) {
 	page, err := r.QueryCandidates(ctx, domain.CandidateQuery{
-		MonitorType: monitorType,
-		IDsOnly:     true,
-		MaxIDs:      1,
+		Category: category,
+		Selector: selector,
+		IDsOnly:  true,
+		MaxIDs:   1,
 	})
 	if err != nil {
 		return 0, err

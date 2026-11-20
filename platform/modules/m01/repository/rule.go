@@ -11,12 +11,12 @@ import (
 
 // RuleFilter filters monitoring rule listings.
 type RuleFilter struct {
-	Enabled     *bool
-	DraftStatus domain.DraftStatus
-	MonitorType string
-	Keyword     string
-	Page        int
-	PageSize    int
+	Enabled      *bool
+	DraftStatus  domain.DraftStatus
+	TemplateCode string
+	Keyword      string
+	Page         int
+	PageSize     int
 }
 
 // RuleRepository persists monitoring rules.
@@ -78,8 +78,8 @@ func (r *GORMRuleRepository) List(ctx context.Context, filter RuleFilter) ([]*do
 		if filter.DraftStatus != "" {
 			q = q.Where("draft_status = ?", string(filter.DraftStatus))
 		}
-		if filter.MonitorType != "" {
-			q = q.Where("monitor_type = ?", filter.MonitorType)
+		if filter.TemplateCode != "" {
+			q = q.Where("template_code = ?", filter.TemplateCode)
 		}
 		return keywordFilter(q, "name", filter.Keyword)
 	}

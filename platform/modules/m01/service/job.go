@@ -37,7 +37,7 @@ type JobView struct {
 // CandidateView is one candidate plus derived selection state.
 type CandidateView struct {
 	Ref            domain.ResourceRef
-	MonitorType    string
+	TemplateCode   string
 	TargetAddress  string
 	Selectable     bool
 	DisabledReason string
@@ -70,7 +70,7 @@ type PreviewSkip struct {
 type JobService struct {
 	jobs          repository.JobRepository
 	exporters     repository.ExporterTemplateRepository
-	mappings      repository.MappingRepository
+	templates     *CollectionTemplateService
 	probes        repository.ProbeModuleRepository
 	installations repository.InstallationRepository
 	resources     ResourceReader
@@ -78,13 +78,26 @@ type JobService struct {
 	labels        LabelTemplateResolver
 	// groupNames is optional: when wired, job views resolve the group display name.
 	groupNames repository.JobGroupRepository
+	// selectorValidator is optional: when wired, a saved selector is checked
+	// against the M07-backed field dictionary (FR-22).
+	selectorValidator SelectorValidator
+}
+
+// SelectorValidator validates a job selector against the field dictionary.
+type SelectorValidator interface {
+	ValidateSelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector) error
+}
+
+// SetSelectorValidator wires the selector validation port.
+func (s *JobService) SetSelectorValidator(validator SelectorValidator) {
+	s.selectorValidator = validator
 }
 
 // NewJobService constructs the service.
 func NewJobService(
 	jobs repository.JobRepository,
 	exporters repository.ExporterTemplateRepository,
-	mappings repository.MappingRepository,
+	templates *CollectionTemplateService,
 	probes repository.ProbeModuleRepository,
 	installations repository.InstallationRepository,
 	resources ResourceReader,
@@ -95,7 +108,7 @@ func NewJobService(
 		labels = NoopLabelTemplateResolver{}
 	}
 	return &JobService{
-		jobs: jobs, exporters: exporters, mappings: mappings, probes: probes,
+		jobs: jobs, exporters: exporters, templates: templates, probes: probes,
 		installations: installations, resources: resources, domains: domains, labels: labels,
 	}
 }
@@ -276,6 +289,18 @@ func (s *JobService) QueryCandidates(ctx context.Context, query domain.Candidate
 	if err := normalizeCandidateFilters(&query); err != nil {
 		return out, err
 	}
+	// A template supplies the category and, when the caller sent no explicit
+	// conditions, the wizard prefill. The selector itself is always the job's.
+	if template, _, err := s.catalogForCandidate(ctx, query.TemplateCode); err != nil {
+		return out, err
+	} else if template != nil {
+		if query.Category == "" {
+			query.Category = template.ResourceCategory
+		}
+		if len(query.Selector.Filters) == 0 && query.Selector.Logic == "" {
+			query.Selector = template.DefaultSelector
+		}
+	}
 	page, err := s.resources.QueryCandidates(ctx, query)
 	if err != nil {
 		return out, err
@@ -294,7 +319,7 @@ func (s *JobService) QueryCandidates(ctx context.Context, query domain.Candidate
 	if query.IDsOnly {
 		return out, nil
 	}
-	mapping, exporter, err := s.catalogForCandidate(ctx, query.MonitorType)
+	template, exporter, err := s.catalogForCandidate(ctx, query.TemplateCode)
 	if err != nil {
 		return out, err
 	}
@@ -302,8 +327,8 @@ func (s *JobService) QueryCandidates(ctx context.Context, query domain.Candidate
 	for _, ref := range page.Refs {
 		out.Views = append(out.Views, CandidateView{
 			Ref:           ref,
-			MonitorType:   query.MonitorType,
-			TargetAddress: targetAddress(ref, mapping, exporter),
+			TemplateCode:  query.TemplateCode,
+			TargetAddress: targetAddress(ref, template, exporter),
 			Selectable:    ref.Selectable(),
 			DisabledReason: func() string {
 				if ref.Selectable() {
@@ -402,7 +427,7 @@ func (s *JobService) ListCandidates(ctx context.Context, query domain.CandidateQ
 	if _, err := s.requireDomain(ctx, query.NetworkDomainID); err != nil {
 		return nil, 0, err
 	}
-	mapping, exporter, err := s.catalogForCandidate(ctx, query.MonitorType)
+	template, exporter, err := s.catalogForCandidate(ctx, query.TemplateCode)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -412,10 +437,10 @@ func (s *JobService) ListCandidates(ctx context.Context, query domain.CandidateQ
 	}
 	views := make([]CandidateView, 0, len(refs))
 	for _, ref := range refs {
-		address := targetAddress(ref, mapping, exporter)
+		address := targetAddress(ref, template, exporter)
 		view := CandidateView{
 			Ref:           ref,
-			MonitorType:   query.MonitorType,
+			TemplateCode:  query.TemplateCode,
 			TargetAddress: address,
 			Selectable:    ref.Selectable(),
 		}
@@ -433,7 +458,7 @@ func (s *JobService) ListInstances(ctx context.Context, jobID string) ([]JobInst
 	if err != nil {
 		return nil, err
 	}
-	mapping, exporter, err := s.catalogForJob(ctx, job)
+	template, exporter, err := s.catalogForJob(ctx, job)
 	if err != nil {
 		return nil, err
 	}
@@ -455,17 +480,17 @@ func (s *JobService) ListInstances(ctx context.Context, jobID string) ([]JobInst
 		if !ok {
 			continue
 		}
-		mappingPort, exporterPort := 0, 0
-		if mapping != nil {
-			mappingPort = mapping.DefaultPort
+		templatePort, exporterPort := 0, 0
+		if template != nil {
+			templatePort = template.DefaultPort
 		}
 		if exporter != nil {
 			exporterPort = exporter.DefaultPort
 		}
-		port, source := domain.ResolvePortWithSource(ref, mappingPort, exporterPort)
+		port, source := domain.ResolvePortWithSource(ref, templatePort, exporterPort)
 		views = append(views, JobInstanceView{
 			Ref:           ref,
-			TargetAddress: targetAddressForJob(ref, job, mapping, exporter),
+			TargetAddress: targetAddressForJob(ref, job, template, exporter),
 			Port:          port,
 			PortSource:    source,
 			Installation:  noteByResource[id],
@@ -519,7 +544,7 @@ func (s *JobService) Preview(ctx context.Context, jobID string) (string, []Previ
 	if err != nil {
 		return "", nil, nil, err
 	}
-	mapping, exporter, err := s.catalogForJob(ctx, job)
+	template, exporter, err := s.catalogForJob(ctx, job)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -536,7 +561,7 @@ func (s *JobService) Preview(ctx context.Context, jobID string) (string, []Previ
 			skipped = append(skipped, PreviewSkip{ResourceID: id, Reason: "resource_not_found"})
 			continue
 		}
-		address := targetAddressForJob(ref, job, mapping, exporter)
+		address := targetAddressForJob(ref, job, template, exporter)
 		if address == "" {
 			skipped = append(skipped, PreviewSkip{ResourceID: id, Reason: "missing_address"})
 			continue
@@ -555,9 +580,9 @@ func (s *JobService) prepare(ctx context.Context, job *domain.Job, existing *dom
 	if !job.JobType.Valid() {
 		return domain.NewValidationError("job_type", "must be standard or blackbox")
 	}
-	if job.ResourceCategory == "" && job.JobType == domain.JobTypeStandard && job.MonitorType != "" {
-		if expected, ok := domain.CategoryForMonitorType(job.MonitorType); ok {
-			job.ResourceCategory = expected
+	if job.ResourceCategory == "" && job.JobType == domain.JobTypeStandard && job.TemplateCode != "" {
+		if template, _, err := s.catalogForCandidate(ctx, job.TemplateCode); err == nil && template != nil {
+			job.ResourceCategory = template.ResourceCategory
 		}
 	}
 	if !job.ResourceCategory.Valid() {
@@ -572,7 +597,7 @@ func (s *JobService) prepare(ctx context.Context, job *domain.Job, existing *dom
 	job.InstanceSelectionMode = domain.SelectionManual
 	job.SelectedInstanceIDs = uniqueStrings(job.SelectedInstanceIDs)
 
-	mapping, exporter, err := s.resolveCatalog(ctx, job)
+	template, exporter, err := s.resolveCatalog(ctx, job)
 	if err != nil {
 		return err
 	}
@@ -585,14 +610,19 @@ func (s *JobService) prepare(ctx context.Context, job *domain.Job, existing *dom
 		MetricsPath: job.MetricsPath,
 		Scheme:      job.Scheme,
 	}
-	params, err := domain.ResolveJobParams(inputParams, mapping, exporter, job.ResourceCategory)
+	params, err := domain.ResolveJobParams(inputParams, template, exporter, job.ResourceCategory)
 	if err != nil {
 		return err
 	}
 	job.ScrapeInterval, job.ScrapeTimeout = params.Interval, params.Timeout
 	job.MetricsPath, job.Scheme = params.MetricsPath, params.Scheme
-	job.MappingOverrides = domain.ComputeMappingOverrides(inputParams, params, mapping)
+	job.MappingOverrides = domain.ComputeTemplateOverrides(inputParams, params, template)
 
+	if s.selectorValidator != nil && job.JobType == domain.JobTypeStandard {
+		if err := s.selectorValidator.ValidateSelector(ctx, job.ResourceCategory, job.Selector); err != nil {
+			return err
+		}
+	}
 	if err := s.validateLabelTemplate(ctx, job); err != nil {
 		return err
 	}
@@ -607,7 +637,8 @@ func (s *JobService) prepare(ctx context.Context, job *domain.Job, existing *dom
 
 func normalizeJob(job *domain.Job) {
 	job.JobName = strings.TrimSpace(job.JobName)
-	job.MonitorType = domain.NormalizeMonitorTypeCode(job.MonitorType)
+	job.TemplateCode = strings.TrimSpace(job.TemplateCode)
+	job.Selector = job.Selector.Normalize()
 	job.ExporterTemplateID = strings.TrimSpace(job.ExporterTemplateID)
 	job.NetworkDomainID = strings.TrimSpace(job.NetworkDomainID)
 	job.LabelTemplateID = strings.TrimSpace(job.LabelTemplateID)
@@ -623,11 +654,12 @@ func normalizeJob(job *domain.Job) {
 	}
 }
 
-func (s *JobService) resolveCatalog(ctx context.Context, job *domain.Job) (*domain.Mapping, *domain.ExporterTemplate, error) {
+func (s *JobService) resolveCatalog(ctx context.Context, job *domain.Job) (*domain.CollectionTemplate, *domain.ExporterTemplate, error) {
 	if job.JobType == domain.JobTypeBlackbox {
-		if job.MonitorType != "" {
-			return nil, nil, domain.NewValidationError("monitor_type", "must be empty for blackbox jobs")
+		if job.TemplateCode != "" {
+			return nil, nil, domain.NewValidationError("template_code", "must be empty for blackbox jobs")
 		}
+		job.Selector = domain.Selector{}
 		field, err := domain.TargetFieldForCategory(job.ResourceCategory)
 		if err != nil {
 			return nil, nil, err
@@ -651,45 +683,34 @@ func (s *JobService) resolveCatalog(ctx context.Context, job *domain.Job) (*doma
 		return nil, nil, nil
 	}
 
-	if job.MonitorType == "" {
-		return nil, nil, domain.NewValidationError("monitor_type", "is required for standard jobs")
+	if job.TemplateCode == "" {
+		return nil, nil, domain.NewValidationError("template_code", "is required for standard jobs")
 	}
-	if !domain.ValidMonitorType(job.MonitorType) {
-		return nil, nil, domain.NewValidationErrorf("monitor_type", "unknown monitor type %q", job.MonitorType)
+	template, exporter, err := s.templates.Catalog(ctx, job.TemplateCode)
+	if err != nil {
+		var nf *domain.NotFoundError
+		if errors.As(err, &nf) {
+			return nil, nil, domain.NewValidationErrorf("template_code",
+				"unknown collection template %q", job.TemplateCode)
+		}
+		return nil, nil, err
 	}
-	expected, ok := domain.CategoryForMonitorType(job.MonitorType)
-	if !ok {
-		return nil, nil, domain.NewValidationErrorf("monitor_type", "cannot derive category for %q", job.MonitorType)
+	if !template.Enabled {
+		return nil, nil, domain.NewValidationErrorf("template_code",
+			"collection template %q is disabled", template.Code)
 	}
 	if job.ResourceCategory == "" {
-		job.ResourceCategory = expected
-	} else if job.ResourceCategory != expected {
+		job.ResourceCategory = template.ResourceCategory
+	} else if job.ResourceCategory != template.ResourceCategory {
 		return nil, nil, domain.NewValidationErrorf("resource_category",
-			"does not match monitor type %q (%s)", job.MonitorType, expected)
+			"does not match collection template %q (%s)", job.TemplateCode, template.ResourceCategory)
 	}
+	// The template is the single reference point for both the exporter and the
+	// label template; jobs only carry derived snapshots.
+	job.ExporterTemplateID = template.ExporterTemplateID
+	job.LabelTemplateID = template.LabelTemplateID
 	job.TargetField = ""
-
-	var mapping *domain.Mapping
-	if found, ok, err := s.mappings.DefaultByMonitorType(ctx, job.MonitorType); err != nil {
-		return nil, nil, err
-	} else if ok {
-		mapping = found
-	}
-	if job.ExporterTemplateID == "" && mapping != nil {
-		job.ExporterTemplateID = mapping.ExporterTemplateID
-	}
-	if job.ExporterTemplateID != "" {
-		exporter, err := s.exporters.Get(ctx, job.ExporterTemplateID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !domain.ExporterSupportsMonitorType(job.MonitorType, exporter.SupportedMonitorTypes) {
-			return nil, nil, domain.NewValidationErrorf("exporter_template_id",
-				"exporter %q does not support monitor type %q", exporter.Name, job.MonitorType)
-		}
-		return mapping, exporter, nil
-	}
-	return mapping, nil, nil
+	return template, exporter, nil
 }
 
 func (s *JobService) requireDomain(ctx context.Context, domainID string) (domain.DomainRef, error) {
@@ -803,32 +824,34 @@ func (s *JobService) applyCredentials(job *domain.Job, existing *domain.Job) err
 	return nil
 }
 
-func (s *JobService) catalogForCandidate(ctx context.Context, monitorType string) (*domain.Mapping, *domain.ExporterTemplate, error) {
-	mapping, ok, err := s.mappings.DefaultByMonitorType(ctx, monitorType)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !ok {
+func (s *JobService) catalogForCandidate(ctx context.Context, templateCode string) (*domain.CollectionTemplate, *domain.ExporterTemplate, error) {
+	templateCode = strings.TrimSpace(templateCode)
+	if templateCode == "" {
 		return nil, nil, nil
 	}
-	exporter, err := s.exporters.Get(ctx, mapping.ExporterTemplateID)
+	template, exporter, err := s.templates.Catalog(ctx, templateCode)
 	if err != nil {
 		var nf *domain.NotFoundError
-		if errors.As(err, &nf) {
-			return mapping, nil, nil
+		var validation *domain.ValidationError
+		if errors.As(err, &nf) || errors.As(err, &validation) {
+			return nil, nil, nil
 		}
 		return nil, nil, err
 	}
-	return mapping, exporter, nil
+	return template, exporter, nil
 }
 
-func (s *JobService) catalogForJob(ctx context.Context, job *domain.Job) (*domain.Mapping, *domain.ExporterTemplate, error) {
-	var mapping *domain.Mapping
-	if job.MonitorType != "" {
-		if found, ok, err := s.mappings.DefaultByMonitorType(ctx, job.MonitorType); err != nil {
-			return nil, nil, err
-		} else if ok {
-			mapping = found
+func (s *JobService) catalogForJob(ctx context.Context, job *domain.Job) (*domain.CollectionTemplate, *domain.ExporterTemplate, error) {
+	var template *domain.CollectionTemplate
+	if job.TemplateCode != "" {
+		if found, _, err := s.templates.Catalog(ctx, job.TemplateCode); err == nil {
+			template = found
+		} else {
+			var nf *domain.NotFoundError
+			var validation *domain.ValidationError
+			if !errors.As(err, &nf) && !errors.As(err, &validation) {
+				return nil, nil, err
+			}
 		}
 	}
 	var exporter *domain.ExporterTemplate
@@ -842,7 +865,7 @@ func (s *JobService) catalogForJob(ctx context.Context, job *domain.Job) (*domai
 			}
 		}
 	}
-	return mapping, exporter, nil
+	return template, exporter, nil
 }
 
 func (s *JobService) view(ctx context.Context, job *domain.Job) (*JobView, error) {
@@ -882,22 +905,22 @@ func (s *JobService) view(ctx context.Context, job *domain.Job) (*JobView, error
 	return view, nil
 }
 
-func targetAddressForJob(ref domain.ResourceRef, job *domain.Job, mapping *domain.Mapping, exporter *domain.ExporterTemplate) string {
+func targetAddressForJob(ref domain.ResourceRef, job *domain.Job, template *domain.CollectionTemplate, exporter *domain.ExporterTemplate) string {
 	if job.JobType == domain.JobTypeBlackbox {
 		return strings.TrimSpace(ref.TargetURL)
 	}
-	return targetAddress(ref, mapping, exporter)
+	return targetAddress(ref, template, exporter)
 }
 
-func targetAddress(ref domain.ResourceRef, mapping *domain.Mapping, exporter *domain.ExporterTemplate) string {
-	mappingPort, exporterPort := 0, 0
-	if mapping != nil {
-		mappingPort = mapping.DefaultPort
+func targetAddress(ref domain.ResourceRef, template *domain.CollectionTemplate, exporter *domain.ExporterTemplate) string {
+	templatePort, exporterPort := 0, 0
+	if template != nil {
+		templatePort = template.DefaultPort
 	}
 	if exporter != nil {
 		exporterPort = exporter.DefaultPort
 	}
-	return domain.ResourceAddress(ref, mappingPort, exporterPort)
+	return domain.ResourceAddress(ref, templatePort, exporterPort)
 }
 
 func applyMappingDefaults(input, existing *domain.Job) {
@@ -967,7 +990,7 @@ func enforceGroupChildEditScope(input, existing *domain.Job) error {
 		next    string
 	}{
 		{"job_name", existing.JobName, strings.TrimSpace(input.JobName)},
-		{"monitor_type", existing.MonitorType, strings.TrimSpace(input.MonitorType)},
+		{"template_code", existing.TemplateCode, strings.TrimSpace(input.TemplateCode)},
 		{"resource_category", string(existing.ResourceCategory), string(input.ResourceCategory)},
 		{"exporter_template_id", existing.ExporterTemplateID, strings.TrimSpace(input.ExporterTemplateID)},
 		{"scrape_interval", existing.ScrapeInterval, strings.TrimSpace(input.ScrapeInterval)},

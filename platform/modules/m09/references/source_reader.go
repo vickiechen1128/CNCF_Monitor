@@ -36,7 +36,7 @@ type GORMSourceReader struct {
 	// 端口映射是平台级低频配置，按 TTL 缓存：扇出 N 个域时不再每域重复查两张表。
 	portsMu       sync.Mutex
 	portsAt       time.Time
-	mappingPorts  map[string]int
+	templatePorts map[string]int
 	exporterPorts map[string]int
 }
 
@@ -55,22 +55,22 @@ func NewGORMSourceReader(db *gorm.DB) *GORMSourceReader {
 func (r *GORMSourceReader) cachedPorts(ctx context.Context) (map[string]int, map[string]int, error) {
 	r.portsMu.Lock()
 	defer r.portsMu.Unlock()
-	if r.mappingPorts != nil && time.Since(r.portsAt) < portsCacheTTL {
-		return r.mappingPorts, r.exporterPorts, nil
+	if r.templatePorts != nil && time.Since(r.portsAt) < portsCacheTTL {
+		return r.templatePorts, r.exporterPorts, nil
 	}
-	mappingPorts, exporterPorts, err := r.loadPorts(ctx)
+	templatePorts, exporterPorts, err := r.loadPorts(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	r.mappingPorts, r.exporterPorts, r.portsAt = mappingPorts, exporterPorts, time.Now()
-	return mappingPorts, exporterPorts, nil
+	r.templatePorts, r.exporterPorts, r.portsAt = templatePorts, exporterPorts, time.Now()
+	return templatePorts, exporterPorts, nil
 }
 
 type jobSourceRow struct {
 	JobName             string `gorm:"column:job_name"`
 	JobType             string `gorm:"column:job_type"`
 	ResourceCategory    string `gorm:"column:resource_category"`
-	MonitorType         string `gorm:"column:monitor_type"`
+	TemplateCode        string `gorm:"column:template_code"`
 	ExporterTemplateID  string `gorm:"column:exporter_template_id"`
 	LabelTemplateID     string `gorm:"column:label_template_id"`
 	BlackboxModule      string `gorm:"column:blackbox_module"`
@@ -82,8 +82,8 @@ type jobSourceRow struct {
 }
 
 type portRow struct {
-	MonitorType string `gorm:"column:monitor_type"`
-	DefaultPort int    `gorm:"column:default_port"`
+	TemplateCode string `gorm:"column:code"`
+	DefaultPort  int    `gorm:"column:default_port"`
 }
 
 type exporterPortRow struct {
@@ -96,7 +96,7 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 	var rows []jobSourceRow
 	if err := r.db.WithContext(ctx).
 		Table("m01_scrape_jobs").
-		Select(`job_name, job_type, resource_category, monitor_type, exporter_template_id,
+		Select(`job_name, job_type, resource_category, template_code, exporter_template_id,
 			label_template_id, blackbox_module, metrics_path, scheme, scrape_interval,
 			scrape_timeout, selected_instance_ids`).
 		Where("network_domain_id = ? AND deleted_at IS NULL AND draft_status = ? AND enabled = ?",
@@ -131,7 +131,7 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 	if err != nil {
 		return configgen.Source{}, err
 	}
-	mappingPorts, exporterPorts, err := r.cachedPorts(ctx)
+	templatePorts, exporterPorts, err := r.cachedPorts(ctx)
 	if err != nil {
 		return configgen.Source{}, err
 	}
@@ -169,7 +169,7 @@ func (r *GORMSourceReader) BuildSource(ctx context.Context, domainID string) (co
 			} else {
 				instance = domain.ResourceAddress(
 					ref,
-					mappingPorts[row.MonitorType],
+					templatePorts[row.TemplateCode],
 					exporterPorts[row.ExporterTemplateID],
 				)
 			}
@@ -284,16 +284,16 @@ func (r *GORMSourceReader) EdgeDomainIDs(ctx context.Context) ([]string, error) 
 }
 
 func (r *GORMSourceReader) loadPorts(ctx context.Context) (map[string]int, map[string]int, error) {
-	var mappings []portRow
-	if err := r.db.WithContext(ctx).Table("m01_ci_type_exporter_mappings").
-		Select("monitor_type, default_port").
-		Where("is_default = ? AND deleted_at IS NULL", true).
-		Scan(&mappings).Error; err != nil {
-		return nil, nil, fmt.Errorf("load default mapping ports: %w", err)
+	var templates []portRow
+	if err := r.db.WithContext(ctx).Table("m01_collection_templates").
+		Select("code, default_port").
+		Where("deleted_at IS NULL").
+		Scan(&templates).Error; err != nil {
+		return nil, nil, fmt.Errorf("load collection template ports: %w", err)
 	}
-	mappingPorts := make(map[string]int, len(mappings))
-	for _, row := range mappings {
-		mappingPorts[row.MonitorType] = row.DefaultPort
+	templatePorts := make(map[string]int, len(templates))
+	for _, row := range templates {
+		templatePorts[row.TemplateCode] = row.DefaultPort
 	}
 
 	var exporters []exporterPortRow
@@ -306,7 +306,7 @@ func (r *GORMSourceReader) loadPorts(ctx context.Context) (map[string]int, map[s
 	for _, row := range exporters {
 		exporterPorts[row.ID] = row.DefaultPort
 	}
-	return mappingPorts, exporterPorts, nil
+	return templatePorts, exporterPorts, nil
 }
 
 // loadPrimaryPlatforms resolves the application primary platform for resources

@@ -28,7 +28,7 @@ func (h *MetricHandler) List(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	filter := repository.MetricFilter{
 		MetricType:       domain.MetricType(strings.TrimSpace(c.Query("metric_type"))),
-		MonitorType:      strings.TrimSpace(c.Query("monitor_type")),
+		TemplateCode:     strings.TrimSpace(c.Query("template_code")),
 		ResourceCategory: domain.ResourceCategory(strings.TrimSpace(c.Query("resource_category"))),
 		Category:         strings.TrimSpace(c.Query("category")),
 		Enabled:          boolQuery(c, "enabled"),

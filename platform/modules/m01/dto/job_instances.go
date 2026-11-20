@@ -10,7 +10,7 @@ import (
 type CandidateResponse struct {
 	ResourceID       string `json:"resource_id"`
 	ResourceCategory string `json:"resource_category"`
-	MonitorType      string `json:"monitor_type"`
+	TemplateCode     string `json:"template_code"`
 	DisplayName      string `json:"display_name"`
 	InstanceIP       string `json:"instance_ip"`
 	Port             int    `json:"port"`
@@ -22,11 +22,11 @@ type CandidateResponse struct {
 }
 
 // FromCandidate maps a domain resource plus derived fields to the projection.
-func FromCandidate(ref domain.ResourceRef, monitorType, targetAddress string, selectable bool, disabledReason string) CandidateResponse {
+func FromCandidate(ref domain.ResourceRef, templateCode, targetAddress string, selectable bool, disabledReason string) CandidateResponse {
 	return CandidateResponse{
 		ResourceID:       ref.ID,
 		ResourceCategory: string(ref.Category),
-		MonitorType:      monitorType,
+		TemplateCode:     templateCode,
 		DisplayName:      ref.DisplayName,
 		InstanceIP:       ref.InstanceIP,
 		Port:             ref.Port,

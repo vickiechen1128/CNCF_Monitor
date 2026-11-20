@@ -138,8 +138,9 @@ type CandidateFilter struct {
 // endpoint); new callers put `network_domain_id` into Filters so a job can span
 // several domains (SRS JG v1.1 §5.3).
 type CandidateQuery struct {
-	MonitorType     string
+	TemplateCode    string
 	Category        ResourceCategory
+	Selector        Selector
 	NetworkDomainID string
 	Filters         []CandidateFilter
 	Keyword         string

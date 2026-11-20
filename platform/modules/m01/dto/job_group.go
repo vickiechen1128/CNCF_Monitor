@@ -7,27 +7,28 @@ import "time"
 // instances may span several network domains; the service groups them and
 // creates one child job per domain (SRS JG v1.0 FR-JG-01/02).
 type JobGroupRequest struct {
-	Name                string   `json:"name"`
-	JobName             string   `json:"job_name"`
-	JobType             string   `json:"job_type"`
-	ResourceCategory    string   `json:"resource_category"`
-	MonitorType         string   `json:"monitor_type"`
-	ExporterTemplateID  string   `json:"exporter_template_id"`
-	ScrapeInterval      string   `json:"scrape_interval"`
-	ScrapeTimeout       string   `json:"scrape_timeout"`
-	MetricsPath         string   `json:"metrics_path"`
-	Scheme              string   `json:"scheme"`
-	AuthType            string   `json:"auth_type"`
-	Username            string   `json:"username"`
-	Password            string   `json:"password"`
-	Token               string   `json:"token"`
-	TLSSkipVerify       bool     `json:"tls_skip_verify"`
-	CAFile              string   `json:"ca_file"`
-	LabelTemplateID     string   `json:"label_template_id"`
-	BlackboxModule      string   `json:"blackbox_module"`
-	SelectedInstanceIDs []string `json:"selected_instance_ids"`
-	Enabled             *bool    `json:"enabled"`
-	Status              string   `json:"status"`
+	Name                string      `json:"name"`
+	JobName             string      `json:"job_name"`
+	JobType             string      `json:"job_type"`
+	ResourceCategory    string      `json:"resource_category"`
+	TemplateCode        string      `json:"template_code"`
+	Selector            SelectorDTO `json:"selector"`
+	ExporterTemplateID  string      `json:"exporter_template_id"`
+	ScrapeInterval      string      `json:"scrape_interval"`
+	ScrapeTimeout       string      `json:"scrape_timeout"`
+	MetricsPath         string      `json:"metrics_path"`
+	Scheme              string      `json:"scheme"`
+	AuthType            string      `json:"auth_type"`
+	Username            string      `json:"username"`
+	Password            string      `json:"password"`
+	Token               string      `json:"token"`
+	TLSSkipVerify       bool        `json:"tls_skip_verify"`
+	CAFile              string      `json:"ca_file"`
+	LabelTemplateID     string      `json:"label_template_id"`
+	BlackboxModule      string      `json:"blackbox_module"`
+	SelectedInstanceIDs []string    `json:"selected_instance_ids"`
+	Enabled             *bool       `json:"enabled"`
+	Status              string      `json:"status"`
 }
 
 // JobGroupStatusRequest toggles the enabled state of a whole task and its
@@ -75,7 +76,8 @@ type JobGroupResponse struct {
 	JobName            string                  `json:"job_name"`
 	JobType            string                  `json:"job_type"`
 	ResourceCategory   string                  `json:"resource_category"`
-	MonitorType        string                  `json:"monitor_type"`
+	TemplateCode       string                  `json:"template_code"`
+	Selector           SelectorDTO             `json:"selector"`
 	ExporterTemplateID string                  `json:"exporter_template_id"`
 	ScrapeInterval     string                  `json:"scrape_interval"`
 	ScrapeTimeout      string                  `json:"scrape_timeout"`

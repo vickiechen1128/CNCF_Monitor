@@ -30,7 +30,7 @@ func (h *JobHandler) List(c *gin.Context) {
 		NetworkDomainID: strings.TrimSpace(c.Query("network_domain_id")),
 		Ungrouped:       strings.EqualFold(c.Query("ungrouped"), "true"),
 		GroupedOnly:     strings.EqualFold(c.Query("grouped"), "true"),
-		MonitorType:     strings.TrimSpace(c.Query("monitor_type")),
+		TemplateCode:    strings.TrimSpace(c.Query("template_code")),
 		JobType:         domain.JobType(strings.TrimSpace(c.Query("job_type"))),
 		Enabled:         boolQuery(c, "enabled"),
 		DraftStatus:     domain.DraftStatus(strings.TrimSpace(c.Query("draft_status"))),
@@ -119,7 +119,7 @@ func (h *JobHandler) Delete(c *gin.Context) {
 func (h *JobHandler) Candidates(c *gin.Context) {
 	page, pageSize := parsePagination(c)
 	query := domain.CandidateQuery{
-		MonitorType:     strings.TrimSpace(c.Query("monitor_type")),
+		TemplateCode:    strings.TrimSpace(c.Query("template_code")),
 		Category:        domain.ResourceCategory(strings.TrimSpace(c.Query("resource_category"))),
 		NetworkDomainID: strings.TrimSpace(c.Query("network_domain_id")),
 		Keyword:         strings.TrimSpace(c.Query("keyword")),
@@ -133,7 +133,7 @@ func (h *JobHandler) Candidates(c *gin.Context) {
 	}
 	list := make([]dto.CandidateResponse, 0, len(views))
 	for _, view := range views {
-		list = append(list, dto.FromCandidate(view.Ref, view.MonitorType, view.TargetAddress, view.Selectable, view.DisabledReason))
+		list = append(list, dto.FromCandidate(view.Ref, view.TemplateCode, view.TargetAddress, view.Selectable, view.DisabledReason))
 	}
 	response.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": pageSize})
 }

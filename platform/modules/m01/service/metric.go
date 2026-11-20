@@ -100,16 +100,16 @@ func (s *MetricService) Delete(ctx context.Context, id string) error {
 	return s.repo.SoftDelete(ctx, id)
 }
 
-// ensureNoAnchorConflict enforces the contract's (metric_name, monitor_type)
-// uniqueness for user entries: the same name may be registered for different
-// monitor types, but not twice for the same anchor.
+// ensureNoAnchorConflict enforces the contract's (metric_name, template_code)
+// uniqueness for user entries: the same name may be registered under different
+// collection templates, but not twice for the same anchor.
 func (s *MetricService) ensureNoAnchorConflict(ctx context.Context, metric *domain.Metric, excludeID string) error {
-	if len(metric.MonitorTypes) == 0 {
+	if len(metric.CollectionTemplates) == 0 {
 		return nil
 	}
-	monitorTypes := make([]string, 0, len(metric.MonitorTypes))
-	for _, anchor := range metric.MonitorTypes {
-		monitorTypes = append(monitorTypes, anchor.MonitorType)
+	monitorTypes := make([]string, 0, len(metric.CollectionTemplates))
+	for _, anchor := range metric.CollectionTemplates {
+		monitorTypes = append(monitorTypes, anchor.TemplateCode)
 	}
 	conflict, err := s.repo.HasAnchorConflict(ctx, metric.MetricName, monitorTypes, excludeID)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *MetricService) ensureNoAnchorConflict(ctx context.Context, metric *doma
 			Entity:  "metric",
 			Field:   "metric_name",
 			Value:   metric.MetricName,
-			Message: fmt.Sprintf("metric %q already exists under one of the selected monitor types", metric.MetricName),
+			Message: fmt.Sprintf("metric %q already exists under one of the selected collection templates", metric.MetricName),
 		}
 	}
 	return nil
@@ -134,7 +134,7 @@ func normalizeMetric(metric *domain.Metric) {
 		metric.MetricType = domain.MetricUnknown
 	}
 	metric.Labels = normalizeMetricLabels(metric.Labels)
-	metric.MonitorTypes = normalizeMetricAnchors(metric.MonitorTypes)
+	metric.CollectionTemplates = normalizeMetricAnchors(metric.CollectionTemplates)
 }
 
 func normalizeMetricLabels(labels []string) []string {
@@ -164,7 +164,7 @@ func normalizeMetricAnchors(anchors []domain.MetricAnchor) []domain.MetricAnchor
 	out := make([]domain.MetricAnchor, 0, len(anchors))
 	seen := make(map[string]struct{}, len(anchors))
 	for _, anchor := range anchors {
-		code := strings.TrimSpace(anchor.MonitorType)
+		code := strings.TrimSpace(anchor.TemplateCode)
 		if code == "" {
 			continue
 		}
@@ -173,7 +173,7 @@ func normalizeMetricAnchors(anchors []domain.MetricAnchor) []domain.MetricAnchor
 		}
 		seen[code] = struct{}{}
 		out = append(out, domain.MetricAnchor{
-			MonitorType:    code,
+			TemplateCode:   code,
 			SourceExporter: strings.TrimSpace(anchor.SourceExporter),
 		})
 	}
@@ -201,9 +201,9 @@ func validateMetric(metric *domain.Metric) error {
 			return domain.NewValidationErrorf("labels", "invalid label name %q", label)
 		}
 	}
-	for _, anchor := range metric.MonitorTypes {
-		if !domain.ValidMonitorType(anchor.MonitorType) {
-			return domain.NewValidationErrorf("monitor_types", "unknown monitor type %q", anchor.MonitorType)
+	for _, anchor := range metric.CollectionTemplates {
+		if strings.TrimSpace(anchor.TemplateCode) == "" {
+			return domain.NewValidationError("collection_templates", "template_code is required")
 		}
 	}
 	return nil

@@ -25,6 +25,7 @@ type RuleService struct {
 	rules     repository.RuleRepository
 	jobs      repository.JobRepository
 	exporters repository.ExporterTemplateRepository
+	templates *CollectionTemplateService
 	checker   PromQLChecker
 }
 
@@ -33,12 +34,13 @@ func NewRuleService(
 	rules repository.RuleRepository,
 	jobs repository.JobRepository,
 	exporters repository.ExporterTemplateRepository,
+	templates *CollectionTemplateService,
 	checker PromQLChecker,
 ) *RuleService {
 	if checker == nil {
 		checker = NewPromtoolChecker()
 	}
-	return &RuleService{rules: rules, jobs: jobs, exporters: exporters, checker: checker}
+	return &RuleService{rules: rules, jobs: jobs, exporters: exporters, templates: templates, checker: checker}
 }
 
 // List returns a page of rules.
@@ -121,8 +123,10 @@ func (s *RuleService) prepare(ctx context.Context, rule *domain.Rule, existing *
 	if rule.Scope != domain.ScopeCentral {
 		return domain.NewValidationError("scope", "only central evaluation is supported")
 	}
-	if rule.MonitorType != "" && !domain.ValidMonitorType(rule.MonitorType) {
-		return domain.NewValidationErrorf("monitor_type", "unknown monitor type %q", rule.MonitorType)
+	if rule.TemplateCode != "" {
+		if _, err := s.templates.Get(ctx, rule.TemplateCode); err != nil {
+			return domain.NewValidationErrorf("template_code", "unknown collection template %q", rule.TemplateCode)
+		}
 	}
 	if rule.ExporterTemplateID != "" {
 		if _, err := s.exporters.Get(ctx, rule.ExporterTemplateID); err != nil {
@@ -209,7 +213,7 @@ func (s *RuleService) evaluate(ctx context.Context, content, excludeID string) (
 func normalizeRule(rule *domain.Rule) {
 	rule.Name = strings.TrimSpace(rule.Name)
 	rule.RuleContent = strings.TrimSpace(rule.RuleContent)
-	rule.MonitorType = strings.TrimSpace(rule.MonitorType)
+	rule.TemplateCode = strings.TrimSpace(rule.TemplateCode)
 	rule.ExporterTemplateID = strings.TrimSpace(rule.ExporterTemplateID)
 	if rule.DraftStatus == "" {
 		rule.DraftStatus = domain.DraftStatusReady
