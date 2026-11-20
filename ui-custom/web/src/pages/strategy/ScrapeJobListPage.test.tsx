@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, mockAntdMessage } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
@@ -10,6 +10,7 @@ const groupsGetMock = vi.fn()
 const groupsRemoveMock = vi.fn()
 const adoptMock = vi.fn()
 const updateGroupMock = vi.fn()
+const setGroupEnabledMock = vi.fn()
 const createGroupMock = vi.fn()
 const schemaMock = vi.fn()
 const queryCandidatesMock = vi.fn()
@@ -29,6 +30,7 @@ vi.mock('../../api/jobGroups', () => ({
     remove: (...a: unknown[]) => groupsRemoveMock(...a),
     adoptFromJob: (...a: unknown[]) => adoptMock(...a),
     update: (...a: unknown[]) => updateGroupMock(...a),
+    setEnabled: (...a: unknown[]) => setGroupEnabledMock(...a),
     create: (...a: unknown[]) => createGroupMock(...a),
     filterSchema: (...a: unknown[]) => schemaMock(...a),
     queryCandidates: (...a: unknown[]) => queryCandidatesMock(...a),
@@ -187,6 +189,7 @@ describe('ScrapeJobListPage（统一采集任务视图）', () => {
     groupsRemoveMock.mockReset().mockResolvedValue({ status: 'success', data: {} })
     adoptMock.mockReset().mockResolvedValue({ status: 'success', data: group() })
     updateGroupMock.mockReset().mockResolvedValue({ status: 'success', data: group() })
+    setGroupEnabledMock.mockReset().mockResolvedValue({ status: 'success', data: group({ status: 'disabled' }) })
     createGroupMock.mockReset().mockResolvedValue({ status: 'success', data: group() })
     schemaMock.mockReset().mockResolvedValue({
       data: {
@@ -310,5 +313,29 @@ describe('ScrapeJobListPage（统一采集任务视图）', () => {
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
     expect(confirmMock.mock.calls[0][0]).toBe('job-a')
     expect(confirmMock.mock.calls[0][1]).toBe('r-1')
+  })
+
+  it('停用跨域任务：二次确认后调用组状态接口（整组级联停用）', async () => {
+    renderPage()
+    await screen.findByText('主机基础采集')
+
+    fireEvent.click(screen.getByTestId('disable-group-grp-1'))
+    const confirm = await screen.findByText('停用任务「主机基础采集」？')
+    const popover = confirm.closest('.ant-popover') as HTMLElement
+    fireEvent.click(within(popover).getByRole('button', { name: /停\s*用/ }))
+
+    await waitFor(() => expect(setGroupEnabledMock).toHaveBeenCalledWith('grp-1', false))
+  })
+
+  it('启用已停用的跨域任务：直接调用组状态接口', async () => {
+    groupsListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [group({ status: 'disabled' })], total: 1, page: 1, page_size: 20 },
+    })
+    renderPage()
+    await screen.findByText('主机基础采集')
+
+    fireEvent.click(screen.getByTestId('enable-group-grp-1'))
+    await waitFor(() => expect(setGroupEnabledMock).toHaveBeenCalledWith('grp-1', true))
   })
 })

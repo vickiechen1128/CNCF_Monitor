@@ -30,6 +30,12 @@ type JobGroupRequest struct {
 	Status              string   `json:"status"`
 }
 
+// JobGroupStatusRequest toggles the enabled state of a whole task and its
+// per-domain child jobs (PUT /job-groups/{id}/status).
+type JobGroupStatusRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
 // JobGroupSyncResponse is the derived group-level sync state. It is computed
 // from the child jobs and never persisted (SRS FR-JG-05).
 type JobGroupSyncResponse struct {

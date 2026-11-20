@@ -254,6 +254,20 @@ function JobsTab() {
     }
   }
 
+  // 整组启停：组拥有启用状态，后端一次事务级联到各域子任务；
+  // 停用后 M09 不再渲染这些域，重新启用会重新生成配置（子任务回到 pending）。
+  const toggleGroupEnabled = async (group: JobGroup, enabled: boolean) => {
+    try {
+      await jobGroupApi.setEnabled(group.id, enabled)
+      message.success(enabled ? `任务「${group.name}」已启用` : `任务「${group.name}」已停用`)
+      reload()
+      void triggerConfigDrafts(group.domains.map((domain) => domain.network_domain_id))
+      startSyncPolling()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '操作失败')
+    }
+  }
+
   const syncTag = (status: string) => {
     const meta = SYNC_LABEL[status] ?? { text: status, color: 'default' }
     return <Tag color={meta.color}>{meta.text}</Tag>
@@ -386,7 +400,7 @@ function JobsTab() {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 200,
+      width: 240,
       render: (_: unknown, row: TaskRow) =>
         row.kind === 'group' ? (
           <Space size={0}>
@@ -396,6 +410,28 @@ function JobsTab() {
             <Button type="link" size="small" onClick={() => openGroupEdit(row.group)}>
               编辑
             </Button>
+            {row.group.status === 'enabled' ? (
+              <Popconfirm
+                title={`停用任务「${row.group.name}」？`}
+                description="其各域子任务将停止采集；重新启用后会重新生成配置。"
+                okText="停用"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => void toggleGroupEnabled(row.group, false)}
+              >
+                <Button type="link" size="small" danger data-testid={`disable-group-${row.group.id}`}>
+                  停用
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => void toggleGroupEnabled(row.group, true)}
+                data-testid={`enable-group-${row.group.id}`}
+              >
+                启用
+              </Button>
+            )}
             <Popconfirm
               title={`删除任务「${row.group.name}」？`}
               description="其域级子任务将一并删除，M09 会停止对这些网域的采集。"

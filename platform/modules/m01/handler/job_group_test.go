@@ -189,3 +189,63 @@ func TestJobGroupLifecycle(t *testing.T) {
 		Where("job_group_id = ? AND deleted_at IS NULL", groupID).Count(&childCount).Error)
 	assert.Equal(t, int64(0), childCount)
 }
+
+// 任务级「启用 / 停用」：组拥有启用状态，子任务跟随；停用后 M09 不再渲染该域，
+// 重新启用时子任务回到 pending 等 M09 重新生成配置。
+func TestJobGroupSetEnabled(t *testing.T) {
+	router, gormDB := newTestRouter(t)
+
+	for _, stmt := range []string{
+		`INSERT INTO resources(resource_id,resource_category,tenant_id,network_domain_id,env,status,source_type,scrape_port,dedup_key)
+			VALUES ('res-e1','host','platform_admin','mc-demo','PRD','online','manual',0,'host|mc-demo|10.3.0.1')`,
+		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type)
+			VALUES ('res-e1','web-e1','10.3.0.1','linux')`,
+	} {
+		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
+	}
+
+	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/job-groups", `{
+		"name":"启停验证任务",
+		"job_name":"toggle-demo",
+		"job_type":"standard",
+		"resource_category":"host",
+		"monitor_type":"host_linux",
+		"selected_instance_ids":["res-e1"]
+	}`)
+	require.Equal(t, http.StatusOK, code, out)
+	group := out["data"].(map[string]any)
+	groupID := group["id"].(string)
+	assert.Equal(t, "enabled", group["status"])
+
+	childID := group["domains"].([]any)[0].(map[string]any)["job_id"].(string)
+
+	// 停用整组：状态 disabled，子任务 enabled=false。
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/job-groups/"+groupID+"/status", `{"enabled":false}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "disabled", out["data"].(map[string]any)["status"])
+	assert.Equal(t, "disabled", out["data"].(map[string]any)["sync"].(map[string]any)["status"])
+	for _, item := range out["data"].(map[string]any)["domains"].([]any) {
+		child := item.(map[string]any)
+		assert.Equal(t, false, child["enabled"])
+		assert.Equal(t, false, child["job"].(map[string]any)["enabled"])
+	}
+
+	// 持久化：Job 详情同样为停用。
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/scrape-jobs/"+childID, "")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, false, out["data"].(map[string]any)["enabled"])
+
+	// 重新启用：子任务回到 pending，等 M09 重新生成该域配置。
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/job-groups/"+groupID+"/status", `{"enabled":true}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "enabled", out["data"].(map[string]any)["status"])
+	child := out["data"].(map[string]any)["domains"].([]any)[0].(map[string]any)
+	assert.Equal(t, true, child["enabled"])
+	assert.Equal(t, "pending", child["sync_status"])
+
+	// enabled 缺失 → 400；未知组 → 404。
+	code, _ = doJSON(t, router, http.MethodPut, "/api/v3/platform/job-groups/"+groupID+"/status", `{}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	code, _ = doJSON(t, router, http.MethodPut, "/api/v3/platform/job-groups/missing/status", `{"enabled":true}`)
+	assert.Equal(t, http.StatusNotFound, code)
+}

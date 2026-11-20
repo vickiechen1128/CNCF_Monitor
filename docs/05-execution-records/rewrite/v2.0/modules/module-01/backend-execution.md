@@ -572,3 +572,41 @@ $ GOCACHE=/tmp/mc-gocache .tools/go/bin/go vet ./platform/...
 
 - 内置指标仍不可覆盖/禁用（保持只读）；「用户扩展另存」= 新增 `is_builtin=false` 行并挂同一/新增锚点，同名同锚点会被 409 拒绝，因此不会产生重复行。
 - 监控对象类型被指标锚点引用时仍禁止删除（已有引用计数保护），停用后不能再挂新指标（锚点校验要求类型 enabled）。
+
+## 16. 2026-11-20 采集任务启用/停用接口 + Job 校验盘点（增量）
+
+**背景**：任务列表已有「启用状态」列，但跨域任务（job group）没有启停入口；单域 Job 的启停依赖整单 PUT。
+
+### 16.1 新增 `PUT /job-groups/{id}/status`
+
+- Handler `JobGroupHandler.SetStatus` + DTO `JobGroupStatusRequest{enabled *bool}`；`enabled` 缺失 → 400。
+- Service `JobGroupService.SetEnabled(ctx, id, enabled)`：
+  - 单事务写组状态 + 各域子 Job（复用 `repository.Apply`），满足「组拥有启用状态，子任务不得单独改」的既有不变量。
+  - 启用：逐个子任务校验仍至少有一个实例（并用 `validateInstances` 检查资源未删除，离线实例沿用编辑规则放行），`sync.status=pending` 等待 M09 重新生成。
+  - 停用：`sync.status=draft`，行保留可随时再启用；M09 只渲染 `enabled + ready` 的 Job，因此下一次生成自动剔除。
+  - 无子任务的组 → 409（提示先编辑任务选实例）。
+- 路由：`PUT /job-groups/:id/status`（登录用户即可，与 Job 写接口口径一致）。
+
+### 16.2 Job 校验现状盘点（回答「校验是否有做」）
+
+`service.JobService.prepare` + `domain` 校验已覆盖：
+
+| 维度 | 规则 |
+|---|---|
+| 任务名 | `^[a-zA-Z_][a-zA-Z0-9_.-]*$`，≤100 字符；DB 唯一约束 `(network_domain_id, job_name)`（同域重名 409，00012 起由全局唯一改为按域唯一） |
+| 任务类型 | `standard` / `blackbox`；`job_type` 创建后不可改 |
+| 监控对象类型 | 标准任务必填、必须存在且启用；资源类别与类型推导结果必须一致；采集器 `supported_monitor_types` 必须支持该类型 |
+| 拨测 | `monitor_type` 必须为空；`blackbox_module` 必填、必须存在且启用；资源类别必须能推导拨测地址字段（interface_service / application） |
+| 网域 | 必填、必须存在且已纳管；子任务网域不可改 |
+| 采集参数 | 间隔/超时格式与大小、`metrics_path` 格式、`scheme` 枚举；应用类任务必须显式 `metrics_path`；参数按「映射默认 → 采集器默认 → 任务覆盖」解析并落快照 |
+| 实例 | 至少 1 台（ready 任务）；必须存在、类别一致、同网域、同租户；离线实例仅存量放行；拨测任务要求资源有探测 URL |
+| 凭据 | basic 需用户名+密码、bearer 需 token；编辑留空时继承原密文；none 清空 |
+| 标签模板 | 模板存在且类别匹配 |
+| 组约束 | 子任务的公共参数/凭据/启用状态不可单独改（提示「由组管理」）；启停统一走组接口 |
+
+**未覆盖/已知口径**：端口范围由资源/采集器侧约束（Job 不直接收端口）；实例筛选模式（filter）当前版本不支持，仅 manual；跨域任务各子 Job 共用同一 `job_name`（唯一性按网域判定），属预期。
+
+### 16.3 测试
+
+- 新增 `TestJobGroupSetEnabled`：创建跨域任务 → 停用（状态/子任务 enabled/sync 均落库）→ 查询子 Job 详情 → 重新启用（子任务回到 pending）→ `enabled` 缺失 400、未知组 404。
+- 验证：`go test ./platform/modules/m01/...` 全绿；`go vet ./platform/modules/m01/...` 通过。

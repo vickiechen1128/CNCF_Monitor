@@ -85,6 +85,8 @@ func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandle
 		jobGroupGroup.POST("/from-job", jobGroups.Adopt)
 		jobGroupGroup.GET("/:id", jobGroups.Get)
 		jobGroupGroup.PUT("/:id", jobGroups.Update)
+		// 启用 / 停用整组任务（含各域子任务），不需要重提整张表单
+		jobGroupGroup.PUT("/:id/status", jobGroups.SetStatus)
 		jobGroupGroup.DELETE("/:id", jobGroups.Delete)
 	}
 

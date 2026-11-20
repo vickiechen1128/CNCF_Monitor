@@ -164,3 +164,16 @@ $ vite --port 5199         # GET / → 200
 
 - 用户裁定（2026-11-19）：监控对象类型 + 指标库写接口仅管理员；内置指标只读 + 用户扩展另存；规则编辑联动与 `/metrics` 文本导入暂不做。
 - 列表当前 11 列（含「操作」），超出前端标准「建议 ≤8 列」；技术指标字典需横向比对，保留 `TABLE_SCROLL_X` 与首列固定，后续可把「标签 / 来源采集器」下沉详情。
+
+## 10. 2026-11-20 采集任务启用 / 停用入口（增量）
+
+**需求**：任务列表已有「启用状态」，但跨域任务没有启停操作；单域任务只能整单编辑。
+
+- `api/jobGroups.ts`：新增 `setEnabled(id, enabled)` → `PUT /job-groups/{id}/status`。
+- `pages/strategy/ScrapeJobListPage.tsx`：任务组行新增「停用 / 启用」：
+  - 停用走 Popconfirm（提示各域将停止采集，重新启用后重新生成配置）；启用直接生效。
+  - 成功后刷新列表、触发涉及网域的配置草稿生成（`triggerConfigDrafts`）并启动同步轮询，与删除/编辑动线一致。
+  - 操作列宽度 200 → 240（详情 / 编辑 / 停用 / 删除四个动作）。
+- 单域任务的既有启停按钮保持不变（仍走整单 PUT）。
+- 测试：`ScrapeJobListPage.test.tsx` 10 项通过（新增「停用二次确认」「停用后再启用」两项）。
+- 验证：`vitest run src/pages/strategy` 20 文件 / 165 项通过；`typecheck:test`、`eslint` 通过。

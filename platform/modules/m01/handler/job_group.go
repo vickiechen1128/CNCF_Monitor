@@ -118,6 +118,30 @@ func (h *JobGroupHandler) Update(c *gin.Context) {
 	response.OK(c, fromJobGroupView(view))
 }
 
+// SetStatus handles PUT /job-groups/{id}/status: enable or disable the whole
+// task (and every per-domain child job) without re-submitting the full form.
+func (h *JobGroupHandler) SetStatus(c *gin.Context) {
+	id, ok := jobGroupID(c)
+	if !ok {
+		return
+	}
+	var req dto.JobGroupStatusRequest
+	if err := bindJSON(c, &req); err != nil {
+		response.BadRequest(c, err)
+		return
+	}
+	if req.Enabled == nil {
+		response.BadRequest(c, fmt.Errorf("enabled is required"))
+		return
+	}
+	view, err := h.svc.SetEnabled(c.Request.Context(), id, *req.Enabled)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, fromJobGroupView(view))
+}
+
 // Delete handles DELETE /job-groups/{id}.
 func (h *JobGroupHandler) Delete(c *gin.Context) {
 	id, ok := jobGroupID(c)

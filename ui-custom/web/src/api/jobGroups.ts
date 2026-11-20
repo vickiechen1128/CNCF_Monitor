@@ -72,6 +72,12 @@ export const jobGroupApi = {
   update(id: string, input: JobGroupInput): Promise<ApiResponse<JobGroup>> {
     return apiClient.put<JobGroup>(`/api/v3/platform/job-groups/${encodeURIComponent(id)}`, { body: input })
   },
+  /** 启用 / 停用整组任务（含各域子任务），不需要重提整张表单 */
+  setEnabled(id: string, enabled: boolean): Promise<ApiResponse<JobGroup>> {
+    return apiClient.put<JobGroup>(`/api/v3/platform/job-groups/${encodeURIComponent(id)}/status`, {
+      body: { enabled },
+    })
+  },
   remove(id: string): Promise<ApiResponse<{ job_group_id: string }>> {
     return apiClient.delete<{ job_group_id: string }>(`/api/v3/platform/job-groups/${encodeURIComponent(id)}`)
   },

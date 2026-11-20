@@ -305,6 +305,7 @@ scheme          : Job 提交值 → 默认采集配置 → 采集实现 → http
 | POST | `/job-groups` | 登录 | 创建：公共参数 + 跨域实例 → 单事务写 1 组 + N 子 Job |
 | GET | `/job-groups/:id` | 登录 | 组详情（逐域子 Job + 派生状态） |
 | PUT | `/job-groups/:id` | 登录 | 更新：公共参数扇出 + 实例增量对账（域清零 → 删除该域子 Job） |
+| PUT | `/job-groups/:id/status` | 登录 | 启用 / 停用整组（`{"enabled": bool}`）：单事务级联各域子 Job 的 `enabled`；停用后 `sync.status=draft`、启用后回到 `pending`，等 M09 重新生成；无子任务 → 409 |
 | DELETE | `/job-groups/:id` | 登录 | 软删组 + 全部子 Job（级联） |
 
 ### 4.1.2 请求

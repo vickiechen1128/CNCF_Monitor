@@ -130,6 +130,66 @@ func (s *JobGroupService) Update(ctx context.Context, id string, input JobGroupI
 	return s.view(ctx, planned)
 }
 
+// SetEnabled toggles the group's enabled state and cascades it to every child
+// job in one transaction (SRS JG v1.0 §11: the group owns the enabled state, a
+// child may not change it on its own).
+//
+// Enabling re-checks that each child still has at least one instance that has
+// not been deleted (offline instances stay allowed, matching job edit rules) and
+// marks children pending so M09 regenerates the per-domain config. Disabling
+// keeps the rows so the user can re-enable later; M09 drops them from the next
+// package because it only renders enabled + ready jobs.
+func (s *JobGroupService) SetEnabled(ctx context.Context, id string, enabled bool) (*JobGroupView, error) {
+	group, err := s.groups.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	children, err := s.groups.ListJobsByGroup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(children) == 0 {
+		return nil, &domain.ConflictError{
+			Entity:  "job_group",
+			Field:   "id",
+			Value:   id,
+			Message: "job group has no child jobs; edit the group and pick instances first",
+		}
+	}
+	for _, child := range children {
+		if enabled {
+			if len(child.SelectedInstanceIDs) == 0 {
+				return nil, domain.NewValidationErrorf("selected_instance_ids",
+					"job %q has no instance; edit the group and pick instances first", child.JobName)
+			}
+			if s.jobs != nil {
+				if err := s.jobs.validateInstances(ctx, child, child); err != nil {
+					return nil, err
+				}
+			}
+		}
+		child.Enabled = enabled
+		if enabled {
+			child.Sync = domain.SyncState{Status: domain.SyncPending}
+		} else {
+			child.Sync = domain.SyncState{Status: domain.SyncDraft}
+		}
+	}
+	if enabled {
+		group.Status = domain.JobGroupStatusEnabled
+	} else {
+		group.Status = domain.JobGroupStatusDisabled
+	}
+	if err := s.groups.Apply(ctx, repository.GroupPlan{
+		Group:        group,
+		UpdateGroup:  true,
+		JobsToUpdate: children,
+	}); err != nil {
+		return nil, err
+	}
+	return s.view(ctx, group)
+}
+
 // Delete soft-deletes the group and its child jobs in one transaction.
 func (s *JobGroupService) Delete(ctx context.Context, id string) error {
 	group, err := s.groups.Get(ctx, id)
