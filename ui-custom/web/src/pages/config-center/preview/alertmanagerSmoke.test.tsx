@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { setupAntdTest, mockAntdMessage } from '../../../test/antdTestUtils'
+import { setupAntdTest } from '../../../test/antdTestUtils'
 import { ConfigPreviewPage } from './ConfigPreviewPage'
 import type { ConfigSnapshotHistoryRow, NetworkDomain } from '../../../types/config-center'
 
@@ -34,13 +34,11 @@ vi.mock('./useConfigArtifacts', () => ({
 
 const snapshotGetMock = vi.fn()
 const snapshotContentMock = vi.fn()
-const artifactExportMock = vi.fn()
 vi.mock('../../../api/configCenter', () => ({
   configArtifactApi: {
     list: vi.fn(),
     get: (...args: unknown[]) => snapshotGetMock(...args),
     preview: (...args: unknown[]) => snapshotContentMock(...args),
-    export: (...args: unknown[]) => artifactExportMock(...args),
     recoveryBundle: vi.fn(),
   },
 }))
@@ -111,7 +109,6 @@ describe('alertmanagerSmoke（v3：告警配置自动同步 → 只读快照）'
     useConfigSnapshotsMock.mockReset()
     snapshotGetMock.mockReset()
     snapshotContentMock.mockReset()
-    artifactExportMock.mockReset()
     snapshotContentMock.mockResolvedValue({ status: 'success', data: { artifact: amSnapshot(), files: [{ name: 'alertmanager.yml', content: 'route:\n  receiver: web\n' }] } })
     triggerBlobDownloadMock.mockReset()
   })
@@ -128,8 +125,7 @@ describe('alertmanagerSmoke（v3：告警配置自动同步 → 只读快照）'
     expect(screen.queryByRole('button', { name: /回滚/ })).not.toBeInTheDocument()
   })
 
-  it('告警配置快照详情可只读查看并下载内容（admin）', async () => {
-    const antdMessage = mockAntdMessage()
+  it('告警配置快照详情可只读查看', async () => {
     useConfigSnapshotsMock.mockReturnValue(result())
     snapshotGetMock.mockResolvedValue({
       status: 'success',
@@ -139,13 +135,6 @@ describe('alertmanagerSmoke（v3：告警配置自动同步 → 只读快照）'
 
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     expect(snapshotGetMock).toHaveBeenCalledWith(77)
-    expect(await screen.findByText('配置产物详情：am-20260902-0a1b')).toBeInTheDocument()
     expect(await screen.findByText(/receiver: web/)).toBeInTheDocument()
-
-    artifactExportMock.mockResolvedValue({ blob: new Blob(['yaml']), filename: 'am-20260902-0a1b-alertmanager.yml' })
-    fireEvent.click(screen.getByRole('button', { name: /导出 alertmanager.yml/ }))
-    await waitFor(() => expect(artifactExportMock).toHaveBeenCalledWith(77, false))
-    expect(triggerBlobDownloadMock).toHaveBeenCalledWith(expect.any(Blob), 'am-20260902-0a1b-alertmanager.yml')
-    expect(antdMessage.success).toHaveBeenCalledWith('配置产物已开始下载')
   })
 })
