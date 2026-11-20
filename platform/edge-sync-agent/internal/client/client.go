@@ -30,7 +30,6 @@ type Client struct {
 	token    *token.Store
 	httpc    *http.Client
 	throttle *token.Throttle
-	backoff  time.Duration // 下次 401 退避等待（注入便于测试）
 	logger   *logger.Logger
 }
 

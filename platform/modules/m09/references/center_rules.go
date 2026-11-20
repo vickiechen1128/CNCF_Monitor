@@ -54,7 +54,7 @@ func (r *GORMCenterRuleSource) ListEnabledReady(ctx context.Context) ([]CenterRu
 	}
 	out := make([]CenterRule, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, CenterRule{ID: row.ID, Name: row.Name, RuleContent: row.RuleContent})
+		out = append(out, CenterRule(row))
 	}
 	return out, nil
 }

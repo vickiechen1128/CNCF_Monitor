@@ -2,7 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -82,22 +81,22 @@ type relabelConf struct {
 }
 
 // JobBuild 是一次生成中某个 Job 的配置输入（Job 结构 + 已解析目标组 + 目标解析归因）。
-// Skipped 由调用方（draft/buildArtifacts）经 ResolveJobTargets 填充，
-// Assemble 聚合进 ConfigArtifacts.TargetDiagnostics（FileName 取 targets/<job>.json）。
+// Skipped 由调用方在目标解析阶段填充，AssembleWithModules 聚合进
+// ConfigArtifacts.TargetDiagnostics（FileName 取 targets/<job>.json）。
 type JobBuild struct {
 	Job     models.ScrapeJob
 	Targets []TargetGroup
 	Skipped []SkippedInstance
 }
 
-// Assemble 按网域组装配置产物：
+// AssembleWithModules 按网域组装配置产物：
 //   - prometheus.yml：global.external_labels（仅 network_domain_id/replica）
 //   - scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
 //     中心求值器额外注入 rule_files 与 alerting（见 alertmanagerAddr / centerEvaluator）；
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
 //   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
 //     为单文档（renderRules）；
-//   - blackbox.yml：兼容入口按 Job 所用模块生成；生产入口合并全部启用模块；
+//   - blackbox.yml：合并全部启用模块，并校验 Job 引用；
 //   - alertmanager.yml：决策 60，由调用方按「管理域 default 范围」透传 M08 已留痕
 //     源配置内容（无告警配置时传空串，不产生空产物）。
 //
@@ -107,21 +106,15 @@ type JobBuild struct {
 // centerEvaluator 判定驱动**（约定纪律：禁止各自 if，否则 v0.2 会出现「一段生成了、
 // 另一段没生成」的半残配置）。alerting 另有前置条件：alertmanagerYML 非空且地址非空，
 // 避免指向不存在的 Alertmanager。
-func Assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
-	return assemble(domainID, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, nil, false)
-}
-
-// AssembleWithModules 使用全部启用模块生成完整 blackbox.yml，并校验 Job 引用。
 func AssembleWithModules(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule) (*ConfigArtifacts, error) {
-	return assemble(domainID, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, moduleDefs, true)
+	return assemble(domainID, replica, jobs, rules, alertmanagerYML, alertmanagerAddr, centerEvaluator, moduleDefs)
 }
 
-func assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule, useModuleDefs bool) (*ConfigArtifacts, error) {
+func assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool, moduleDefs []models.BlackboxModule) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, replica)
 
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}, ScrapeConfigs: []scrapeConf{}}
 	targets := map[string]string{}
-	modules := map[string]struct{}{}
 	var diagnostics []TargetDiagnostics
 
 	for _, jb := range jobs {
@@ -131,9 +124,6 @@ func assemble(domainID, replica string, jobs []JobBuild, rules []models.Monitori
 		}
 		fname := normalizeJobFilename(jb.Job.JobName)
 		sc.FileSDConfigs = []fileSDConf{{Files: []string{"targets/" + fname}}}
-		if jb.Job.JobType == models.JobTypeBlackbox && jb.Job.BlackboxModule != "" {
-			modules[jb.Job.BlackboxModule] = struct{}{}
-		}
 		cfg.ScrapeConfigs = append(cfg.ScrapeConfigs, sc)
 
 		content, err := MarshalTargetGroups(jb.Targets)
@@ -179,12 +169,7 @@ func assemble(domainID, replica string, jobs []JobBuild, rules []models.Monitori
 		return nil, fmt.Errorf("marshal prometheus.yml: %w", err)
 	}
 
-	blackboxYAML := ""
-	if useModuleDefs {
-		blackboxYAML, err = renderBlackboxModuleDefinitions(moduleDefs, jobs)
-	} else {
-		blackboxYAML = renderBlackbox(modules)
-	}
+	blackboxYAML, err := renderBlackboxModuleDefinitions(moduleDefs, jobs)
 	if err != nil {
 		return nil, err
 	}
@@ -197,28 +182,6 @@ func assemble(domainID, replica string, jobs []JobBuild, rules []models.Monitori
 		AlertmanagerYML:   alertmanagerYML,
 		TargetDiagnostics: diagnostics,
 	}, nil
-}
-
-// AlertmanagerTargetFromURL 把 --alertmanager.url（如 http://localhost:9093）转换为
-// Prometheus `alerting.alertmanagers[].static_configs[].targets` 所需的 host:port
-// （如 localhost:9093，决策 68-2）。
-//
-// Prometheus 的 alertmanager target 只接受 host:port，不接受 scheme；故此处剥离
-// scheme 与路径。未带 scheme 时按原值返回（容忍已是 host:port 的入参）；空串或解析
-// 失败返回空串，调用方据此不生成 alerting 段，避免写出非法/悬空目标。
-func AlertmanagerTargetFromURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if !strings.Contains(raw, "://") {
-		return strings.Trim(raw, "/")
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	return u.Host
 }
 
 // jobScrapeConfig 将 ScrapeJob 结构映射为 scrape_config 骨架
@@ -298,34 +261,6 @@ func renderRules(rules []models.MonitoringRule) string {
 		return ""
 	}
 	return string(out)
-}
-
-// renderBlackbox 按用到的模块名生成最小 blackbox.yml（仅写实际引用模块，
-// 避免下发无关配置，PRD §3.3.2）。
-func renderBlackbox(modules map[string]struct{}) string {
-	if len(modules) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("modules:\n")
-	for mod := range modules {
-		b.WriteString(renderBlackboxModule(mod))
-	}
-	return b.String()
-}
-
-// renderBlackboxModule 生成单个探测模块定义（按模块名前缀推导 prober）。
-func renderBlackboxModule(module string) string {
-	prober := "http"
-	switch {
-	case strings.HasPrefix(module, "icmp"):
-		prober = "icmp"
-	case strings.HasPrefix(module, "dns"):
-		prober = "dns"
-	case strings.HasPrefix(module, "tcp"):
-		prober = "tcp"
-	}
-	return fmt.Sprintf("  %s:\n    prober: %s\n    timeout: 5s\n", module, prober)
 }
 
 // renderBlackboxModuleDefinitions 合并全部启用模块，并拒绝缺失的 Job 模块引用。

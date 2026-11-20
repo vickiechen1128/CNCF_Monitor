@@ -27,30 +27,9 @@ import (
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	m07 "github.com/metriccenter/metriccenter/platform/modules/m07"
 	m08 "github.com/metriccenter/metriccenter/platform/modules/m08"
-	"github.com/metriccenter/metriccenter/platform/modules/m08/notify"
 	m08refs "github.com/metriccenter/metriccenter/platform/modules/m08/references"
 	m09 "github.com/metriccenter/metriccenter/platform/modules/m09"
 )
-
-// resolveDatabaseMode resolves the startup mode. Precedence: --database.mode,
-// then METRIC_CENTER_DB_MODE, then legacy. Unknown values are rejected so a
-// typo cannot silently boot the wrong schema.
-func resolveDatabaseMode(flagValue string) (string, error) {
-	mode := strings.ToLower(strings.TrimSpace(flagValue))
-	if mode == "" {
-		mode = db.StartupMode()
-	}
-	if mode == "" {
-		return db.StartupModeLegacy, nil
-	}
-	switch mode {
-	case db.StartupModeLegacy, db.StartupModeV3:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("unsupported database mode %q (want %q or %q)",
-			mode, db.StartupModeLegacy, db.StartupModeV3)
-	}
-}
 
 // runV3 boots the v3-only line: versioned migrations, v3 seed and the v3 module
 // registry. Legacy /api/v2 routes and background workers are intentionally not
@@ -356,7 +335,7 @@ func bridgeBaseURL() string {
 	if strings.TrimSpace(*notifyBridgeURL) != "" {
 		return strings.TrimRight(*notifyBridgeURL, "/")
 	}
-	derived, err := notify.DeriveBridgeBaseURL(*listenAddr)
+	derived, err := m08.DeriveBridgeBaseURL(*listenAddr)
 	if err != nil {
 		log.Printf("[m08] derive bridge base url: %v", err)
 		return ""

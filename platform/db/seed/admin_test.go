@@ -15,7 +15,7 @@ import (
 func TestRunSeedsAdminUser(t *testing.T) {
 	db := newTestDB(t)
 
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
 
 	var u models.User
 	require.NoError(t, db.Where("username = ?", "admin").First(&u).Error)
@@ -33,8 +33,8 @@ func TestRunSeedsAdminUser(t *testing.T) {
 func TestRunAdminIsIdempotent(t *testing.T) {
 	db := newTestDB(t)
 
-	require.NoError(t, Run(db))
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
+	require.NoError(t, runAdminUser(db))
 
 	var n int64
 	countRows(t, db, &models.User{}, &n)
@@ -46,7 +46,7 @@ func TestRunAdminIsIdempotent(t *testing.T) {
 func TestRunAdminKeepsModifiedPassword(t *testing.T) {
 	db := newTestDB(t)
 
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
 
 	// 模拟用户改密：覆盖 password_hash。
 	newHash, err := bcrypt.GenerateFromPassword([]byte("changed-password"), bcrypt.DefaultCost)
@@ -54,7 +54,7 @@ func TestRunAdminKeepsModifiedPassword(t *testing.T) {
 	require.NoError(t, db.Model(&models.User{}).Where("username = ?", "admin").
 		Update("password_hash", string(newHash)).Error)
 
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
 
 	var u models.User
 	require.NoError(t, db.Where("username = ?", "admin").First(&u).Error)
@@ -69,7 +69,7 @@ func TestRunAdminPasswordFromEnv(t *testing.T) {
 	db := newTestDB(t)
 	t.Setenv(AdminPasswordEnv, "s3cret-deploy")
 
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
 
 	var u models.User
 	require.NoError(t, db.Where("username = ?", "admin").First(&u).Error)
@@ -87,7 +87,7 @@ func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T) {
 	t.Setenv(AdminPasswordEnv, "")
 	t.Setenv(AppEnvEnv, EnvProduction)
 
-	err := Run(db)
+	err := runAdminUser(db)
 	require.Error(t, err, "生产模式未配置密码必须报错并拒绝启动")
 	assert.Contains(t, err.Error(), AdminPasswordEnv)
 
@@ -98,7 +98,7 @@ func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T) {
 
 	// 配置密码后再次 seed 应成功，且初始管理员 Role 为 admin（H-2）。
 	t.Setenv(AdminPasswordEnv, "prod-secret-4711")
-	require.NoError(t, Run(db))
+	require.NoError(t, runAdminUser(db))
 	var u models.User
 	require.NoError(t, db.Where("username = ?", "admin").First(&u).Error)
 	assert.Equal(t, models.UserRoleAdmin, u.Role, "初始管理员角色必须是 admin")

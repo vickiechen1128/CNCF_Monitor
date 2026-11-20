@@ -191,7 +191,7 @@ func HostFromURL(raw string) string {
 	return parsed.Hostname()
 }
 
-// 端口来源枚举（与 platform/configcenter/portchain 对齐；额外补充 host 的
+// 端口来源枚举（与 M09 生成侧端口优先级口径对齐；额外补充 host 的
 // 系统默认兜底 9100，避免把"默认端口"显示成未解析）。
 const (
 	PortSourceInstance   = "instance"

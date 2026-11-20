@@ -1,4 +1,4 @@
-package notify
+package m08
 
 import (
 	"fmt"

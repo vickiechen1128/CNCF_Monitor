@@ -17,7 +17,7 @@ func init() {
 	sqliteDialectorFactory = func(dsn string) gorm.Dialector {
 		return sqlite.Open(sqliteDSNWithForeignKeys(dsn))
 	}
-	// The legacy Init() tests use SQLite DSNs without setting the driver env.
+	// Tests in this package use SQLite DSNs without setting the driver env.
 	// With postgres now the production default, force sqlite for this test
 	// binary unless a test sets the variable explicitly.
 	if os.Getenv("METRIC_CENTER_DB_DRIVER") == "" {

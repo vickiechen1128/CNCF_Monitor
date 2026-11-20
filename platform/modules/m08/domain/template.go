@@ -5,6 +5,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 )
 
 // maxTemplateBytes bounds a template body (64 KiB); templates are code-like and
@@ -28,16 +29,51 @@ type Template struct {
 // at delivery time".
 func TemplateFuncMap() template.FuncMap {
 	return template.FuncMap{
-		"upper":   strings.ToUpper,
-		"lower":   strings.ToLower,
-		"title":   strings.Title, //nolint:staticcheck // template helper, ASCII titles only
-		"join":    func(sep string, values []string) string { return strings.Join(values, sep) },
+		"upper": strings.ToUpper,
+		"lower": strings.ToLower,
+		"title": titleCase,
+		"join":  func(sep string, values []string) string { return strings.Join(values, sep) },
 		"default": func(fallback, value string) string {
 			if strings.TrimSpace(value) == "" {
 				return fallback
 			}
 			return value
 		},
+	}
+}
+
+// titleCase upper-cases the first letter of every word. It keeps the
+// ASCII-oriented semantics templates relied on before strings.Title was
+// deprecated (letters, digits and underscore are word characters).
+func titleCase(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	prev := ' '
+	for _, r := range s {
+		if isTitleSeparator(prev) {
+			r = unicode.ToTitle(r)
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
+}
+
+func isTitleSeparator(r rune) bool {
+	if r > 0x7F {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}
+	switch {
+	case '0' <= r && r <= '9':
+		return false
+	case 'a' <= r && r <= 'z':
+		return false
+	case 'A' <= r && r <= 'Z':
+		return false
+	case r == '_':
+		return false
+	default:
+		return true
 	}
 }
 

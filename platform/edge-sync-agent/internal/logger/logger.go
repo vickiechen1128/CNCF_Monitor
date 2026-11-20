@@ -5,7 +5,6 @@
 package logger
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -48,6 +47,3 @@ func (lg *Logger) Close() {
 		_ = c.Close()
 	}
 }
-
-// 便于调试的格式化占位保护。
-var _ = fmt.Sprintf

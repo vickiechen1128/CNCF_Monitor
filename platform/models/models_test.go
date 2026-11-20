@@ -478,7 +478,7 @@ func TestScrapeJobSecretsNotSerialized(t *testing.T) {
 		JobName:               "sec-prod",
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
-		MonitorType:           MonitorTypeHostLinux,
+		MonitorType:           "host_linux",
 		NetworkDomainID:       DefaultDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",
@@ -609,49 +609,6 @@ func TestLabelRules(t *testing.T) {
 
 // --- Module 01 (T01-01): models contract baseline ---
 
-func TestMonitorTypeDerivationMapFull(t *testing.T) {
-	expected := map[string]string{
-		"host:linux":               MonitorTypeHostLinux,
-		"host:unix":                MonitorTypeHostLinux,
-		"host:windows":             MonitorTypeHostWindows,
-		"database:mysql":           MonitorTypeMySQL,
-		"database:redis":           MonitorTypeRedis,
-		"middleware:kafka":         MonitorTypeKafka,
-		"middleware:elasticsearch": MonitorTypeElasticsearch,
-		"middleware:nginx":         MonitorTypeNginx,
-		"application:":             MonitorTypeApplicationHTTP,
-		"generic_target:":          MonitorTypeSNMP,
-	}
-	assert.Equal(t, expected, MONITOR_TYPE_DERIVATION_MAP, "MONITOR_TYPE_DERIVATION_MAP must cover all mappings (no dm8)")
-
-	// Derivation helper round-trip.
-	mt, ok := DeriveMonitorType(ResourceCategoryHost, "linux")
-	assert.True(t, ok)
-	assert.Equal(t, MonitorTypeHostLinux, mt)
-	_, ok = DeriveMonitorType(ResourceCategoryDatabase, "dm8")
-	assert.False(t, ok, "dm8 is out of MVP scope")
-}
-
-func TestValidMonitorTypes(t *testing.T) {
-	types := ValidMonitorTypes()
-	assert.Len(t, types, 10)
-	assert.True(t, ValidMonitorType("mysql"))
-	assert.True(t, ValidMonitorType("application_http"))
-	assert.False(t, ValidMonitorType("dm8"))
-	assert.False(t, ValidMonitorType(""))
-}
-
-func TestNPUMonitorTypeUsesHostCandidates(t *testing.T) {
-	assert.True(t, ValidMonitorType(MonitorTypeNPU))
-
-	derivation, ok := DeriveResourceFilter(MonitorTypeNPU)
-	assert.True(t, ok)
-	assert.Equal(t, ResourceCategoryHost, derivation.Category)
-	assert.Empty(t, derivation.SubtypeField)
-	assert.Empty(t, derivation.Subtype)
-	assert.Empty(t, derivation.OSKeywords)
-}
-
 func TestBlackboxTargetJSONRoundTrip(t *testing.T) {
 	orig := []BlackboxTarget{
 		{Target: "10.0.1.11", Protocol: BlackboxTargetProtocolHTTP, URL: "https://api.example.com/health"},
@@ -711,7 +668,7 @@ func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T) {
 		Unit:       "percent",
 		Labels:     []string{"cpu", "mode"},
 		MonitorTypes: []ExporterMetricAnchor{
-			{MonitorType: MonitorTypeHostLinux, SourceExporter: "node-exporter"},
+			{MonitorType: "host_linux", SourceExporter: "node-exporter"},
 		},
 		Category:  "cpu",
 		IsBuiltin: true,
@@ -737,7 +694,7 @@ func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T) {
 		JobName:               "node-prod",
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
-		MonitorType:           MonitorTypeHostLinux,
+		MonitorType:           "host_linux",
 		NetworkDomainID:       DefaultDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",

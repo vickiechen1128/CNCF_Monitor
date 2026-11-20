@@ -71,8 +71,6 @@ func BlackboxProbeCategories() []ResourceCategory {
 // 字段不交给用户选：接口服务取「接口地址」api_url、应用服务取「健康检查 URL」
 // health_check_url。二者与 ResourceCategory 一对一，故无需（也不应）让客户端传
 // target_field —— 保存时由 validateJobRequest 按类别推导并覆盖。
-//
-// 返回的键必须存在于 LegacyFieldMap(cat)（models.GetResourceField 依赖其做名→列映射）。
 func BlackboxTargetField(cat ResourceCategory) (string, bool) {
 	switch cat {
 	case ResourceCategoryInterfaceService:

@@ -1,7 +1,7 @@
 // Package db manages database connections and migrations for MetricCenter.
 //
-// Legacy v2 uses SQLite + AutoMigrate. The v3 line targets PostgreSQL in
-// production and keeps SQLite for local development and fast tests.
+// The v3 line targets PostgreSQL in production and keeps SQLite for local
+// development and fast tests.
 package db
 
 import (
@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/metriccenter/metriccenter/platform/db/seed"
-	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -37,24 +35,7 @@ const (
 // does not import gorm.io/driver/sqlite. It is nil in every production build.
 var sqliteDialectorFactory func(dsn string) gorm.Dialector
 
-// Database startup modes.
-const (
-	// StartupModeLegacy keeps the v2 AutoMigrate schema plus the additive v3
-	// migrations. This is the default during the rewrite transition.
-	StartupModeLegacy = "legacy"
-	// StartupModeV3 boots only the v3 line: versioned migrations, v3 seed and
-	// v3 module registry. Reserved for PostgreSQL in production.
-	StartupModeV3 = "v3"
-)
-
-// StartupMode resolves the database startup mode from METRIC_CENTER_DB_MODE.
-// An empty value falls back to legacy; callers validate unknown values.
-func StartupMode() string {
-	return strings.ToLower(strings.TrimSpace(os.Getenv("METRIC_CENTER_DB_MODE")))
-}
-
-// DB is the package-level GORM database handle.
-// It is initialized by Init (legacy v2) or InitV3 (v3 line).
+// DB is the package-level GORM database handle. It is initialized by InitV3.
 var DB *gorm.DB
 
 // DBDriver returns the configured database driver.
@@ -127,41 +108,7 @@ func OpenDB(driver, dsn string) (*gorm.DB, error) {
 	}
 }
 
-// Init opens the legacy v2 database and runs AutoMigrate + seed.
-//
-// PostgreSQL is reserved for the v3 line; use InitV3 once the v3 module wiring
-// is in place. Keeping this guard prevents the legacy handlers from silently
-// starting against a v3 schema they cannot query.
-func Init() error {
-	driver := DBDriver()
-	if driver != "sqlite" {
-		return fmt.Errorf("database driver %q is reserved for the v3 line; use InitV3", driver)
-	}
-
-	var err error
-	DB, err = OpenDB(driver, DSN())
-	if err != nil {
-		return fmt.Errorf("failed to open database %q: %w", DSN(), err)
-	}
-
-	err = AutoMigrate()
-	if err != nil {
-		return fmt.Errorf("failed to migrate database schema: %w", err)
-	}
-
-	// Idempotently seed platform core data (platform_admin tenant, default
-	// domain, zone_type dictionary, label templates, built-in exporters).
-	if err := seed.Run(DB); err != nil {
-		return fmt.Errorf("failed to seed platform core data: %w", err)
-	}
-	return nil
-}
-
 // InitV3 opens the v3 database and applies versioned migrations.
-//
-// It is intentionally separate from Init: the legacy v2 handlers still expect
-// the old AutoMigrate schema. The v3 module wiring will switch to this entry
-// point once the new module is mounted.
 func InitV3() error {
 	driver := DBDriver()
 	dsn := DSN()
@@ -175,123 +122,4 @@ func InitV3() error {
 		return fmt.Errorf("failed to apply v3 migrations: %w", err)
 	}
 	return nil
-}
-
-// AutoMigrate creates or updates the database schema for all known models.
-func AutoMigrate() error {
-	if DB == nil {
-		return fmt.Errorf("database connection is not initialized")
-	}
-
-	if err := DB.AutoMigrate(
-		// 共享基础模型
-		&models.Tenant{},
-		&models.NetworkDomain{},
-		&models.ZoneType{},
-		&models.ResourceStatusMapping{},
-		// 业务分组字典（决策 48）
-		&models.BusinessDomain{},
-		// 应用字典（决策 92：app_code/app_name 双层，对齐业务分组）
-		&models.ApplicationDict{},
-		// 云字典（决策 98/102：部署级只读）
-		&models.CloudDict{},
-		// 平台字典与应用↔平台关系（决策 104/110~112）
-		&models.PlatformDict{},
-		&models.AppPlatformRel{},
-		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
-		&models.User{},
-		&models.Session{},
-		&models.LoginLog{},
-		// 资源类别（第 6 类「接口服务」见 models/interface_service.go）
-		&models.Host{},
-		&models.Database{},
-		&models.Middleware{},
-		&models.Application{},
-		&models.GenericTarget{},
-		&models.InterfaceService{},
-		&models.ResourceLabel{},
-		// 标签模板与采集策略
-		&models.LabelTemplate{},
-		&models.LabelTemplateSnapshot{},
-		&models.ImportRecord{},
-		&models.CITypeExporterMapping{},
-		&models.ExporterTemplate{},
-		&models.ScrapeJob{},
-		&models.MonitoringRule{},
-		&models.ExporterMetricLibrary{},
-		&models.ExporterInstallationConfirmation{},
-		// 历史表
-		&models.BlackboxProbeConfig{},
-		// 配置中心
-		&models.ConfigDraft{},
-		&models.ConfigVersion{},
-		&models.ConfigDeployment{},
-		&models.ConfigChangeBaseline{},
-		&models.EdgeAgent{},
-		&models.EdgeHeartbeat{},
-		&models.EdgeTargetSnapshot{}, // F-11：边缘 vmagent target 抓取快照（随心跳落库）
-		// 告警收敛与通知管理（Module_08，决策 59/60 alertmanager.yml 挂载留痕）
-		&models.AlertmanagerConfigVersion{},
-		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
-		&models.NotifyChannel{},
-		&models.NotifyTemplate{},
-		// 历史告警（Module_08：webhook 事件留痕 + 分钟级对账）
-		&models.AlertEvent{},
-		// 自定义大屏（Module_05：Grafana iframe 挂载配置）
-		&models.DashboardPanel{},
-		// 预留
-		&models.BusinessMetric{},
-	); err != nil {
-		return err
-	}
-
-	// 历史告警表增量迁移：时间字段统一 UTC+8、回填 closed_at / occurrence_key。
-	// 只处理 alert_events，其他表历史时间不重写（2026-10-26 用户确认）。
-	if err := migrateAlertEvents(); err != nil {
-		return err
-	}
-
-	// 2026-10-22 渠道取消启停状态：GORM AutoMigrate 只增不删，这里显式删除历史列。
-	// 列不存在（新库 / 已迁移）时跳过，幂等。SQLite 3.35+ 支持 DROP COLUMN。
-	if DB.Migrator().HasColumn(&models.NotifyChannel{}, "enabled") {
-		if err := DB.Exec("ALTER TABLE notify_channels DROP COLUMN enabled").Error; err != nil {
-			return fmt.Errorf("drop notify_channels.enabled: %w", err)
-		}
-	}
-
-	// 中心直连域（管理域）全平台唯一：只允许一条未软删的 management 行。
-	// 登记接口在事务内已做应用层校验，这里用 SQLite 部分唯一索引兜底并发写入。
-	if err := DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_network_domains_single_management
-		ON network_domains(domain_type)
-		WHERE domain_type = 'management' AND deleted_at IS NULL`).Error; err != nil {
-		return err
-	}
-
-	// 历史告警未结行（firing/silenced/inhibited）按 fingerprint 全库唯一：
-	// webhook 实时推送与对账补插并发写入同一次告警时只落一行。
-	// 终态（resolved/silenced_closed/inhibited_closed/lost）不参与约束——
-	// 恢复后再次触发要能插入新行。
-	if err := DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_open_fingerprint
-		ON alert_events(fingerprint)
-		WHERE fingerprint <> '' AND status IN ('firing','silenced','inhibited') AND deleted_at IS NULL`).Error; err != nil {
-		return err
-	}
-
-	// 一次发生（occurrence）全表唯一：webhook 与对账并发、迟到推送、跨库精度差异
-	// 都由该键兜底。无指纹行 occurrence_key 为空，不参与约束。
-	return ensureAlertEventOccurrenceIndex()
-}
-
-// Health checks whether the database connection is alive.
-func Health() error {
-	if DB == nil {
-		return fmt.Errorf("database connection is not initialized")
-	}
-
-	sqlDB, err := DB.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get underlying sql.DB: %w", err)
-	}
-
-	return sqlDB.Ping()
 }

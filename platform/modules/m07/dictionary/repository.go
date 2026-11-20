@@ -1420,12 +1420,7 @@ func (r *GORMRepository) ListDictionaryAuditLogs(ctx context.Context, dictionary
 	}
 	out := make([]DictionaryAuditLog, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, DictionaryAuditLog{
-			ID: row.ID, DictionaryType: row.DictionaryType, Action: row.Action,
-			SourceCode: row.SourceCode, TargetCode: row.TargetCode,
-			ReferenceCount: row.ReferenceCount, Operator: row.Operator,
-			Detail: row.Detail, CreatedAt: row.CreatedAt,
-		})
+		out = append(out, DictionaryAuditLog(row))
 	}
 	return out, nil
 }
@@ -1531,5 +1526,3 @@ func countCloudReferencesTx(tx *gorm.DB, cloudCode string) (int64, error) {
 	}
 	return count, nil
 }
-
-

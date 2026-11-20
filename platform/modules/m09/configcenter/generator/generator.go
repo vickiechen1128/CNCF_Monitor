@@ -109,17 +109,6 @@ func (a *ConfigArtifacts) Checksum() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ArtifactsChanged 判定新产物与某生效版本 checksum 是否一致（一致视为无实质变化）。
-func (a *ConfigArtifacts) ArtifactsChanged(activeChecksum string) bool {
-	return activeChecksum == "" || a.Checksum() != activeChecksum
-}
-
-// NormalizeJobFilename 导出 normalizeJobFilename，供 draft 等包做 targets 文件 diff 时
-// 按同一口径反查 job 对应的 targets 文件名。
-func NormalizeJobFilename(jobName string) string {
-	return normalizeJobFilename(jobName)
-}
-
 // normalizeJobFilename 将 job 名规范化为平台内部 targets 文件名（小写、非字母数字转 -）。
 func normalizeJobFilename(jobName string) string {
 	var b strings.Builder

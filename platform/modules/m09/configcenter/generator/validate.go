@@ -42,9 +42,6 @@ const (
 var (
 	ToolLookPath = exec.LookPath
 	ToolChecker  = runToolChecks
-	// errToolMissing 表示外部校验工具（promtool / blackbox_exporter）不可调用，
-	// 此时中心内容校验返回 validation_status=pending（决策 42-2）。
-	errToolMissing = errors.New("external validation tool not found")
 )
 
 // ValidateTargetGroups 对 file_sd 目标文件做 schema 校验（弥补 promtool 不校验

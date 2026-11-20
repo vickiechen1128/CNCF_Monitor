@@ -17,38 +17,6 @@ import (
 	"github.com/metriccenter/platform/edge-sync-agent/internal/supervisor"
 )
 
-func TestBuildHeartbeatRequestMapping(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.NetworkDomainID = "gov-cloud-a"
-	cfg.AgentType = "vmagent"
-	cfg.Version = "v0.2.0"
-	cfg.RWQueueMaxShards = 50
-
-	comps := []contract.Component{
-		{Type: contract.ComponentTypeCollector, Status: contract.ComponentStatusRunning, RestartCount: 3},
-	}
-	hb := buildHeartbeatRequest(cfg, "20260918-120000", 12345, cfg.RWQueueMaxShards, "node-1", "10.1.1.5", comps, nil)
-
-	if hb.NetworkDomainID != "gov-cloud-a" || hb.AgentType != "vmagent" || hb.Version != "v0.2.0" {
-		t.Fatalf("identity fields wrong: %+v", hb)
-	}
-	if hb.ConfigVersion != "20260918-120000" {
-		t.Fatalf("config_version = %s", hb.ConfigVersion)
-	}
-	if hb.QueueBacklogBytes != 12345 {
-		t.Fatalf("queue_backlog = %d", hb.QueueBacklogBytes)
-	}
-	if hb.RemoteWriteQueueSize != 50 {
-		t.Fatalf("remote_write_queue_size = %d", hb.RemoteWriteQueueSize)
-	}
-	if hb.Hostname != "node-1" || hb.Ip != "10.1.1.5" {
-		t.Fatalf("host identity wrong: %+v", hb)
-	}
-	if len(hb.Components) != 1 || hb.Components[0].Type != contract.ComponentTypeCollector {
-		t.Fatalf("components wrong: %+v", hb.Components)
-	}
-}
-
 // badApplyZip 构造一个会被 Deployer.Apply 拒收的配置包（targets 文件为空数组 `[]`），
 // 与 F-17 真实故障同形（边缘 ValidateTargetsJSON 报 empty array → 回滚且不落盘）。
 func badApplyZip(t *testing.T, version string) []byte {
@@ -84,62 +52,6 @@ func applyZip(t *testing.T, version, targetsJSON string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
-}
-
-// TestHeartbeatRequestCarriesApplyError 覆盖 D-1 验收 1：Apply 失败 → 心跳携带
-// config_apply_error + 失败版本；后续成功应用 → 字段清空且 JSON 不产出该键（omitempty）。
-func TestHeartbeatRequestCarriesApplyError(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.NetworkDomainID = "gov-cloud-a"
-	cfg.AgentType = "vmagent"
-	cfg.Version = "v0.2.0"
-
-	dep := deployer.New(t.TempDir(), "gov-cloud-a", logger.New(nil), nil, nil, nil)
-	ctx := context.Background()
-
-	// 旧版本先应用成功（模拟现场：节点已生效 v1）。
-	if err := dep.Apply(ctx, goodApplyZip(t, "v1"), &contract.Metadata{ConfigVersion: "v1"}); err != nil {
-		t.Fatalf("apply v1: %v", err)
-	}
-	hb0 := buildHeartbeatRequest(cfg, dep.CurrentVersion(), 0, 0, "node-1", "10.0.0.1", nil, dep)
-	if hb0.ConfigApplyError != "" || hb0.ConfigApplyFailedVersion != "" {
-		t.Fatalf("no failure expected: %+v", hb0)
-	}
-
-	// v2 应用失败（空 targets 被拒收）→ 心跳上送失败原因与失败版本。
-	if err := dep.Apply(ctx, badApplyZip(t, "v2"), &contract.Metadata{ConfigVersion: "v2"}); err == nil {
-		t.Fatal("empty targets package should fail to apply")
-	}
-	hb := buildHeartbeatRequest(cfg, dep.CurrentVersion(), 0, 0, "node-1", "10.0.0.1", nil, dep)
-	if hb.ConfigApplyError == "" {
-		t.Fatalf("config_apply_error not carried: %+v", hb)
-	}
-	if !strings.Contains(hb.ConfigApplyError, "empty array") {
-		t.Fatalf("config_apply_error = %q", hb.ConfigApplyError)
-	}
-	if hb.ConfigApplyFailedVersion != "v2" {
-		t.Fatalf("config_apply_failed_version = %q", hb.ConfigApplyFailedVersion)
-	}
-	// 失败版本仍以旧生效版本（v1）上报，中心据此判「已拉到最新但应用失败」。
-	if hb.ConfigVersion != "v1" {
-		t.Fatalf("config_version = %q", hb.ConfigVersion)
-	}
-
-	// 后续成功应用 v3 → 错误字段清空且 JSON 无这两键。
-	if err := dep.Apply(ctx, goodApplyZip(t, "v3"), &contract.Metadata{ConfigVersion: "v3"}); err != nil {
-		t.Fatalf("apply v3: %v", err)
-	}
-	hb2 := buildHeartbeatRequest(cfg, dep.CurrentVersion(), 0, 0, "node-1", "10.0.0.1", nil, dep)
-	if hb2.ConfigApplyError != "" || hb2.ConfigApplyFailedVersion != "" {
-		t.Fatalf("apply error not cleared after success: %+v", hb2)
-	}
-	b, err := json.Marshal(hb2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(b), "config_apply_error") || strings.Contains(string(b), "config_apply_failed_version") {
-		t.Fatalf("omitempty keys should be absent: %s", b)
-	}
 }
 
 // TestRuntimeProviderSnapshotCarriesApplyError 覆盖 D-1 验收 1 的心跳装配路径：

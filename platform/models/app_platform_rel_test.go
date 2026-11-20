@@ -50,23 +50,3 @@ func TestValidateAppPlatformPrimaryUnique(t *testing.T) {
 		return ValidateAppPlatformPrimaryUnique(tx, "app-a", primary.ID)
 	}), "更新主关联自身时应排除当前记录")
 }
-
-func TestResourcePlatformCodeFieldMappings(t *testing.T) {
-	platformCode := "platform-a"
-	resources := map[ResourceCategory]any{
-		ResourceCategoryHost:          &Host{PlatformCode: platformCode},
-		ResourceCategoryDatabase:      &Database{ResourceBase: ResourceBase{PlatformCode: platformCode}},
-		ResourceCategoryMiddleware:    &Middleware{PlatformCode: platformCode},
-		ResourceCategoryApplication:   &Application{PlatformCode: platformCode},
-		ResourceCategoryGenericTarget: &GenericTarget{ResourceBase: ResourceBase{PlatformCode: platformCode}},
-	}
-
-	for category, resource := range resources {
-		t.Run(string(category), func(t *testing.T) {
-			assert.Equal(t, "platform_code", LegacyFieldMap(category)["platform_code"])
-			got, ok := GetResourceField(resource, "platform_code")
-			require.True(t, ok)
-			assert.Equal(t, platformCode, got)
-		})
-	}
-}

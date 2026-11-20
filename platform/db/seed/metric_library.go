@@ -2,7 +2,6 @@ package seed
 
 import (
 	"github.com/metriccenter/metriccenter/platform/models"
-	"gorm.io/gorm"
 )
 
 // builtinMetricSeed 描述一条内置技术指标（Module_01 §5.3 MVP 指标库最小集）。
@@ -50,30 +49,4 @@ func BuiltinMetricLibrary() []builtinMetricSeed {
 		{MonitorTypes: []string{"application_http"}, SourceExporter: "blackbox-exporter", Category: "probe", MetricName: "probe_duration_seconds", MetricType: models.MetricTypeGauge, Help: "拨测耗时", Unit: "seconds", Labels: []string{}},
 		{MonitorTypes: []string{"application_http"}, SourceExporter: "blackbox-exporter", Category: "probe", MetricName: "probe_http_status_code", MetricType: models.MetricTypeGauge, Help: "拨测 HTTP 状态码", Unit: "", Labels: []string{}},
 	}
-}
-
-// runMetricLibrary 幂等 upsert 内置技术指标库（is_builtin=true）。以 metric_name
-// 为唯一键（MVP 静态内置，用户扩展走 API 时 is_builtin=false）。
-func runMetricLibrary(db *gorm.DB) error {
-	for _, m := range BuiltinMetricLibrary() {
-		anchors := make([]models.ExporterMetricAnchor, 0, len(m.MonitorTypes))
-		for _, mt := range m.MonitorTypes {
-			anchors = append(anchors, models.ExporterMetricAnchor{MonitorType: mt, SourceExporter: m.SourceExporter})
-		}
-		row := &models.ExporterMetricLibrary{
-			MetricName:   m.MetricName,
-			MetricType:   m.MetricType,
-			Help:         m.Help,
-			Unit:         m.Unit,
-			Labels:       m.Labels,
-			MonitorTypes: anchors,
-			Category:     m.Category,
-			IsBuiltin:    true,
-			Enabled:      true,
-		}
-		if err := firstOrCreate(db, row, "metric_name = ? AND is_builtin = ?", row.MetricName, true); err != nil {
-			return err
-		}
-	}
-	return nil
 }

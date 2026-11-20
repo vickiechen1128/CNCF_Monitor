@@ -34,24 +34,6 @@ func TestHTTPGetOK200AndNon200(t *testing.T) {
 	}
 }
 
-func TestHTTPPostOKReload(t *testing.T) {
-	var got string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s want POST", r.Method)
-		}
-		got = r.URL.Path
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-	if err := httpPostOK(context.Background(), srv.Client(), srv.URL+"/-/reload"); err != nil {
-		t.Fatalf("reload should pass: %v", err)
-	}
-	if got != "/-/reload" {
-		t.Fatalf("reload path = %s", got)
-	}
-}
-
 func TestTCPProbe(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

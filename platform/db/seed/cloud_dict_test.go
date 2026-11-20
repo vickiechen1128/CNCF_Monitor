@@ -11,8 +11,8 @@ import (
 func TestRunSeedsCloudDictIdempotently(t *testing.T) {
 	db := newTestDB(t)
 
-	require.NoError(t, Run(db))
-	require.NoError(t, Run(db))
+	require.NoError(t, runCloudDicts(db))
+	require.NoError(t, runCloudDicts(db))
 
 	var rows []models.CloudDict
 	require.NoError(t, db.Order("cloud_code ASC").Find(&rows).Error)

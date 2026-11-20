@@ -49,7 +49,7 @@ func runAdminUser(db *gorm.DB) error {
 
 	password := os.Getenv(AdminPasswordEnv)
 	// 生产模式（H-1）：必须显式配置初始管理员密码，拒绝使用内置默认密码 admin123，
-	// 使生产启动在 db.Init -> seed.Run 处失败（经 main.Fatalf 终止），从而避免
+	// 使生产启动在 seed.CoreV3 处失败（经 main.Fatalf 终止），从而避免
 	// 生产环境携带弱默认凭据被入侵。非生产模式仍安全回退到 DefaultAdminPassword。
 	if password == "" && os.Getenv(AppEnvEnv) == EnvProduction {
 		return errors.New("METRIC_CENTER_ADMIN_PASSWORD must be configured in production mode; refusing insecure default")

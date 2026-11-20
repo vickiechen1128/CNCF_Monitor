@@ -7,13 +7,13 @@ import (
 
 // OS 内置字典：将常用的操作系统「规范名」映射到监控家族（linux / windows）。
 //
-// 背景：os_type 原为自由文本，采集 Job 候选筛选靠 monitor_type.go 中写死的
-// OSKeywords 用 LOWER LIKE 做脆性匹配，用户拼错或填了带版本的全名就匹配不到
+// 背景：os_type 原为自由文本，采集 Job 候选筛选靠写死的 OSKeywords
+// 用 LOWER LIKE 做脆性匹配，用户拼错或填了带版本的全名就匹配不到
 // （host_linux / host_windows）。本字典作为单一权威：
 //
 //   - 前端「操作系统」下拉展示 ListOSOptions()，让用户从规范名选择（可自定义）；
 //   - 资源写入经 NormalizeOSType 归一化为规范名，保证后续候选匹配稳定；
-//   - DeriveResourceFilter 的 host 家族匹配关键字由本字典推导 + 家族兜底 token。
+//   - host 家族匹配关键字由本字典推导 + 家族兜底 token。
 //
 // 家族口径对齐 Module_01 monitor_type 推导：unix（AIX/Solaris）沿用既有
 // unix→host_linux 的归类，纳入 linux 家族。MVP 不引入 unix 独立监控型。

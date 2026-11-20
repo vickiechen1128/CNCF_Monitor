@@ -12,8 +12,7 @@ import (
 // the platform_admin tenant, cloud/business dictionaries and the initial
 // admin user.
 //
-// It is intentionally a subset of Run (which also seeds legacy M01/M08/M09
-// data). Every step is idempotent.
+// Every step is idempotent.
 //
 // v3 no longer pre-provisions a center-direct (`default`/management) domain:
 // every network domain must be registered through M06 and onboarded through a

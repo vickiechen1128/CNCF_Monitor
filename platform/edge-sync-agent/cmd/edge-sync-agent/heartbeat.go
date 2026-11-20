@@ -11,40 +11,6 @@ import (
 	"github.com/metriccenter/platform/edge-sync-agent/internal/supervisor"
 )
 
-// buildHeartbeatRequest 组装心跳上报体，字段严格对齐中心 edge 协议（PRD §6.2 与
-// platform/edge heartbeat 约定）：net_domain_id / agent_type / version / config_version /
-// queue_backlog_bytes / remote_write_queue_size / hostname / ip / components /
-// config_apply_error + config_apply_failed_version（D-1，读 deployer 最近一次应用失败状态；
-// 无失败时为空，omitempty 不产出键）。
-// 抽为纯函数便于单测（T11-15 装配 helper 测试）。
-func buildHeartbeatRequest(
-	cfg *config.Config,
-	configVersion string,
-	queueBacklogBytes int64,
-	remoteWriteQueueSize int,
-	hostname, ip string,
-	components []contract.Component,
-	dep *deployer.Deployer,
-) contract.HeartbeatRequest {
-	var applyState deployer.ApplyState
-	if dep != nil {
-		applyState = dep.ApplyState()
-	}
-	return contract.HeartbeatRequest{
-		NetworkDomainID:          cfg.NetworkDomainID,
-		AgentType:                cfg.AgentType,
-		Version:                  cfg.Version,
-		ConfigVersion:            configVersion,
-		QueueBacklogBytes:        queueBacklogBytes,
-		RemoteWriteQueueSize:     remoteWriteQueueSize,
-		Hostname:                 hostname,
-		Ip:                       ip,
-		Components:               components,
-		ConfigApplyError:         applyState.Error,
-		ConfigApplyFailedVersion: applyState.Version,
-	}
-}
-
 // runtimeProvider 实现 puller.RuntimeProvider：为每次心跳组装当前运行态（部署版本、
 // 配置版本、WAL/queue 参数、主机身份、supervisor 上报的组件状态与 vmagent 本地
 // target 快照）。

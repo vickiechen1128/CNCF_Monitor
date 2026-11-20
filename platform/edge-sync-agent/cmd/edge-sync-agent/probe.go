@@ -350,22 +350,6 @@ func httpGetOK(ctx context.Context, cli *http.Client, url string) error {
 	return nil
 }
 
-func httpPostOK(ctx context.Context, cli *http.Client, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("reload http %d", resp.StatusCode)
-	}
-	return nil
-}
-
 func tcpProbe(ctx context.Context, addr string) error {
 	d := net.Dialer{Timeout: 2 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)

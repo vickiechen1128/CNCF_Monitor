@@ -57,7 +57,7 @@ const (
 )
 
 // ValidPromDuration 校验 s 是否为 Prometheus/VMAgent 接受的 duration 字面量
-//（^\d+(ms|s|m|h|d|w|y)$）。空串返回 false，「留空=继承」语义由调用方先行判断。
+// （^\d+(ms|s|m|h|d|w|y)$）。空串返回 false，「留空=继承」语义由调用方先行判断。
 // 背景：裸数字（如 "180"）会被 promtool check config 拒绝（not a valid duration
 // string: "180"），导致变更单卡校验失败无法下发（2026-10-12 诊断），须在保存入口拦截。
 func ValidPromDuration(s string) bool {
@@ -101,16 +101,15 @@ type ScrapeJob struct {
 	FilterRules           string                `gorm:"type:text" json:"filter_rules"`
 	BlackboxModule        string                `gorm:"size:100" json:"blackbox_module,omitempty"` // job_type=blackbox
 	BlackboxTargets       []BlackboxTarget      `gorm:"serializer:json" json:"blackbox_targets"`   // job_type=blackbox 拨测目标
-	// TargetField 是拨测（job_type=blackbox）的探测地址字段键，生成时取该字段的值作为
-	// 探测目标（复用 models.GetResourceField）。仅 blackbox 使用。
+	// TargetField 是拨测（job_type=blackbox）的探测地址字段键。v3 目标解析改由
+	// M09 基于选中的实例快照完成，本列保留用于保存口径与兼容存量数据。仅 blackbox 使用。
 	//
 	// **由 ResourceType 推导、不接受客户端传值**（2026-10-16 口径收紧）：接口服务固定
 	// api_url、应用服务固定 health_check_url，见 models.BlackboxTargetField。保存时由
-	// validateJobRequest 覆盖写入，故本列只读不写；存量旧 Job 可能仍存着其它类别的字段键，
-	// 生成侧按本列原值解析，不受影响。
-	TargetField string `gorm:"size:64" json:"target_field,omitempty"` // job_type=blackbox 探测地址字段（由 resource_type 推导）
-	MappingOverrides      []MappingOverride     `gorm:"serializer:json" json:"mapping_overrides"`  // 手动覆盖映射默认值的参数字段（同步映射默认值时跳过，F-03）
-	DraftStatus           string                `gorm:"size:20;not null" json:"draft_status"`      // draft/ready
-	ChangeStatus          ChangeStatus          `gorm:"size:20;not null" json:"change_status"`
-	Enabled               bool                  `json:"enabled"`
+	// validateJobRequest 覆盖写入，故本列只读不写；存量旧 Job 可能仍存着其它类别的字段键。
+	TargetField      string            `gorm:"size:64" json:"target_field,omitempty"`    // job_type=blackbox 探测地址字段（由 resource_type 推导）
+	MappingOverrides []MappingOverride `gorm:"serializer:json" json:"mapping_overrides"` // 手动覆盖映射默认值的参数字段（同步映射默认值时跳过，F-03）
+	DraftStatus      string            `gorm:"size:20;not null" json:"draft_status"`     // draft/ready
+	ChangeStatus     ChangeStatus      `gorm:"size:20;not null" json:"change_status"`
+	Enabled          bool              `json:"enabled"`
 }
