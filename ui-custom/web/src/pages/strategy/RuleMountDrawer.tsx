@@ -45,9 +45,31 @@ type CheckState = 'idle' | 'checking' | 'passed' | 'failed'
 interface CheckOutcome {
   valid: boolean
   error?: string
+  /** 已解析的规则组数 / 规则条数（检查结果明细；本地回落时缺省） */
+  groups?: number
+  rules?: number
   jobRefIssues: JobRefIssue[]
   /** promtool 语义校验三态结论；unavailable 时仅提示、不阻断 */
   promqlCheck?: PromQLCheckResult | null
+}
+
+/**
+ * 检查结果摘要（2026-11-20）：通过时展示「N 个组 / M 条规则 · PromQL 通过/未执行」，
+ * 让用户确认本次检查到底覆盖了多少内容，而不是只看到一句「检查通过」。
+ */
+function checkSummaryText(outcome: CheckOutcome): string {
+  const counts =
+    outcome.groups != null && outcome.rules != null
+      ? `${outcome.groups} 个组 / ${outcome.rules} 条规则`
+      : '规则结构校验通过'
+  const status = outcome.promqlCheck?.status
+  const promql =
+    status === 'passed'
+      ? 'PromQL 校验通过'
+      : status === 'failed'
+        ? 'PromQL 校验失败'
+        : '未执行 PromQL 语义校验'
+  return `${counts} · ${promql}`
 }
 
 /** 标签探查状态机（2026-10-13）：idle 未探查 / loading 探查中 / done 完成 / failed 探查失败 */
@@ -338,6 +360,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       outcome = {
         valid: res.data.valid,
         error: res.data.error,
+        groups: res.data.groups,
+        rules: res.data.rules,
         jobRefIssues: res.data.job_ref ?? [],
         promqlCheck: res.data.promql_check ?? null,
       }
@@ -560,7 +584,16 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           type="error"
           showIcon
           message="规则检查未通过"
-          description={checkOutcome.error}
+          description={
+            <Space direction="vertical" size={2}>
+              <span data-testid="rule-check-error">{checkOutcome.error}</span>
+              {checkOutcome.groups != null && checkOutcome.rules != null && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  已解析 {checkOutcome.groups} 个组 / {checkOutcome.rules} 条规则，请按报错中的组名或规则位置定位。
+                </Text>
+              )}
+            </Space>
+          }
           style={{ marginTop: 16 }}
         />
       )}
@@ -572,6 +605,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           style={{ marginTop: 16 }}
           description={
             <Space direction="vertical" size={2}>
+              <span data-testid="rule-check-summary">{checkSummaryText(checkOutcome!)}</span>
               <span>服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用。</span>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 提交时服务端仍会复核，检查通过不代表最终提交一定成功。

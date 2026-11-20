@@ -49,6 +49,10 @@ export interface JobRefIssue {
 export interface YamlValidationResult {
   valid: boolean
   error?: string
+  /** 已解析的规则组数（检查结果明细；解析失败时为 0/缺省） */
+  groups?: number
+  /** 已解析的规则条数（检查结果明细） */
+  rules?: number
   job_ref?: JobRefIssue[] | null
   promql_check?: PromQLCheckResult | null
 }
@@ -147,6 +151,8 @@ export const monitoringRuleApi = {
       data: {
         valid: data.valid,
         error: data.error,
+        groups: data.groups,
+        rules: data.rules,
         job_ref: data.job_ref as JobRefIssue[],
         promql_check: data.promql
           ? { status: data.promql.status, message: data.promql.error || undefined }

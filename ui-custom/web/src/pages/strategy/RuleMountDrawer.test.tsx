@@ -602,6 +602,33 @@ describe('规则可用标签清单与注解预览', () => {
     await check()
 
     await waitFor(() => expect(screen.getByText(/未找到 promtool/)).toBeInTheDocument())
+    expect(screen.getByTestId('rule-check-summary')).toHaveTextContent('未执行 PromQL 语义校验')
     expect(screen.getByText('提交并进入变更确认')).toBeInTheDocument()
+  })
+
+  it('检查通过时展示组数 / 规则数与 PromQL 状态（结果明细）', async () => {
+    validateYamlMock.mockResolvedValue({
+      status: 'success',
+      data: { valid: true, groups: 2, rules: 5, job_ref: [], promql_check: { status: 'passed' } },
+    })
+    renderDrawer()
+    await check()
+
+    const summary = await screen.findByTestId('rule-check-summary')
+    expect(summary).toHaveTextContent('2 个组 / 5 条规则 · PromQL 校验通过')
+  })
+
+  it('检查失败时给出已解析的组 / 规则数，便于按组/规则定位', async () => {
+    validateYamlMock.mockResolvedValue({
+      status: 'success',
+      data: { valid: false, error: 'group "g" conflicts with rule "other"', groups: 1, rules: 2 },
+    })
+    renderDrawer()
+    await check()
+
+    expect(await screen.findByTestId('rule-check-error')).toHaveTextContent(
+      'group "g" conflicts with rule "other"',
+    )
+    expect(screen.getByText(/已解析 1 个组 \/ 2 条规则/)).toBeInTheDocument()
   })
 })

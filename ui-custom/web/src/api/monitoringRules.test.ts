@@ -94,8 +94,11 @@ describe('monitoringRules API', () => {
     expect(res.data.id).toBe(5)
   })
 
-  it('validateYaml POSTs {rule_content} and parses {valid,error}', async () => {
-    mockFetch({ status: 'success', data: { valid: true } })
+  it('validateYaml POSTs {rule_content} and parses {valid,error,groups,rules,promql}', async () => {
+    mockFetch({
+      status: 'success',
+      data: { valid: true, groups: 2, rules: 5, promql: { status: 'passed', error: '' } },
+    })
 
     const res = await monitoringRuleApi.validateYaml(5, 'groups: []')
 
@@ -104,6 +107,10 @@ describe('monitoringRules API', () => {
     expect(lastFetchCall()[1]?.method).toBe('POST')
     expect(lastInitBody()).toEqual({ id: '5', rule_content: 'groups: []' })
     expect(res.data.valid).toBe(true)
+    // 2026-11-20：检查结果明细保留组数/规则数与 PromQL 三态
+    expect(res.data.groups).toBe(2)
+    expect(res.data.rules).toBe(5)
+    expect(res.data.promql_check?.status).toBe('passed')
   })
 
   it('get GETs /:id for detail', async () => {
