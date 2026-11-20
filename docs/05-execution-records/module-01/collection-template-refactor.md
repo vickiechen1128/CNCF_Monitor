@@ -101,3 +101,23 @@ go test -count=1 ./platform/...    # 结果见 §5
 1. 「采集实现」Tab 目前只读（未挂登记入口），避免与任务抽屉的采集器登记动线重复；如需本页登记，后续单独接回。
 2. 删除 3 个过时测试用例（监控对象类型下拉过滤、NPU 级联、抽屉内「登记采集器」内联入口），对应功能已不存在。
 3. 旧书签 `/monitor-types` 不做重定向：概念已下线，直接落通配路由回首页。
+
+---
+
+## 8. 缺陷修复：PostgreSQL 下 `GET /collection-templates` 返回 500
+
+**现象**：采集模板页提示「采集模板加载失败 internal error」。
+
+**根因**：`m01_metric_library.collection_templates` 在 PostgreSQL 侧是 `jsonb`（由 00006 的 `monitor_types jsonb` 改名而来），而 `CountReferences` 用 `collection_templates LIKE '%"<code>"%'` 统计指标锚点，PG 报
+`operator does not exist: jsonb ~~ unknown (SQLSTATE 42883)`，列表接口因此整体 500（SQLite 的 JSON1 列是 TEXT，所以单测/本地 sqlite 未暴露）。
+
+**修复**：`GORMCollectionTemplateRepository.CountReferences` 改为按方言查询锚点数组：
+- PostgreSQL：`EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) a WHERE a->>'template_code' = ?)`
+- SQLite：`EXISTS (SELECT 1 FROM json_each(collection_templates) a WHERE json_extract(a.value,'$.template_code') = ?)`
+
+**验证**：
+- 生产同源库（`postgres://…/metric_center_test`，迁移已到 0023）：模板 List / Impact / 类别+启用筛选 / 候选查询 / 模板写读回环 / 指标锚点写读回环全部通过，模板列表返回 10 条。
+- `METRIC_CENTER_TEST_POSTGRES_DSN=… go test ./platform/modules/m01/repository ./platform/modules/m01/service ./platform/modules/m01/handler ./platform/db` 全通过（PG 模式）。
+- 默认 sqlite 模式 `go test ./platform/modules/m01/...` 全通过。
+
+> 部署注意：修复属于后端代码变更，需重启 `metric-center` 进程生效。

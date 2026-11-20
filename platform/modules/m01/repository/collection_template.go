@@ -232,14 +232,29 @@ func (r *GORMCollectionTemplateRepository) CountReferences(ctx context.Context, 
 		Where("template_code = ?", code).Count(&counts.Jobs).Error; err != nil {
 		return counts, fmt.Errorf("count template jobs: %w", err)
 	}
-	// Metric anchors are stored as a JSON array of {template_code,…} objects; a
-	// quoted LIKE is portable across SQLite and PostgreSQL.
-	pattern := "%\"" + strings.TrimSpace(code) + "\"%"
-	if err := r.db.WithContext(ctx).Model(&metricRecord{}).
-		Where("collection_templates LIKE ?", pattern).Count(&counts.MetricAnchors).Error; err != nil {
+	// Metric anchors are stored as an array of {template_code,…} objects. The
+	// column is JSONB on PostgreSQL and TEXT (JSON1) on SQLite, so a LIKE would
+	// fail on PostgreSQL ("operator does not exist: jsonb ~~ unknown"): query the
+	// array elements instead.
+	if err := r.anchoredMetrics(r.db.WithContext(ctx), code).Count(&counts.MetricAnchors).Error; err != nil {
 		return counts, fmt.Errorf("count template metric anchors: %w", err)
 	}
 	return counts, nil
+}
+
+// anchoredMetrics restricts a metric query to rows whose anchor array contains
+// the given template code.
+func (r *GORMCollectionTemplateRepository) anchoredMetrics(q *gorm.DB, code string) *gorm.DB {
+	if r.db.Dialector.Name() == "postgres" {
+		return q.Model(&metricRecord{}).Where(
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' = ?)",
+			strings.TrimSpace(code),
+		)
+	}
+	return q.Model(&metricRecord{}).Where(
+		"EXISTS (SELECT 1 FROM json_each(collection_templates) AS anchor WHERE json_extract(anchor.value, '$.template_code') = ?)",
+		strings.TrimSpace(code),
+	)
 }
 
 // CountByExporterTemplate counts templates that reference an exporter template.
