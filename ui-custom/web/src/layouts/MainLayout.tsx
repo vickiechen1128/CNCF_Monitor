@@ -266,7 +266,7 @@ function findModuleByKey(key: string): ModuleDef {
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；
  * /domain-onboarding、/node-status、/targets、/config-snapshots → 网域与边缘配置中心；
  * （旧路由 /config-preview、/deployments 已合并重定向到 /config-snapshots，见 App.tsx 别名。）
- * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict、/platform-dict → 监控对象管理；/collectors、/monitor-types、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 可视化大屏（默认落地页）。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -291,6 +291,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
+    // /monitor-types（M01 监控对象类型）同属采集策略；漏配会让一级 tab 与侧栏一起落到「可视化大屏」。
+    locationPath.startsWith('/monitor-types') ||
     // 拨测模块同属采集策略；遗漏会让一级 tab 落回「可视化大屏」，侧栏也切到可视化大屏的二级菜单。
     locationPath.startsWith('/scrape-jobs') ||
     locationPath.startsWith('/rules') ||

@@ -193,6 +193,23 @@ describe('MainLayout', () => {
     expect(screen.getByText('collector-content')).toBeInTheDocument()
   })
 
+  it('/monitor-types 归属采集策略，侧栏不再落到可视化大屏', () => {
+    render(
+      <MemoryRouter initialEntries={['/monitor-types']}>
+        <Routes>
+          <Route path="/monitor-types" element={<MainLayout>monitor-type-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('monitor-type-content')).toBeInTheDocument()
+    expect(screen.getByText('采集策略')).toBeInTheDocument()
+    const menuTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    expect(menuTexts.some((t) => t.includes('监控对象类型'))).toBe(true)
+    expect(menuTexts.some((t) => t.includes('概览 Dashboard'))).toBe(false)
+  })
+
   // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
   it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
     render(

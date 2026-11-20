@@ -1,9 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockAntdModal, setupAntdTest } from '../../test/antdTestUtils'
 import { CIModelPage } from './CIModelPage'
-import type { CIModel } from '../../types/attribute'
+import type { AttributeDefinition, CIModel } from '../../types/attribute'
 
 const { listModelsMock, listDefsMock, createMock, updateMock, removeMock } = vi.hoisted(() => ({
   listModelsMock: vi.fn(),
@@ -119,7 +119,7 @@ describe('CIModelPage', () => {
     expect(within(customSection).getByText('画像信息')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('create-custom-field'))
-    expect(await screen.findByText('新增自定义字段 · host')).toBeInTheDocument()
+    expect(await screen.findByText('新增自定义字段 · 主机')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('字段 key'), 'dpu_model')
     await user.type(screen.getByLabelText('展示名'), 'DPU 型号')
@@ -200,5 +200,124 @@ describe('CIModelPage', () => {
 
     expect(await screen.findByText('旧字段')).toBeInTheDocument()
     expect(listDefsMock).toHaveBeenCalledWith('host', 'removed')
+  })
+
+  it('新增字段可直接在抽屉内选择 CI 类型，无需先切换左侧类别', async () => {
+    listModelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          hostModel(),
+          hostModel({ resource_category: 'database', category_label: '数据库', custom_fields: [] }),
+        ],
+      },
+    })
+    createMock.mockResolvedValue({ status: 'success', data: { id: 'def-3' } })
+    const user = userEvent.setup()
+    render(<CIModelPage />)
+
+    await screen.findByTestId('custom-field-section')
+    // 左侧当前类别仍是 host，直接在抽屉里改选 database
+    await user.click(screen.getByTestId('create-custom-field'))
+    fireEvent.mouseDown(screen.getByLabelText('CI 类型'))
+    fireEvent.click(await screen.findByText('数据库', { selector: '.ant-select-item-option-content' }))
+
+    await user.type(screen.getByLabelText('字段 key'), 'db_engine_version')
+    await user.type(screen.getByLabelText('展示名'), '数据库版本')
+    await user.click(screen.getByRole('button', { name: /保\s*存/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      attribute_key: 'db_engine_version',
+      resource_category: 'database',
+    })
+    // 保存后详情跟随到所选类型
+    expect(await screen.findByText('共 2 个内置字段、0 个自定义字段')).toBeInTheDocument()
+  })
+
+  it('左侧只平铺六类 CI，切换类别即整页切到该类型的完整模型', async () => {
+    listModelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          hostModel(),
+          hostModel({ resource_category: 'database', category_label: '数据库', custom_fields: [] }),
+        ],
+      },
+    })
+    const user = userEvent.setup()
+    render(<CIModelPage />)
+
+    const menu = await screen.findByTestId('ci-category-menu')
+    expect(within(menu).getByText('主机')).toBeInTheDocument()
+    expect(within(menu).getByText('数据库')).toBeInTheDocument()
+    // 分组 / 自定义 / 已移出 / 全部字段 都不再是导航节点
+    expect(within(menu).queryByText('身份信息')).not.toBeInTheDocument()
+    expect(within(menu).queryByText('自定义字段')).not.toBeInTheDocument()
+    expect(within(menu).queryByText('已移出字段')).not.toBeInTheDocument()
+    expect(within(menu).queryByText('全部字段')).not.toBeInTheDocument()
+
+    await user.click(within(menu).getByText('数据库'))
+    expect(await screen.findByText('共 2 个内置字段、0 个自定义字段')).toBeInTheDocument()
+    expect(screen.getByTestId('builtin-field-section')).toBeInTheDocument()
+    expect(screen.getByTestId('custom-field-section')).toBeInTheDocument()
+  })
+
+  it('内置字段按分组汇总为一张只读表，六组字段同时可见', async () => {
+    render(<CIModelPage />)
+
+    const builtin = await screen.findByTestId('builtin-field-section')
+    expect(within(builtin).getByText('身份信息')).toBeInTheDocument()
+    expect(within(builtin).getByText('能力信息')).toBeInTheDocument()
+    expect(within(builtin).getByText('实例名')).toBeInTheDocument()
+    expect(within(builtin).getByText('NPU 芯片')).toBeInTheDocument()
+    expect(within(builtin).queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
+  })
+
+  it('自定义字段列表带分页，超过一页时只渲染当前页', async () => {
+    const manyFields: AttributeDefinition[] = Array.from({ length: 12 }, (_, index) => ({
+      id: `def-${index}`,
+      attribute_key: `field_${index}`,
+      display_name: `字段 ${index}`,
+      value_type: 'text',
+      resource_category: 'host',
+      required: false,
+      status: 'active',
+      enabled: true,
+      display_group: 'profile',
+      display_group_label: '画像信息',
+      display_order: index,
+    }))
+    listModelsMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostModel({ custom_fields: manyFields })] },
+    })
+    render(<CIModelPage />)
+
+    const customSection = await screen.findByTestId('custom-field-section')
+    expect(screen.getByText('共 12 个字段')).toBeInTheDocument()
+    expect(document.querySelector('.ant-pagination')).toBeTruthy()
+    expect(within(customSection).getAllByText(/^字段 \d+$/)).toHaveLength(10)
+  })
+
+  it('内置字段的分组列可按分组筛选', async () => {
+    render(<CIModelPage />)
+
+    const builtin = await screen.findByTestId('builtin-field-section')
+    const groupHeader = within(builtin).getByRole('columnheader', { name: /分组/ })
+    const trigger = groupHeader.querySelector('.ant-table-filter-trigger') as HTMLElement | null
+    expect(trigger, '分组列应有筛选入口').toBeTruthy()
+    fireEvent.click(trigger!)
+
+    const dropdown = document.querySelector('.ant-table-filter-dropdown') as HTMLElement | null
+    expect(dropdown, '列头筛选浮层应已打开').toBeTruthy()
+    fireEvent.click(await within(dropdown!).findByText('能力信息'))
+    const confirm = within(dropdown!).queryByRole('button', { name: /确\s*定|OK/ })
+    if (confirm) fireEvent.click(confirm)
+
+    await waitFor(() => {
+      expect(within(builtin).queryByText('实例名')).not.toBeInTheDocument()
+    })
+    expect(within(builtin).getByText('NPU 芯片')).toBeInTheDocument()
   })
 })

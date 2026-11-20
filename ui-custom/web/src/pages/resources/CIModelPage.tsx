@@ -3,16 +3,17 @@ import {
   Alert,
   Button,
   Card,
+  Drawer,
   Empty,
   Form,
   Input,
   InputNumber,
+  Menu,
   Modal,
   Select,
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
   Typography,
   message,
@@ -30,11 +31,13 @@ import type {
 } from '../../types/attribute'
 import { ATTRIBUTE_STATUS_LABEL, ATTRIBUTE_TYPE_LABEL } from '../../types/attribute'
 import type { ResourceCategory } from '../../types/resource'
-import { FIELD_GROUP_ORDER } from './resourceFieldSchema'
+import { RESOURCE_TYPES, RESOURCE_TYPE_MAP } from './resourceMeta'
+import { FIELD_GROUP_LABEL, FIELD_GROUP_ORDER } from './resourceFieldSchema'
 
 const { Text, Paragraph } = Typography
 
 interface FieldFormValues {
+  resource_category: ResourceCategory
   attribute_key: string
   display_name: string
   value_type: AttributeValueType
@@ -45,11 +48,24 @@ interface FieldFormValues {
   description?: string
 }
 
+/** 自定义 / 已移出字段列表分页；内置字段量小且按分组排序后一次看全，不分页。 */
+const FIELD_PAGINATION = {
+  pageSize: 10,
+  showSizeChanger: false,
+  showTotal: (total: number) => `共 ${total} 个字段`,
+}
+
 /**
  * CI 模型配置页（SRS Module_07 v2.2 §5.8 FR-32）。
  *
- * 左侧六类 CI 固定；右侧内置字段只读（平台内置、无操作入口）+ 自定义字段增删改。
- * 自定义字段移除时由后端按引用数判定：零引用删除，有引用移出模型且值保留。
+ * 左侧六类 CI 平铺（与「资源管理」共用 RESOURCE_TYPES / RESOURCE_TYPE_MAP 单一来源），
+ * 点击一类即切换右侧到该类型的**完整模型**：内置字段区（只读、按分组排序为一张表）
+ * + 自定义字段区（增删改、分页）；已移出字段降级为自定义区内的切换链接。
+ *
+ * 字段分组 / 来源是字段属性，不是导航实体，故不做成左侧折叠树——避免「点分组只看局部」
+ * 并由此派生出「全部字段」这类别扭入口。
+ * 2026-11-19 排版修复：原 `<Tabs tabPosition="left" items=[...children:null]>` 会为空白内容
+ * 面板预留整列宽度，真实详情却在 Tabs 之外，导致一大片空白；改为 flex 两列彻底消除。
  */
 export function CIModelPage() {
   const [models, setModels] = useState<CIModel[]>([])
@@ -63,6 +79,7 @@ export function CIModelPage() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<FieldFormValues>()
   const watchedType = Form.useWatch('value_type', form)
+  const watchedCategory = Form.useWatch('resource_category', form)
 
   const loadModels = useCallback(async () => {
     setLoading(true)
@@ -105,21 +122,31 @@ export function CIModelPage() {
 
   const availableGroups = model?.available_groups ?? []
 
-  const builtinSections = useMemo(() => {
+  /** 内置字段按分组、组内顺序排成一张表，六组一次看全。 */
+  const builtinRows = useMemo(() => {
     const fields = model?.builtin_fields ?? []
-    return FIELD_GROUP_ORDER.map((group) => ({
-      group,
-      label: fields.find((field) => field.display_group === group)?.display_group_label ?? group,
-      fields: fields
-        .filter((field) => field.display_group === group)
-        .sort((a, b) => a.display_order - b.display_order),
-    })).filter((section) => section.fields.length > 0)
+    return [...fields].sort(
+      (a, b) =>
+        FIELD_GROUP_ORDER.indexOf(a.display_group) - FIELD_GROUP_ORDER.indexOf(b.display_group) ||
+        a.display_order - b.display_order ||
+        a.key.localeCompare(b.key),
+    )
   }, [model])
+
+  const menuItems = RESOURCE_TYPES.map((type) => ({ key: type, label: RESOURCE_TYPE_MAP[type] }))
+
+  const selectCategory = (next: ResourceCategory) => {
+    if (next !== category) {
+      setCategory(next)
+      setShowRemoved(false)
+    }
+  }
 
   const openCreate = () => {
     setEditing(null)
     form.resetFields()
     form.setFieldsValue({
+      resource_category: category,
       value_type: 'text',
       display_group: 'profile',
       display_order: 0,
@@ -132,6 +159,7 @@ export function CIModelPage() {
     setEditing(record)
     form.resetFields()
     form.setFieldsValue({
+      resource_category: record.resource_category,
       attribute_key: record.attribute_key,
       display_name: record.display_name,
       value_type: record.value_type,
@@ -150,7 +178,7 @@ export function CIModelPage() {
       attribute_key: values.attribute_key,
       display_name: values.display_name,
       value_type: values.value_type,
-      resource_category: category,
+      resource_category: values.resource_category,
       enum_options: values.value_type === 'enum' ? values.enum_options ?? [] : [],
       required: values.required,
       display_group: values.display_group,
@@ -166,6 +194,11 @@ export function CIModelPage() {
         await attributeDefinitionApi.create(input)
         message.success('自定义字段已登记，资源表单即可填写')
       }
+      // 表单内可直接选择 CI 类型，无需先切左侧类别；保存后跟随到字段所属类型。
+      // 必须退出「已移出」视图：同类别下恢复一个已移出字段时 selectCategory 不会
+      // 触发切换，removedFields 仍是旧快照，会让刚恢复的字段继续显示在已移出列表。
+      selectCategory(values.resource_category)
+      setShowRemoved(false)
       setModalOpen(false)
       await loadModels()
     } catch (err) {
@@ -199,7 +232,19 @@ export function CIModelPage() {
     })
   }
 
+  const groupColumn = {
+    title: '分组',
+    dataIndex: 'display_group_label',
+    width: 120,
+    // 右侧「分组」列直接下拉筛选，六组固定且按 platform 定义顺序展示
+    filters: FIELD_GROUP_ORDER.map((group) => ({ text: FIELD_GROUP_LABEL[group], value: group })),
+    filterMultiple: false,
+    onFilter: (value: unknown, record: { display_group: AttributeGroup }) =>
+      record.display_group === String(value),
+  }
+
   const builtinColumns: ColumnsType<BuiltinField> = [
+    groupColumn,
     { title: '展示名', dataIndex: 'label', width: 160 },
     { title: '字段 key', dataIndex: 'key', width: 180, render: (key: string) => <Tag>{key}</Tag> },
     {
@@ -226,7 +271,7 @@ export function CIModelPage() {
       width: 100,
       render: (type: AttributeValueType) => ATTRIBUTE_TYPE_LABEL[type] ?? type,
     },
-    { title: '分组', dataIndex: 'display_group_label', width: 120 },
+    groupColumn,
     { title: '组内排序', dataIndex: 'display_order', width: 100 },
     { title: '必填', dataIndex: 'required', width: 80, render: (required: boolean) => (required ? '是' : '否') },
     {
@@ -276,7 +321,7 @@ export function CIModelPage() {
         }
       >
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          内置字段由平台维护并随版本更新，不可增删改；自定义字段可自行登记。
+          内置字段由平台维护并随版本更新，不可增删改；自定义字段可自行登记，且可选择登记到任意 CI 类型。
           移除时系统按引用情况处理：无资源使用时删除，已有资源使用时移出模型并保留历史值。
         </Paragraph>
 
@@ -295,94 +340,115 @@ export function CIModelPage() {
           />
         )}
 
-        <Tabs
-          tabPosition="left"
-          activeKey={category}
-          onChange={(key) => {
-            setCategory(key as ResourceCategory)
-            setShowRemoved(false)
-          }}
-          items={(models.length > 0 ? models : []).map((item) => ({
-            key: item.resource_category,
-            label: item.category_label,
-            children: null,
-          }))}
-        />
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          <div style={{ width: 160, flex: '0 0 160px', borderRight: '1px solid #f0f0f0' }}>
+            <Menu
+              mode="inline"
+              selectedKeys={[category]}
+              items={menuItems}
+              onClick={({ key }) => selectCategory(key as ResourceCategory)}
+              data-testid="ci-category-menu"
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {loading && !model ? (
+              <Empty description="正在加载 CI 模型…" />
+            ) : model ? (
+              <>
+                <Text strong style={{ fontSize: 16 }}>
+                  {model.category_label}
+                </Text>
+                <Paragraph type="secondary" style={{ marginTop: 4 }}>
+                  共 {model.builtin_fields.length} 个内置字段、{model.custom_fields.length} 个自定义字段
+                </Paragraph>
 
-        {loading && !model ? (
-          <Empty description="正在加载 CI 模型…" />
-        ) : model ? (
-          <>
-            <Text strong style={{ fontSize: 16 }}>
-              {model.category_label}
-            </Text>
-            <Paragraph type="secondary" style={{ marginTop: 4 }}>
-              共 {model.builtin_fields.length} 个内置字段、{model.custom_fields.length} 个自定义字段
-            </Paragraph>
-
-            <div data-testid="builtin-field-section">
-              {builtinSections.map((section) => (
-                <div key={section.group} style={{ marginTop: 16 }}>
-                  <Text strong>{section.label}</Text>
+                <div style={{ marginTop: 16 }} data-testid="builtin-field-section">
+                  <Space style={{ marginBottom: 8 }}>
+                    <Text strong>内置字段</Text>
+                    <Text type="secondary">平台维护，只读；按分组排序展示</Text>
+                  </Space>
                   <Table
                     rowKey="key"
                     size="small"
-                    style={{ marginTop: 8 }}
                     columns={builtinColumns}
-                    dataSource={section.fields}
+                    dataSource={builtinRows}
                     pagination={false}
-                    scroll={{ x: 760 }}
+                    scroll={{ x: 860 }}
+                    locale={{ emptyText: '该类别暂无内置字段' }}
                   />
                 </div>
-              ))}
-            </div>
 
-            <div style={{ marginTop: 24 }} data-testid="custom-field-section">
-              <Space style={{ marginBottom: 8 }}>
-                <Text strong>自定义字段</Text>
-                <Button size="small" type="link" onClick={() => setShowRemoved((value) => !value)}>
-                  {showRemoved ? '返回在模型中的字段' : '查看已移出字段'}
-                </Button>
-              </Space>
-              {showRemoved ? (
-                <Table
-                  rowKey="id"
-                  size="small"
-                  columns={removedColumns}
-                  dataSource={removedFields}
-                  pagination={false}
-                  scroll={{ x: 760 }}
-                  locale={{ emptyText: '暂无已移出字段' }}
-                />
-              ) : (
-                <Table
-                  rowKey="id"
-                  size="small"
-                  columns={customColumns}
-                  dataSource={model.custom_fields}
-                  pagination={false}
-                  scroll={{ x: 900 }}
-                  locale={{ emptyText: '还没有自定义字段，点右上角「新增自定义字段」登记' }}
-                />
-              )}
-            </div>
-          </>
-        ) : (
-          !loading && <Empty description="暂无 CI 模型数据" />
-        )}
+                <div style={{ marginTop: 24 }} data-testid="custom-field-section">
+                  <Space style={{ marginBottom: 8 }}>
+                    <Text strong>{showRemoved ? '已移出字段' : '自定义字段'}</Text>
+                    <Button size="small" type="link" onClick={() => setShowRemoved((value) => !value)}>
+                      {showRemoved ? '返回在模型中的字段' : '查看已移出字段'}
+                    </Button>
+                  </Space>
+                  {showRemoved ? (
+                    <Table
+                      key={`${category}-removed`}
+                      rowKey="id"
+                      size="small"
+                      columns={removedColumns}
+                      dataSource={removedFields}
+                      pagination={FIELD_PAGINATION}
+                      scroll={{ x: 760 }}
+                      locale={{ emptyText: '暂无已移出字段' }}
+                    />
+                  ) : (
+                    <Table
+                      key={`${category}-custom`}
+                      rowKey="id"
+                      size="small"
+                      columns={customColumns}
+                      dataSource={model.custom_fields}
+                      pagination={FIELD_PAGINATION}
+                      scroll={{ x: 900 }}
+                      locale={{ emptyText: '还没有自定义字段，点右上角「新增自定义字段」登记' }}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              !loading && <Empty description="暂无 CI 模型数据" />
+            )}
+          </div>
+        </div>
       </Card>
 
-      <Modal
-        title={editing ? `编辑自定义字段 · ${editing.attribute_key}` : `新增自定义字段 · ${category}`}
+      <Drawer
+        title={
+          editing
+            ? `编辑自定义字段 · ${editing.attribute_key}`
+            : `新增自定义字段 · ${RESOURCE_TYPE_MAP[watchedCategory ?? category]}`
+        }
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => void submit()}
-        confirmLoading={saving}
-        okText="保存"
+        onClose={() => setModalOpen(false)}
+        width={520}
         forceRender
-        data-testid="custom-field-modal"
+        data-testid="custom-field-drawer"
+        footer={
+          <Space>
+            <Button onClick={() => setModalOpen(false)}>取消</Button>
+            <Button type="primary" loading={saving} onClick={() => void submit()}>
+              保存
+            </Button>
+          </Space>
+        }
       >
         <Form form={form} layout="vertical">
+          <Form.Item
+            label="CI 类型"
+            name="resource_category"
+            rules={[{ required: true, message: '请选择 CI 类型' }]}
+            extra={editing ? '已有字段不可改类型' : '可直接选择要登记到的 CI 类型，无需先切换左侧类别'}
+          >
+            <Select
+              disabled={!!editing}
+              options={RESOURCE_TYPES.map((type) => ({ value: type, label: RESOURCE_TYPE_MAP[type] }))}
+            />
+          </Form.Item>
           <Form.Item
             label="字段 key"
             name="attribute_key"
@@ -418,7 +484,7 @@ export function CIModelPage() {
             <Input.TextArea rows={2} maxLength={200} />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </MainLayout>
   )
 }
