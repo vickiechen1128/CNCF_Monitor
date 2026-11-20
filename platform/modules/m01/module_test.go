@@ -21,7 +21,7 @@ func TestModuleWiring(t *testing.T) {
 
 	repos := module.Repositories()
 	assert.NotNil(t, repos.Exporters)
-	assert.NotNil(t, repos.Mappings)
+	assert.NotNil(t, repos.Templates)
 	assert.NotNil(t, repos.Jobs)
 	assert.NotNil(t, repos.Rules)
 	assert.NotNil(t, repos.Metrics)

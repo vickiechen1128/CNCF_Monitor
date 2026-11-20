@@ -8,42 +8,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 监控对象类型与指标库是策略基线：读接口对所有登录用户开放，写接口仅管理员
-// （决策：2026-11-19 用户裁定）。这两组用例锁定 403/200 的边界，避免后续把
-// RequireAdmin 误删回全局认证。
-
-const monitorTypeCreatePayload = `{
-	"code":"host_gate_demo","name":"权限校验主机","resource_category":"host",
-	"rule_logic":"all","enabled":true,
-	"rules":[{"field":"os_family","operator":"eq","values":["linux"]}]
-}`
+// 采集模板与指标库是策略基线：读接口对所有登录用户开放；指标库写接口仅管理员；
+// 内置采集模板的写操作仅平台管理员（FR-29），用户自建模板不受限。
+// 这些用例锁定 403/200 的边界，避免后续把守卫误删回全局认证。
 
 const metricCreatePayload = `{
 	"metric_name":"gate_demo_total","metric_type":"counter",
-	"monitor_types":[{"monitor_type":"host_linux","source_exporter":"gate-exporter"}]
+	"collection_templates":[{"template_code":"host_linux","source_exporter":"gate-exporter"}]
 }`
 
-func TestMonitorTypeWritesRequireAdmin(t *testing.T) {
-	router, _ := newTestRouterAs(t, testRegularUser())
+func TestCollectionTemplateWritesRespectBuiltinGuard(t *testing.T) {
+	router, gormDB := newTestRouterAs(t, testRegularUser())
 
-	code, _ := doJSON(t, router, http.MethodPost, "/api/v3/platform/monitor-types", monitorTypeCreatePayload)
-	assert.Equal(t, http.StatusForbidden, code, "普通用户不能新增监控对象类型")
+	var exporterID string
+	require.NoError(t, gormDB.Table("m01_exporter_templates").
+		Select("id").Where("name = ?", "node-exporter").Scan(&exporterID).Error)
+	require.NotEmpty(t, exporterID)
 
-	code, _ = doJSON(t, router, http.MethodPut, "/api/v3/platform/monitor-types/host_linux",
-		`{"name":"改名","resource_category":"host","rule_logic":"all","rules":[{"field":"os_family","operator":"eq","values":["linux"]}]}`)
-	assert.Equal(t, http.StatusForbidden, code, "普通用户不能编辑监控对象类型")
+	// Reads are open to every authenticated user.
+	code, _ := doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates", "")
+	assert.Equal(t, http.StatusOK, code, "普通用户可以查看采集模板目录")
+	code, _ = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates/host_linux/impact", "")
+	assert.Equal(t, http.StatusOK, code, "普通用户可以查看影响面")
 
-	code, _ = doJSON(t, router, http.MethodDelete, "/api/v3/platform/monitor-types/host_linux", "")
-	assert.Equal(t, http.StatusForbidden, code, "普通用户不能删除监控对象类型")
-
-	// 读接口不受影响：非管理员仍可查看类型目录与影响面。
-	code, _ = doJSON(t, router, http.MethodGet, "/api/v3/platform/monitor-types", "")
-	assert.Equal(t, http.StatusOK, code)
-
-	adminRouter, _ := newTestRouter(t)
-	code, out := doJSON(t, adminRouter, http.MethodPost, "/api/v3/platform/monitor-types", monitorTypeCreatePayload)
+	// User-owned templates need no administrator.
+	createBody := "{\"code\":\"host_gate_demo\",\"name\":\"权限校验主机\",\"resource_category\":\"host\"," +
+		"\"exporter_template_id\":\"" + exporterID + "\",\"metrics_path\":\"/metrics\",\"scheme\":\"http\"}"
+	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/collection-templates", createBody)
 	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, "host_gate_demo", out["data"].(map[string]any)["code"])
+	assert.Equal(t, false, out["data"].(map[string]any)["is_builtin"])
+
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/collection-templates/host_gate_demo",
+		"{\"name\":\"权限校验主机 v2\",\"resource_category\":\"host\","+
+			"\"exporter_template_id\":\""+exporterID+"\",\"metrics_path\":\"/metrics\",\"scheme\":\"http\"}")
+	require.Equal(t, http.StatusOK, code, out)
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/collection-templates/host_gate_demo", "")
+	require.Equal(t, http.StatusOK, code, out)
+
+	// Built-in templates are platform-administrator only.
+	builtinEdit := "{\"name\":\"改名\",\"resource_category\":\"host\"," +
+		"\"exporter_template_id\":\"" + exporterID + "\",\"metrics_path\":\"/metrics\",\"scheme\":\"http\"}"
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/collection-templates/host_linux", builtinEdit)
+	assert.Equal(t, http.StatusForbidden, code, "普通用户不能编辑内置采集模板")
+	assert.Equal(t, "forbidden", out["errorType"])
+
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/collection-templates/host_linux", "")
+	assert.Equal(t, http.StatusForbidden, code, "内置采集模板不能删除")
+
+	// Anonymous contexts fail closed for the built-in writes too.
+	anonymous, _ := newTestRouterAs(t, nil)
+	code, _ = doJSON(t, anonymous, http.MethodPut, "/api/v3/platform/collection-templates/host_linux", builtinEdit)
+	assert.Equal(t, http.StatusForbidden, code)
+
+	// A platform administrator may edit the built-in template.
+	adminRouter, adminDB := newTestRouter(t)
+	var adminExporterID string
+	require.NoError(t, adminDB.Table("m01_exporter_templates").
+		Select("id").Where("name = ?", "node-exporter").Scan(&adminExporterID).Error)
+	require.NotEmpty(t, adminExporterID)
+
+	adminEdit := "{\"name\":\"改名\",\"resource_category\":\"host\"," +
+		"\"exporter_template_id\":\"" + adminExporterID + "\",\"metrics_path\":\"/metrics\",\"scheme\":\"http\"}"
+	code, out = doJSON(t, adminRouter, http.MethodPut, "/api/v3/platform/collection-templates/host_linux", adminEdit)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, true, out["data"].(map[string]any)["is_builtin"])
+	assert.Equal(t, "改名", out["data"].(map[string]any)["name"])
 }
 
 func TestMetricLibraryWritesRequireAdmin(t *testing.T) {
@@ -77,16 +106,16 @@ func TestMetricLibraryWritesRequireAdmin(t *testing.T) {
 func TestMetricLibraryUserEntryValidation(t *testing.T) {
 	router, _ := newTestRouter(t)
 
-	// 同一指标名 + 相同监控对象类型锚点重复登记 → 409。
+	// 同一指标名 + 相同采集模板锚点重复登记 → 409。
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/metric-library", metricCreatePayload)
 	require.Equal(t, http.StatusOK, code, out)
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/metric-library", metricCreatePayload)
 	assert.Equal(t, http.StatusConflict, code, out)
 
-	// 同名但不同锚点允许：多对多锚点下同一指标可服务多个监控对象类型。
+	// 同名但不同锚点允许：多对多锚点下同一指标可服务多个采集模板。
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/metric-library", `{
 		"metric_name":"gate_demo_total","metric_type":"counter",
-		"monitor_types":[{"monitor_type":"mysql","source_exporter":"gate-exporter"}]
+		"collection_templates":[{"template_code":"mysql","source_exporter":"gate-exporter"}]
 	}`)
 	require.Equal(t, http.StatusOK, code, out)
 

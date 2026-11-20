@@ -65,25 +65,25 @@ func newSourceTestDB(t *testing.T) *gorm.DB {
 		`INSERT INTO m01_exporter_templates(id,name) VALUES ('exp-node','node-exporter')`,
 		`INSERT INTO m01_exporter_templates(id,name) VALUES ('exp-mysql','mysqld-exporter')`,
 		`INSERT INTO m01_exporter_templates(id,name) VALUES ('exp-gen','snmp-exporter')`,
-		`INSERT INTO m01_ci_type_exporter_mappings
-			(id,monitor_type,exporter_template_id,is_default,default_port)
-			VALUES ('map-host','host_linux','exp-node',TRUE,9100)`,
-		`INSERT INTO m01_ci_type_exporter_mappings
-			(id,monitor_type,exporter_template_id,is_default,default_port)
-			VALUES ('map-mysql','mysql','exp-mysql',TRUE,0)`,
-		`INSERT INTO m01_ci_type_exporter_mappings
-			(id,monitor_type,exporter_template_id,is_default,default_port)
-			VALUES ('map-gen','snmp','exp-gen',TRUE,0)`,
+		`INSERT INTO m01_collection_templates
+			(code,name,resource_category,exporter_template_id,default_port)
+			VALUES ('host_linux','Linux 主机采集','host','exp-node',9100)`,
+		`INSERT INTO m01_collection_templates
+			(code,name,resource_category,exporter_template_id,default_port)
+			VALUES ('mysql','MySQL 采集','database','exp-mysql',0)`,
+		`INSERT INTO m01_collection_templates
+			(code,name,resource_category,exporter_template_id,default_port)
+			VALUES ('snmp','网络设备采集','generic_target','exp-gen',0)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
 
-	insertJob := func(id, name, jobType, monitorType, category, ids string) {
+	insertJob := func(id, name, jobType, templateCode, category, ids string) {
 		require.NoError(t, gormDB.Exec(`INSERT INTO m01_scrape_jobs
-			(id,job_name,job_type,resource_category,monitor_type,network_domain_id,
+			(id,job_name,job_type,resource_category,template_code,network_domain_id,
 			 selected_instance_ids,draft_status,enabled,scrape_interval,scrape_timeout,metrics_path,scheme)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			id, name, jobType, category, monitorType, "mc-a", ids, "ready", true, "15s", "10s", "/metrics", "http").Error)
+			id, name, jobType, category, templateCode, "mc-a", ids, "ready", true, "15s", "10s", "/metrics", "http").Error)
 	}
 	insertJob("job-node", "node", "standard", "host_linux", "host", `["r-host"]`)
 	insertJob("job-db", "database", "standard", "mysql", "database", `["r-db"]`)
@@ -205,7 +205,7 @@ func (l *countingLogger) Trace(_ context.Context, _ time.Time, fc func() (string
 	sql, _ := fc()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, marker := range []string{"resource_id IN", "m01_ci_type_exporter_mappings", "m01_exporter_templates"} {
+	for _, marker := range []string{"resource_id IN", "m01_collection_templates", "m01_exporter_templates"} {
 		if strings.Contains(sql, marker) {
 			l.counts[marker]++
 		}
@@ -229,12 +229,12 @@ func TestSourceReaderFansOutWithoutQueryAmplification(t *testing.T) {
 	_, err := reader.BuildSource(ctx, "mc-a")
 	require.NoError(t, err)
 	assert.Equal(t, 1, counter.count("resource_id IN"), "resources are fetched once per domain, not once per job")
-	assert.Equal(t, 1, counter.count("m01_ci_type_exporter_mappings"))
+	assert.Equal(t, 1, counter.count("m01_collection_templates"))
 	assert.Equal(t, 1, counter.count("m01_exporter_templates"))
 
 	_, err = reader.BuildSource(ctx, "mc-a")
 	require.NoError(t, err)
-	assert.Equal(t, 1, counter.count("m01_ci_type_exporter_mappings"), "port mappings come from the TTL cache")
+	assert.Equal(t, 1, counter.count("m01_collection_templates"), "template ports come from the TTL cache")
 	assert.Equal(t, 1, counter.count("m01_exporter_templates"))
 }
 

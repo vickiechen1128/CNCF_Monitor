@@ -35,7 +35,7 @@ func TestJobGroupLifecycle(t *testing.T) {
 		"job_name":"host-base",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"selected_instance_ids":["res-a1","res-b1"]
 	}`
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/job-groups", createBody)
@@ -94,7 +94,7 @@ func TestJobGroupLifecycle(t *testing.T) {
 		"job_name":"standalone-host",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"network_domain_id":"mc-demo",
 		"selected_instance_ids":["res-a1"]
 	}`)
@@ -128,7 +128,7 @@ func TestJobGroupLifecycle(t *testing.T) {
 		"job_name":"host-base",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"scrape_interval":"30s",
 		"selected_instance_ids":["res-a1"]
 	}`
@@ -156,7 +156,7 @@ func TestJobGroupLifecycle(t *testing.T) {
 		"job_name":"promoted-host",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"selected_instance_ids":["res-a1","res-b1"]
 	}`)
 	require.Equal(t, http.StatusOK, code, out)
@@ -173,7 +173,7 @@ func TestJobGroupLifecycle(t *testing.T) {
 	assert.Equal(t, promoted["id"], promotedChild.JobGroupID)
 	// 重复晋升 → 400
 	code, _ = doJSON(t, router, http.MethodPost, "/api/v3/platform/job-groups/from-job",
-		`{"job_id":"`+standaloneID+`","name":"再次晋升","job_name":"promoted-2","monitor_type":"host_linux","selected_instance_ids":["res-a1"]}`)
+		`{"job_id":"`+standaloneID+`","name":"再次晋升","job_name":"promoted-2","template_code":"host_linux","selected_instance_ids":["res-a1"]}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
 	// 组名全局唯一 → 409
@@ -209,7 +209,7 @@ func TestJobGroupSetEnabled(t *testing.T) {
 		"job_name":"toggle-demo",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"selected_instance_ids":["res-e1"]
 	}`)
 	require.Equal(t, http.StatusOK, code, out)

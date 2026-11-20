@@ -20,28 +20,33 @@ import (
 	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/seed"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/service"
 )
 
-// testAdmin is the authenticated platform admin used by the default test router.
-// TenantID stays empty on purpose: M01 service actor scoping is exercised by the
-// job-group tests, while these handler tests only need admin authorization.
+// testAdmin is the authenticated platform administrator used by the default test
+// router. The platform-admin tenant is what makes handler.requestContext derive a
+// platform-admin actor, which built-in collection template writes require (FR-29).
 func testAdmin() *models.User {
 	return &models.User{
 		ID:       "test-admin",
 		Username: "admin",
+		TenantID: models.PlatformAdminTenantID,
 		Role:     models.UserRoleAdmin,
 		Status:   models.UserStatusActive,
 	}
 }
 
-// testRegularUser is an authenticated non-admin used to assert RequireAdmin.
+// testRegularUser is an authenticated non-admin used to assert both RequireAdmin
+// and the built-in template guard.
 func testRegularUser() *models.User {
 	return &models.User{
 		ID:       "test-user",
 		Username: "operator",
+		TenantID: "tenant-a",
 		Role:     models.UserRoleUser,
 		Status:   models.UserStatusActive,
 	}
@@ -50,6 +55,52 @@ func testRegularUser() *models.User {
 func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	return newTestRouterAs(t, testAdmin())
+}
+
+// seedHandlerTemplates mirrors seed.DefaultTemplates: these handler tests drive
+// the real module, and a standard job can only be created from an enabled
+// collection template that is bound to a real exporter row (FR-21).
+func seedHandlerTemplates(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
+	ctx := context.Background()
+	exporters := repository.NewExporterTemplateRepository(gormDB)
+	templates := repository.NewCollectionTemplateRepository(gormDB)
+
+	exporterByCode := map[string]string{}
+	for _, item := range seed.DefaultTemplates() {
+		if item.Exporter == "" {
+			continue
+		}
+		exporter := &domain.ExporterTemplate{
+			Name:        item.Exporter,
+			DefaultPort: item.DefaultPort,
+			MetricsPath: "/metrics",
+			Scheme:      domain.SchemeHTTP,
+			OS:          "any",
+			Arch:        "any",
+			Source:      domain.ExporterThirdParty,
+		}
+		require.NoError(t, exporters.Create(ctx, exporter))
+		exporterByCode[item.Code] = exporter.ID
+	}
+
+	for _, item := range seed.DefaultTemplates() {
+		builtin, ok := domain.BuiltinCollectionTemplate(item.Code)
+		require.True(t, ok, item.Code)
+		builtin.MetricsPath = item.MetricsPath
+		builtin.ScrapeInterval = item.ScrapeInterval
+		builtin.ScrapeTimeout = item.ScrapeTimeout
+		builtin.Enabled = true
+		if exporterID, bound := exporterByCode[item.Code]; bound {
+			builtin.ExporterTemplateID = exporterID
+			builtin.DefaultPort = item.DefaultPort
+		} else {
+			// No built-in implementation: visible but unusable until an admin
+			// binds an exporter (FR-21).
+			builtin.Enabled = false
+		}
+		require.NoError(t, templates.Create(ctx, &builtin))
+	}
 }
 
 // newTestRouterAs builds the M01 router with a stubbed authenticated user.
@@ -72,31 +123,31 @@ func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
+	seedHandlerTemplates(t, gormDB)
 
 	exporters := repository.NewExporterTemplateRepository(gormDB)
-	mappings := repository.NewMappingRepository(gormDB)
+	templates := repository.NewCollectionTemplateRepository(gormDB)
 	jobs := repository.NewJobRepository(gormDB)
 	rules := repository.NewRuleRepository(gormDB)
 	probes := repository.NewProbeModuleRepository(gormDB)
 	installations := repository.NewInstallationRepository(gormDB)
+	groups := repository.NewJobGroupRepository(gormDB)
 	labelReader := references.NewLabelTemplateReader(gormDB)
-	exporterSvc := service.NewExporterTemplateService(exporters, mappings)
-	mappingSvc := service.NewMappingService(mappings, exporters, jobs, labelReader)
+	resourceReader := references.NewResourceReader(gormDB)
+
+	exporterSvc := service.NewExporterTemplateService(exporters, templates)
+	templateSvc := service.NewCollectionTemplateService(templates, exporters, labelReader)
 	jobSvc := service.NewJobService(
-		jobs, exporters, mappings, probes, installations,
-		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB), labelReader,
+		jobs, exporters, templateSvc, probes, installations,
+		resourceReader, references.NewDomainReader(gormDB), labelReader,
 	)
-	jobSvc.SetJobGroupResolver(repository.NewJobGroupRepository(gormDB))
-	ruleSvc := service.NewRuleService(rules, jobs, exporters, nil)
+	jobSvc.SetSelectorValidator(resourceReader)
+	jobSvc.SetJobGroupResolver(groups)
+	ruleSvc := service.NewRuleService(rules, jobs, exporters, templateSvc, nil)
 	metricSvc := service.NewMetricService(repository.NewMetricRepository(gormDB))
 	businessSvc := service.NewBusinessMetricService(repository.NewBusinessMetricRepository(gormDB))
 	probeSvc := service.NewProbeModuleService(probes, jobs)
-	jobGroupSvc := service.NewJobGroupService(
-		repository.NewJobGroupRepository(gormDB), jobSvc,
-		references.NewResourceReader(gormDB), references.NewDomainReader(gormDB),
-	)
-	monitorTypeSvc := service.NewMonitorTypeService(repository.NewMonitorTypeRepository(gormDB))
-	require.NoError(t, monitorTypeSvc.Refresh(context.Background()))
+	jobGroupSvc := service.NewJobGroupService(groups, jobSvc, resourceReader, references.NewDomainReader(gormDB))
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
@@ -108,14 +159,13 @@ func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	}
 	RegisterRoutes(group,
 		NewExporterTemplateHandler(exporterSvc),
-		NewMappingHandler(mappingSvc),
+		NewCollectionTemplateHandler(templateSvc, references.NewCustomFieldReader(gormDB)),
 		NewJobHandler(jobSvc),
 		NewRuleHandler(ruleSvc),
 		NewMetricHandler(metricSvc),
 		NewBusinessMetricHandler(businessSvc),
 		NewProbeModuleHandler(probeSvc),
 		NewJobGroupHandler(jobGroupSvc),
-		NewMonitorTypeHandler(monitorTypeSvc),
 	)
 	return router, gormDB
 }
@@ -141,7 +191,6 @@ func TestExporterTemplateCRUDAndValidation(t *testing.T) {
 		"default_port":9191,
 		"metrics_path":"/metrics",
 		"scheme":"http",
-		"supported_monitor_types":["host_linux"],
 		"os":"linux",
 		"arch":"amd64",
 		"source":"third_party"
@@ -166,7 +215,7 @@ func TestExporterTemplateCRUDAndValidation(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/exporter-templates/"+id, `{
 		"name":"custom-exporter","version":"2.0.0","default_port":9292,
-		"metrics_path":"/custom","scheme":"https","supported_monitor_types":["host_linux"],
+		"metrics_path":"/custom","scheme":"https",
 		"os":"linux","arch":"amd64","source":"third_party"
 	}`)
 	require.Equal(t, http.StatusOK, code, out)
@@ -190,9 +239,9 @@ func TestExporterTemplateCRUDAndValidation(t *testing.T) {
 
 	// Built-in rows are read-only.
 	require.NoError(t, gormDB.Exec(`INSERT INTO m01_exporter_templates(id,name,is_builtin)
-		VALUES ('builtin-exp','node-exporter',TRUE)`).Error)
+		VALUES ('builtin-exp','builtin-node-exporter',TRUE)`).Error)
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/exporter-templates/builtin-exp",
-		`{"name":"node-exporter","scheme":"http","os":"linux","arch":"amd64","source":"official"}`)
+		`{"name":"builtin-node-exporter","scheme":"http","os":"linux","arch":"amd64","source":"official"}`)
 	assert.Equal(t, http.StatusForbidden, code, out)
 	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/exporter-templates/builtin-exp", "")
 	assert.Equal(t, http.StatusForbidden, code, out)
@@ -205,104 +254,115 @@ func TestExporterTemplateCRUDAndValidation(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, out)
 }
 
-func TestMappingCRUDAndGuards(t *testing.T) {
-	router, gormDB := newTestRouter(t)
+// The retired "monitor type + default mapping" endpoints became one collection
+// template resource (FR-21 / FR-24): the template owns the exporter binding, the
+// parameters and the wizard prefill selector.
+func TestCollectionTemplateCRUDAndGuards(t *testing.T) {
+	router, _ := newTestRouter(t)
 
-	// Two exporters: one supports host_linux only, one supports mysql.
-	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/exporter-templates",
-		`{"name":"node-exporter","supported_monitor_types":["host_linux"]}`)
+	code, out := doJSON(t, router, http.MethodGet, "/api/v3/platform/candidate-fields", "")
 	require.Equal(t, http.StatusOK, code, out)
-	nodeID := out["data"].(map[string]any)["id"].(string)
+	fields := out["data"].(map[string]any)["list"].([]any)
+	keys := make([]string, 0, len(fields))
+	for _, item := range fields {
+		keys = append(keys, item.(map[string]any)["key"].(string))
+	}
+	assert.Contains(t, keys, "os_family")
+	assert.Contains(t, keys, "has_npu")
+
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/exporter-templates",
-		`{"name":"mysqld-exporter","supported_monitor_types":["mysql"]}`)
+		`{"name":"dpu-exporter","default_port":9400,"metrics_path":"/metrics","scheme":"http"}`)
 	require.Equal(t, http.StatusOK, code, out)
-	mysqlID := out["data"].(map[string]any)["id"].(string)
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/exporter-templates",
-		`{"name":"node-exporter-2","supported_monitor_types":["host_linux"]}`)
+	dpuExporterID := out["data"].(map[string]any)["id"].(string)
+
+	createBody := fmt.Sprintf(`{
+		"code":"host_dpu","name":"DPU 主机采集","resource_category":"host",
+		"exporter_template_id":%q,"default_port":9400,"metrics_path":"/metrics","scheme":"http",
+		"scrape_interval":"15s","scrape_timeout":"10s",
+		"default_selector":{"logic":"all","filters":[{"field":"has_gpu","operator":"eq","values":["true"]}]},
+		"description":"带 DPU 的主机"
+	}`, dpuExporterID)
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/collection-templates", createBody)
 	require.Equal(t, http.StatusOK, code, out)
-	node2ID := out["data"].(map[string]any)["id"].(string)
+	created := out["data"].(map[string]any)
+	assert.Equal(t, "host_dpu", created["code"])
+	assert.Equal(t, false, created["is_builtin"])
+	assert.Equal(t, true, created["enabled"])
+	assert.Equal(t, "dpu-exporter", created["exporter_template_name"])
+	selector := created["default_selector"].(map[string]any)
+	assert.Equal(t, "all", selector["logic"])
+	require.Len(t, selector["filters"].([]any), 1)
+	assert.Equal(t, "has_gpu", selector["filters"].([]any)[0].(map[string]any)["field"])
 
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/ci-exporter-mappings", fmt.Sprintf(`{
-		"monitor_type":"host_linux","exporter_template_id":%q,"is_default":true,
-		"default_port":9100,"metrics_path":"/metrics","scheme":"http",
-		"scrape_interval":"15s","scrape_timeout":"10s"
-	}`, nodeID))
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates?keyword=dpu", "")
 	require.Equal(t, http.StatusOK, code, out)
-	mapping := out["data"].(map[string]any)
-	mappingID := mapping["id"].(string)
-	assert.Equal(t, "node-exporter", mapping["exporter_template_name"])
-	assert.Equal(t, true, mapping["is_default"])
+	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
+	assert.EqualValues(t, 20, out["data"].(map[string]any)["page_size"])
 
-	// Second default for the same monitor type is rejected.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/ci-exporter-mappings", fmt.Sprintf(`{
-		"monitor_type":"host_linux","exporter_template_id":%q,"is_default":true
-	}`, node2ID))
-	assert.Equal(t, http.StatusConflict, code, out)
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates/host_dpu", "")
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "DPU 主机采集", out["data"].(map[string]any)["name"])
 
-	// Exporter that does not support the monitor type is rejected.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/ci-exporter-mappings", fmt.Sprintf(`{
-		"monitor_type":"redis","exporter_template_id":%q
-	}`, nodeID))
+	// An illegal selector field is refused before anything is stored.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/collection-templates", fmt.Sprintf(`{
+		"code":"host_bad","name":"坏模板","resource_category":"host",
+		"exporter_template_id":%q,
+		"default_selector":{"logic":"all","filters":[{"field":"1=1 OR r.status","operator":"eq","values":["online"]}]}
+	}`, dpuExporterID))
 	assert.Equal(t, http.StatusBadRequest, code, out)
 
-	// Invalid duration literal (bare number) is rejected.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/ci-exporter-mappings", fmt.Sprintf(`{
-		"monitor_type":"mysql","exporter_template_id":%q,"scrape_interval":"180"
-	}`, mysqlID))
-	assert.Equal(t, http.StatusBadRequest, code, out)
-
-	// Label template has a dedicated endpoint and must belong to the mapping's
-	// resource category.
-	require.NoError(t, gormDB.Exec(`INSERT INTO m07_label_templates(id,name,resource_category)
-		VALUES ('lt-host','host-default','host')`).Error)
-	require.NoError(t, gormDB.Exec(`INSERT INTO m07_label_templates(id,name,resource_category)
-		VALUES ('lt-db','db-default','database')`).Error)
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID+"/label-template",
-		`{"label_template_id":"lt-db"}`)
-	assert.Equal(t, http.StatusBadRequest, code, out, "category mismatch must be rejected")
-
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID+"/label-template",
-		`{"label_template_id":"lt-host"}`)
-	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, "lt-host", out["data"].(map[string]any)["label_template_id"])
-	assert.Equal(t, "host-default", out["data"].(map[string]any)["label_template_name"])
-
-	// Default mappings cannot be deleted.
-	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/ci-exporter-mappings/"+mappingID, "")
+	// A duplicate code is a conflict.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/collection-templates", createBody)
 	assert.Equal(t, http.StatusConflict, code, out)
 
-	// Clear the default flag, then deletion is allowed.
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID, fmt.Sprintf(`{
-		"monitor_type":"host_linux","exporter_template_id":%q,"is_default":false,
-		"default_port":9100,"metrics_path":"/metrics","scheme":"http",
-		"scrape_interval":"15s","scrape_timeout":"10s"
-	}`, nodeID))
+	// A template referenced by a job cannot be deleted.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs", `{
+		"job_name":"dpu-prod","job_type":"standard","resource_category":"host",
+		"template_code":"host_dpu","network_domain_id":"mc-demo","draft_status":"draft"
+	}`)
 	require.Equal(t, http.StatusOK, code, out)
-	assert.Equal(t, "lt-host", out["data"].(map[string]any)["label_template_id"], "update must preserve the label template")
+	jobID := out["data"].(map[string]any)["id"].(string)
+	assert.Equal(t, "host_dpu", out["data"].(map[string]any)["template_code"])
 
-	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/ci-exporter-mappings/"+mappingID, "")
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates/host_dpu/impact", "")
 	require.Equal(t, http.StatusOK, code, out)
-	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/ci-exporter-mappings/"+mappingID, fmt.Sprintf(`{
-		"monitor_type":"host_linux","exporter_template_id":%q
-	}`, nodeID))
+	assert.EqualValues(t, 1, out["data"].(map[string]any)["reference_jobs"])
+
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/collection-templates/host_dpu", "")
+	assert.Equal(t, http.StatusConflict, code, out)
+
+	// Update replaces the mutable fields; the code is immutable.
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/collection-templates/host_dpu", fmt.Sprintf(`{
+		"code":"host_dpu_renamed","name":"DPU 主机采集 v2","resource_category":"host",
+		"exporter_template_id":%q,"default_port":9401,"metrics_path":"/metrics","scheme":"http",
+		"scrape_interval":"30s","scrape_timeout":"10s","enabled":false
+	}`, dpuExporterID))
+	require.Equal(t, http.StatusOK, code, out)
+	updatedTemplate := out["data"].(map[string]any)
+	assert.Equal(t, "host_dpu", updatedTemplate["code"], "the code is immutable")
+	assert.Equal(t, "DPU 主机采集 v2", updatedTemplate["name"])
+	assert.Equal(t, false, updatedTemplate["enabled"])
+	assert.EqualValues(t, 9401, updatedTemplate["default_port"])
+
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates/does_not_exist", "")
 	assert.Equal(t, http.StatusNotFound, code, out)
 
-	// A mapping referenced by a job cannot be deleted.
-	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/ci-exporter-mappings", fmt.Sprintf(`{
-		"monitor_type":"mysql","exporter_template_id":%q
-	}`, mysqlID))
+	// Once the only referencing job is gone the template can be deleted.
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/scrape-jobs/"+jobID, "")
 	require.Equal(t, http.StatusOK, code, out)
-	referencedID := out["data"].(map[string]any)["id"].(string)
-	require.NoError(t, gormDB.Exec(fmt.Sprintf(`INSERT INTO m01_scrape_jobs(
-		id,job_name,resource_category,network_domain_id,monitor_type,exporter_template_id
-	) VALUES ('job-1','mysql-prod','database','mc-demo','mysql',%q)`, mysqlID)).Error)
-	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/ci-exporter-mappings/"+referencedID, "")
-	assert.Equal(t, http.StatusConflict, code, out)
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/collection-templates/host_dpu", "")
+	require.Equal(t, http.StatusOK, code, out)
+	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/collection-templates/host_dpu", "")
+	assert.Equal(t, http.StatusNotFound, code, out)
 
-	// Built-in mappings are protected.
-	require.NoError(t, gormDB.Exec(fmt.Sprintf(`INSERT INTO m01_ci_type_exporter_mappings(
-		id,monitor_type,exporter_template_id,is_default,is_builtin
-	) VALUES ('builtin-map','redis',%q,FALSE,TRUE)`, mysqlID)).Error)
-	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/ci-exporter-mappings/builtin-map", "")
+	// Built-in templates are protected: they can be edited by an administrator but
+	// never deleted (FR-21 / FR-24).
+	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/collection-templates/host_linux", fmt.Sprintf(`{
+		"name":"Linux 主机采集（改）","resource_category":"host",
+		"exporter_template_id":%q,"default_port":9100,"metrics_path":"/metrics","scheme":"http"
+	}`, dpuExporterID))
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, true, out["data"].(map[string]any)["is_builtin"])
+	code, out = doJSON(t, router, http.MethodDelete, "/api/v3/platform/collection-templates/host_linux", "")
 	assert.Equal(t, http.StatusForbidden, code, out)
 }

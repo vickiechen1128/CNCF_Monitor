@@ -64,7 +64,7 @@ func TestCandidateQueryWithComposableFilters(t *testing.T) {
 	// 组合筛选：状态=运行中 AND 应用=app-a AND 网域∈{mc-demo,mc-other}
 	code, out = doJSON(t, router, http.MethodPost,
 		"/api/v3/platform/scrape-jobs/instance-candidates/query", `{
-		"monitor_type":"host_linux",
+		"template_code":"host_linux","resource_category":"host",
 		"filters":[
 			{"field":"status","op":"in","values":["online"]},
 			{"field":"network_domain_id","op":"in","values":["mc-demo","mc-other"]},
@@ -87,7 +87,7 @@ func TestCandidateQueryWithComposableFilters(t *testing.T) {
 
 	// 未显式筛状态时默认排除「维护中」
 	code, out = doJSON(t, router, http.MethodPost,
-		"/api/v3/platform/scrape-jobs/instance-candidates/query", `{"monitor_type":"host_linux"}`)
+		"/api/v3/platform/scrape-jobs/instance-candidates/query", `{"template_code":"host_linux"}`)
 	require.Equal(t, http.StatusOK, code, out)
 	assert.EqualValues(t, 4, out["data"].(map[string]any)["total"],
 		"r-a1 + r-a2 + r-a3(offline) + r-b1, maintenance excluded by default")
@@ -95,7 +95,7 @@ func TestCandidateQueryWithComposableFilters(t *testing.T) {
 	// 全选：同一条件解析为 id 列表
 	code, out = doJSON(t, router, http.MethodPost,
 		"/api/v3/platform/scrape-jobs/instance-candidates/query/ids", `{
-		"monitor_type":"host_linux",
+		"template_code":"host_linux","resource_category":"host",
 		"filters":[{"field":"status","op":"in","values":["online"]}]
 	}`)
 	require.Equal(t, http.StatusOK, code, out)
@@ -113,11 +113,11 @@ func TestCandidateQueryRejectsInvalidFilters(t *testing.T) {
 		name string
 		body string
 	}{
-		{"unknown field", `{"monitor_type":"host_linux","filters":[{"field":"password","op":"in","values":["x"]}]}`},
-		{"unsupported op", `{"monitor_type":"host_linux","filters":[{"field":"network_domain_id","op":"contains","values":["mc-demo"]}]}`},
-		{"empty values", `{"monitor_type":"host_linux","filters":[{"field":"status","op":"in","values":[]}]}`},
-		{"invalid status", `{"monitor_type":"host_linux","filters":[{"field":"status","op":"in","values":["bogus"]}]}`},
-		{"invalid env", `{"monitor_type":"host_linux","filters":[{"field":"env","op":"in","values":["DEV"]}]}`},
+		{"unknown field", `{"template_code":"host_linux","resource_category":"host","filters":[{"field":"password","op":"in","values":["x"]}]}`},
+		{"unsupported op", `{"template_code":"host_linux","resource_category":"host","filters":[{"field":"network_domain_id","op":"contains","values":["mc-demo"]}]}`},
+		{"empty values", `{"template_code":"host_linux","resource_category":"host","filters":[{"field":"status","op":"in","values":[]}]}`},
+		{"invalid status", `{"template_code":"host_linux","resource_category":"host","filters":[{"field":"status","op":"in","values":["bogus"]}]}`},
+		{"invalid env", `{"template_code":"host_linux","resource_category":"host","filters":[{"field":"env","op":"in","values":["DEV"]}]}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

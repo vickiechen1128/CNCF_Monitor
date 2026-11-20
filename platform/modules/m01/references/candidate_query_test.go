@@ -45,14 +45,15 @@ func newCandidateDB(t *testing.T) *gorm.DB {
 }
 
 // 回归：os_type 存的是字典规范名（Ubuntu / RedHat Enterprise Linux …），
-// host_linux 候选必须按 OS 字典关键字做大小写不敏感子串匹配，而不是写死 'linux'
+// host_linux 的 DefaultSelector（os_family = linux）在候选查询里必须按 OS 字典
+// 关键字做大小写不敏感子串匹配，而不是写死 'linux'
 // （否则真实主机永远选不到，2026-11-17 线上库复现）。
 func TestQueryCandidatesMatchesCanonicalOSTypes(t *testing.T) {
 	gormDB := newCandidateDB(t)
 	reader := references.NewResourceReader(gormDB)
 
 	page, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
-		MonitorType: "host_linux", Page: 1, PageSize: 50,
+		Category: domain.CategoryHost, Selector: linuxSelector(), Page: 1, PageSize: 50,
 	})
 	require.NoError(t, err)
 
@@ -65,7 +66,7 @@ func TestQueryCandidatesMatchesCanonicalOSTypes(t *testing.T) {
 	assert.NotContains(t, ids, "r-win", "Windows hosts must not match host_linux")
 
 	windows, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
-		MonitorType: "host_windows", Page: 1, PageSize: 50,
+		Category: domain.CategoryHost, Selector: windowsSelector(), Page: 1, PageSize: 50,
 	})
 	require.NoError(t, err)
 	winIDs := make([]string, 0, len(windows.Refs))
@@ -73,4 +74,18 @@ func TestQueryCandidatesMatchesCanonicalOSTypes(t *testing.T) {
 		winIDs = append(winIDs, ref.ID)
 	}
 	assert.Equal(t, []string{"r-win"}, winIDs)
+}
+
+// linuxSelector / windowsSelector reproduce the DefaultSelector a job inherits
+// from the built-in host_linux / host_windows collection templates.
+func linuxSelector() domain.Selector {
+	return domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+		{Field: "os_family", Operator: domain.RuleOpEq, Values: []string{"linux"}},
+	}}
+}
+
+func windowsSelector() domain.Selector {
+	return domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+		{Field: "os_family", Operator: domain.RuleOpEq, Values: []string{"windows"}},
+	}}
 }

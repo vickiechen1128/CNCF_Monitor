@@ -1,12 +1,20 @@
 package service
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
+	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
+	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 )
 
 func TestNormalizeExporterDefaults(t *testing.T) {
@@ -22,13 +30,12 @@ func TestNormalizeExporterDefaults(t *testing.T) {
 
 func TestValidateExporter(t *testing.T) {
 	valid := &domain.ExporterTemplate{
-		Name:                  "node-exporter",
-		MetricsPath:           "/metrics",
-		Scheme:                domain.SchemeHTTP,
-		OS:                    "linux",
-		Arch:                  "amd64",
-		Source:                domain.ExporterOfficial,
-		SupportedMonitorTypes: []string{"host_linux"},
+		Name:        "node-exporter",
+		MetricsPath: "/metrics",
+		Scheme:      domain.SchemeHTTP,
+		OS:          "linux",
+		Arch:        "amd64",
+		Source:      domain.ExporterOfficial,
 	}
 	require.NoError(t, validateExporter(valid))
 
@@ -44,7 +51,6 @@ func TestValidateExporter(t *testing.T) {
 		{"bad os", func(e *domain.ExporterTemplate) { e.OS = "solaris" }},
 		{"bad arch", func(e *domain.ExporterTemplate) { e.Arch = "mips" }},
 		{"bad source", func(e *domain.ExporterTemplate) { e.Source = "vendor" }},
-		{"unknown monitor type", func(e *domain.ExporterTemplate) { e.SupportedMonitorTypes = []string{"unknown"} }},
 		{"bad url", func(e *domain.ExporterTemplate) { e.Homepage = "ftp://example.com" }},
 	}
 	for _, tc := range cases {
@@ -62,4 +68,48 @@ func TestNoopLabelTemplateResolver(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "lt-1", ref.ID)
 	assert.Empty(t, ref.Name)
+}
+
+// newServiceDB opens an isolated v3 database for the service tests.
+func newServiceDB(t *testing.T, name string) *gorm.DB {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), name)
+	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
+	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, err)
+	return gormDB
+}
+
+// seedNodeTemplate writes the exporter + host_linux recipe a standard job needs:
+// a job inherits the exporter from an enabled, bound collection template.
+func seedNodeTemplate(t *testing.T, gormDB *gorm.DB) (*domain.ExporterTemplate, *domain.CollectionTemplate) {
+	t.Helper()
+	ctx := context.Background()
+	exporters := repository.NewExporterTemplateRepository(gormDB)
+	exporter := &domain.ExporterTemplate{
+		Name: "node-exporter", DefaultPort: 9100, MetricsPath: "/metrics",
+		Scheme: domain.SchemeHTTP, OS: "any", Arch: "any", Source: domain.ExporterThirdParty,
+	}
+	require.NoError(t, exporters.Create(ctx, exporter))
+
+	template := &domain.CollectionTemplate{
+		Code: "host_linux", Name: "Linux 主机采集", ResourceCategory: domain.CategoryHost,
+		ExporterTemplateID: exporter.ID, DefaultPort: 9100, MetricsPath: "/metrics",
+		Scheme: domain.SchemeHTTP, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		DefaultSelector: domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+			{Field: "os_family", Operator: domain.RuleOpEq, Values: []string{"linux"}},
+		}},
+		Enabled: true, IsBuiltin: true,
+	}
+	require.NoError(t, repository.NewCollectionTemplateRepository(gormDB).Create(ctx, template))
+	return exporter, template
+}
+
+// newTemplateService wires a CollectionTemplateService on top of the given DB.
+func newTemplateService(gormDB *gorm.DB) *CollectionTemplateService {
+	return NewCollectionTemplateService(
+		repository.NewCollectionTemplateRepository(gormDB),
+		repository.NewExporterTemplateRepository(gormDB),
+		references.NewLabelTemplateReader(gormDB),
+	)
 }

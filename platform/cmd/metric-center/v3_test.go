@@ -60,9 +60,9 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 		{"/api/v3/platform/meta", http.StatusOK},
 		// Business routes stay behind the global auth gate.
 		{"/api/v3/platform/resources", http.StatusUnauthorized},
-		// M01 configurable monitor type registry (SRS Module_01 v1.3 §5.6).
-		{"/api/v3/platform/monitor-types", http.StatusUnauthorized},
-		{"/api/v3/platform/monitor-types/scope-fields", http.StatusUnauthorized},
+		// M01 collection templates + selector field dictionary (SRS Module_01 v1.5).
+		{"/api/v3/platform/collection-templates", http.StatusUnauthorized},
+		{"/api/v3/platform/candidate-fields", http.StatusUnauthorized},
 		// M07 generic capability attributes (SRS Module_07 v2.1 §5.8).
 		{"/api/v3/platform/attribute-definitions", http.StatusUnauthorized},
 		{"/api/v3/platform/tenants", http.StatusUnauthorized},
@@ -149,14 +149,14 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	// M01 boots the configurable monitor type registry: the built-in types are
-	// ensured on bootstrap and listed through the API (SRS Module_01 v1.3 §5.6).
+	// M01 boots the collection template registry: the built-in templates are
+	// ensured on bootstrap and listed through the API (SRS Module_01 v1.5).
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/monitor-types", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v3/platform/collection-templates", nil)
 	req.Header.Set("Authorization", "Bearer "+login.Data.Token)
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var monitorTypes struct {
+	var templates struct {
 		Data struct {
 			List []struct {
 				Code             string `json:"code"`
@@ -166,12 +166,12 @@ func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
 			Total int `json:"total"`
 		} `json:"data"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &monitorTypes))
-	assert.NotEmpty(t, monitorTypes.Data.List, "built-in monitor types must be seeded on bootstrap")
-	codes := make([]string, 0, len(monitorTypes.Data.List))
-	for _, item := range monitorTypes.Data.List {
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &templates))
+	assert.NotEmpty(t, templates.Data.List, "built-in collection templates must be seeded on bootstrap")
+	codes := make([]string, 0, len(templates.Data.List))
+	for _, item := range templates.Data.List {
 		codes = append(codes, item.Code)
-		assert.True(t, item.IsBuiltin, "seeded types are built in: %s", item.Code)
+		assert.True(t, item.IsBuiltin, "seeded templates are built in: %s", item.Code)
 	}
 	assert.Contains(t, codes, "host_linux")
 	assert.Contains(t, codes, "host_npu")

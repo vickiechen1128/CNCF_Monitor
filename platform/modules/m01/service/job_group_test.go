@@ -89,9 +89,12 @@ func newGroupTestStack(t *testing.T) (*gorm.DB, *JobGroupService, *JobService) {
 		"mc-a": eligibleDomain("mc-a", "域A"),
 		"mc-b": eligibleDomain("mc-b", "域B"),
 	}}
+	// A standard job inherits its exporter from an enabled, bound collection
+	// template, so the fixture seeds the host_linux recipe.
+	seedNodeTemplate(t, gormDB)
 	jobSvc := NewJobService(jobs,
 		repository.NewExporterTemplateRepository(gormDB),
-		repository.NewMappingRepository(gormDB),
+		newTemplateService(gormDB),
 		repository.NewProbeModuleRepository(gormDB),
 		repository.NewInstallationRepository(gormDB),
 		resources, domains, nil)
@@ -104,7 +107,7 @@ func hostGroupInput(ids ...string) JobGroupInput {
 		JobName:             "host-base",
 		JobType:             domain.JobTypeStandard,
 		ResourceCategory:    domain.CategoryHost,
-		MonitorType:         "host_linux",
+		TemplateCode:        "host_linux",
 		SelectedInstanceIDs: ids,
 		CreatedBy:           "admin",
 	}
@@ -306,7 +309,7 @@ func TestGroupChildJobRestrictedEdit(t *testing.T) {
 		JobName:             "standalone-host",
 		JobType:             domain.JobTypeStandard,
 		ResourceCategory:    domain.CategoryHost,
-		MonitorType:         "host_linux",
+		TemplateCode:        "host_linux",
 		NetworkDomainID:     "mc-a",
 		SelectedInstanceIDs: []string{"r-a1"},
 	}

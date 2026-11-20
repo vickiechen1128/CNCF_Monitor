@@ -131,7 +131,7 @@ func TestAutoMigrate(t *testing.T) {
 		&Host{}, &Middleware{}, &Application{}, &Database{}, &GenericTarget{},
 		&LabelTemplate{}, &ScrapeJob{}, &BlackboxProbeConfig{},
 		&Tenant{}, &NetworkDomain{}, &ZoneType{}, &ResourceStatusMapping{},
-		&ResourceLabel{}, &CITypeExporterMapping{}, &ExporterTemplate{},
+		&ResourceLabel{}, &ExporterTemplate{},
 		&MonitoringRule{}, &ConfigDraft{}, &ConfigVersion{}, &ConfigDeployment{},
 		&EdgeAgent{}, &BusinessMetric{}, &ImportRecord{}, &LabelTemplateSnapshot{},
 	))
@@ -336,7 +336,7 @@ func TestDefaultTemplatesContainResourceID(t *testing.T) {
 
 func TestBuiltinTemplates(t *testing.T) {
 	db := newMemDB(t)
-	assert.NoError(t, db.AutoMigrate(&ExporterTemplate{}, &CITypeExporterMapping{}))
+	assert.NoError(t, db.AutoMigrate(&ExporterTemplate{}))
 
 	templates := BuiltinExporterTemplates()
 	assert.Len(t, templates, 6) // node / mysqld / redis / windows / kafka / snmp
@@ -344,22 +344,9 @@ func TestBuiltinTemplates(t *testing.T) {
 		templates[i].IsBuiltin = true
 		assert.NoError(t, db.Create(&templates[i]).Error)
 	}
-	// The default mapping references the ExporterTemplate.ID (as a string),
-	// matching the seed semantics: synchronize with the real primary key.
-	nodeID := strconv.FormatUint(uint64(templates[0].ID), 10)
-	assert.NoError(t, db.Create(&CITypeExporterMapping{
-		MonitorType:        "host_linux",
-		ExporterTemplateID: nodeID,
-		IsDefault:          true,
-		DefaultPort:        9100,
-		MetricsPath:        "/metrics",
-		Scheme:             "http",
-		ScrapeInterval:     "15s",
-		ScrapeTimeout:      "12s",
-		IsBuiltin:          true,
-	}).Error)
 
-	// ExporterTemplateID must join back to a real ExporterTemplate.
+	// ExporterTemplateID is a string column; it must join back to a real row.
+	nodeID := strconv.FormatUint(uint64(templates[0].ID), 10)
 	var joined ExporterTemplate
 	assert.NoError(t, db.Where("id = ?", nodeID).First(&joined).Error)
 	assert.Equal(t, "node-exporter", joined.Name)
@@ -373,7 +360,7 @@ func TestScrapeJobAndMonitoringRule(t *testing.T) {
 		JobName:               "node-exporter-prod",
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
-		MonitorType:           "host_linux",
+		TemplateCode:          "host_linux",
 		NetworkDomainID:       DefaultDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		SelectedInstanceIDs:   []string{"srv-001"},
@@ -478,7 +465,7 @@ func TestScrapeJobSecretsNotSerialized(t *testing.T) {
 		JobName:               "sec-prod",
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
-		MonitorType:           "host_linux",
+		TemplateCode:          "host_linux",
 		NetworkDomainID:       DefaultDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",
@@ -667,8 +654,8 @@ func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T) {
 		Help:       "CPU 使用率",
 		Unit:       "percent",
 		Labels:     []string{"cpu", "mode"},
-		MonitorTypes: []ExporterMetricAnchor{
-			{MonitorType: "host_linux", SourceExporter: "node-exporter"},
+		CollectionTemplates: []ExporterMetricAnchor{
+			{TemplateCode: "host_linux", SourceExporter: "node-exporter"},
 		},
 		Category:  "cpu",
 		IsBuiltin: true,
@@ -681,8 +668,8 @@ func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T) {
 	assert.NoError(t, db.First(&got, "id = ?", m.ID).Error)
 	assert.Equal(t, "cpu", got.Category)
 	assert.Equal(t, []string{"cpu", "mode"}, got.Labels)
-	assert.Len(t, got.MonitorTypes, 1)
-	assert.Equal(t, "node-exporter", got.MonitorTypes[0].SourceExporter)
+	assert.Len(t, got.CollectionTemplates, 1)
+	assert.Equal(t, "node-exporter", got.CollectionTemplates[0].SourceExporter)
 	assert.True(t, got.IsBuiltin)
 }
 
@@ -694,7 +681,7 @@ func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T) {
 		JobName:               "node-prod",
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
-		MonitorType:           "host_linux",
+		TemplateCode:          "host_linux",
 		NetworkDomainID:       DefaultDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",

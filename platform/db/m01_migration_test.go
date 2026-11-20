@@ -18,7 +18,7 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	defer sqlDB.Close()
 
 	tables := []string{
-		"m01_exporter_templates", "m01_ci_type_exporter_mappings",
+		"m01_exporter_templates", "m01_collection_templates",
 		"m01_scrape_jobs", "m01_monitoring_rules", "m01_metric_library",
 		"m01_business_metrics", "m01_installations", "m01_probe_modules",
 	}
@@ -43,19 +43,19 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	_, err = sqlDB.Exec(`INSERT INTO m01_exporter_templates(id,name) VALUES ('exp-3','node-exporter')`)
 	require.NoError(t, err, "soft-deleted name can be reused")
 
-	// --- mappings: one default per monitor_type + natural-key uniqueness ---
-	_, err = sqlDB.Exec(`INSERT INTO m01_ci_type_exporter_mappings(
-			id,monitor_type,exporter_template_id,is_default
-		) VALUES ('map-1','host_linux','exp-3',TRUE)`)
+	// --- collection templates: code uniqueness + exporter FK ---
+	_, err = sqlDB.Exec(`INSERT INTO m01_collection_templates(
+			code,name,resource_category,exporter_template_id
+		) VALUES ('host_linux','Linux 主机采集','host','exp-3')`)
 	require.NoError(t, err)
-	_, err = sqlDB.Exec(`INSERT INTO m01_ci_type_exporter_mappings(
-			id,monitor_type,exporter_template_id,is_default
-		) VALUES ('map-2','host_linux','exp-2',TRUE)`)
-	require.Error(t, err, "second default for the same monitor_type must fail")
-	_, err = sqlDB.Exec(`INSERT INTO m01_ci_type_exporter_mappings(
-			id,monitor_type,exporter_template_id,is_default
-		) VALUES ('map-3','host_linux','exp-3',FALSE)`)
-	require.Error(t, err, "duplicate (monitor_type, exporter) must fail")
+	_, err = sqlDB.Exec(`INSERT INTO m01_collection_templates(
+			code,name,resource_category,exporter_template_id
+		) VALUES ('host_linux','Linux 主机采集（重复）','host','exp-3')`)
+	require.Error(t, err, "duplicate live template code must fail")
+	_, err = sqlDB.Exec(`INSERT INTO m01_collection_templates(
+			code,name,resource_category,exporter_template_id
+		) VALUES ('unbound','未绑定采集实现','host','')`)
+	require.NoError(t, err, "a template may be seeded before its exporter is registered")
 
 	// --- jobs: unique job_name, network-domain FK, enum checks ---
 	_, err = sqlDB.Exec(`INSERT INTO m01_scrape_jobs(

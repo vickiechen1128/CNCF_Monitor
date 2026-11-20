@@ -38,7 +38,7 @@ func TestReconcileReclaimsMissingInstances(t *testing.T) {
 	jobRepo := repository.NewJobRepository(gormDB)
 	job := &domain.Job{
 		JobName: "host-prod", JobType: domain.JobTypeStandard,
-		ResourceCategory: domain.CategoryHost, MonitorType: "host_linux",
+		ResourceCategory: domain.CategoryHost, TemplateCode: "host_linux",
 		NetworkDomainID: "mc-demo", InstanceSelectionMode: domain.SelectionManual,
 		SelectedInstanceIDs: []string{"res-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
 		MetricsPath: "/metrics", Scheme: domain.SchemeHTTP, AuthType: domain.AuthNone,
@@ -93,7 +93,7 @@ func TestReconcileDisablesGroupChildrenWhenDomainUnavailable(t *testing.T) {
 	jobRepo := repository.NewJobRepository(gormDB)
 	groupedChild := &domain.Job{
 		JobName: "host-base", JobType: domain.JobTypeStandard,
-		ResourceCategory: domain.CategoryHost, MonitorType: "host_linux",
+		ResourceCategory: domain.CategoryHost, TemplateCode: "host_linux",
 		NetworkDomainID: "mc-b", InstanceSelectionMode: domain.SelectionManual,
 		SelectedInstanceIDs: []string{"res-b1"},
 		ScrapeInterval:      "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
@@ -104,7 +104,7 @@ func TestReconcileDisablesGroupChildrenWhenDomainUnavailable(t *testing.T) {
 	require.NoError(t, jobRepo.Create(context.Background(), groupedChild))
 	standalone := &domain.Job{
 		JobName: "standalone", JobType: domain.JobTypeStandard,
-		ResourceCategory: domain.CategoryHost, MonitorType: "host_linux",
+		ResourceCategory: domain.CategoryHost, TemplateCode: "host_linux",
 		NetworkDomainID: "mc-b", InstanceSelectionMode: domain.SelectionManual,
 		SelectedInstanceIDs: []string{"res-b2"},
 		ScrapeInterval:      "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",

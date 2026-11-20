@@ -8,11 +8,15 @@ import (
 )
 
 // TestMigrateV3MonitorTypeRegistryAndCapabilities validates 0019 (M07 resource
-// capabilities) and 0020 (M01 monitor type registry): tables exist, the
-// uniqueness/index rules hold, and both migrations roll back cleanly.
+// capabilities) and 0020..0022 (M01 monitor type registry + NPU rename + CI
+// model fields) as a historical slice.
+//
+// 0023 (collection templates) supersedes the registry: it drops these tables, so
+// this test migrates up to 22. The 0023 data migration has its own test in
+// collection_template_migration_test.go.
 func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "metric_center_v3_monitor_types.db")
-	require.NoError(t, MigrateV3("sqlite", dsn))
+	migrateV3UpTo(t, "sqlite", dsn, 22)
 
 	sqlDB, err := openMigrationDB("sqlite", dsn)
 	require.NoError(t, err)
@@ -68,34 +72,8 @@ func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
 		VALUES ('ra2','h1','dpu_model','duplicate')`)
 	require.Error(t, err, "duplicate resource attribute key must fail")
 
-	// 0021 renames legacy npu rows to host_npu. Roll back 0022 (CI model fields)
-	// and 0021 first, write legacy rows the way the previous build did, then
-	// re-apply both and assert the rewrite.
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0022 ci model fields")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0021 npu rename")
-	_, err = sqlDB.Exec(`INSERT INTO m01_scrape_jobs(id,job_name,resource_category,network_domain_id,monitor_type)
-		VALUES ('job-legacy','npu-prod','host','d1','npu')`)
-	require.NoError(t, err)
-	_, err = sqlDB.Exec(`INSERT INTO m01_exporter_templates(
-		id,name,version,default_port,metrics_path,scheme,supported_monitor_types,os,arch,
-		download_url,homepage,install_guide,description,is_builtin,source)
-		VALUES ('exp-legacy','npu-exporter','1.0',9101,'/metrics','http','["npu","host_linux"]',
-		'linux','amd64','','','','',FALSE,'official')`)
-	require.NoError(t, err)
-	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply 0021 npu rename + 0022 ci model fields")
-
-	var jobMonitorType string
-	require.NoError(t, sqlDB.QueryRow(`SELECT monitor_type FROM m01_scrape_jobs WHERE id = 'job-legacy'`).Scan(&jobMonitorType))
-	require.Equal(t, "host_npu", jobMonitorType)
-	var supported string
-	require.NoError(t, sqlDB.QueryRow(`SELECT supported_monitor_types FROM m01_exporter_templates WHERE id = 'exp-legacy'`).Scan(&supported))
-	require.Contains(t, supported, `"host_npu"`)
-	require.NotContains(t, supported, `"npu"`)
-
-	// Rollback 0022 / 0021 / 0020 / 0019 and re-apply.
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0022 ci model fields")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0021 npu rename")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0020 monitor type registry")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback 0019 resource capabilities")
-	require.NoError(t, MigrateV3("sqlite", dsn), "re-apply all four migrations")
+	// 0021 (npu -> host_npu rename) and 0022 (CI model fields) are exercised by
+	// their own forward paths above/below; the registry itself is dropped by
+	// 0023, so this historical test stops at schema 22.
+	requireTableCount(t, sqlDB, "m01_monitor_types", 1)
 }

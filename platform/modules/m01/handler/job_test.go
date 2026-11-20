@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestJobCRUDCandidatesPreview(t *testing.T) {
 	}
 
 	code, out := doJSON(t, router, http.MethodGet,
-		"/api/v3/platform/scrape-jobs/instance-candidates?monitor_type=host_linux&network_domain_id=mc-demo", "")
+		"/api/v3/platform/scrape-jobs/instance-candidates?template_code=host_linux&resource_category=host&network_domain_id=mc-demo", "")
 	require.Equal(t, http.StatusOK, code, out)
 	candidates := out["data"].(map[string]any)
 	assert.EqualValues(t, 1, candidates["total"])
@@ -35,7 +34,8 @@ func TestJobCRUDCandidatesPreview(t *testing.T) {
 		"job_name":"host-prod",
 		"job_type":"standard",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
+		"selector":{"logic":"all","filters":[{"field":"os_family","operator":"eq","values":["linux"]}]},
 		"network_domain_id":"mc-demo",
 		"selected_instance_ids":["res-host-1"]
 	}`)
@@ -52,6 +52,11 @@ func TestJobCRUDCandidatesPreview(t *testing.T) {
 	assert.Empty(t, job["mapping_overrides"].([]any))
 	assert.Equal(t, "mc-demo", job["network_domain_id"])
 	assert.Equal(t, "演示采集域", job["network_domain_name"])
+	assert.Equal(t, "host_linux", job["template_code"])
+	assert.Equal(t, "node-exporter", job["exporter_template_name"], "the job inherits the template's exporter")
+	selector := job["selector"].(map[string]any)
+	require.Len(t, selector["filters"].([]any), 1)
+	assert.Equal(t, "os_family", selector["filters"].([]any)[0].(map[string]any)["field"])
 
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/scrape-jobs/"+jobID+"/instances", "")
 	require.Equal(t, http.StatusOK, code, out)
@@ -82,7 +87,7 @@ func TestJobCRUDCandidatesPreview(t *testing.T) {
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/scrape-jobs/"+jobID, `{
 		"job_name":"host-prod-2",
 		"resource_category":"host",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"network_domain_id":"mc-demo",
 		"selected_instance_ids":["res-host-1"],
 		"scrape_interval":"30s",
@@ -116,7 +121,7 @@ func TestJobValidatesOfflineAndDomain(t *testing.T) {
 	}
 
 	code, out := doJSON(t, router, http.MethodGet,
-		"/api/v3/platform/scrape-jobs/instance-candidates?monitor_type=host_linux&network_domain_id=mc-demo", "")
+		"/api/v3/platform/scrape-jobs/instance-candidates?template_code=host_linux&resource_category=host&network_domain_id=mc-demo", "")
 	require.Equal(t, http.StatusOK, code, out)
 	candidate := out["data"].(map[string]any)["list"].([]any)[0].(map[string]any)
 	assert.Equal(t, false, candidate["selectable"])
@@ -124,7 +129,7 @@ func TestJobValidatesOfflineAndDomain(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs", `{
 		"job_name":"offline-job",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"network_domain_id":"mc-demo",
 		"selected_instance_ids":["res-off"]
 	}`)
@@ -132,7 +137,7 @@ func TestJobValidatesOfflineAndDomain(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs", `{
 		"job_name":"unmonitored-job",
-		"monitor_type":"host_linux",
+		"template_code":"host_linux",
 		"network_domain_id":"dom-no-access",
 		"selected_instance_ids":[]
 	}`)
@@ -165,7 +170,8 @@ func TestBlackboxJobDerivesTargetField(t *testing.T) {
 	job := out["data"].(map[string]any)
 	assert.Equal(t, "blackbox", job["job_type"])
 	assert.Equal(t, "api_url", job["target_field"])
-	assert.Equal(t, "", job["monitor_type"])
+	assert.Equal(t, "", job["template_code"], "a blackbox job has no collection template")
+	assert.Empty(t, job["selector"].(map[string]any)["filters"].([]any), "a blackbox job has no selector")
 
 	jobID := job["id"].(string)
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs/"+jobID+"/preview-targets", "")
@@ -183,6 +189,19 @@ func TestBlackboxJobDerivesTargetField(t *testing.T) {
 		"blackbox_module":"http_2xx",
 		"selected_instance_ids":["svc-1"],
 		"blackbox_targets":[{"target":"http://x"}]
+	}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// A blackbox job must not carry a collection template: the probe module, not a
+	// recipe, chooses how to collect.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs", `{
+		"job_name":"api-probe-template",
+		"job_type":"blackbox",
+		"resource_category":"interface_service",
+		"network_domain_id":"mc-demo",
+		"blackbox_module":"http_2xx",
+		"template_code":"host_linux",
+		"selected_instance_ids":["svc-1"]
 	}`)
 	assert.Equal(t, http.StatusBadRequest, code, out)
 
@@ -208,17 +227,39 @@ func TestJobRejectsInvalidPayloads(t *testing.T) {
 
 	// Invalid job name.
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
-		`{"job_name":"bad name","monitor_type":"host_linux","network_domain_id":"mc-demo"}`)
+		`{"job_name":"bad name","template_code":"host_linux","network_domain_id":"mc-demo"}`)
 	assert.Equal(t, http.StatusBadRequest, code, out)
 
-	// category/monitor_type mismatch.
+	// category/template_code mismatch.
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
-		`{"job_name":"mismatch","resource_category":"database","monitor_type":"host_linux","network_domain_id":"mc-demo"}`)
+		`{"job_name":"mismatch","resource_category":"database","template_code":"host_linux","network_domain_id":"mc-demo"}`)
 	assert.Equal(t, http.StatusBadRequest, code, out)
 
-	// Missing monitor_type for a standard job.
+	// Missing template_code for a standard job.
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
 		`{"job_name":"no-type","network_domain_id":"mc-demo"}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// Unknown template code.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
+		`{"job_name":"unknown-type","template_code":"does_not_exist","network_domain_id":"mc-demo"}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// A disabled template cannot drive a job (host_npu ships unbound/disabled).
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
+		`{"job_name":"disabled-type","template_code":"host_npu","network_domain_id":"mc-demo"}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// The job selector is validated against the field dictionary.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
+		`{"job_name":"bad-selector","template_code":"host_linux","network_domain_id":"mc-demo",
+		  "selector":{"logic":"all","filters":[{"field":"1=1 OR r.status","operator":"eq","values":["online"]}]}}`)
+	assert.Equal(t, http.StatusBadRequest, code, out)
+
+	// A host field is not selectable inside another category.
+	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs",
+		`{"job_name":"cross-selector","template_code":"mysql","network_domain_id":"mc-demo",
+		  "selector":{"logic":"all","filters":[{"field":"has_npu","operator":"eq","values":["true"]}]}}`)
 	assert.Equal(t, http.StatusBadRequest, code, out)
 }
 
@@ -228,7 +269,7 @@ func TestJobListFilters(t *testing.T) {
 		VALUES ('res-1','host','platform_admin','mc-demo','PRD','online','manual',0,'host|mc-demo|10.0.0.1')`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type)
 		VALUES ('res-1','web-01','10.0.0.1','linux')`).Error)
-	body := fmt.Sprintf(`{"job_name":"list-job","monitor_type":"host_linux","network_domain_id":"mc-demo","selected_instance_ids":["res-1"]}`)
+	body := `{"job_name":"list-job","template_code":"host_linux","network_domain_id":"mc-demo","selected_instance_ids":["res-1"]}`
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, code, out)
 

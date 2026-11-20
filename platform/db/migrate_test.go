@@ -42,13 +42,16 @@ func TestMigrateV3Lifecycle(t *testing.T) {
 
 	// 00006 M01 strategy tables.
 	m01Tables := []string{
-		"m01_exporter_templates", "m01_ci_type_exporter_mappings",
+		"m01_exporter_templates",
 		"m01_scrape_jobs", "m01_monitoring_rules", "m01_metric_library",
 		"m01_business_metrics", "m01_installations", "m01_probe_modules",
 	}
 	for _, table := range m01Tables {
 		requireTableCount(t, sqlDB, table, 1)
 	}
+	// 0023 replaces the default-mapping table with collection templates; it is
+	// rolled back before the fixed-step chain below, so it is asserted here only.
+	requireTableCount(t, sqlDB, "m01_collection_templates", 1)
 	// 00012 adds the job-group intent table on top of the M01 strategy tables.
 	requireTableCount(t, sqlDB, "m01_job_groups", 1)
 

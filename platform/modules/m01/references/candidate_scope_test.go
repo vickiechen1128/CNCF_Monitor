@@ -48,10 +48,17 @@ func newCapabilityDB(t *testing.T) *gorm.DB {
 	return gormDB
 }
 
-func candidateIDs(t *testing.T, reader *references.GORMResourceReader, monitorType string) []string {
+// hostSelector builds the job selector a wizard would save for one host recipe.
+func hostSelector(field string, values ...string) domain.Selector {
+	return domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+		{Field: field, Operator: domain.RuleOpEq, Values: values},
+	}}
+}
+
+func candidateIDs(t *testing.T, reader *references.GORMResourceReader, selector domain.Selector) []string {
 	t.Helper()
 	page, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
-		MonitorType: monitorType, Page: 1, PageSize: 50,
+		Category: domain.CategoryHost, Selector: selector, Page: 1, PageSize: 50,
 	})
 	require.NoError(t, err)
 	ids := make([]string, 0, len(page.Refs))
@@ -61,88 +68,125 @@ func candidateIDs(t *testing.T, reader *references.GORMResourceReader, monitorTy
 	return ids
 }
 
-// A host carrying an NPU must be selectable by BOTH the OS type and the NPU
-// type: that is the "one CI, multiple collectors" requirement (SRS Module_01
-// v1.3 FR-23, FR-10).
-func TestSameHostMatchesOSAndNPUTypes(t *testing.T) {
+// A host carrying an NPU must be selectable by BOTH the OS selector and the NPU
+// selector: that is the "one CI, several collectors" requirement (SRS Module_01
+// v1.3 FR-23, FR-10). The selectors are the ones stored on the built-in
+// host_linux / host_npu templates.
+func TestSameHostMatchesOSAndNPUSelectors(t *testing.T) {
 	gormDB := newCapabilityDB(t)
 	reader := references.NewResourceReader(gormDB)
 
-	linuxIDs := candidateIDs(t, reader, domain.MonitorTypeHostLinux)
+	linuxIDs := candidateIDs(t, reader, hostSelector("os_family", "linux"))
 	assert.ElementsMatch(t, []string{"r-npu", "r-plain"}, linuxIDs)
 
-	npuIDs := candidateIDs(t, reader, domain.MonitorTypeHostNPU)
+	npuIDs := candidateIDs(t, reader, hostSelector("has_npu", "true"))
 	assert.Equal(t, []string{"r-npu"}, npuIDs,
-		"only the host with has_npu=true may match the NPU type")
+		"only the host with has_npu=true may match the NPU selector")
 
-	winIDs := candidateIDs(t, reader, domain.MonitorTypeHostWindows)
+	winIDs := candidateIDs(t, reader, hostSelector("os_family", "windows"))
 	assert.Equal(t, []string{"r-win"}, winIDs)
 
-	// Orthogonality: the NPU host still belongs to host_linux.
+	// Orthogonality: the NPU host still belongs to the linux candidate set.
 	assert.Contains(t, linuxIDs, "r-npu")
 }
 
-// A type registered at runtime (no code change) must drive the candidate query
-// immediately (FR-21 / NFR-11).
-func TestRuntimeRegisteredTypeDrivesCandidates(t *testing.T) {
+// A selector is plain data: any dictionary field drives the candidate query
+// immediately, with no registry to install or restart (FR-22 / NFR-11).
+func TestSelectorDrivesCandidatesWithoutRegistry(t *testing.T) {
 	gormDB := newCapabilityDB(t)
-
-	custom := domain.MonitorTypeEntry{
-		Definition: domain.MonitorTypeDefinition{
-			Code:             "host_centos",
-			Name:             "CentOS 主机",
-			ResourceCategory: domain.CategoryHost,
-			RuleLogic:        domain.RuleLogicAll,
-			Enabled:          true,
-		},
-		Rules: []domain.MonitorTypeRule{{
-			Field: "os_type", Operator: domain.RuleOpEq, Values: []string{"CentOS"},
-		}},
-	}
-	entries := append(domain.BuiltinMonitorTypeEntries(), custom)
-	domain.InstallMonitorTypeRegistry(domain.NewMonitorTypeRegistry(entries))
-	t.Cleanup(domain.ResetMonitorTypeRegistry)
-
 	reader := references.NewResourceReader(gormDB)
-	assert.Equal(t, []string{"r-plain"}, candidateIDs(t, reader, "host_centos"))
+
+	assert.Equal(t, []string{"r-plain"}, candidateIDs(t, reader, hostSelector("os_type", "CentOS")))
+
+	// OR composition: NPU or GPU hosts.
+	anySelector := domain.Selector{Logic: domain.RuleLogicAny, Filters: []domain.ScopeFilter{
+		{Field: "has_npu", Operator: domain.RuleOpEq, Values: []string{"true"}},
+		{Field: "has_gpu", Operator: domain.RuleOpEq, Values: []string{"true"}},
+	}}
+	assert.Equal(t, []string{"r-npu"}, candidateIDs(t, reader, anySelector))
+
+	// An empty selector means "the whole category".
+	assert.Len(t, candidateIDs(t, reader, domain.Selector{}), 3)
 }
 
-// An unknown monitor type must fail closed instead of silently returning every
+// A M07 custom field registered at runtime must be selectable without an M01
+// code change or release (NFR-11).
+func TestCustomFieldSelectorDrivesCandidates(t *testing.T) {
+	gormDB := newCapabilityDB(t)
+	for _, stmt := range []string{
+		`INSERT INTO m07_attribute_definitions(id,attribute_key,display_name,value_type,resource_category,status)
+			VALUES ('attr-asset','asset_no','资产编号','text','host','active')`,
+		`INSERT INTO m07_resource_attributes(id,resource_id,attribute_key,value)
+			VALUES ('ra-1','r-plain','asset_no','A-1001')`,
+	} {
+		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
+		if errMsg := ""; errMsg != "" {
+			t.Fatal(errMsg)
+		}
+	}
+
+	reader := references.NewResourceReader(gormDB)
+	assert.Equal(t, []string{"r-plain"}, candidateIDs(t, reader, hostSelector("asset_no", "A-1001")))
+
+	// A key that M07 has not registered is still rejected (fail closed).
+	_, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
+		Category: domain.CategoryHost, Selector: hostSelector("unregistered_key", "x"), Page: 1, PageSize: 50,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown filter field")
+}
+
+// An unknown selector field must fail closed instead of silently returning every
 // resource of the category.
-func TestUnknownMonitorTypeIsRejected(t *testing.T) {
+func TestUnknownSelectorFieldIsRejected(t *testing.T) {
 	gormDB := newCapabilityDB(t)
 	reader := references.NewResourceReader(gormDB)
 
 	_, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
-		MonitorType: "does_not_exist", Page: 1, PageSize: 50,
+		Category: domain.CategoryHost, Selector: hostSelector("1=1 OR r.status", "online"), Page: 1, PageSize: 50,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown monitor type")
+	assert.Contains(t, err.Error(), "unknown filter field")
 }
 
-// A type may only be queried within its own resource category.
+// A selector may only be queried within the category its fields apply to.
 func TestCategoryMismatchIsRejected(t *testing.T) {
 	gormDB := newCapabilityDB(t)
 	reader := references.NewResourceReader(gormDB)
 
 	_, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
-		MonitorType: domain.MonitorTypeHostNPU,
-		Category:    domain.CategoryDatabase,
-		Page:        1, PageSize: 50,
+		Category: domain.CategoryDatabase, Selector: hostSelector("has_npu", "true"), Page: 1, PageSize: 50,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "belongs to resource category")
+	assert.Contains(t, err.Error(), "does not apply to resource category")
 }
 
-func TestCountCandidatesTracksScope(t *testing.T) {
+// Querying without a category is rejected: the category bounds the candidate
+// pool, and a selector alone does not imply it.
+func TestCategoryIsRequired(t *testing.T) {
 	gormDB := newCapabilityDB(t)
 	reader := references.NewResourceReader(gormDB)
 
-	npuCount, err := reader.CountCandidates(context.Background(), domain.MonitorTypeHostNPU)
+	_, err := reader.QueryCandidates(context.Background(), domain.CandidateQuery{
+		Selector: hostSelector("os_family", "linux"), Page: 1, PageSize: 50,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resource_category")
+}
+
+func TestCountBySelectorTracksScope(t *testing.T) {
+	gormDB := newCapabilityDB(t)
+	reader := references.NewResourceReader(gormDB)
+
+	npuCount, err := reader.CountBySelector(context.Background(), domain.CategoryHost, hostSelector("has_npu", "true"))
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), npuCount)
 
-	linuxCount, err := reader.CountCandidates(context.Background(), domain.MonitorTypeHostLinux)
+	linuxCount, err := reader.CountBySelector(context.Background(), domain.CategoryHost, hostSelector("os_family", "linux"))
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), linuxCount)
+
+	allHosts, err := reader.CountBySelector(context.Background(), domain.CategoryHost, domain.Selector{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), allHosts)
 }

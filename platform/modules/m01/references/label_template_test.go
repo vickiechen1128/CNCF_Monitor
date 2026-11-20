@@ -68,9 +68,9 @@ func TestLabelTemplateUsageChecker(t *testing.T) {
 		require.NoError(t, gormDB.Exec(
 			`INSERT INTO m07_label_templates(id,name,resource_category) VALUES (?, ?, 'host')`, id, "label-"+id).Error)
 	}
-	require.NoError(t, gormDB.Exec(`INSERT INTO m01_ci_type_exporter_mappings(
-		id,monitor_type,exporter_template_id,label_template_id
-	) VALUES ('map-1','host_linux','exp-1','lt-1')`).Error)
+	require.NoError(t, gormDB.Exec(`INSERT INTO m01_collection_templates(
+		code,name,resource_category,exporter_template_id,label_template_id
+	) VALUES ('host_linux','Linux 主机采集','host','exp-1','lt-1')`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO m01_scrape_jobs(
 		id,job_name,resource_category,network_domain_id,label_template_id
 	) VALUES ('job-1','node','host','mc-demo','lt-1')`).Error)
@@ -80,7 +80,7 @@ func TestLabelTemplateUsageChecker(t *testing.T) {
 
 	count, err := checker.CountReferences(ctx, "lt-1")
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), count, "one mapping + one job")
+	assert.Equal(t, int64(2), count, "one collection template + one job")
 
 	count, err = checker.CountReferences(ctx, "lt-2")
 	require.NoError(t, err)

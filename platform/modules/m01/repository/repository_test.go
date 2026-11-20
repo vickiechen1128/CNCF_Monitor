@@ -45,10 +45,13 @@ func newExporter(name string) *domain.ExporterTemplate {
 
 func newJob(name string) *domain.Job {
 	return &domain.Job{
-		JobName:               name,
-		JobType:               domain.JobTypeStandard,
-		ResourceCategory:      domain.CategoryHost,
-		MonitorType:           "host_linux",
+		JobName:          name,
+		JobType:          domain.JobTypeStandard,
+		ResourceCategory: domain.CategoryHost,
+		TemplateCode:     "host_linux",
+		Selector: domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+			{Field: "os_family", Operator: domain.RuleOpEq, Values: []string{"linux"}},
+		}},
 		NetworkDomainID:       "mc-demo",
 		InstanceSelectionMode: domain.SelectionManual,
 		SelectedInstanceIDs:   []string{"res-1", "res-2"},
@@ -70,14 +73,14 @@ func TestExporterTemplateRepository(t *testing.T) {
 	ctx := context.Background()
 
 	template := newExporter("custom-exporter")
-	template.SupportedMonitorTypes = []string{"host_linux"}
 	require.NoError(t, repo.Create(ctx, template))
 	assert.NotEmpty(t, template.ID)
 	assert.False(t, template.CreatedAt.IsZero())
 
 	got, err := repo.Get(ctx, template.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"host_linux"}, got.SupportedMonitorTypes)
+	assert.Equal(t, "custom-exporter", got.Name)
+	assert.Equal(t, domain.ExporterThirdParty, got.Source)
 
 	byName, err := repo.GetByName(ctx, "custom-exporter")
 	require.NoError(t, err)
@@ -106,68 +109,156 @@ func TestExporterTemplateRepository(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-func TestMappingRepository(t *testing.T) {
-	gormDB := openTestDB(t)
-	exporters := NewExporterTemplateRepository(gormDB)
-	mappings := NewMappingRepository(gormDB)
-	ctx := context.Background()
-
-	node := newExporter("node-exporter")
-	require.NoError(t, exporters.Create(ctx, node))
-	other := newExporter("other-exporter")
-	require.NoError(t, exporters.Create(ctx, other))
-
-	mapping := &domain.Mapping{
-		MonitorType:        "host_linux",
-		ExporterTemplateID: node.ID,
-		IsDefault:          true,
+func newCollectionTemplate(code, exporterID string) *domain.CollectionTemplate {
+	return &domain.CollectionTemplate{
+		Code:               code,
+		Name:               "Linux 主机采集",
+		ResourceCategory:   domain.CategoryHost,
+		ExporterTemplateID: exporterID,
 		DefaultPort:        9100,
 		MetricsPath:        "/metrics",
 		Scheme:             domain.SchemeHTTP,
 		ScrapeInterval:     "15s",
 		ScrapeTimeout:      "10s",
+		DefaultSelector: domain.Selector{Logic: domain.RuleLogicAll, Filters: []domain.ScopeFilter{
+			{Field: "os_family", Operator: domain.RuleOpEq, Values: []string{"linux"}},
+		}},
+		Description: "测试模板",
+		SortOrder:   10,
+		Enabled:     true,
+		IsBuiltin:   true,
 	}
-	require.NoError(t, mappings.Create(ctx, mapping))
-	assert.NotEmpty(t, mapping.ID)
+}
 
-	hasDefault, err := mappings.HasDefault(ctx, "host_linux", "")
+// The retired mapping repository persisted "monitor type → exporter + default
+// parameters"; a collection template now carries the same recipe plus the
+// wizard prefill selector (SRS Module_01 v1.5 FR-21 / FR-24).
+func TestCollectionTemplateRepository(t *testing.T) {
+	gormDB := openTestDB(t)
+	exporters := NewExporterTemplateRepository(gormDB)
+	templates := NewCollectionTemplateRepository(gormDB)
+	ctx := context.Background()
+
+	node := newExporter("node-exporter")
+	require.NoError(t, exporters.Create(ctx, node))
+
+	template := newCollectionTemplate("host_linux", node.ID)
+	require.NoError(t, templates.Create(ctx, template))
+	assert.False(t, template.CreatedAt.IsZero())
+
+	got, err := templates.Get(ctx, "host_linux")
 	require.NoError(t, err)
-	assert.True(t, hasDefault)
+	assert.Equal(t, node.ID, got.ExporterTemplateID)
+	assert.Equal(t, 9100, got.DefaultPort)
+	require.Len(t, got.DefaultSelector.Filters, 1)
+	assert.Equal(t, "os_family", got.DefaultSelector.Filters[0].Field)
+	assert.Equal(t, []string{"linux"}, got.DefaultSelector.Filters[0].Values)
+	assert.Equal(t, domain.RuleLogicAll, got.DefaultSelector.Logic)
 
-	found, ok, err := mappings.FindByMonitorTypeAndExporter(ctx, "host_linux", node.ID)
+	found, ok, err := templates.Find(ctx, "host_linux")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, mapping.ID, found.ID)
+	assert.Equal(t, "host_linux", found.Code)
 
-	second := &domain.Mapping{
-		MonitorType:        "host_linux",
-		ExporterTemplateID: other.ID,
-		IsDefault:          true,
-		MetricsPath:        "/metrics",
-		Scheme:             domain.SchemeHTTP,
-		ScrapeInterval:     "15s",
-		ScrapeTimeout:      "10s",
-	}
-	err = mappings.Create(ctx, second)
-	var conflict *domain.ConflictError
-	require.ErrorAs(t, err, &conflict, "a monitor type may have only one default")
-
-	count, err := mappings.CountByExporterTemplate(ctx, node.ID)
+	missing, ok, err := templates.Find(ctx, "nope")
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), count)
+	assert.False(t, ok)
+	assert.Nil(t, missing)
+	_, err = templates.Get(ctx, "nope")
+	assertNotFound(t, err)
 
-	// label_template_id is now a real FK to m07_label_templates(id).
+	// Duplicate code is a contract-level conflict.
+	require.Error(t, templates.Create(ctx, newCollectionTemplate("host_linux", node.ID)))
+
+	windows := newCollectionTemplate("host_windows", node.ID)
+	windows.Name = "Windows 主机采集"
+	windows.DefaultPort = 9182
+	require.NoError(t, templates.Create(ctx, windows))
+
+	mysql := newCollectionTemplate("mysql", node.ID)
+	mysql.Name = "MySQL 采集"
+	mysql.ResourceCategory = domain.CategoryDatabase
+	mysql.Enabled = false
+	require.NoError(t, templates.Create(ctx, mysql))
+
+	list, total, err := templates.List(ctx, TemplateFilter{ResourceCategory: "host"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, list, 2)
+
+	disabled := false
+	_, total, err = templates.List(ctx, TemplateFilter{Enabled: &disabled})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total, "disabled templates are filterable, not hidden")
+
+	_, total, err = templates.List(ctx, TemplateFilter{Keyword: "mysql"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total, "keyword matches code or name")
+
+	page, total, err := templates.List(ctx, TemplateFilter{Page: 1, PageSize: 1})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, page, 1)
+
+	// Update replaces mutable fields; the code stays immutable.
+	got.Name = "Linux 主机采集 v2"
+	got.DefaultPort = 9101
+	got.Enabled = false
+	require.NoError(t, templates.Update(ctx, got))
+	reloaded, err := templates.Get(ctx, "host_linux")
+	require.NoError(t, err)
+	assert.Equal(t, "Linux 主机采集 v2", reloaded.Name)
+	assert.Equal(t, 9101, reloaded.DefaultPort)
+	assert.False(t, reloaded.Enabled)
+
+	assertNotFound(t, templates.Update(ctx, newCollectionTemplate("does_not_exist", node.ID)))
+
+	// label_template_id is a real FK to m07_label_templates(id).
 	require.NoError(t, gormDB.Exec(
 		`INSERT INTO m07_label_templates(id,name,resource_category) VALUES ('lt-1','节点标签模板','host')`).Error)
-	found.LabelTemplateID = "lt-1"
-	require.NoError(t, mappings.Update(ctx, found))
-	reloaded, err := mappings.Get(ctx, found.ID)
+	reloaded.LabelTemplateID = "lt-1"
+	require.NoError(t, templates.Update(ctx, reloaded))
+	withLabel, err := templates.Get(ctx, "host_linux")
 	require.NoError(t, err)
-	assert.Equal(t, "lt-1", reloaded.LabelTemplateID)
+	assert.Equal(t, "lt-1", withLabel.LabelTemplateID)
 
-	require.NoError(t, mappings.SoftDelete(ctx, mapping.ID))
-	_, err = mappings.Get(ctx, mapping.ID)
+	// Reference counters back the exporter/label guards and the delete pre-flight.
+	byExporter, err := templates.CountByExporterTemplate(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), byExporter)
+
+	byLabel, err := templates.CountByLabelTemplate(ctx, "lt-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), byLabel)
+	emptyLabel, err := templates.CountByLabelTemplate(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), emptyLabel)
+
+	jobs := NewJobRepository(gormDB)
+	require.NoError(t, jobs.Create(ctx, newJob("node-prod")))
+
+	metrics := NewMetricRepository(gormDB)
+	require.NoError(t, metrics.Create(ctx, &domain.Metric{
+		MetricName:          "node_cpu_usage",
+		MetricType:          domain.MetricGauge,
+		CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "host_linux", SourceExporter: "node-exporter"}},
+		Enabled:             true,
+	}))
+
+	counts, err := templates.CountReferences(ctx, "host_linux")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), counts.Jobs)
+	assert.Equal(t, int64(1), counts.MetricAnchors)
+	assert.Equal(t, int64(2), counts.Total())
+
+	unreferenced, err := templates.CountReferences(ctx, "host_windows")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), unreferenced.Total(), "a quoted LIKE must not match a prefix")
+
+	require.NoError(t, templates.SoftDelete(ctx, "mysql"))
+	_, err = templates.Get(ctx, "mysql")
 	assertNotFound(t, err)
+	assertNotFound(t, templates.SoftDelete(ctx, "mysql"))
 }
 
 func TestJobRepository(t *testing.T) {
@@ -272,12 +363,12 @@ func TestMetricRepository(t *testing.T) {
 	ctx := context.Background()
 
 	builtin := &domain.Metric{
-		MetricName:   "node_cpu_usage",
-		MetricType:   domain.MetricGauge,
-		MonitorTypes: []domain.MetricAnchor{{MonitorType: "host_linux", SourceExporter: "node-exporter"}},
-		Category:     "cpu",
-		IsBuiltin:    true,
-		Enabled:      true,
+		MetricName:          "node_cpu_usage",
+		MetricType:          domain.MetricGauge,
+		CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "host_linux", SourceExporter: "node-exporter"}},
+		Category:            "cpu",
+		IsBuiltin:           true,
+		Enabled:             true,
 	}
 	require.NoError(t, repo.Create(ctx, builtin))
 
@@ -309,38 +400,40 @@ func TestMetricRepository(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-func TestMetricRepositoryMonitorTypeAndResourceCategoryFilters(t *testing.T) {
+// Anchors are (metric, collection template) pairs: the same metric may serve
+// several recipes, and a template filter must match it exactly once.
+func TestMetricRepositoryTemplateAnchorFilters(t *testing.T) {
 	gormDB := openTestDB(t)
 	repo := NewMetricRepository(gormDB)
 	ctx := context.Background()
 
 	metrics := []*domain.Metric{
 		{
-			MetricName:   "host_cpu_usage",
-			MetricType:   domain.MetricGauge,
-			MonitorTypes: []domain.MetricAnchor{{MonitorType: "host_linux", SourceExporter: "node-exporter"}},
-			Enabled:      true,
+			MetricName:          "host_cpu_usage",
+			MetricType:          domain.MetricGauge,
+			CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "host_linux", SourceExporter: "node-exporter"}},
+			Enabled:             true,
 		},
 		{
-			MetricName:   "windows_cpu_usage",
-			MetricType:   domain.MetricGauge,
-			MonitorTypes: []domain.MetricAnchor{{MonitorType: "host_windows", SourceExporter: "windows-exporter"}},
-			Enabled:      true,
+			MetricName:          "windows_cpu_usage",
+			MetricType:          domain.MetricGauge,
+			CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "host_windows", SourceExporter: "windows-exporter"}},
+			Enabled:             true,
 		},
 		{
-			MetricName:   "mysql_connections",
-			MetricType:   domain.MetricGauge,
-			MonitorTypes: []domain.MetricAnchor{{MonitorType: "mysql", SourceExporter: "mysqld-exporter"}},
-			Enabled:      true,
+			MetricName:          "mysql_connections",
+			MetricType:          domain.MetricGauge,
+			CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "mysql", SourceExporter: "mysqld-exporter"}},
+			Enabled:             true,
 		},
 		{
-			// Multi-anchor metric must match either of its monitor types and is
-			// counted once even when several anchors fall in the same category.
+			// Multi-anchor metric must match either template and is counted once
+			// even when both anchors are hit by the same filter.
 			MetricName: "shared_requests_total",
 			MetricType: domain.MetricCounter,
-			MonitorTypes: []domain.MetricAnchor{
-				{MonitorType: "host_linux", SourceExporter: "node-exporter"},
-				{MonitorType: "application_http", SourceExporter: "app-exporter"},
+			CollectionTemplates: []domain.MetricAnchor{
+				{TemplateCode: "host_linux", SourceExporter: "node-exporter"},
+				{TemplateCode: "host_linux", SourceExporter: "custom-exporter"},
 			},
 			Enabled: true,
 		},
@@ -356,55 +449,32 @@ func TestMetricRepositoryMonitorTypeAndResourceCategoryFilters(t *testing.T) {
 		names  []string
 	}{
 		{
-			name:   "monitor type matches one anchor",
-			filter: MetricFilter{MonitorType: "mysql"},
+			name:   "template code matches one anchor",
+			filter: MetricFilter{TemplateCode: "mysql"},
 			total:  1,
 			names:  []string{"mysql_connections"},
 		},
 		{
-			name:   "monitor type matches multi-anchor metric once",
-			filter: MetricFilter{MonitorType: "host_linux"},
+			name:   "template code matches multi-anchor metric once",
+			filter: MetricFilter{TemplateCode: "host_linux"},
 			total:  2,
 			names:  []string{"host_cpu_usage", "shared_requests_total"},
 		},
 		{
-			name:   "resource category expands to host monitor types",
-			filter: MetricFilter{ResourceCategory: domain.CategoryHost},
-			total:  3,
-			names:  []string{"host_cpu_usage", "shared_requests_total", "windows_cpu_usage"},
+			name:   "unknown template code matches nothing",
+			filter: MetricFilter{TemplateCode: "does_not_exist"},
+			total:  0,
 		},
 		{
-			name:   "resource category expands to database monitor types",
-			filter: MetricFilter{ResourceCategory: domain.CategoryDatabase},
-			total:  1,
-			names:  []string{"mysql_connections"},
-		},
-		{
-			name:   "monitor type and resource category combine with AND",
-			filter: MetricFilter{MonitorType: "host_linux", ResourceCategory: domain.CategoryApplication},
+			name:   "template code and metric type combine with AND",
+			filter: MetricFilter{TemplateCode: "host_linux", MetricType: domain.MetricCounter},
 			total:  1,
 			names:  []string{"shared_requests_total"},
-		},
-		{
-			name:   "mismatched monitor type and resource category",
-			filter: MetricFilter{MonitorType: "mysql", ResourceCategory: domain.CategoryHost},
-			total:  0,
-		},
-		{
-			name:   "category without monitor types matches nothing",
-			filter: MetricFilter{ResourceCategory: domain.CategoryInterfaceService},
-			total:  0,
-		},
-		{
-			name:   "unknown resource category matches nothing",
-			filter: MetricFilter{ResourceCategory: "unknown"},
-			total:  0,
 		},
 		{
 			name:   "semantic category filter stays independent",
-			filter: MetricFilter{ResourceCategory: domain.CategoryHost, MetricType: domain.MetricCounter},
-			total:  1,
-			names:  []string{"shared_requests_total"},
+			filter: MetricFilter{TemplateCode: "host_linux", Category: "custom"},
+			total:  0,
 		},
 	}
 	for _, tc := range cases {
@@ -423,6 +493,38 @@ func TestMetricRepositoryMonitorTypeAndResourceCategoryFilters(t *testing.T) {
 			assert.ElementsMatch(t, tc.names, names)
 		})
 	}
+}
+
+// (metric_name, template_code) uniqueness backs the 409 on user re-registration.
+func TestMetricRepositoryAnchorConflict(t *testing.T) {
+	gormDB := openTestDB(t)
+	repo := NewMetricRepository(gormDB)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Create(ctx, &domain.Metric{
+		MetricName:          "shared_total",
+		MetricType:          domain.MetricCounter,
+		CollectionTemplates: []domain.MetricAnchor{{TemplateCode: "host_linux"}},
+		Enabled:             true,
+	}))
+
+	conflict, err := repo.HasAnchorConflict(ctx, "shared_total", []string{"host_linux"}, "")
+	require.NoError(t, err)
+	assert.True(t, conflict, "same name under the same template conflicts")
+
+	conflict, err = repo.HasAnchorConflict(ctx, "shared_total", []string{"mysql"}, "")
+	require.NoError(t, err)
+	assert.False(t, conflict, "the same name under another template is allowed")
+
+	conflict, err = repo.HasAnchorConflict(ctx, "shared_total", nil, "")
+	require.NoError(t, err)
+	assert.False(t, conflict, "no anchor means no conflict")
+
+	var firstID string
+	require.NoError(t, gormDB.Table("m01_metric_library").Select("id").Where("metric_name = ?", "shared_total").Scan(&firstID).Error)
+	conflict, err = repo.HasAnchorConflict(ctx, "shared_total", []string{"host_linux"}, firstID)
+	require.NoError(t, err)
+	assert.False(t, conflict, "the row itself is excluded from the check")
 }
 
 func TestBusinessMetricRepository(t *testing.T) {
@@ -568,7 +670,7 @@ func TestJobGroupIDRoundTrip(t *testing.T) {
 		Name:             "主机基础采集",
 		JobType:          domain.JobTypeStandard,
 		ResourceCategory: domain.CategoryHost,
-		MonitorType:      "host_linux",
+		TemplateCode:     "host_linux",
 		ScrapeInterval:   "15s",
 		ScrapeTimeout:    "10s",
 		MetricsPath:      "/metrics",
@@ -605,7 +707,7 @@ func TestJobGroupRepository(t *testing.T) {
 		Name:             "数据库基础采集",
 		JobType:          domain.JobTypeStandard,
 		ResourceCategory: domain.CategoryDatabase,
-		MonitorType:      "mysql",
+		TemplateCode:     "mysql",
 		ScrapeInterval:   "30s",
 		ScrapeTimeout:    "10s",
 		MetricsPath:      "/metrics",

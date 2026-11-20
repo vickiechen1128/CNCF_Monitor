@@ -78,13 +78,27 @@ func TestValidateMetricsPathAndPort(t *testing.T) {
 	assert.Error(t, ValidatePort(70000))
 }
 
-func TestMonitorTypeHelpers(t *testing.T) {
-	assert.True(t, ValidMonitorType("host_linux"))
-	assert.True(t, ValidMonitorType("host_npu"))
-	assert.False(t, ValidMonitorType("unknown"))
-	assert.False(t, ValidMonitorType(""))
+// The retired "monitor object type" registry was replaced by the collection
+// template catalogue: a code is either a seeded template row or a user-defined
+// one whose shape is checked by ValidateCollectionTemplateCode.
+func TestCollectionTemplateCodeHelpers(t *testing.T) {
+	for _, code := range []string{TemplateHostLinux, TemplateHostNPU, TemplateMySQL} {
+		template, ok := BuiltinCollectionTemplate(code)
+		require.True(t, ok, code)
+		assert.Equal(t, code, template.Code)
+		assert.True(t, template.IsBuiltin)
+	}
 
-	assert.True(t, ExporterSupportsMonitorType("host_linux", nil), "empty supported list means any")
-	assert.True(t, ExporterSupportsMonitorType("host_linux", []string{"host_linux", "host_windows"}))
-	assert.False(t, ExporterSupportsMonitorType("mysql", []string{"host_linux"}))
+	_, ok := BuiltinCollectionTemplate("unknown")
+	assert.False(t, ok)
+	_, ok = BuiltinCollectionTemplate("")
+	assert.False(t, ok)
+
+	// A user-defined template code only has to satisfy the immutable shape; the
+	// catalogue itself is data, so an unknown code is a repository lookup miss.
+	assert.NoError(t, ValidateCollectionTemplateCode("host_dpu"))
+	assert.NoError(t, ValidateCollectionTemplateCode(" mysql "))
+	assert.Error(t, ValidateCollectionTemplateCode(""))
+	assert.Error(t, ValidateCollectionTemplateCode("Host_DPU"))
+	assert.Error(t, ValidateCollectionTemplateCode("host-dpu"))
 }

@@ -45,10 +45,11 @@ func TestJobTenantScopeEnforced(t *testing.T) {
 		"mc-b": {ID: "mc-b", Name: "域B", Status: "enabled", DomainType: "edge", RegistrationStatus: "monitored",
 			TenantID: "platform_admin", AuthorizedTenantIDs: []string{"platform_admin"}},
 	}}
+	seedNodeTemplate(t, gormDB)
 	jobSvc := NewJobService(
 		repository.NewJobRepository(gormDB),
 		repository.NewExporterTemplateRepository(gormDB),
-		repository.NewMappingRepository(gormDB),
+		newTemplateService(gormDB),
 		repository.NewProbeModuleRepository(gormDB),
 		repository.NewInstallationRepository(gormDB),
 		resources, domains, nil,
@@ -57,7 +58,7 @@ func TestJobTenantScopeEnforced(t *testing.T) {
 	job := func(name, domainID, resourceID string) *domain.Job {
 		return &domain.Job{
 			JobName: name, JobType: domain.JobTypeStandard,
-			ResourceCategory: domain.CategoryHost, MonitorType: "host_linux",
+			ResourceCategory: domain.CategoryHost, TemplateCode: "host_linux",
 			NetworkDomainID: domainID, SelectedInstanceIDs: []string{resourceID},
 		}
 	}
