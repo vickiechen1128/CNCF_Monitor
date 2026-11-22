@@ -118,11 +118,26 @@ SET selector = COALESCE((
   JOIN m01_monitor_types mt ON mt.code = r.monitor_type_code
   WHERE r.monitor_type_code = j.template_code
     AND r.deleted_at IS NULL
+  -- json_agg 使子查询成为聚合查询；PostgreSQL 要求非聚合列显式分组
+  -- （SQLite 允许裸列，故 sqlite 变体无此 GROUP BY）。
+  GROUP BY mt.rule_logic
 ), '{"logic":"all","filters":[]}')
 WHERE j.template_code <> '';
 CREATE INDEX IF NOT EXISTS idx_m01_scrape_jobs_template
   ON m01_scrape_jobs(template_code);
 ALTER TABLE m01_scrape_jobs DROP COLUMN IF EXISTS monitor_type;
+
+-- 3) 任务组：selector 继承子 Job 的取值，monitor_type → template_code
+ALTER TABLE m01_job_groups ADD COLUMN IF NOT EXISTS selector TEXT NOT NULL DEFAULT '{"logic":"all","filters":[]}';
+UPDATE m01_job_groups g
+SET selector = COALESCE((
+  SELECT j.selector FROM m01_scrape_jobs j
+  WHERE j.job_group_id = g.id
+  ORDER BY j.id LIMIT 1
+), '{"logic":"all","filters":[]}');
+ALTER TABLE m01_job_groups ADD COLUMN IF NOT EXISTS template_code TEXT NOT NULL DEFAULT '';
+UPDATE m01_job_groups SET template_code = monitor_type WHERE monitor_type <> '';
+ALTER TABLE m01_job_groups DROP COLUMN IF EXISTS monitor_type;
 
 
 ALTER TABLE m01_monitoring_rules ADD COLUMN IF NOT EXISTS template_code TEXT NOT NULL DEFAULT '';
@@ -130,8 +145,9 @@ UPDATE m01_monitoring_rules SET template_code = monitor_type WHERE monitor_type 
 ALTER TABLE m01_monitoring_rules DROP COLUMN IF EXISTS monitor_type;
 
 ALTER TABLE m01_metric_library RENAME COLUMN monitor_types TO collection_templates;
+-- 该列为 jsonb（SQLite 变体为 TEXT），replace() 需先转 text 再转回。
 UPDATE m01_metric_library
-SET collection_templates = replace(collection_templates, '"monitor_type"', '"template_code"');
+SET collection_templates = replace(collection_templates::text, '"monitor_type"', '"template_code"')::jsonb;
 
 ALTER TABLE m01_exporter_templates DROP COLUMN IF EXISTS supported_monitor_types;
 
@@ -160,7 +176,7 @@ ALTER TABLE m01_exporter_templates ADD COLUMN IF NOT EXISTS supported_monitor_ty
 
 ALTER TABLE m01_metric_library RENAME COLUMN collection_templates TO monitor_types;
 UPDATE m01_metric_library
-SET monitor_types = replace(monitor_types, '"template_code"', '"monitor_type"');
+SET monitor_types = replace(monitor_types::text, '"template_code"', '"monitor_type"')::jsonb;
 
 CREATE TABLE IF NOT EXISTS m01_ci_type_exporter_mappings (
   id TEXT PRIMARY KEY,
