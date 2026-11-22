@@ -5,16 +5,14 @@
 // replayable on an empty database. New v2.0 schema changes live in
 // `migrations/v3/`.
 //
-// The runner is deliberately small and supports PostgreSQL (v3 production)
-// and SQLite (tests only; the driver is registered by test files, never by a
-// production build). It understands the `-- +goose Up` / `-- +goose Down`
-// markers used by the migration files, so the files stay compatible with goose
-// if the project adopts it later.
+// The runner is deliberately small and supports PostgreSQL only. It
+// understands the `-- +goose Up` / `-- +goose Down` markers used by the
+// migration files, so the files stay compatible with goose if the project
+// adopts it later.
 //
-// Dialect-specific files use a `<version>_<name>.<dialect>.sql` suffix
-// (`.sqlite.sql` / `.postgres.sql`) and are only loaded for that driver. This
-// keeps DB-specific DDL (e.g. auto-increment primary keys) explicit instead of
-// hiding dialect branches inside one file.
+// PostgreSQL-specific files use a `<version>_<name>.postgres.sql` suffix;
+// dialect-neutral files use `<version>_<name>.sql`. There is no SQLite path:
+// tests run on PostgreSQL so schema drift shows up before production.
 package db
 
 import (
@@ -62,20 +60,6 @@ type MigrationStatus struct {
 	ChecksumMismatch bool       `json:"checksum_mismatch"`
 }
 
-func sqliteDSNWithForeignKeys(dsn string) string {
-	// Idempotent: callers (e.g. tests) may already enable the pragma in the DSN.
-	// Appending a second "_foreign_keys" parameter is tolerated by the driver
-	// but makes the effective value depend on parameter order, so skip it.
-	if strings.Contains(dsn, "_foreign_keys") {
-		return dsn
-	}
-	separator := "?"
-	if strings.Contains(dsn, "?") {
-		separator = "&"
-	}
-	return dsn + separator + "_foreign_keys=on"
-}
-
 // postgresDSNSimpleProtocol forces pgx to use the simple query protocol.
 //
 // The migration runner applies each file's entire Up/Down section in a single
@@ -105,33 +89,18 @@ func sqlLiteral(s string) string {
 }
 
 func openMigrationDB(driver, dsn string) (*sql.DB, error) {
-	switch driver {
-	case "sqlite":
-		sqlDB, err := sql.Open("sqlite3", sqliteDSNWithForeignKeys(dsn))
-		if err != nil {
-			return nil, fmt.Errorf("open sqlite for migration: %w", err)
-		}
-		// SQLite in-memory DSNs are per-connection unless shared; one connection also
-		// avoids lock surprises while applying multiple statements.
-		sqlDB.SetMaxOpenConns(1)
-		if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
-			_ = sqlDB.Close()
-			return nil, fmt.Errorf("enable sqlite foreign_keys: %w", err)
-		}
-		return sqlDB, nil
-	case "postgres":
-		sqlDB, err := sql.Open("pgx", postgresDSNSimpleProtocol(dsn))
-		if err != nil {
-			return nil, fmt.Errorf("open postgres for migration: %w", err)
-		}
-		if err := sqlDB.Ping(); err != nil {
-			_ = sqlDB.Close()
-			return nil, fmt.Errorf("ping postgres for migration: %w", err)
-		}
-		return sqlDB, nil
-	default:
-		return nil, fmt.Errorf("unsupported migration driver %q (want sqlite or postgres)", driver)
+	if driver != "postgres" {
+		return nil, fmt.Errorf("unsupported migration driver %q (only postgres is supported)", driver)
 	}
+	sqlDB, err := sql.Open("pgx", postgresDSNSimpleProtocol(dsn))
+	if err != nil {
+		return nil, fmt.Errorf("open postgres for migration: %w", err)
+	}
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("ping postgres for migration: %w", err)
+	}
+	return sqlDB, nil
 }
 
 func loadV3Migrations(driver string) ([]migration, error) {
@@ -176,21 +145,18 @@ func loadV3Migrations(driver string) ([]migration, error) {
 	return out, nil
 }
 
-// parseMigrationName parses `<version>_<name>.sql` and the dialect-specific
-// `<version>_<name>.<dialect>.sql` form. ok is false when the file belongs to a
-// different dialect.
+// parseMigrationName parses `<version>_<name>.sql` and the
+// `<version>_<name>.postgres.sql` form. A `.sqlite.sql` suffix is rejected: the
+// SQLite dialect was removed, so such a file would silently never run.
 func parseMigrationName(filename, driver string) (version int64, name string, ok bool, err error) {
-	base := strings.TrimSuffix(filename, ".sql")
-	for _, dialect := range []string{"sqlite", "postgres"} {
-		suffix := "." + dialect
-		if strings.HasSuffix(base, suffix) {
-			if driver != dialect {
-				return 0, "", false, nil
-			}
-			base = strings.TrimSuffix(base, suffix)
-			break
-		}
+	if driver != "postgres" {
+		return 0, "", false, fmt.Errorf("unsupported migration driver %q (only postgres is supported)", driver)
 	}
+	base := strings.TrimSuffix(filename, ".sql")
+	if strings.HasSuffix(base, ".sqlite") {
+		return 0, "", false, fmt.Errorf("sqlite dialect migrations are no longer supported (%s)", filename)
+	}
+	base = strings.TrimSuffix(base, ".postgres")
 	parts := strings.SplitN(base, "_", 2)
 	if len(parts) != 2 {
 		return 0, "", false, fmt.Errorf("invalid migration filename %q (want <version>_<name>.sql)", filename)
@@ -254,21 +220,16 @@ func ensureMigrationTable(sqlDB *sql.DB, driver string) error {
 }
 
 func migrationChecksumColumnExists(sqlDB *sql.DB, driver string) (bool, error) {
-	var count int
-	var err error
-	switch driver {
-	case "sqlite":
-		err = sqlDB.QueryRow(
-			`SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name = 'checksum'`,
-		).Scan(&count)
-	case "postgres":
-		err = sqlDB.QueryRow(
-			`SELECT count(*) FROM information_schema.columns
-			 WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'checksum'`,
-		).Scan(&count)
-	default:
-		return false, fmt.Errorf("unsupported migration driver %q", driver)
+	if driver != "postgres" {
+		return false, fmt.Errorf("unsupported migration driver %q (only postgres is supported)", driver)
 	}
+	var count int
+	// current_schema() (not 'public') so the probe follows search_path: tests
+	// and callers can run migrations inside an isolated schema.
+	err := sqlDB.QueryRow(
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_schema = current_schema() AND table_name = 'schema_migrations' AND column_name = 'checksum'`,
+	).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("inspect schema_migrations checksum column: %w", err)
 	}

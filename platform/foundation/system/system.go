@@ -29,7 +29,7 @@ const readinessTimeout = 2 * time.Second
 
 // Options configures the system module metadata.
 type Options struct {
-	// Driver is the configured database driver (sqlite / postgres).
+	// Driver is the configured database driver (postgres).
 	Driver string
 	// Modules returns the registered module names. It is called lazily so the
 	// value reflects the final registry contents.

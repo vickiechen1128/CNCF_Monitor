@@ -1,8 +1,8 @@
 // metric-center 是 MetricCenter 控制面的主程序入口。
 //
-// v2.0 rewrite 起生产二进制只提供 v3-only 入口：legacy v2 路由、后台任务与
-// SQLite 驱动均不参与编译。--database.mode 仅为兼容旧启动脚本保留，取值
-// 为空或 v3 时直接使用 v3 入口；其余取值记录警告后同样走 v3。
+// v2.0 rewrite 起生产二进制只提供 v3-only 入口：legacy v2 路由与后台任务均不
+// 参与编译，元数据库为 PostgreSQL。--database.mode 仅为兼容旧启动脚本保留，
+// 取值为空或 v3 时直接使用 v3 入口；其余取值记录警告后同样走 v3。
 package main
 
 import (

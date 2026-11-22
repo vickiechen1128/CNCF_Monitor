@@ -1,22 +1,18 @@
-// Package db manages database connections and migrations for MetricCenter.
-//
-// The v3 line targets PostgreSQL in production and keeps SQLite for local
-// development and fast tests.
+// Package db manages PostgreSQL connections and v3 migrations for MetricCenter.
 package db
 
 import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 const (
-	// defaultDriver is PostgreSQL: the production binary never links the
-	// SQLite driver. SQLite remains available to tests only (see
-	// sqlite_test_support_test.go), which inject a dialector factory.
+	// defaultDriver is PostgreSQL: it is the only supported database.
 	defaultDriver = "postgres"
 
 	// PostgreSQL connection defaults. Everything except the database name is a
@@ -31,16 +27,18 @@ const (
 	defaultDBSSLMode  = "disable"
 )
 
-// sqliteDialectorFactory is injected by test-only code so the runtime package
-// does not import gorm.io/driver/sqlite. It is nil in every production build.
-var sqliteDialectorFactory func(dsn string) gorm.Dialector
+// utcNow keeps GORM-managed timestamps (created_at / updated_at) in UTC.
+// The v3 schema uses TIMESTAMP WITHOUT TIME ZONE; writing a local time there
+// makes the value shift by the server's UTC offset when it is read back (pgx
+// interprets timestamp columns as UTC).
+func utcNow() time.Time { return time.Now().UTC() }
 
 // DB is the package-level GORM database handle. It is initialized by InitV3.
 var DB *gorm.DB
 
 // DBDriver returns the configured database driver.
 //
-// Supported values: postgres (default, pgsql alias) and sqlite (tests only).
+// Supported values: postgres (default, pgsql alias).
 func DBDriver() string {
 	driver := strings.ToLower(strings.TrimSpace(os.Getenv("METRIC_CENTER_DB_DRIVER")))
 	if driver == "" {
@@ -86,26 +84,12 @@ func DSN() string {
 	return fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=%s", userinfo, host, port, name, sslmode)
 }
 
-// OpenDB opens a GORM connection for the given driver.
-//
-// The sqlite branch exists only so the (unchanged) legacy tests can still boot
-// in-memory databases. It is unreachable in production: no production file
-// injects sqliteDialectorFactory, so requesting sqlite there returns an error
-// and, more importantly, the production dependency graph contains no sqlite.
+// OpenDB opens a GORM connection (PostgreSQL only).
 func OpenDB(driver, dsn string) (*gorm.DB, error) {
-	switch driver {
-	case "sqlite":
-		if sqliteDialectorFactory == nil {
-			return nil, fmt.Errorf("sqlite driver is test-only; use postgres in production builds")
-		}
-		// V3 migrations declare FOREIGN KEY constraints; the test-only factory
-		// applies the same _foreign_keys pragma as the migration runner.
-		return gorm.Open(sqliteDialectorFactory(dsn), &gorm.Config{})
-	case "postgres":
-		return gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	default:
-		return nil, fmt.Errorf("unsupported database driver %q (want sqlite or postgres)", driver)
+	if driver != "postgres" {
+		return nil, fmt.Errorf("unsupported database driver %q (only postgres is supported)", driver)
 	}
+	return gorm.Open(postgres.Open(dsn), &gorm.Config{NowFunc: utcNow})
 }
 
 // InitV3 opens the v3 database and applies versioned migrations.

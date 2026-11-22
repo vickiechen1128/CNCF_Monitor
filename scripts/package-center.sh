@@ -4,7 +4,7 @@
 # 产物结构（参考 docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md）：
 #   metric-center-bundle-<os>-<arch>-<timestamp>/
 #   ├── bin/
-#   │   ├── metric-center          # 控制面二进制（CGO，依赖平台）
+#   │   ├── metric-center          # 控制面二进制（纯 Go，可跨平台交叉编译）
 #   │   ├── prometheus             # 上游 Prometheus 二进制
 #   │   ├── promtool               # 常驻：M09 草稿校验依赖（exec.LookPath("promtool")）
 #   │   └── amtool                 # WITH_ALERTMANAGER 时随包：M08 AM 配置校验依赖
@@ -188,13 +188,6 @@ ensure_toolchain() {
         echo ">>> pnpm missing, running: make install-node install-pnpm"
         make -C "$PROJECT_ROOT" install-node install-pnpm
     fi
-    if [ "$IS_CROSS" -eq 1 ] && ! command -v zig >/dev/null 2>&1; then
-        echo ">>> ERROR: cross-compilation requires zig as the C compiler for CGO."
-        echo "    macOS:   brew install zig"
-        echo "    Ubuntu:  snap install zig --classic"
-        echo "    或访问:   https://ziglang.org/download/"
-        exit 1
-    fi
 }
 
 build_metric_center() {
@@ -203,21 +196,9 @@ build_metric_center() {
         make -C "$PROJECT_ROOT" build-metric-center
     else
         cd "$PROJECT_ROOT"
-        # mattn/go-sqlite3 依赖 CGO；使用 zig 作为交叉 C 工具链。
-        # Go 架构名与 zig target 名不一致，必须显式映射：
-        #   amd64 → x86_64、arm64 → aarch64（zig 只认后者，arm64-linux-gnu 会直接报
-        #   "unknown target"）。麒麟 V10 / aarch64 交付包依赖此映射。
-        local zig_arch
-        case "$TARGET_ARCH" in
-            amd64) zig_arch="x86_64" ;;
-            arm64) zig_arch="aarch64" ;;
-            *) zig_arch="$TARGET_ARCH" ;;
-        esac
-        local zig_target="${zig_arch}-${TARGET_OS}-gnu"
-        CC="zig cc -target $zig_target" \
-        CXX="zig c++ -target $zig_target" \
-        CGO_ENABLED=1 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
-            "$GO_BIN" build -o "$(bin_src metric-center)" ./platform/cmd/metric-center
+        # 控制面为纯 Go（PostgreSQL 驱动），可 CGO_ENABLED=0 交叉编译，无需 zig。
+        CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+            "$GO_BIN" build -trimpath -o "$(bin_src metric-center)" ./platform/cmd/metric-center
     fi
 }
 
@@ -405,10 +386,9 @@ EOF
     cp "$PROJECT_ROOT/deploy/prometheus/prometheus.yml" "$BUNDLE_DIR/config/prometheus.yml.example"
     cat > "$BUNDLE_DIR/config/metric-center.yml" <<EOF
 # MetricCenter 控制面示例配置（MVP）
-# 实际运行以 start.sh 传参为准：db 走 METRIC_CENTER_DB_DSN 环境变量（见 env/env.sh.example），
+# 实际运行以 start.sh 传参为准：数据库走 METRIC_CENTER_DB_DSN 环境变量（见 env/env.sh.example），
 # --config.dir / --config.am-dir 指向 \$DATA_ROOT/config-output 下的活配置。
 listen: :8080
-db: data/metric_center.db
 prometheus:
   query_url: http://127.0.0.1:9090
   reload_url: http://127.0.0.1:9090/-/reload
@@ -460,8 +440,15 @@ AM_PORT=${AM_PORT:-9093}
 BB_PORT=${BB_PORT:-9115}
 MC_PORT=${MC_PORT:-8080}
 AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}
-# SQLite DSN：未指定时落数据根（生产 /opt/data/metric-center，解压即用 data/）
-export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-"$DATA_ROOT/metric_center.db"}
+# PostgreSQL：控制面元数据库。交付包不内置 PostgreSQL（需运维预装/托管），
+# 生产必须在 env.sh 显式配置 METRIC_CENTER_DB_DSN；未配置时回落本机库并告警，
+# 仅用于「解压即用」的临时验证。
+export METRIC_CENTER_DB_DRIVER=${METRIC_CENTER_DB_DRIVER:-postgres}
+if [ -z "${METRIC_CENTER_DB_DSN:-}" ]; then
+    echo ">>> WARN: METRIC_CENTER_DB_DSN 未设置，回落本机 PostgreSQL（127.0.0.1:5432/metric_center）。" >&2
+    echo "          生产请在 <APP_DIR>/env/env.sh 中配置 METRIC_CENTER_DB_DSN。" >&2
+    export METRIC_CENTER_DB_DSN="postgres://$(id -un)@127.0.0.1:5432/metric_center?sslmode=disable"
+fi
 
 # 通知渲染桥（M08 PL-3）：与 env.sh 同源（生产模式 env.sh 已 export，此处仅在未设置时给本地回落值）
 # 桥基础地址本地回落 127.0.0.1（单主机本地开发可用）；生产须由 env.sh 设为中心对外可达地址。
@@ -626,7 +613,7 @@ EOF
 # MetricCenter 生产环境集中配置
 # 安装时由 scripts/install.sh 复制到 /opt/apps/metric-center/env/env.sh（已存在则不覆盖）。
 # 运维只需调整本文件即可改盘与保留策略；start.sh 启动时加载，不污染全局环境。
-export DATA_ROOT=${DATA_ROOT:-/opt/data/metric-center}     # 数据根（TSDB / SQLite / config-output / run）
+export DATA_ROOT=${DATA_ROOT:-/opt/data/metric-center}     # 数据根（TSDB / config-output / run）
 export LOG_ROOT=${LOG_ROOT:-/opt/log/metric-center}        # 日志根
 export PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}     # TSDB 时间保留（--storage.tsdb.retention.time）
 export PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}    # TSDB 容量兜底（--storage.tsdb.retention.size）
@@ -636,8 +623,9 @@ export AM_PORT=${AM_PORT:-9093}                            # Alertmanager
 export BB_PORT=${BB_PORT:-9115}                            # blackbox_exporter
 export MC_PORT=${MC_PORT:-8080}                            # metric-center（UI + API 同源）
 export AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}            # Alertmanager gossip 集群端口（单机也必须独占）
-# SQLite 数据库 DSN（控制面持久化；默认落数据根）
-export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-$DATA_ROOT/metric_center.db}
+# PostgreSQL（控制面元数据库；交付包不内置 PG，须指向既有实例）
+export METRIC_CENTER_DB_DRIVER=${METRIC_CENTER_DB_DRIVER:-postgres}
+export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-postgres://metric_center:CHANGE_ME@127.0.0.1:5432/metric_center?sslmode=disable}
 # 通知渲染桥（M08 PL-3）：基础地址，与端口/保留策略同源（单一来源）。
 # 注意：桥基础地址 MUST 为中心「对外可达」地址（跨网/边缘域部署关键），严禁 127.0.0.1；
 # 改为 http://<你的服务器域名或IP>:${MC_PORT}，否则 M09 物化的 receiver 将指向不可达地址。
@@ -858,7 +846,7 @@ cat <<NOTE
      ps -ef | grep -E 'metric-center|prometheus|alertmanager|blackbox'
 2) 健康检查：
      curl -s http://127.0.0.1:$MC_PORT_FINAL/api/v1/health
-3) 查看日志（含 SQLite DSN 落点在 \$DATA_ROOT/metric_center.db）：
+3) 查看日志（数据库连接信息与错误在 metric-center.log）：
      tail -f $LOG_DIR/*.log
 4) 停止：
      $APP_DIR/script/stop.sh
@@ -900,7 +888,7 @@ EOF
 - env/           生产环境集中配置（env.sh.example → 安装后 env/env.sh，集中定义 DATA_ROOT / 保留策略 / 端口）
 - scripts/       启动/停止/安装脚本（start.sh / stop.sh / install.sh / logrotate.conf.example）
 - web/           前端静态资源与 Prometheus Web UI 静态资源
-- data/          [解压即用模式运行时生成] SQLite 数据库、Prometheus TSDB 数据
+- data/          [解压即用模式运行时生成] config-output 活配置与 Prometheus TSDB 数据
 - logs/          [解压即用模式运行时生成] 进程日志与 pid 文件
 
 ## 交付包洁净度

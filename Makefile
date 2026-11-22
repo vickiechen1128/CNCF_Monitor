@@ -6,8 +6,15 @@ TOOLS_DIR := $(PROJECT_ROOT)/.tools
 GO_DIR := $(TOOLS_DIR)/go
 NODE_DIR := $(TOOLS_DIR)/node
 PNPM_DIR := $(TOOLS_DIR)/pnpm
-GCC_DIR := $(TOOLS_DIR)/gcc
 PROMU_DIR := $(TOOLS_DIR)/promu
+
+# 本地开发 PostgreSQL 连接（与 scripts/pg-dev.sh 同款：127.0.0.1:5432 + 系统用户 trust 认证）。
+# 生产/CI 用 METRIC_CENTER_DB_DSN 覆盖；这里只服务于 make run-metric-center / migrate 的本地默认值，
+# 避免默认回落到 db 包里的 postgres://postgres@localhost（Homebrew 安装没有 postgres 角色）。
+LOCAL_PG_DB  ?= metric_center
+LOCAL_PG_DSN ?= postgres://$(shell whoami)@127.0.0.1:5432/$(LOCAL_PG_DB)?sslmode=disable
+METRIC_CENTER_DB_DRIVER ?= postgres
+METRIC_CENTER_DB_DSN ?= $(LOCAL_PG_DSN)
 
 # 中心 Prometheus TSDB 保留策略（开发态）。
 #
@@ -20,10 +27,6 @@ PROMU_DIR := $(TOOLS_DIR)/promu
 # 需临时加大：`make run-prometheus PROM_RETENTION_TIME=30d PROM_RETENTION_SIZE=10GB`。
 PROM_RETENTION_TIME ?= 15d
 PROM_RETENTION_SIZE ?= 2GB
-
-# MinGW-w64 (WinLibs 便携版，仅 Windows 需要；macOS/Linux 使用系统 C 编译器)
-GCC_VERSION := 16.2.0
-GCC_URL :=
 
 GO_VERSION := 1.26.1
 NODE_VERSION := 22.14.0
@@ -79,9 +82,6 @@ else ifneq (,$(findstring MINGW,$(UNAME_S)))
     NPM_BIN := $(NODE_DIR)/npm
     EXE := .exe
     USE_ZIP := 1
-    GCC_URL := https://github.com/brechtsanders/winlibs_mingw/releases/download/$(GCC_VERSION)posix-14.0.0-ucrt-r1/winlibs-x86_64-posix-seh-gcc-$(GCC_VERSION)-mingw-w64ucrt-14.0.0-r1.zip
-    CC := $(GCC_DIR)/bin/gcc.exe
-    export CGO_ENABLED := 1
 else ifneq (,$(findstring MSYS,$(UNAME_S)))
     GO_URL := https://go.dev/dl/go$(GO_VERSION).windows-amd64.zip
     NODE_URL := https://nodejs.org/dist/v$(NODE_VERSION)/node-v$(NODE_VERSION)-win-x64.zip
@@ -90,9 +90,6 @@ else ifneq (,$(findstring MSYS,$(UNAME_S)))
     NPM_BIN := $(NODE_DIR)/npm
     EXE := .exe
     USE_ZIP := 1
-    GCC_URL := https://github.com/brechtsanders/winlibs_mingw/releases/download/$(GCC_VERSION)posix-14.0.0-ucrt-r1/winlibs-x86_64-posix-seh-gcc-$(GCC_VERSION)-mingw-w64ucrt-14.0.0-r1.zip
-    CC := $(GCC_DIR)/bin/gcc.exe
-    export CGO_ENABLED := 1
 else ifneq (,$(findstring CYGWIN,$(UNAME_S)))
     GO_URL := https://go.dev/dl/go$(GO_VERSION).windows-amd64.zip
     NODE_URL := https://nodejs.org/dist/v$(NODE_VERSION)/node-v$(NODE_VERSION)-win-x64.zip
@@ -101,9 +98,6 @@ else ifneq (,$(findstring CYGWIN,$(UNAME_S)))
     NPM_BIN := $(NODE_DIR)/npm
     EXE := .exe
     USE_ZIP := 1
-    GCC_URL := https://github.com/brechtsanders/winlibs_mingw/releases/download/$(GCC_VERSION)posix-14.0.0-ucrt-r1/winlibs-x86_64-posix-seh-gcc-$(GCC_VERSION)-mingw-w64ucrt-14.0.0-r1.zip
-    CC := $(GCC_DIR)/bin/gcc.exe
-    export CGO_ENABLED := 1
 endif
 
 PNPM_BIN := $(PNPM_DIR)/bin/pnpm
@@ -114,17 +108,17 @@ PNPM_BIN := $(PNPM_DIR)/bin/pnpm
 # metric-center 进程的 PATH 能定位到 build-prometheus / build-promtool /
 # build-blackbox-exporter 的产物；upstream/alertmanager 同理供
 # exec.LookPath("amtool")（M08 AM 配置校验）定位 build-amtool 产物。
-export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/alertmanager:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
+export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR)$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/alertmanager:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
 
 # 显式锁定 GOROOT 到项目级工具链：屏蔽系统/用户环境里残留的 GOROOT（如手动安装的
 # ~/sdk/goX.Y.Z），否则会出现 "compile: version goX does not match go tool version goY"。
 export GOROOT := $(GO_DIR)
 
 .PHONY: all help install-go install-node install-pnpm install-tools \
-        install-gcc install-promu ensure-cgo \
+        install-promu \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-metric-center-v3 run-prometheus dev-ui test-platform test-postgres migrate migrate-status migrate-down clean repo-map \
+        db-init run-metric-center run-prometheus dev-ui test-platform migrate migrate-status migrate-down clean repo-map \
         check-repo-map sync-skills check-skills install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
@@ -140,13 +134,12 @@ help:
 	@echo "  make build-ui           构建 Custom UI"
 	@echo "  make build-all          编译后端 + Prometheus + 前端"
 	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz（默认全量含 alertmanager/amtool/blackbox_exporter；WITH_ALERTMANAGER=0 / WITH_BLACKBOX=0 可裁剪）"
-	@echo "  make run-metric-center  编译并启动 MetricCenter 控制面"
-	@echo "  make run-metric-center-v3  以 v3-only 模式启动（独立 SQLite，只挂 /api/v3，用于 M01 v3 改造验证）"
+	@echo "  make run-metric-center  编译、迁移并启动 MetricCenter 控制面（默认连本地 PostgreSQL，DSN 见 METRIC_CENTER_DB_DSN）"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
-	@echo "  make test-platform      运行 platform/ 测试"
-	@echo "  make test-postgres      运行 v3 PostgreSQL migration 集成测试（需 METRIC_CENTER_TEST_POSTGRES_DSN）"
-	@echo "  make migrate            执行 v3 schema migrations（METRIC_CENTER_DB_DRIVER=sqlite|postgres）"
+	@echo "  make test-platform      在 PostgreSQL 上运行 platform/ 全量测试（自动准备本地测试库；METRIC_CENTER_TEST_POSTGRES_DSN 可覆盖）"
+	@echo "  make db-init            本地首次准备 PostgreSQL 开发库并迁移（PG_TEST_DB=$(LOCAL_PG_DB)）"
+	@echo "  make migrate            执行 v3 schema migrations（PostgreSQL）"
 	@echo "  make migrate-status     查看 v3 migration 状态"
 	@echo "  make migrate-down       回滚一个 v3 migration（仅开发）"
 	@echo "  make repo-map           生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md（可选）"
@@ -233,44 +226,7 @@ install-pnpm: install-node
 		"$(PNPM_BIN)" --version; \
 	fi
 
-install-tools: install-go install-node install-pnpm ensure-cgo
-
-# 确保 C 编译器可用（CGO，控制面 SQLite 依赖）。Windows 下载 MinGW-w64 到 .tools/gcc；
-# macOS/Linux 使用系统自带 clang/gcc，未安装则给出安装提示。
-ensure-cgo:
-	@echo ">>> Ensuring C compiler (CGO) is available"
-	@if [ -n "$(GCC_URL)" ]; then \
-		$(MAKE) install-gcc; \
-	else \
-		if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then \
-			echo ">>> ERROR: no C compiler found on $(UNAME_S)."; \
-			if [ "$(UNAME_S)" = "Darwin" ]; then echo "    Run: xcode-select --install"; fi; \
-			if [ "$(UNAME_S)" = "Linux" ]; then echo "    Run: sudo apt install build-essential (Debian/Ubuntu)"; fi; \
-			exit 1; \
-		else \
-			echo ">>> C compiler found: $$(command -v cc gcc clang 2>/dev/null | head -1)"; \
-		fi; \
-	fi
-
-# 安装 MinGW-w64 (WinLibs 便携版) 到 .tools/gcc（项目级，不污染系统）
-install-gcc:
-	@if [ -n "$(GCC_URL)" ]; then \
-		if [ ! -f "$(GCC_DIR)/bin/gcc.exe" ]; then \
-			echo ">>> Installing MinGW-w64 GCC ($(GCC_VERSION)) to $(GCC_DIR)"; \
-			mkdir -p "$(GCC_DIR)"; \
-			rm -rf "$(GCC_DIR)"/*; \
-			bash scripts/dl-parallel-windows.sh /tmp/gcc.zip "$(GCC_URL)"; \
-			mkdir -p /tmp/gccextract; \
-			unzip -q -o /tmp/gcc.zip -d /tmp/gccextract; \
-			cp -r /tmp/gccextract/mingw64/. "$(GCC_DIR)/"; \
-			rm -rf /tmp/gccextract /tmp/gcc.zip; \
-			"$(GCC_DIR)/bin/gcc.exe" --version; \
-		else \
-			echo ">>> MinGW-w64 GCC already installed: $(GCC_DIR)/bin/gcc.exe"; \
-		fi; \
-	else \
-		echo ">>> Skipping gcc install (use system C compiler on $(UNAME_S))"; \
-	fi
+install-tools: install-go install-node install-pnpm
 
 # 安装 promu（Prometheus 构建工具）到 .tools/promu（项目级，不污染系统）
 install-promu: ensure-go
@@ -301,7 +257,7 @@ apply-patches:
 		fi; \
 	done
 
-build-metric-center: ensure-go ensure-cgo
+build-metric-center: ensure-go
 	@echo ">>> Building metric-center"
 	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" build -o platform/cmd/metric-center/metric-center$(EXE) ./platform/cmd/metric-center
 
@@ -430,7 +386,7 @@ build-center: build-metric-center build-prometheus build-alertmanager build-blac
 build-all: build-metric-center build-prometheus build-ui
 
 # Package the center bundle into dist/metric-center-bundle-<os>-<arch>-<timestamp>.tar.gz.
-# Supports cross-compilation via CROSS=linux/amd64 (requires zig for CGO).
+# Supports cross-compilation via CROSS=linux/amd64 (pure Go, CGO disabled).
 package-center:
 	@echo ">>> Packaging center bundle"
 	@bash "$(PROJECT_ROOT)/scripts/package-center.sh"
@@ -441,26 +397,17 @@ package-center:
 
 # 依赖文件目标 $(PROMTOOL_BIN)/$(AMTOOL_BIN) 而非 build-promtool/build-amtool：
 # 后者每次必跑 go build，GOPROXY 慢时会挂死启动链；文件目标二进制已存在即跳过。
-run-metric-center: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
-	@echo ">>> Starting metric-center"
+# 本地开发启动：默认连本机 PostgreSQL（$(LOCAL_PG_DSN)），启动前做一次幂等迁移。
+# 库不存在时先建库（macOS/Linux 本地 PG 走 scripts/pg-dev.sh 的约定）：
+#   createdb metric_center   # 或 PG_TEST_DB=metric_center ./scripts/pg-dev.sh migrate
+# 生产/CI 用 METRIC_CENTER_DB_DSN + METRIC_CENTER_DB_DRIVER 覆盖。
+run-metric-center: build-metric-center migrate $(PROMTOOL_BIN) $(AMTOOL_BIN)
+	@echo ">>> Starting metric-center (database=$(METRIC_CENTER_DB_DSN))"
 	@cd "$(PROJECT_ROOT)" && \
+		METRIC_CENTER_DB_DRIVER="$(METRIC_CENTER_DB_DRIVER)" \
+		METRIC_CENTER_DB_DSN="$(METRIC_CENTER_DB_DSN)" \
 		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
 		./platform/cmd/metric-center/metric-center$(EXE)
-
-# v3-only 启动（M01 v3 改造验证）：独立 SQLite，只挂 /api/v3，不跑任何依赖旧
-# AutoMigrate schema 的后台任务；/api/v2 不注册，未迁移页面 404 属预期
-# （M05 看板 / M06 前端 / M07 标签模板 / M09 草稿与下发记录，见 rewrite/v2.0 计划）。
-# 重置数据：停服务后删除 $(V3_DB_DSN)（含 -wal/-shm）。可用 V3_DB_DSN=xxx.db 覆盖库名。
-V3_DB_DSN ?= metric_center_v3.db
-
-run-metric-center-v3: build-metric-center $(PROMTOOL_BIN) $(AMTOOL_BIN)
-	@echo ">>> Starting metric-center (v3-only, sqlite=$(V3_DB_DSN))"
-	@cd "$(PROJECT_ROOT)" && \
-		METRIC_CENTER_DB_DRIVER=sqlite \
-		METRIC_CENTER_DB_DSN="$(V3_DB_DSN)" \
-		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
-		./platform/cmd/metric-center/metric-center$(EXE) \
-		--database.mode=v3
 
 # M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
 # DiskApplier 的写盘目录），且 file_sd 相对路径 targets/*.json 按配置文件所在目录
@@ -547,31 +494,47 @@ dev-ui:
 # 测试与清理
 # -----------------------------------------------------------------------------
 
-test-platform: ensure-go ensure-cgo
-	@echo ">>> Running platform tests"
-	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" test ./platform/...
+# 后端测试统一跑 PostgreSQL（生产同方言）。本地缺 DSN 时自动启动本机 PG 并建库；
+# 非 macOS / CI 环境请显式导出 METRIC_CENTER_TEST_POSTGRES_DSN 指向一次性测试库。
+TEST_PG_DB ?= metric_center_test
 
-test-postgres: ensure-go ensure-cgo
-	@if [ -z "$(METRIC_CENTER_TEST_POSTGRES_DSN)" ]; then \
-		echo "METRIC_CENTER_TEST_POSTGRES_DSN is required (see docs/05-execution-records/rewrite/v2.0/postgres-testing.md)"; \
-		exit 1; \
-	fi
-	@echo ">>> Running PostgreSQL migration integration test"
-	@cd "$(PROJECT_ROOT)" && METRIC_CENTER_TEST_POSTGRES_DSN="$(METRIC_CENTER_TEST_POSTGRES_DSN)" "$(GO_BIN)" test ./platform/db -run TestMigrateV3Postgres -v
+test-platform: ensure-go
+	@cd "$(PROJECT_ROOT)" && \
+		DSN="$${METRIC_CENTER_TEST_POSTGRES_DSN:-}"; \
+		if [ -z "$$DSN" ]; then \
+			PG_TEST_DB="$(TEST_PG_DB)" bash scripts/pg-dev.sh ensure-db >/dev/null; \
+			DSN="$$(PG_TEST_DB="$(TEST_PG_DB)" bash scripts/pg-dev.sh dsn)"; \
+		fi; \
+		echo ">>> Running platform tests on PostgreSQL ($$DSN)"; \
+		METRIC_CENTER_TEST_POSTGRES_DSN="$$DSN" "$(GO_BIN)" test ./platform/... -count=1
 
 # v3 schema migrations. Legacy `platform/db/migrations/` remains
 # archive-only; new v2.0 schema changes live in `platform/db/migrations/v3/`.
-migrate: ensure-go ensure-cgo
-	@echo ">>> Applying v3 migrations"
-	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" run ./platform/cmd/migrate
+# 本地首次准备：建库 + 迁移（macOS/Homebrew 走 scripts/pg-dev.sh；Linux 请自行 createdb）。
+# 只建库不删数据；已验证存在则幂等。
+db-init:
+	@PG_TEST_DB="$(LOCAL_PG_DB)" ./scripts/pg-dev.sh migrate
 
-migrate-status: ensure-go ensure-cgo
-	@echo ">>> v3 migration status"
-	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" run ./platform/cmd/migrate -status
+migrate: ensure-go
+	@echo ">>> Applying v3 migrations ($(METRIC_CENTER_DB_DSN))"
+	@cd "$(PROJECT_ROOT)" && \
+		METRIC_CENTER_DB_DRIVER="$(METRIC_CENTER_DB_DRIVER)" \
+		METRIC_CENTER_DB_DSN="$(METRIC_CENTER_DB_DSN)" \
+		"$(GO_BIN)" run ./platform/cmd/migrate
 
-migrate-down: ensure-go ensure-cgo
+migrate-status: ensure-go
+	@echo ">>> v3 migration status ($(METRIC_CENTER_DB_DSN))"
+	@cd "$(PROJECT_ROOT)" && \
+		METRIC_CENTER_DB_DRIVER="$(METRIC_CENTER_DB_DRIVER)" \
+		METRIC_CENTER_DB_DSN="$(METRIC_CENTER_DB_DSN)" \
+		"$(GO_BIN)" run ./platform/cmd/migrate -status
+
+migrate-down: ensure-go
 	@echo ">>> Rolling back one v3 migration (development only)"
-	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" run ./platform/cmd/migrate -down
+	@cd "$(PROJECT_ROOT)" && \
+		METRIC_CENTER_DB_DRIVER="$(METRIC_CENTER_DB_DRIVER)" \
+		METRIC_CENTER_DB_DSN="$(METRIC_CENTER_DB_DSN)" \
+		"$(GO_BIN)" run ./platform/cmd/migrate -down
 
 clean:
 	@echo ">>> Cleaning build artifacts"

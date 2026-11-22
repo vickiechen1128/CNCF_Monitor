@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup.sh - CNCF_Monitor 一键初始化脚本（跨平台：Windows / macOS / Linux）
 #
-# 工具链（Go / Node.js / pnpm / MinGW-w64）统一安装到仓库内的 .tools/ 目录，
+# 工具链（Go / Node.js / pnpm）统一安装到仓库内的 .tools/ 目录，
 # 不写入系统 PATH —— 项目级、可复现、不污染本机环境。
 # Windows 用户请在 Git Bash 中运行本脚本（脚本会自动检测并安装缺失的 make）。
 #
@@ -51,7 +51,7 @@ if ! command -v make >/dev/null 2>&1; then
     # Windows (Git Bash)
     # make 不是项目依赖，但需要它来驱动 Makefile。获取顺序：
     #   1) 复用 Git for Windows 自带的 mingw32-make.exe（零污染，首选）
-    #   2) 下载 WinLibs MinGW-w64（含 mingw32-make.exe），与 CGO 工具链同源（仅下载一次）
+    #   2) 下载 WinLibs MinGW-w64（仅为取 mingw32-make.exe，仅下载一次）
     #   3) 包管理器回退：choco -> winget
     # 注意：本机 Git 自定义装在 G:\Git，且不随附 mingw32-make，因此实测会走第 2 条路径。
     #   下载统一走 scripts/dl-windows.sh（镜像感知：直连 GitHub -> ghproxy 国内镜像），以绕过
@@ -110,7 +110,7 @@ if ! command -v make >/dev/null 2>&1; then
       fi
       export PATH="$TOOLS_BIN:$PATH"
     else
-      # 回退：下载 WinLibs MinGW-w64（CGO 也需要，仅下载一次，install-gcc 幂等复用）
+      # 回退：下载 WinLibs MinGW-w64（仅为取 mingw32-make.exe，已存在则复用）
       if [ ! -f "$GCC_DIR/bin/mingw32-make.exe" ] && [ ! -f "$GCC_DIR/bin/gcc.exe" ]; then
         echo ">>> 'make' not bundled with Git. Downloading WinLibs MinGW-w64 (includes mingw32-make) -> $GCC_DIR ..."
         TMPZ="$REPO_DIR/.tools/_gcc_make.zip"
@@ -199,38 +199,31 @@ else
   echo ">>> 'make' found: $(command -v make)"
 fi
 
-# 1. 安装工具链（Go + Node.js + pnpm；Windows 还会下载 MinGW-w64 到 .tools/gcc）
-echo ">>> [1/6] Installing toolchains (Go, Node.js, pnpm) into .tools/"
+# 1. 安装工具链（Go + Node.js + pnpm；Windows 下若缺 make，会下载 WinLibs 以取 mingw32-make）
+# 控制面为纯 Go + PostgreSQL 驱动，不再需要 CGO / 系统 C 编译器。
+echo ">>> [1/5] Installing toolchains (Go, Node.js, pnpm) into .tools/"
 make install-tools
 
-# 2. 显式确认 C 编译器（CGO）
-# 控制面 MetricCenter 使用 gorm + mattn/go-sqlite3，编译期依赖 CGO（C 编译器）。
-# Windows 上 make install-tools 已一并下载 MinGW-w64；此处再显式检查并提示，
-# 确保后续 go build 能开启 CGO（Windows: CGO_ENABLED=1 + .tools/gcc/bin）。
-# macOS/Linux 使用系统自带 clang/gcc（缺失会给出安装提示）。
-echo ">>> [2/6] Ensuring C compiler (CGO) for MetricCenter SQLite"
-make ensure-cgo
-
-# 3. 初始化 Git 子模块（upstream/prometheus、alertmanager、blackbox_exporter、node_exporter 源码）
+# 2. 初始化 Git 子模块（upstream/prometheus、alertmanager、blackbox_exporter、node_exporter 源码）
 # 未初始化时 upstream/ 目录为空，编译/运行 Prometheus 会失败，必须先行拉取。
-echo ">>> [3/6] Initializing git submodules (upstream/ source)"
+echo ">>> [2/5] Initializing git submodules (upstream/ source)"
 git submodule update --init --recursive
 
-# 4. 应用自研补丁到 upstream/prometheus（若存在）
-echo ">>> [4/6] Applying custom patches to upstream/prometheus"
+# 3. 应用自研补丁到 upstream/prometheus（若存在）
+echo ">>> [3/5] Applying custom patches to upstream/prometheus"
 make apply-patches || true
 
-# 5. 编译 MetricCenter 控制面后端（依赖 CGO）
-echo ">>> [5/6] Building metric-center backend"
+# 4. 编译 MetricCenter 控制面后端（纯 Go，无需 CGO）
+echo ">>> [4/5] Building metric-center backend"
 make build-metric-center
 
-# 6. 构建 Custom UI（使用 .tools/pnpm，不依赖系统 PATH）
+# 5. 构建 Custom UI（使用 .tools/pnpm，不依赖系统 PATH）
 if [ -d "ui-custom/web" ]; then
     echo ">>> Building Custom UI"
     make build-ui
 fi
 
-# 7. 运行后端测试
+# 6. 运行后端测试（PostgreSQL；make test-platform 会自动准备本地测试库）
 echo ">>> Running backend tests"
 make test-platform || true
 

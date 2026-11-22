@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Local PostgreSQL helper for MetricCenter v3 testing (Homebrew install, macOS).
+# Local PostgreSQL helper for MetricCenter (Homebrew install, macOS).
 #
-# Wraps the repetitive start / reset / migrate / test / run steps so switching
-# from SQLite to PostgreSQL is a single command. All database access uses the
-# local trust-authenticated superuser (`whoami`) on 127.0.0.1:5432.
+# Wraps the repetitive start / reset / migrate / test / run steps. PostgreSQL is
+# the only supported database; all access uses the local trust-authenticated
+# superuser (`whoami`) on 127.0.0.1:5432.
 #
 # Usage:
-#   ./scripts/pg-dev.sh <command> [db-name]
+#   ./scripts/pg-dev.sh <command>
 #
 # Commands:
 #   start       Start the PostgreSQL service (brew services)
 #   stop        Stop the service
 #   status      Show service status and configured DSN
 #   dsn         Print the connection string (for manual use)
+#   ensure-db   Start PG if needed and create the target database (no reset)
 #   reset       Drop and recreate the test database (DESTRUCTIVE)
 #   migrate     Apply v3 migrations to the test database
 #   mstatus     Show v3 migration status
@@ -21,7 +22,8 @@
 #   run         Boot metric-center in v3-only mode against PostgreSQL
 #
 # Environment overrides:
-#   PG_TEST_DB      test database name (default: metric_center_test)
+#   PG_TEST_DB      target database name (default: metric_center_test).
+#                   Development DB: PG_TEST_DB=metric_center ./scripts/pg-dev.sh migrate
 #   PG_ADMIN_PASSWORD  password passed to run (default: admin123)
 
 set -euo pipefail
@@ -38,8 +40,16 @@ GO_BIN="${PROJECT_ROOT}/.tools/go/bin/go"
 die() { echo "ERROR: $*" >&2; exit 1; }
 ensure_service() {
   [[ -x "${PG_BIN}/psql" ]] || die "postgresql@16 not installed (brew install postgresql@16)"
-  "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 5432 -q 2>/dev/null || \
-    die "PostgreSQL not accepting connections; run '$0 start' first"
+  if "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 5432 -q 2>/dev/null; then
+    return 0
+  fi
+  echo ">>> PostgreSQL not running; starting ${SERVICE}..."
+  brew services start "${SERVICE}" >/dev/null 2>&1 || die "failed to start ${SERVICE}"
+  for _ in $(seq 1 30); do
+    "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 5432 -q 2>/dev/null && return 0
+    sleep 1
+  done
+  die "PostgreSQL did not become ready on 127.0.0.1:5432"
 }
 
 usage() {
@@ -62,6 +72,13 @@ case "${cmd}" in
     ;;
   dsn)
     echo "${DSN}"
+    ;;
+  ensure-db)
+    ensure_service
+    "${PG_BIN}/psql" -d postgres -tAc \
+      "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
+      "${PG_BIN}/createdb" "${DB_NAME}"
+    echo ">>> Database ready: ${DSN}"
     ;;
   reset)
     ensure_service
@@ -92,23 +109,11 @@ case "${cmd}" in
     METRIC_CENTER_DB_DRIVER=postgres METRIC_CENTER_DB_DSN="${DSN}" "${GO_BIN}" run ./platform/cmd/migrate -down
     ;;
   test)
-    ensure_service
-    # The migration test performs a full Up -> all-Down cycle; some merges
-    # (e.g. 0016 config_snapshots) are intentionally irreversible on Down and
-    # leave a table behind. Reset first so the cycle always starts clean.
-    "${PG_BIN}/dropdb" --if-exists "${DB_NAME}"
-    "${PG_BIN}/createdb" "${DB_NAME}"
+    # Full backend suite on PostgreSQL. Each test gets its own schema, so no
+    # reset is needed between runs; the database only has to exist.
+    PG_TEST_DB="${DB_NAME}" "${BASH_SOURCE[0]}" ensure-db
     cd "${PROJECT_ROOT}"
-    set +e
-    METRIC_CENTER_TEST_POSTGRES_DSN="${DSN}" "${GO_BIN}" test ./platform/db -run 'TestMigrateV3Postgres|TestConfigSnapshotsMergeBackfillPostgres' -count=1 -v
-    test_rc=$?
-    set -e
-    # The full Up->all-Down cycle leaves irreversible-merge tables behind
-    # (e.g. 0016 config_snapshots) with an empty schema_migrations. Reset to a
-    # clean empty DB so a following `migrate`/`run` starts from a valid state.
-    "${PG_BIN}/dropdb" --if-exists "${DB_NAME}"
-    "${PG_BIN}/createdb" "${DB_NAME}"
-    exit "${test_rc}"
+    METRIC_CENTER_TEST_POSTGRES_DSN="${DSN}" "${GO_BIN}" test ./platform/... -count=1
     ;;
   run)
     ensure_service

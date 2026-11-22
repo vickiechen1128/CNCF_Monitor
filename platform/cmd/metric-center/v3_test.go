@@ -13,15 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
 	m06 "github.com/metriccenter/metriccenter/platform/modules/m06"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // businessDomainsTestPath points at the shared seed template consumed by v3
@@ -29,11 +27,7 @@ import (
 const businessDomainsTestPath = "../../config/business_domains.yaml"
 
 func TestSetupV3RouterMountsSystemM06M07(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "v3_router.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("viewer123"), bcrypt.DefaultCost)
@@ -228,10 +222,7 @@ func v3LoginToken(t *testing.T, router http.Handler, username, password string) 
 }
 
 func TestV3UserDisableInvalidatesSession(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "v3_user_session.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
 
 	prev := db.DB
@@ -281,10 +272,7 @@ func TestV3UserDisableInvalidatesSession(t *testing.T) {
 }
 
 func TestV3StorageRoutesUseInjectedOptions(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "v3_storage.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
 
 	prev := db.DB
@@ -351,10 +339,7 @@ func doV3JSON(t *testing.T, router http.Handler, method, path, token, body strin
 }
 
 func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "v3_m06_e2e.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
 
 	require.NoError(t, gormDB.Create(&models.Tenant{
@@ -438,10 +423,7 @@ func TestV3M06EndToEndDomainLifecycle(t *testing.T) {
 // read-only. It also proves the M06 write routes do not duplicate the M07 GET
 // route (Gin would panic at setup time).
 func TestV3CloudDictMaintenanceEndToEnd(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "v3_cloud_dict_e2e.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomainsTestPath))
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("viewer123"), bcrypt.DefaultCost)
