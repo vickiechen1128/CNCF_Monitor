@@ -140,16 +140,8 @@ func (r *GORMMetricRepository) whereTemplateIn(q *gorm.DB, monitorTypes []string
 	if len(monitorTypes) == 0 {
 		return q.Where("1 = 0")
 	}
-	if r.db.Dialector.Name() == "postgres" {
-		return q.Where(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' IN ?)",
-			monitorTypes,
-		)
-	}
-	// SQLite stores the serializer:json column as TEXT; json_each is built into
-	// modern SQLite (JSON1) and matches the PostgreSQL semantics above.
 	return q.Where(
-		"EXISTS (SELECT 1 FROM json_each(collection_templates) AS anchor WHERE json_extract(anchor.value, '$.template_code') IN ?)",
+		"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' IN ?)",
 		monitorTypes,
 	)
 }
@@ -158,16 +150,9 @@ func (r *GORMMetricRepository) whereTemplateIn(q *gorm.DB, monitorTypes []string
 // The template table is the source of truth, so the filter cannot drift from the
 // template list.
 func (r *GORMMetricRepository) whereCategoryIn(q *gorm.DB, category string) *gorm.DB {
-	if r.db.Dialector.Name() == "postgres" {
-		return q.Where(`EXISTS (
-			SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor
-			WHERE anchor->>'template_code' IN (
-				SELECT code FROM m01_collection_templates
-				WHERE resource_category = ? AND deleted_at IS NULL))`, category)
-	}
 	return q.Where(`EXISTS (
-		SELECT 1 FROM json_each(collection_templates) AS anchor
-		WHERE json_extract(anchor.value, '$.template_code') IN (
+		SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor
+		WHERE anchor->>'template_code' IN (
 			SELECT code FROM m01_collection_templates
 			WHERE resource_category = ? AND deleted_at IS NULL))`, category)
 }

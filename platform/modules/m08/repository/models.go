@@ -146,9 +146,20 @@ func eventFromDomain(e *domain.Event) *eventRecord {
 		AlertName: e.AlertName, Status: string(e.Status), Severity: e.Severity,
 		Summary: e.Summary, Description: e.Description, NetworkDomain: e.NetworkDomain,
 		ResourceID: e.ResourceID, ResourceCategory: e.ResourceCategory, Instance: e.Instance,
-		Labels: e.Labels, Annotations: e.Annotations, StartsAt: e.StartsAt,
-		EndsAt: e.EndsAt, ClosedAt: e.ClosedAt, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
+		// GORM's json serializer writes an empty string for a nil map, which
+		// jsonb rejects ("invalid input syntax for type json"). Normalise to
+		// an empty object so alert ingestion works on PostgreSQL.
+		Labels: nonNilStringMap(e.Labels), Annotations: nonNilStringMap(e.Annotations),
+		StartsAt: e.StartsAt, EndsAt: e.EndsAt, ClosedAt: e.ClosedAt,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
 	}
+}
+
+func nonNilStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }
 
 func (r *eventRecord) toDomain() *domain.Event {

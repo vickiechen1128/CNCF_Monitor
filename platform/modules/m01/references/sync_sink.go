@@ -105,29 +105,10 @@ func (s *SyncSink) RecordRuleSync(ctx context.Context, version string, generated
 }
 
 // updatedAfter reports whether the source row was edited after the M09
-// generation snapshot started.
-//
-// PostgreSQL stores m01_* timestamps in `timestamp without time zone` as the
-// server-local wall clock, while M09 generatedAt is UTC. The pgx driver returns
-// that wall clock with a UTC location, so a plain time.Time comparison would
-// look seven hours newer on Asia/Shanghai and incorrectly keep "pending".
-// Reinterpret the Postgres wall clock in time.Local before comparing. SQLite
-// keeps an explicit offset in the stored value, so its absolute comparison is
-// already correct.
+// generation snapshot started. Both sides are UTC now (GORM writes UTC and the
+// schema uses timestamp without time zone), so a plain comparison is correct.
 func (s *SyncSink) updatedAfter(rowTime, generatedAt time.Time) bool {
-	if s.db != nil && s.db.Dialector != nil && s.db.Dialector.Name() == "postgres" {
-		return postgresUpdatedAfter(rowTime, generatedAt)
-	}
 	return rowTime.After(generatedAt)
-}
-
-func postgresUpdatedAfter(rowTime, generatedAt time.Time) bool {
-	localRow := time.Date(
-		rowTime.Year(), rowTime.Month(), rowTime.Day(),
-		rowTime.Hour(), rowTime.Minute(), rowTime.Second(), rowTime.Nanosecond(),
-		time.Local,
-	)
-	return localRow.After(generatedAt.In(time.Local))
 }
 
 func statusFor(errMsg string) string {

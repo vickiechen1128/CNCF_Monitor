@@ -41,11 +41,14 @@ func (panelRecord) TableName() string { return "m05_dashboard_panels" }
 
 func (r panelRecord) toDomain() domain.Panel {
 	return domain.Panel{
-		ID:        r.ID,
-		Name:      r.Name,
-		URL:       r.URL,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		ID:   r.ID,
+		Name: r.Name,
+		URL:  r.URL,
+		// Normalise to UTC: PostgreSQL TIMESTAMP columns scan back as UTC, while
+		// an in-memory row created by GORM keeps the local zone. Returning both
+		// shapes for the same field made created_at "change" after an update.
+		CreatedAt: r.CreatedAt.UTC(),
+		UpdatedAt: r.UpdatedAt.UTC(),
 	}
 }
 
@@ -142,10 +145,8 @@ func (r *GORMPanelRepository) ExistsByName(ctx context.Context, name string, exc
 	return count > 0, nil
 }
 
-// isUniqueViolation detects a unique-index violation on both SQLite and
-// PostgreSQL (the two supported v3 drivers).
+// isUniqueViolation detects a unique-index violation on PostgreSQL.
 func isUniqueViolation(err error) bool {
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "unique constraint") ||
-		strings.Contains(message, "duplicate key")
+	return strings.Contains(message, "duplicate key")
 }

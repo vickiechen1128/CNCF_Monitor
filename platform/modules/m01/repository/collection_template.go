@@ -245,14 +245,8 @@ func (r *GORMCollectionTemplateRepository) CountReferences(ctx context.Context, 
 // anchoredMetrics restricts a metric query to rows whose anchor array contains
 // the given template code.
 func (r *GORMCollectionTemplateRepository) anchoredMetrics(q *gorm.DB, code string) *gorm.DB {
-	if r.db.Dialector.Name() == "postgres" {
-		return q.Model(&metricRecord{}).Where(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' = ?)",
-			strings.TrimSpace(code),
-		)
-	}
 	return q.Model(&metricRecord{}).Where(
-		"EXISTS (SELECT 1 FROM json_each(collection_templates) AS anchor WHERE json_extract(anchor.value, '$.template_code') = ?)",
+		"EXISTS (SELECT 1 FROM jsonb_array_elements(collection_templates) AS anchor WHERE anchor->>'template_code' = ?)",
 		strings.TrimSpace(code),
 	)
 }

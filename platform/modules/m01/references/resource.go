@@ -245,7 +245,7 @@ func (r *GORMResourceReader) QueryCandidates(ctx context.Context, query domain.C
 	}
 	// The selector is compiled once per query; every builder closure below reuses
 	// the same predicate.
-	predicate, predicateArgs, err := r.selectorPredicate(ctx, selector.Filters, selector.Logic, r.db.Dialector.Name())
+	predicate, predicateArgs, err := r.selectorPredicate(ctx, selector.Filters, selector.Logic)
 	if err != nil {
 		return out, err
 	}
@@ -425,14 +425,14 @@ func (r *GORMResourceReader) customFields(ctx context.Context, category domain.R
 // selectorPredicate compiles the selector into one SQL predicate plus its bound
 // arguments. Field keys are resolved through the dictionary, so user input never
 // reaches the column list (NFR-11 / FR-22).
-func (r *GORMResourceReader) selectorPredicate(ctx context.Context, filters []domain.ScopeFilter, logic domain.RuleLogic, dialect string) (string, []any, error) {
+func (r *GORMResourceReader) selectorPredicate(ctx context.Context, filters []domain.ScopeFilter, logic domain.RuleLogic) (string, []any, error) {
 	if len(filters) == 0 {
 		return "", nil, nil
 	}
 	parts := make([]string, 0, len(filters))
 	args := make([]any, 0, len(filters))
 	for _, filter := range filters {
-		clause, clauseArgs, err := scopeFilterClause(filter, dialect)
+		clause, clauseArgs, err := scopeFilterClause(filter)
 		if err != nil {
 			return "", nil, err
 		}
@@ -456,7 +456,7 @@ func (r *GORMResourceReader) selectorPredicate(ctx context.Context, filters []do
 }
 
 // scopeFilterClause compiles one selector condition, built-in or custom.
-func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any, error) {
+func scopeFilterClause(filter domain.ScopeFilter) (string, []any, error) {
 	spec, ok := domain.FieldSpecFor(filter.Field)
 	if !ok {
 		return customFieldClause(filter)
@@ -513,10 +513,6 @@ func scopeFilterClause(filter domain.ScopeFilter, dialect string) (string, []any
 	case domain.RuleOpContainsAny:
 		return containsAnyClause(spec.Column, values)
 	case domain.RuleOpRegexp:
-		if dialect != "postgres" {
-			return "", nil, domain.NewValidationErrorf("selector.filters",
-				"operator regexp requires the postgres driver (current: %s)", dialect)
-		}
 		return spec.Column + " ~* ?", []any{values[0]}, nil
 	default:
 		return "", nil, domain.NewValidationErrorf("selector.filters",
@@ -579,15 +575,6 @@ func containsAnyClause(column string, keywords []string) (string, []any, error) 
 func (r *GORMResourceReader) ValidateSelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector) error {
 	if _, _, err := r.resolveSelector(ctx, domain.CandidateQuery{Category: category, Selector: selector}); err != nil {
 		return err
-	}
-	if r.db.Dialector.Name() == "postgres" {
-		return nil
-	}
-	for _, filter := range selector.Filters {
-		if filter.Operator == domain.RuleOpRegexp {
-			return domain.NewValidationErrorf("selector.filters.operator",
-				"operator regexp requires the postgres driver (current: %s)", r.db.Dialector.Name())
-		}
 	}
 	return nil
 }
