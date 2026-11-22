@@ -103,7 +103,7 @@ platform/modules/m09/
 | 1 | 网域纳管 | `/domain-onboarding` | `NetworkDomainsPage` | 已实现 |
 | 2 | 采集节点状态 | `/node-status` | `EdgeAgentsPage` | 已实现 |
 | 3 | 监控目标状态 | `/targets` | `TargetStatusPage` | 已实现 |
-| 4 | 指标查询 | `/query` | `QueryPage` | 基础查询已实现，图表/时间范围待补 |
+| 4 | 指标查询 | `/query` | `QueryPage` | 已实现（页面无网域选择器；服务端按授权网域过滤；深链入口待增量） |
 | 5 | 配置产物历史 | `/config-snapshots` | `ConfigPreviewPage` | 已实现 |
 
 ---
@@ -263,14 +263,16 @@ platform/modules/m09/
 - 服务端解析授权网域集，向每个 selector 注入 `network_domain_id=~"..."`；不注入 tenant；任何用户不可绕过。
 - `/labels`、`/series`、`/label/*` 对每个 `match[]` 注入。
 - 上游 4xx 原样透传、5xx/不可达 → 502；响应体上限 8 MiB。
-- 算法、边界与测试见 [PromQL 网域注入](design-notes/m09-promql-domain-injection.md)。
+- 查询护栏（NFR-11）：表达式 ≤ 8 KiB、范围 ≤ 30 天、step ≥ 15s、每序列 ≤ 11000 点、上游超时 ≤ 30s；护栏命中返回 400 `bad_request` 且不触达上游，上游超时/不可达返回 502 `bad_gateway`。
+- 算法、边界与测试见 [PromQL 网域注入](design-notes/m09-promql-domain-injection.md)；护栏实现见 §10.1。
 
 ### 6.7 指标查询页
 
-- 入口：配置与查询中心 → 指标查询；支持从目标状态/告警/指标库深链。
-- 能力：PromQL/指标选择、时间范围、执行/取消、时序图（断点不连线、0 与无数据区分）、序列明细、查询元信息、URL 复现、预设模板。
-- 实现：`query_range` + step 自动计算 + matrix 补 null + ECharts 按需引入；路由懒加载。
-- URL、step、断点、深链、状态与测试见 [指标查询页交互契约](design-notes/m09-query-page-ux.md)。
+- 入口：配置与查询中心 → 指标查询；页面支持 `/query?expr=<urlencoded>&from=<unix秒>&to=<unix秒>&step=<秒>&preset=<name>` URL 复现，供后续目标状态/告警/指标库深链直接复用（深链入口本次未接线，FR-22 标 partial）。
+- 网域：页面**不提供网域选择器**；一次查询覆盖当前租户的全部授权网域，服务端转发前注入 `network_domain_id` 过滤，查询元信息展示 `meta.network_domains`。
+- 能力：PromQL 输入 + 指标名/Job/实例辅助选择（`labelValues` 懒加载）、快捷/自定义时间范围、执行/取消、时序图（断点不连线、0 与无数据区分）、序列明细、查询元信息（时间范围/步长/序列数/耗时/覆盖网域/新鲜度）、URL 复现、预设模板。
+- 实现：`query_range` + step 自动计算 + matrix 缺失点补 null + ECharts 6 按需引入；路由懒加载。
+- URL、step、断点、状态与测试见 [指标查询页交互契约](design-notes/m09-query-page-ux.md)。
 
 ### 6.8 离线包
 
@@ -355,13 +357,13 @@ generated → validated(passed) → current → history → pruned
 | 目标隔离 | `/targets`、`/health/coverage` 按授权网域过滤 |
 | 产物保护 | 预览/导出仅 admin；内容不进日志；zip 文件名清洗 |
 | 上游访问 | Prometheus URL 由启动参数固定；查询只读 |
-| 拒绝服务 | 响应 8 MiB；range/step/timeout 护栏（待实现，见 §10） |
+| 拒绝服务 | 响应 8 MiB；range/step/timeout/表达式长度护栏（见 §10.1） |
 
 ---
 
 ## 10. 性能与容量
 
-### 10.1 查询护栏（待实现）
+### 10.1 查询护栏（已实现）
 
 | 项 | 目标 |
 |----|------|
@@ -372,7 +374,8 @@ generated → validated(passed) → current → history → pruned
 | 查询长度 | ≤ 8 KiB |
 | 响应体 | ≤ 8 MiB（现有） |
 
-超限返回可执行提示；不得导致 Prometheus/控制面不可用。
+- 实现：`platform/modules/m09/service/query_guard.go`；`Proxy` 在注入网域前校验，护栏失败返回 400 `bad_request` 且不请求 Prometheus。
+- 超限返回可执行提示（缩小时间范围 / 增大步长 / 建议步长）；上游超时或不可达返回 502 `bad_gateway`，不得导致 Prometheus/控制面不可用。
 
 ### 10.2 目标状态与覆盖率
 
@@ -382,8 +385,8 @@ generated → validated(passed) → current → history → pruned
 
 ### 10.3 前端
 
-- 1000 点 × 20 序列首屏 1 秒级；
-- 路由懒加载 ECharts；查询可取消；标签值缓存 5 分钟。
+- 目标：1000 点 × 20 序列首屏 1 秒级（压测待补）；
+- 路由懒加载 ECharts；查询可取消；指标名/标签值按需懒加载（本次未做 5 分钟缓存）。
 
 ---
 
@@ -401,7 +404,7 @@ generated → validated(passed) → current → history → pruned
 
 ## 12. 测试与验证
 
-- 单元：`promql.go` 注入边界、edge 注册/离线/seq、配置校验/current 不覆盖、产物导出、coverage 四态、查询页 step/gap/URL。
+- 单元：`promql.go` 注入边界、查询护栏边界、edge 注册/离线/seq、配置校验/current 不覆盖、产物导出、coverage 四态、查询页 step/gap/URL/图表 option。
 - 集成：纳管 → 心跳 → 配置生成 → 节点拉取 → 目标快照 → 查询；失败不覆盖 current；退纳管/删除级联；跨网域隔离；admin 预览/导出。
 - E2E：SRS 场景 1~5；导出件用 `promtool check config` / `amtool check-config` 验证。
 - 具体用例与命令见测试代码、`design-notes/` 及 `docs/03-engineering-standards/04_Testing_Standard.md`。
@@ -416,14 +419,14 @@ generated → validated(passed) → current → history → pruned
 | FR-05 ~ FR-09 | §4.3、§6.2、§7.2、§8.2 | 已实现 |
 | FR-10 ~ FR-14 | §4.2、§5、§6.3、§6.4、§7.3、§7.6、§8.3 | 已实现 |
 | FR-15 ~ FR-17 | §4.2、§6.5、§7.4 | 已实现（中心侧兼容拉取未启用） |
-| FR-18 ~ FR-20 | §4.4、§6.6 | 已实现（护栏待补） |
+| FR-18 ~ FR-20 | §4.4、§6.6 | 已实现（查询护栏见 NFR-11） |
 | FR-21 | §4.2、§6.8 | 已实现 |
-| FR-22 | §6.7、§6.9 | 部分实现（图表/时间范围/深链待补） |
-| NFR-01 ~ NFR-09 | §3、§9 | 已实现 |
-| NFR-10 | §10.2 | 已实现 |
-| NFR-11 | §10.1 | 待实现 |
-| NFR-12 | §6.7、§10.3 | 待实现 |
-| NFR-13 | §6.7、§6.9 | 部分实现 |
+| FR-22 | §6.7、§6.9 | 部分实现（图表/时间范围/URL/预设/辅助选择/护栏已完成；深链入口与查询历史待增量） |
+| NFR-01 ~ NFR-09 | §3、§9 | 已实现（NFR-08 跨域 e2e 待 V1-1） |
+| NFR-10 | §10.2 | 部分实现（代理结构满足；P95 压测待补） |
+| NFR-11 | §10.1 | 已实现 |
+| NFR-12 | §6.7、§10.3 | 部分实现（路由懒加载已完成；1000×20 首屏压测待补） |
+| NFR-13 | §6.7、§6.9 | 部分实现（查询页文案/错误提示已可执行；全站文案检查待 V1-2） |
 
 ---
 

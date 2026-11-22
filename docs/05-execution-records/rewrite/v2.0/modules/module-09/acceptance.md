@@ -2,7 +2,7 @@
 
 > **状态**：frozen（B0 评审通过，owner 2026-11-11 确认；随实施回填测试证据）
 > **分支**：`rewrite/v2.0`
-> **权威需求**：M09 SRS v1.1 §5（功能需求 FR-01~21）、§6（非功能需求 NFR-01~11）、§9（验收标准）
+> **权威需求**：M09 SRS v1.10 §5（功能需求 FR-01~22）、§6（非功能需求 NFR-01~13）、§9（验收标准）
 > **关联任务**：`backend-task-sequence.yaml`
 > **说明**：证据列在对应任务完成后回填测试名 / 命令 / 记录；未达标项登记为 open。
 
@@ -33,6 +33,7 @@
 | FR-19 | 统一响应 envelope + meta{data_source,freshness_at,network_domains} | T09-B6-2 | 契约测试：meta 字段齐全 | 成功响应外层追加 meta（data_source/freshness_at/network_domains），保留 Prometheus status/data；handler 单测断言 | done |
 | FR-20 | 服务端按租户解析授权网域集，转发前注入 `network_domain` 单标签约束；不注入 `tenant`；无 bypass；越权不可见 | T09-B6-2 / T09-V1-1 | 单测 + e2e：注入 `network_domain` 匹配器；断言未注入 `tenant`；越权返回空；admin 无 bypass | 按租户缓存解析授权域（platform_admin 亦无 bypass）；PromQL/match[] 注入 `network_domain_id=~"..."`（D33：与数据面标签一致）；未注入 tenant；越权/无标签返回空；单测覆盖 | done |
 | FR-21 | 离线包版本管理；节点版本与中心最新差异；升级指引 + 下载 | T09-B7-1 / T09-B4-3 | 单测：清单/sha256；版本字段供前端比对 | /edge-packages、/latest、/:file 落地；清单含 version/file/sha256/size_bytes/released_at/components；流式下载 + ETag/X-Checksum + 304；节点版本差异由前端比对 /edge-agents 与清单 | done |
+| FR-22 | 指标查询页面：PromQL/辅助选择、时间范围、执行/取消、时序图（断点/0 区分）、明细、元信息、URL、预设、状态完整 | 本次增量 | 前端单测 + 手工 E2E + 构建 | `QueryPage.test` 覆盖默认空态 / URL 自动执行 / 取消 / 错误 / 辅助选择 / 快捷范围；`queryRange.test` / `chartOption.test` / `TimeSeriesChart.test` 覆盖 step、断点、0、option、生命周期；页面无网域选择器，元信息展示 `meta.network_domains`。深链入口（目标状态/指标库/告警）与查询历史未接线 | partial |
 
 ---
 
@@ -48,9 +49,11 @@
 | NFR-06 | 心跳 7 天保留清理；快照随删除/退纳管/域删同步清理 | T09-B4-2 | 单测：清理 worker；级联清理 | CleanupHeartbeats(7d) 与退纳管级联清 target/config 快照单测通过；bootstrap 维护循环已接线（1 分钟） | done |
 | NFR-07 | Token 高强度随机；仅存 SHA-256 哈希；接口/日志不返回明文；重置废止立即生效 | T09-B3-2 / V1-2 | 单测 + grep 日志：仅哈希存储；明文仅一次 | crypto/rand 32B hex（256 bit）+ sha256 存储（D39）；明文仅签发/重置响应；列表/详情无 token 字段；重置覆盖 hash（旧 Token 立即失效）；代码审计确认日志无明文，V1-2 日志全量复测待执行 | partial |
 | NFR-08 | 查询与目标按网域隔离：服务端按当前租户解析授权网域集，注入 `network_domain` 标签约束；不注入 `tenant`；越权不可见 | T09-B6-1 / B6-2 / V1-1 | e2e：跨域数据不可见；断言未注入 tenant 匹配器 | targets/coverage/PromQL 全部按租户授权域过滤；注入 `network_domain_id`（D33）；tenant-a 越权域不可见；单测覆盖。跨域 e2e 待 V1-1 | partial |
-| NFR-09 | query 代理 P95 附加开销 ≤50ms；targets 禁止逐行查时序 | T09-B6-2 / V1-3 | 手工压测归档（未达标 open）；代码审查无逐行查询 | 代码审查：代理为单次转发 + 常量级字符串注入；targets/coverage 为集合 SQL，无逐行时序查询。P95 压测待 V1-3 | partial |
-| NFR-10 | UI 统一业务语言；技术术语仅折叠/注释/文档 | V1-2 | 契约快照文案 + 前端（本次不实施，登记 open） | | todo |
-| NFR-11 | 错误提示可执行 | T09-B3-2 / B4-3 / B6-2 | 错误文案审查：含下一步指引 | B3：重复纳管提示 reset/unmonitor；未纳管重置提示先纳管；禁用域提示先启用；越权 404 不泄露存在性 | partial |
+| NFR-09 | 配置产物内容保护：预览/下载仅管理员；接口与日志不输出内容明文 | T09-B5-3 / B7 | 单测：非 admin 403；日志脱敏审查 | 产物预览/导出/恢复包仅 admin（artifact_handler 403）；内容写入不打印明文；导出件按需读取 | done |
+| NFR-10 | 查询代理 P95 附加开销 ≤50ms；targets 禁止逐行查时序 | T09-B6-2 / V1-3 | 手工压测归档（未达标 open）；代码审查无逐行查询 | 代码审查：代理为单次转发 + 常量级字符串注入；targets/coverage 为集合 SQL，无逐行时序查询。P95 压测待 V1-3 | partial |
+| NFR-11 | 查询规模与护栏：范围/点数/超时/长度上限，超限给可执行提示 | 本次增量 | 单测：边界值、护栏不触达上游、400 映射 | `query_guard_test` 覆盖 30d / 15s / 11000 点 / 8 KiB / duration 解析；`query_service_test` 断言护栏命中不请求上游；`query_handler_test` 断言 400 `bad_request`；超时标记 `UpstreamError.Timeout` → 502 | done |
+| NFR-12 | 查询页性能：1000 点 × 20 序列 1 秒级；路由懒加载；重复查询/缩放不卡顿 | 本次增量 | 构建产物 + 手工压测 | ECharts 6 按需注册、`sampling='lttb'`、`dataZoom`；QueryPage 路由懒加载（生产 chunk 约 192 KB gzip）；1000×20 首屏压测待补 | partial |
+| NFR-13 | 用户语言一致性与错误可执行 | 本次增量 / V1-2 | 文案审查 + 错误提示 | 查询页使用「网域 / 指标查询 / 覆盖网域」等业务语言，无网域选择器；`bad_data`、超限、上游超时/不可达均给下一步建议；全站文案检查待 V1-2 | partial |
 
 ---
 
@@ -58,23 +61,23 @@
 
 | 项 | 标准 | 验证命令 | 状态 |
 |---|---|---|---|
-| 单元测试 | m09 各层 + agent 有 `*_test.go` | `go test ./platform/modules/m09/...`、`cd platform/edge-sync-agent && go test ./...` | m09 domain/service/handler/configgen/references 单测通过（B2–B6：Token/纳管/心跳/节点指令/快照/查询注入/三态）；agent 侧待 A 线 | partial |
+| 单元测试 | m09 各层 + agent 有 `*_test.go` | `go test ./platform/modules/m09/...`、`cd platform/edge-sync-agent && go test ./...` | m09 domain/service/handler/configgen/references 单测通过（B2–B6：Token/纳管/心跳/节点指令/快照/查询注入/三态）；查询护栏 `query_guard_test` / 多网域授权 / 超时；前端 `pnpm vitest run src/pages/query src/api/query.test.ts src/api/client.test.ts` 65 用例通过；agent 侧待 A 线 | partial |
 | vet | 全平台无告警 | `go vet ./platform/...` | B2: `go vet ./platform/modules/m09/... ./platform/cmd/metric-center/...` 无告警；全平台 `./platform/...` 待 V1 | partial |
 | 迁移 | 00005 Up/Down 各 2 次、FK/索引/约束 | `go test ./platform/db/...` + migrate CLI | B1 已验证（见 task-sequence T09-B1-1 evidence） | done |
 | 契约 | golden 字段集回归；严格 JSON | `go test ./platform/modules/m09/...` | B3/B4 DTO 落地；写接口 DisallowUnknownFields（monitor/heartbeat 单测覆盖）；golden 字段集全量回归待 V1 | partial |
 | 端到端 | v3-only 主链路 | `go test ./platform/cmd/metric-center/...` | B2–B6: meta 含 m09；鉴权链 401/403；心跳与节点指令；快照/edge config；targets/coverage/PromQL 代理与 meta | partial |
 | 安全审查 | 无 Critical/High 未闭环 | security-reviewer | todo |
 | PostgreSQL | 00005 PG 迁移（执行器修复后） | `METRIC_CENTER_TEST_POSTGRES_DSN` 门控 | open（环境） |
-| 性能 | NFR-09 P95 | 手工测量归档 | open |
+| 性能 | NFR-10 P95 | 手工测量归档 | open |
 
 ---
 
 ## 4. 本次范围外（登记 open，不阻塞 M09 v3 验收）
 
-- 前端页面改造（契约已覆盖字段，前端单列任务）。
+- 指标查询页深链入口（目标状态/告警/指标库）与查询历史（P1）；URL 契约已就绪，本次未接线。
 - M01 v3 源数据端口的最终实现（当前适配 legacy models，M01 v3 落地后替换）。
 - PostgreSQL 迁移实测（依赖执行器 `?` 占位符修复）。
-- NFR-09 P95 性能实测与 NFR-10 前端文案检查。
+- NFR-10 P95 性能实测、NFR-12 1000×20 首屏压测与 NFR-13 全站文案检查。
 - v2 legacy 包的最终删除（兼容窗口结束后统一清理，D10）。
 
 ---
@@ -94,3 +97,4 @@
 | v0.9 | 2026-11-12 | A1-2 完成：agent 切换 /api/v3/edge/* + protocol_version v1 + If-None-Match；服务端 edge config 返回 zip；心跳回填 config_changed/下载地址；FR-11 done。A1-1 主循环拆包待执行 |
 | v1.0 | 2026-11-12 | A1-1 完成：agent 主循环迁入 internal/app（接口注入、context 驱动、可单测）；cmd 仅装配与信号处理 |
 | v1.1 | 2026-11-18 | 标签模板消费闭环：source_reader 读取 `m07_label_templates`，按「Job 显式 → 类别默认 → 仅 system」展开 target labels；system `resource_id` 受保护；`platform_code` 空值按应用主平台兜底；模板变更纳入 Fingerprint。详见 M07 `label-templates-execution.md` §5.3 |
+| v1.2 | 2026-11-22 | 指标查询增量：FR-22 前端查询页（区间查询 / ECharts 断点图 / 时间范围 / 取消 / URL / 预设 / 指标名-Job-实例辅助选择）落地，深链与查询历史标 partial；NFR-11 查询护栏 done（8 KiB / 30d / 15s / 11000 点 / 30s），NFR-12/13 partial。页面不含网域选择器，服务端按授权网域自动过滤。详见 `metric-query-execution.md` |

@@ -542,8 +542,8 @@ POST /network-domains/:id/token/reset
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/v1/query` | instant query |
-| POST | `/api/v1/query_range` | range query |
+| GET/POST | `/api/v1/query` | instant query |
+| GET/POST | `/api/v1/query_range` | range query |
 | GET | `/api/v1/labels` | 标签名 |
 | GET | `/api/v1/label/:name/values` | 标签值 |
 | GET | `/api/v1/series` | 序列匹配 |
@@ -553,6 +553,11 @@ POST /network-domains/:id/token/reset
 - 转发前**只在 PromQL/匹配器中注入 `network_domain_id=~"<authorized domains>"` 一个约束**（D28/D33；`network_domain_id` 是写入侧 external_label 的真实标签名，API 参数/字段名仍沿用 `network_domain`）；授权网域集由服务端按当前租户解析（D17），不注入 `tenant` 标签（写入侧数据面无此标签）。
 - 任何用户（含 `platform_admin`）无 bypass；无授权网域或数据未带网域标签时返回空数据（200 + 空），不报错。
 - 代理目标 URL 走允许列表（仅中心 Prometheus），禁止用户可控 URL 透传（SSRF，api-standard §7）。
+- **查询护栏（NFR-11，2026-11-22 起）**：表达式 ≤ 8 KiB、范围 ≤ 30 天、`step` ≥ 15s、每序列点数 ≤ 11000、上游超时 ≤ 30s。
+  - 护栏命中 → 400 `bad_request`，`error` 含可执行建议（缩小范围 / 增大步长 / 建议步长）；护栏失败不请求 Prometheus。
+  - 上游超时或不可达 → 502 `bad_gateway`；超时文案提示缩小范围或增大步长。
+  - 非 `query` / `query_range` 的 `/labels`、`/series`、`/label/*` 仅校验时间范围（≤ 30 天）。
+- **指标查询页（FR-22，2026-11-22 起）**：页面不提供网域选择器；一次查询覆盖当前用户全部授权网域，`meta.network_domains` 为本次覆盖网域。URL 契约见 `docs/07-design/design-notes/m09-query-page-ux.md` §3。
 - Prometheus 不可达 → 502 `bad_gateway`。
 
 ---
