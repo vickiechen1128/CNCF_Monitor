@@ -153,8 +153,17 @@ func validResourceCategory(category string) bool {
 func (h *QueryHandler) proxy(c *gin.Context, path string) {
 	status, body, meta, err := h.svc.Proxy(c.Request.Context(), actorOf(c), path, mergedParams(c))
 	if err != nil {
+		var guard *service.GuardError
+		if errors.As(err, &guard) {
+			response.BadRequest(c, guard)
+			return
+		}
 		var upstream *service.UpstreamError
 		if errors.As(err, &upstream) {
+			if upstream.Timeout {
+				response.BadGateway(c, upstream.Err, "查询超时，请缩小时间范围或增大步长后重试")
+				return
+			}
 			response.BadGateway(c, upstream.Err, "中心 Prometheus 不可达，请稍后重试")
 			return
 		}

@@ -166,6 +166,81 @@ func TestQueryProxyFiltersAlerts(t *testing.T) {
 	assert.NotContains(t, string(body), "unlabeled")
 }
 
+func TestQueryProxyGuardRejectsBeforeUpstream(t *testing.T) {
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+	}))
+	defer upstream.Close()
+	target, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+
+	_, _, repo := newTestStack(t)
+	svc := service.NewQueryService(target, repo, repo)
+
+	_, _, _, err = svc.Proxy(context.Background(), service.Actor{TenantID: "tenant-a"},
+		"/api/v1/query_range", url.Values{
+			"query": {"up"},
+			"start": {"0"},
+			"end":   {"3600"},
+			"step":  {"5"},
+		})
+	require.Error(t, err)
+	var guard *service.GuardError
+	assert.ErrorAs(t, err, &guard)
+	assert.Contains(t, err.Error(), "小于下限")
+	assert.False(t, called, "guard failures must not reach Prometheus")
+}
+
+func TestQueryProxyCoversAllAuthorizedDomains(t *testing.T) {
+	var gotQuery string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("query")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer upstream.Close()
+	target, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+
+	gormDB, _, repo := newTestStack(t)
+	require.NoError(t, gormDB.Create(&models.Tenant{
+		ID: "tenant-ab", Name: "租户 AB",
+		NetworkDomainIDs: []string{"mc-a", "mc-b"},
+		Status:           models.TenantStatusActive,
+	}).Error)
+
+	svc := service.NewQueryService(target, repo, repo)
+	_, _, meta, err := svc.Proxy(context.Background(), service.Actor{TenantID: "tenant-ab"},
+		"/api/v1/query", url.Values{"query": {"up"}})
+	require.NoError(t, err)
+	assert.Contains(t, gotQuery, `network_domain_id=~"mc-a|mc-b"`)
+	assert.ElementsMatch(t, []string{"mc-a", "mc-b"}, meta.NetworkDomains,
+		"one query covers every authorized domain")
+}
+
+func TestQueryProxyTimeoutMarksUpstreamError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer upstream.Close()
+	target, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+
+	_, _, repo := newTestStack(t)
+	svc := service.NewQueryService(target, repo, repo)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, _, _, err = svc.Proxy(ctx, service.Actor{TenantID: "tenant-a"},
+		"/api/v1/query", url.Values{"query": {"up"}})
+	require.Error(t, err)
+	var upstreamErr *service.UpstreamError
+	require.ErrorAs(t, err, &upstreamErr)
+	assert.True(t, upstreamErr.Timeout)
+}
+
 func TestQueryProxyUnreachableIsUpstreamError(t *testing.T) {
 	target, err := url.Parse("http://127.0.0.1:1")
 	require.NoError(t, err)

@@ -122,6 +122,22 @@ func TestQueryTargetsAndCoverageRoutes(t *testing.T) {
 	}
 }
 
+func TestQueryGuardReturnsBadRequest(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+	}))
+	defer upstream.Close()
+	router := newQueryRouter(t, viewerUser(), upstream.URL)
+
+	code, out := doJSON(t, router, http.MethodGet,
+		"/api/v1/query_range?query=up&start=0&end=3600&step=5")
+	require.Equal(t, http.StatusBadRequest, code, out)
+	assert.Equal(t, "bad_request", out["errorType"])
+	message, _ := out["error"].(string)
+	assert.Contains(t, message, "步长")
+}
+
 func TestQueryProxyMetaEnvelopeAndBadGateway(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -74,6 +75,9 @@ type CoverageReport struct {
 type UpstreamError struct {
 	Message string
 	Err     error
+	// Timeout reports that the upstream request exceeded QueryTimeout (or the
+	// caller's deadline), letting the handler return an actionable message.
+	Timeout bool
 }
 
 func (e *UpstreamError) Error() string {
@@ -101,7 +105,7 @@ type QueryService struct {
 func NewQueryService(promURL *url.URL, tenants repository.TenantReader, repo repository.QueryRepository) *QueryService {
 	return &QueryService{
 		promURL:   promURL,
-		client:    &http.Client{Timeout: 15 * time.Second},
+		client:    &http.Client{Timeout: QueryTimeout},
 		tenants:   tenants,
 		repo:      repo,
 		now:       func() time.Time { return time.Now().UTC() },
@@ -316,6 +320,9 @@ func (s *QueryService) Proxy(ctx context.Context, actor Actor, path string, para
 	if s.promURL == nil {
 		return 0, nil, meta, &UpstreamError{Message: "center Prometheus is not configured"}
 	}
+	if err := GuardQuery(path, params); err != nil {
+		return 0, nil, meta, err
+	}
 
 	query := cloneValues(params)
 	matcher := DomainMatcher(allowed)
@@ -330,13 +337,19 @@ func (s *QueryService) Proxy(ctx context.Context, actor Actor, path string, para
 	upstream.Path = path
 	upstream.RawQuery = query.Encode()
 
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstream.String(), nil)
 	if err != nil {
 		return 0, nil, meta, &UpstreamError{Message: "build prometheus request", Err: err}
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return 0, nil, meta, &UpstreamError{Message: "center Prometheus unreachable", Err: err}
+		return 0, nil, meta, &UpstreamError{
+			Message: "center Prometheus unreachable",
+			Err:     err,
+			Timeout: errors.Is(err, context.DeadlineExceeded),
+		}
 	}
 	defer resp.Body.Close()
 
