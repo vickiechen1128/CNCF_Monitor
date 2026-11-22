@@ -364,7 +364,7 @@ Agent 进入开发空间后必须先执行启动协议：
 
 **目标**：实现 MVP 所需的网域行政登记能力：`zone-types` 只读字典、`NetworkDomain` 行政 CRUD、禁用=冻结、空网域删除、种子数据 upsert。
 
-> 本阶段对应 [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md) 的 MVP 子集。完整租户生命周期、RBAC、审计放到 v0.2 及以后。
+> 本阶段对应 [Module_06: 系统与平台管理（含多租户）](Modules/SRS/Module_06_Multi_Tenant_Requirements.md) 的 MVP 子集。完整租户生命周期、RBAC、审计放到 v0.2 及以后。
 
 **Agent 分工**：
 - `planner`：明确 NetworkDomain 行政字段、zone_type 字典来源、冻结语义、空网域删除规则
@@ -408,7 +408,7 @@ DELETE /api/v2/platform/network-domains/:id
 
 **目标**：实现五类资源的最小化 CRUD、Excel 导入 upsert、`ResourceLabel` 基础 CRUD、状态映射、LabelTemplate 管理、`biz_code` 业务字典、`is_monitored` 只读映射。
 
-> 本阶段对应 [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)。`ScrapeJob`、配置生成、配置下发已不在本模块范围内。
+> 本阶段对应 [Module_07: 监控对象管理](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md)。`ScrapeJob`、配置生成、配置下发已不在本模块范围内。
 
 **Agent 分工**：
 - `planner`：输出资源 API、Excel 模板、校验规则、`ResourceLabel` / `LabelTemplate` 数据契约

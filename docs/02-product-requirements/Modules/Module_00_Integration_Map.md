@@ -1,5 +1,8 @@
 # Module 00: 模块职责矩阵与集成关系
 
+> **历史说明（2026-11-20）**：11 个模块 PRD 已移除；本文件保留为历史集成索引，模块需求以 `Modules/SRS/` 下的 SRS 为准。
+
+
 > **PRD 状态**: `draft`
 > **PRD 版本**: v1.4
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
@@ -52,42 +55,42 @@
 - **纳管模型 Owner**: Module_11（`is_monitored`、`center_endpoint`、Token、采集器注册、失败计数）
 - **生命周期 UI/API**: 行政登记 UI/API → Module_06；纳管 UI/API → Module_11
 - **引用方**: Module_07（资源分组，只读引用 `network_domain_id`）、Module_10（监控源归属）、Module_09（配置生成只读消费 `channel`）
-- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_11 [5.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5)（行政部分不重复声明；三家共管口径见 Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)）
+- **权威定义**: Module_06 [5.1 节](SRS/Module_06_Multi_Tenant_Requirements.md)、Module_11 [5.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)（行政部分不重复声明；三家共管口径见 Module_09 [5.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)）
 
 ### 3.2 Edge Agent 状态
 
 - **数据模型 Owner**: Module_11（`EdgeAgent` / `EdgeHeartbeat`）
 - **心跳接收与状态展示 Owner**: Module_11
 - **引用方**: Module_02（目标状态聚合）、Module_08（告警抑制场景）
-- **权威定义**: [Module_11 5.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#52-edgeagent)、[Module_11 5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)
+- **权威定义**: [Module_11 5.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[Module_11 5.3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.3 Edge Sync Agent 配置拉取
 
-- **配置包拉取接口与 edge 协议 Owner**: Module_11（Edge Sync Agent 心跳拉取，见 [M11 §6.3](Module_11_Edge_Access_and_Agent_Delivery.md#63-%E9%85%8D%E7%BD%AE%E5%8C%85%E6%8B%89%E5%8F%96%E6%8E%A5%E5%8F%A3)）
+- **配置包拉取接口与 edge 协议 Owner**: Module_11（Edge Sync Agent 心跳拉取，见 [M11 §6.3](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)）
 - **配置生成 / 预览 / 下发 Owner**: Module_09
 - **配置数据消费方**: Module_01（ScrapeJob / Rule 策略）、Module_07（Resource / LabelTemplate）、Module_08（告警规则）
-- **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[Module_09 4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
+- **权威定义**: [Module_09 4.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[Module_09 4.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.4 指标管理配置
 
 - **功能 Owner / 数据契约 / MVP 编辑入口**: Module_01
 - **依赖数据**: Module_07 的 `Resource`、`ResourceType`、`LabelTemplate`
-- **权威定义**: [Module_01 3.1 节](Module_01_Metric_Collection_Center.md#31-%E7%9B%91%E6%8E%A7%E7%AD%96%E7%95%A5%E9%85%8D%E7%BD%AEmvp)、[Module_01 3.2 节](Module_01_Metric_Collection_Center.md#32-%E8%A7%84%E5%88%99%E7%BC%96%E8%BE%91-uimvp)
+- **权威定义**: [Module_01 3.1 节](SRS/Module_01_Metric_Collection_Center_Requirements.md)、[Module_01 3.2 节](SRS/Module_01_Metric_Collection_Center_Requirements.md)
 
 ### 3.5 CMDB Provider
 
 - **接口定义与 MVP 实现 Owner**: Module_07
 - **外部 Provider 扩展与 CMDB 生命周期管理 Owner**: Module_04 {v0.4+}
 - **权威定义**:
-  - Module_07: [10 节](Module_07_Monitoring_Object_Management.md#10-cmdb-provider-%E6%89%A9%E5%B1%95%E8%AE%BE%E8%AE%A1)
-  - Module_04: [5 节](Module_04_Custom_Discovery.md#5-cmdb-%E5%90%8C%E6%AD%A5%E7%AD%96%E7%95%A5%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%A4%84%E7%90%86)、[6 节](Module_04_Custom_Discovery.md#6-%E5%AD%90%E5%84%BF%E8%99%9A%E6%8B%9F-ci-%E7%AE%A1%E7%90%86)
+  - Module_07: [10 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)
+  - Module_04: 5 节、6 节
 
 ### 3.6 告警状态
 
 - **业务功能 Owner**: Module_08
 - **查询代理通道**: Module_02
 - **UI 页面**: Module_05
-- **权威定义**: [Module_08 3.1 节](Module_08_Alertmanager_Notification_Management.md#31-%E5%91%8A%E8%AD%A6%E8%A7%84%E5%88%99%E7%AE%A1%E7%90%86)
+- **权威定义**: [Module_08 3.1 节](SRS/Module_08_Alertmanager_Notification_Management_Requirements.md)
 
 ### 3.7 认证 / 多租户 / 权限 / 审计
 
@@ -95,12 +98,12 @@
 - **租户生命周期、租户-网域关联 {v0.2}**: Module_06
 - **用户/角色生命周期、权限策略、审计日志展示/归档**: Module_06 {P2 / 可能由外部 IAM/SSO 承接}
 - **权威定义**:
-  - Module_03: [Module_03 3 节](Module_03_Gateway_and_Auth.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)
-  - Module_06: [Module_06 3 节](Module_06_Multi_Tenant.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)
+  - Module_03: Module_03 3 节
+  - Module_06: [Module_06 3 节](SRS/Module_06_Multi_Tenant_Requirements.md)
 
 ### 3.8 Remote Write / 存储配置
 
-- **Edge Agent Remote Write 参数**: Module_11（per-domain `remote_write_url` 为监控纳管字段；WAL 参数默认值见 [M11 §6.4.1](Module_11_Edge_Access_and_Agent_Delivery.md#641-wal-与-remote_write-参数默认值)）
+- **Edge Agent Remote Write 参数**: Module_11（per-domain `remote_write_url` 为监控纳管字段；WAL 参数默认值见 [M11 §6.4.1](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)）
 - **Ingestion Gateway Remote Write 接收点 / 外部 Prometheus 接入**: Module_10
 - **Ingestion Gateway 在写入前执行标签归一化与 Metric Drop Rules**: Module_10
 - **平台级 TSDB 状态 / Retention / 转发开关**: Module_06
@@ -110,13 +113,13 @@
 
 - **通用网关框架 / 统一入口**: Module_03
 - **异构接入业务逻辑（Remote Write 接收、鉴权、标签注入、限流）**: Module_10
-- **权威定义**: [Module_10 3.3 节](Module_10_Monitoring_Source_Registry.md#33-ingestion-gateway)
+- **权威定义**: Module_10 3.3 节
 
 ### 3.10 外部 Prometheus Remote Write 标识
 
 - **统一方式**: URL path `/api/v2/ingest/prometheus/<monitoring_source_id>`
 - `network_domain` 从 Token/Claims 推导，不再依赖 `X-Network-Domain` 或 `X-MetricCenter-Source-ID` header
-- **权威定义**: [Module_10 5.1 节](Module_10_Monitoring_Source_Registry.md#51-%E5%A4%96%E9%83%A8-prometheus-remote-write-%E6%8E%A5%E5%85%A5)
+- **权威定义**: Module_10 5.1 节
 
 ### 3.11 Tenant 与 NetworkDomain 关系 {v0.2}
 
@@ -124,19 +127,19 @@
 - **NetworkDomain 行政模型 Owner**: Module_06（`tenant_id` 登记归属、`authorized_tenant_ids` 又名份授权、禁用/冻结，为单一事实来源，决策 28）；**NetworkDomain 纳管模型 Owner**: Module_11（`is_monitored`、`center_endpoint`、`remote_write_url`、Token、采集器注册、失败计数）
 - **网域行政关系 Owner**: Module_06（`NetworkDomain.tenant_id` 登记归属 + `authorized_tenant_ids` 跨租户共享）；本模块不重复声明行政语义
 - **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）、Module_11（纳管字段）、Module_09（配置生成只读消费 `channel`）
-- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_11 5.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5)
+- **权威定义**: [Module_06 5.1 节](SRS/Module_06_Multi_Tenant_Requirements.md)、[Module_11 5.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.12 标签归一化
 
 - **业务逻辑 Owner**: Module_10
 - **引用方**: Module_07（标签模板作为归一化前的预定义映射参考）
-- **权威定义**: [Module_10 3.4 节](Module_10_Monitoring_Source_Registry.md#34-%E6%A0%87%E7%AD%BE%E5%BD%92%E4%B8%80%E5%8C%96%E4%B8%8E%E6%B8%85%E6%B4%97%E7%AE%A1%E9%81%93)
+- **权威定义**: Module_10 3.4 节
 
 ### 3.13 指标丢弃规则
 
 - **业务逻辑 Owner**: Module_10
 - **引用方**: 无
-- **权威定义**: [Module_10 3.5 节](Module_10_Monitoring_Source_Registry.md#35-%E6%8C%87%E6%A0%87%E4%B8%A2%E5%BC%83%E4%B8%8E%E4%B8%A2%E5%8C%85%E9%98%B2%E6%8A%A4)
+- **权威定义**: Module_10 3.5 节
 
 ### 3.14 CMDB 与 ITIL/ITSM 映射 {v1.0+}
 
@@ -144,9 +147,9 @@
 - **ITIL 事件字段 Owner**: Module_08（告警转 ITIL 事件字段规则）
 - **引用方**: Module_05（UI 展示）、Module_06（租户/网域映射）
 - **权威定义**:
-  - Module_04: [5 节](Module_04_Custom_Discovery.md#5-cmdb-%E5%90%8C%E6%AD%A5%E7%AD%96%E7%95%A5%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%A4%84%E7%90%86)、[6 节](Module_04_Custom_Discovery.md#6-%E5%AD%90%E5%84%BF%E8%99%9A%E6%8B%9F-ci-%E7%AE%A1%E7%90%86)、[7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
-  - Module_07: [10 节](Module_07_Monitoring_Object_Management.md#10-cmdb-provider-%E6%89%A9%E5%B1%95%E8%AE%BE%E8%AE%A1)
-  - Module_08: [5.7 节](Module_08_Alertmanager_Notification_Management.md#57-itil-%E4%BA%8B%E4%BB%B6%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84)
+  - Module_04: 5 节、6 节、7 节
+  - Module_07: [10 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)
+  - Module_08: [5.7 节](SRS/Module_08_Alertmanager_Notification_Management_Requirements.md)
 - **关键约束**:
   - **CMDB（腾讯蓝鲸）是监控对象的唯一数据源 {v0.4+}**；MetricCenter 本地资源是其只读/缓存镜像；同步策略与生命周期由 Module_04 负责。
   - ITSM 服务目录必须显式映射到 CMDB 业务/模块路径，禁止绕过 CMDB 直接定义业务归属 {v1.0+}。
@@ -159,10 +162,10 @@
 - **Tenant/NetworkDomain → BlueKing 映射 Owner {v0.4+}**: Module_04（同步实现），映射关系由 Module_06/11 维护
 - **引用方**: Module_07（资源字段注入）、Module_08（影响范围拓扑）
 - **权威定义**:
-  - Module_06: [3.1 节](Module_06_Multi_Tenant.md#31-%E7%A7%9F%E6%88%B7%E4%B8%8E%E7%BD%91%E5%9F%9F%E5%85%B3%E7%B3%BB)、[3.2 节](Module_06_Multi_Tenant.md#32-%E7%A7%9F%E6%88%B7%E4%B8%8E-blueking-cmdb-%E6%98%A0%E5%B0%84)
-  - Module_11: [3.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#31-%E7%BD%91%E5%9F%9F%E7%BA%B3%E7%AE%A1)
-  - Module_09: [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)、[5.5 节](Module_09_Network_Domain_and_Edge_Config_Center.md#55-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
-  - Module_04: [7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
+  - Module_06: [3.1 节](SRS/Module_06_Multi_Tenant_Requirements.md)、[3.2 节](SRS/Module_06_Multi_Tenant_Requirements.md)
+  - Module_11: [3.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
+  - Module_09: [5.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[5.5 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
+  - Module_04: 7 节
 - **关键约束**:
   - **1 网域 : N 租户（跨租户共享）**：网域登记归属 `tenant_id` 固定 `platform_admin`，通过 `authorized_tenant_ids` 授权共享；`default` 网域归属 `platform_admin`，**默认不共享**，授权后共享（决策 18~20）。
   - `network_domain_id` 必须全局唯一，建议采用**部署级前缀**（如 `<deploy_code>-<domain_code>`），非租户前缀（决策 20）。
@@ -176,8 +179,8 @@
 - **用户手动 Label UI Owner**: Module_05（P0 标签编辑页面）
 - **引用方**: Module_01（策略配置时引用 `LabelTemplate` / `ResourceLabel`）、Module_09（配置生成时合并所有来源 label）、Module_10（标签归一化参考）
 - **权威定义**:
-  - Module_07: [5.3 节](Module_07_Monitoring_Object_Management.md#53-%E8%B5%84%E6%BA%90-label-resourcelabel)、[5.10 节](Module_07_Monitoring_Object_Management.md#510-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF-labeltemplate)、[5.11 节](Module_07_Monitoring_Object_Management.md#511-%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84-mapping)、[5.12 节](Module_07_Monitoring_Object_Management.md#512-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF%E5%AD%97%E6%AE%B5%E6%9D%A5%E6%BA%90)、[5.13 节](Module_07_Monitoring_Object_Management.md#513-%E9%BB%98%E8%AE%A4%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF)
-  - Module_04: [7.1 节](Module_04_Custom_Discovery.md#71-cmdb-ci-%E7%B1%BB%E5%9E%8B%E6%98%A0%E5%B0%84%E8%A1%A8)、[7.2 节](Module_04_Custom_Discovery.md#72-%E5%BE%85%E5%88%86%E7%B1%BB-ci-%E9%98%9F%E5%88%97)
+  - Module_07: [5.3 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)、[5.10 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)、[5.11 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)、[5.12 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)、[5.13 节](SRS/Module_07_Monitoring_Object_Management_Requirements.md)
+  - Module_04: 7.1 节、7.2 节
 - **关键约束**:
   - Label 在 MetricCenter 内部按 `source` 分层：`system`（模板生成）/ `user`（用户手动）/ `cmdb {v0.4+}`（CMDB 同步）。
   - 生成 `prometheus.yml` 时统一打平；同 key 冲突优先级：`cmdb` > `user` > `system`。
@@ -200,8 +203,8 @@
   4. UI 提供配置预览与 diff，工程师人工确认后 `ConfigDraft` 转为 `ConfigVersion`。
   5. Module_09 执行下发：中心 Prometheus reload 或 Edge Sync Agent 拉取配置包。
 - **权威定义**:
-  - Module_01: [3.1 节](Module_01_Metric_Collection_Center.md#31-%E7%9B%91%E6%8E%A7%E7%AD%96%E7%95%A5%E9%85%8D%E7%BD%AEmvp)
-  - Module_09: [4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
+  - Module_01: [3.1 节](SRS/Module_01_Metric_Collection_Center_Requirements.md)
+  - Module_09: [4.1 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[4.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.18 运行时目标状态展示 {MVP}
 
@@ -210,8 +213,8 @@
   - 告警状态展示：由 **Module_08** 拥有业务功能，**Module_02** 提供查询代理通道。
   - 边缘 Agent 状态展示：由 **Module_11** 负责。
 - **权威定义**:
-  - Module_01: [3.3 节](Module_01_Metric_Collection_Center.md#33-%E8%BF%90%E8%A1%8C%E6%97%B6%E9%87%87%E9%9B%86%E7%8A%B6%E6%80%81%E5%B1%95%E7%A4%BA%E5%B7%B2%E7%A7%BB%E5%87%BA)
-  - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)
+  - Module_01: [3.3 节](SRS/Module_01_Metric_Collection_Center_Requirements.md)
+  - Module_02: [3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.19 查询中心
 
@@ -222,7 +225,7 @@
   - Module_09：Edge Agent `external_labels` 注入，为按网域查询与租户隔离提供标签基础。
   - Module_08：Alertmanager 通知状态由 Module_08 负责，Module_02 仅代理 Prometheus `/api/v1/alerts`。
 - **权威定义**:
-  - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)、[4 节](Module_02_Query_Center.md#4-%E6%8E%A5%E5%8F%A3%E8%AE%BE%E8%AE%A1)、[5 节](Module_02_Query_Center.md#5-%E8%87%AA%E5%8A%A8%E6%B3%A8%E5%85%A5%E8%A7%84%E5%88%99)、[6 节](Module_02_Query_Center.md#6-%E5%93%8D%E5%BA%94-envelope-%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%96%B0%E9%B2%9C%E5%BA%A6)
+  - Module_02: [3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[4 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[5 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[6 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.20 Edge Agent 状态
 
@@ -234,7 +237,7 @@
   - MVP 阶段以「Agent 状态列表页」满足基本可观测需求，展示在线状态、最后心跳、配置版本、WAL 积压、最近错误。
   - 图表/趋势类边缘诊断看板（心跳 RTT 趋势、WAL 积压趋势、24h 断网时长等）延后至 P1/P2。
 - **权威定义**:
-  - Module_11: [3.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#52-edgeagent)、[5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)、[6.5 节](Module_11_Edge_Access_and_Agent_Delivery.md#65-%E7%AE%A1%E7%90%86%E9%9D%A2-rest-api)
+  - Module_11: [3.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[5.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[5.3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[6.5 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ### 3.21 告警状态
 
@@ -242,9 +245,9 @@
 - **Alertmanager 通知状态**: 由 Module_08 负责集成与展示，回答「告警正在通知给谁、是否被静默/抑制」。
 - **边缘本地告警（断网场景）{P2}**: 由边缘本地 Alertmanager 处理，状态通过 Module_11 EdgeHeartbeat 上报，展示在 Module_11 采集节点状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 - **权威定义**:
-  - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)、[4 节](Module_02_Query_Center.md#4-%E6%8E%A5%E5%8F%A3%E8%AE%BE%E8%AE%A1)、[6 节](Module_02_Query_Center.md#6-%E5%93%8D%E5%BA%94-envelope-%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%96%B0%E9%B2%9C%E5%BA%A6)
-  - Module_08: [3.1 节](Module_08_Alertmanager_Notification_Management.md#31-prometheus-%E5%91%8A%E8%AD%A6-vs-alertmanager-%E9%80%9A%E7%9F%A5%E7%8A%B6%E6%80%81)、[3.2 节](Module_08_Alertmanager_Notification_Management.md#32-%E4%B8%AD%E5%BF%83%E8%BE%B9%E7%BC%98%E5%91%8A%E8%AD%A6%E7%81%BE%E5%A4%87%E8%BE%B9%E7%95%8C)、[5.3 节](Module_08_Alertmanager_Notification_Management.md#53-%E5%91%8A%E8%AD%A6%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B)
-  - Module_11: [3.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)
+  - Module_02: [3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[4 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[6 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
+  - Module_08: [3.1 节](SRS/Module_08_Alertmanager_Notification_Management_Requirements.md)、[3.2 节](SRS/Module_08_Alertmanager_Notification_Management_Requirements.md)、[5.3 节](SRS/Module_08_Alertmanager_Notification_Management_Requirements.md)
+  - Module_11: [3.2 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)、[5.3 节](SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
 
 ---
 

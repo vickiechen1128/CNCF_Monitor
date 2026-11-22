@@ -73,8 +73,13 @@
 
 ### 4.1 静态检查
 
-- [ ] 后端开发中通过目标包测试：`go test ./platform/<pkg>/...`
-- [ ] 后端 Phase 收尾 / 合并前通过全量：`go test ./platform/...`
+> 后端测试统一跑 PostgreSQL（与生产同方言），不再使用 SQLite。本地直接 `go test`
+> 需先导出 `METRIC_CENTER_TEST_POSTGRES_DSN`（指向一次性测试库）；`make test-platform`
+> 会自动启动本机 PG、建库并导出该变量，每个测试使用独立 schema。
+
+- [ ] 后端开发中通过目标包测试：`make test-platform` 或
+      `METRIC_CENTER_TEST_POSTGRES_DSN=... go test ./platform/<pkg>/...`
+- [ ] 后端 Phase 收尾 / 合并前通过全量：`make test-platform`（等价于对 PG 跑 `go test ./platform/...`）
 - [ ] 通过 `go vet ./platform/...`
 - [ ] 前端通过 `pnpm lint`
 - [ ] 前端单任务验证通过：`pnpm vitest run <具体测试文件>`（开发期每个任务必须）

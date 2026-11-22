@@ -72,7 +72,7 @@
 ### 01 监控对象管理（Module_07）
 
 > 对应 Prometheus `static_configs` / `file_sd` 的目标来源，解决"监控对象是谁"的问题。
-> 本模块是 [Module_01](Modules/Module_01_Metric_Collection_Center.md) 与 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 的**被动数据提供方**，不生成或下发 Prometheus 配置。
+> 本模块是 [Module_01](Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md) 与 [Module_09](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 的**被动数据提供方**，不生成或下发 Prometheus 配置。
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
@@ -86,7 +86,7 @@
 | **资源 Label 管理** | `ResourceLabel` CRUD；来源分层 `system` / `user` / `cmdb {v0.4+}`；同 key 优先级 `cmdb` > `user` > `system` | P0 |
 | **标签模板管理** | 按资源类型定义字段 → Label 映射；字段来源支持 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`；transform 规则 | P0 |
 | **「未监控」筛选** | 在 Resource 列表按「未监控」筛选未被任意 ScrapeJob 选中的资源；`is_monitored` 由 Module_01 维护、Module_07 只读映射，不展示「已监控」详情（决策 31-M1） | P0 |
-| **网域归属** | 资源按 `network_domain_id` 分组；`network_domain_id` 强制必填（决策 31-M3）；网域行政登记由 [Module_06](Modules/Module_06_Multi_Tenant.md) 负责（单一事实来源，决策 28）、监控纳管由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责 | P0 |
+| **网域归属** | 资源按 `network_domain_id` 分组；`network_domain_id` 强制必填（决策 31-M3）；网域行政登记由 [Module_06](Modules/SRS/Module_06_Multi_Tenant_Requirements.md) 负责（单一事实来源，决策 28）、监控纳管由 [Module_09](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 负责 | P0 |
 | **CMDB 接入源** | Excel 接入（MVP）、HTTP API、Nacos、Kubernetes、腾讯蓝鲸（v0.4+） | P1/P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
 
@@ -123,10 +123,10 @@
 | **Exporter 市场** | Exporter 登记、版本管理、部署指南（未来） | P2 |
 
 > **边界说明**：
-> - Resource / LabelTemplate / ResourceLabel 由 [Module_07](Modules/Module_07_Monitoring_Object_Management.md) 维护，本模块只读消费。
-> - `prometheus.yml` / `rules.yml` 的生成、预览、下发由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。
-> - 运行时目标状态、拨测结果、采集诊断由 [Module_02](Modules/Module_02_Query_Center.md) 负责展示。
-> - 告警规则生命周期（分组、静默、Alertmanager 配置、告警状态展示）由 [Module_08](Modules/Module_08_Alertmanager_Notification_Management.md) 负责。
+> - Resource / LabelTemplate / ResourceLabel 由 [Module_07](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md) 维护，本模块只读消费。
+> - `prometheus.yml` / `rules.yml` 的生成、预览、下发由 [Module_09](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 负责。
+> - 运行时目标状态、拨测结果、采集诊断由 [Module_02](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 负责展示。
+> - 告警规则生命周期（分组、静默、Alertmanager 配置、告警状态展示）由 [Module_08](Modules/SRS/Module_08_Alertmanager_Notification_Management_Requirements.md) 负责。
 
 ---
 
@@ -137,7 +137,7 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **网域纳管** | 仅持有网域纳管相关字段（纳管状态、`center_endpoint`、采集器注册信息）；网域行政登记（ID/名称/登记归属/授权租户/禁用冻结/`zone_type`）以 [Module_06](Modules/Module_06_Multi_Tenant.md) 为单一事实来源（决策 28）；Token 生成与重置、默认网域 `default` | P0 |
+| **网域纳管** | 仅持有网域纳管相关字段（纳管状态、`center_endpoint`、采集器注册信息）；网域行政登记（ID/名称/登记归属/授权租户/禁用冻结/`zone_type`）以 [Module_06](Modules/SRS/Module_06_Multi_Tenant_Requirements.md) 为单一事实来源（决策 28）；Token 生成与重置、默认网域 `default` | P0 |
 | **Token 鉴权** | Edge Sync Agent 使用 Token 拉取配置和推送心跳 | **P0（v0.2）** |
 | **边缘 Agent 管理** | 注册边缘 Agent、查看 Agent 类型（vmagent / prometheus-agent）、版本、状态 | **P0（v0.2）** |
 | **配置生成服务** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates），按网域生成 `prometheus.yml` 与 `rules.yml` 草稿；生成时排除 `offline` 资源（决策 29）、透传采集认证/TLS 进 `scrape_configs`（决策 31）、冻结/禁用网域不生成新变更单（决策 30）、变更确认后回写 `change_status=deployed`（决策 31-M2）；在 `global.external_labels` 中注入 `network_domain` / `zone_type` / `replica`（**不注入租户/业务标签**，决策 19、键名基线决策 68-1）；中心求值器 `prometheus.yml` 另生成 `alerting.alertmanagers`（决策 68-2，仅中心、条件注入、AM 地址由 `env/env.sh` 注入） | P0 |
@@ -177,19 +177,19 @@
 | **Trace 级诊断** | 抓取请求详情、响应体预览 | P2 |
 
 > **边界说明**：
-> - 本模块负责**被监控对象**的指标与 exporter 采集健康度（例如 `up` 指标）；Edge Agent 在线、WAL、配置同步等**监控基础设施健康度**由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。
-> - 告警状态查看能力：Module_02 在 MVP 阶段仅作为查询代理暴露 Prometheus `/api/v1/alerts`；Alertmanager 通知状态（分组、静默、抑制、接收人）由 [Module_08](Modules/Module_08_Alertmanager_Notification_Management.md) 负责。
+> - 本模块负责**被监控对象**的指标与 exporter 采集健康度（例如 `up` 指标）；Edge Agent 在线、WAL、配置同步等**监控基础设施健康度**由 [Module_09](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 负责。
+> - 告警状态查看能力：Module_02 在 MVP 阶段仅作为查询代理暴露 Prometheus `/api/v1/alerts`；Alertmanager 通知状态（分组、静默、抑制、接收人）由 [Module_08](Modules/SRS/Module_08_Alertmanager_Notification_Management_Requirements.md) 负责。
 
 ---
 
 ### 05 告警规则管理（Module_08）
 
 > 对应 Prometheus Alerting Rules / Recording Rules / Rule Manager / Alertmanager。
-> 规则编辑 UI 已移交 [Module_01](Modules/Module_01_Metric_Collection_Center.md)，本模块聚焦规则生命周期、分组、静默、抑制、通知路由与下发协同。
+> 规则编辑 UI 已移交 [Module_01](Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)，本模块聚焦规则生命周期、分组、静默、抑制、通知路由与下发协同。
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **Prometheus 告警状态查看** | 当前告警、告警历史、告警详情；由 [Module_02](Modules/Module_02_Query_Center.md) 代理 `/api/v1/alerts` 提供 | P1 |
+| **Prometheus 告警状态查看** | 当前告警、告警历史、告警详情；由 [Module_02](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) 代理 `/api/v1/alerts` 提供 | P1 |
 | **Alertmanager 通知状态** | 代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态 | P1 |
 | **告警规则生命周期管理** | 规则分组（RuleGroup）、启用/禁用、版本管理、按网域聚合 | P1 |
 | **Recording Rules** | 预聚合规则 CRUD、启用/禁用 | P2 |
@@ -205,7 +205,7 @@
 > - **Alertmanager 通知状态**：回答"告警正在通知给谁、是否被静默/抑制"，由 Module_08 负责集成与展示。
 > - **边缘本地告警**（断网场景，P2）：由边缘本地 Alertmanager 处理，状态通过 Module_09 EdgeHeartbeat 上报，在 Module_09 Agent 状态页或 Module_08 边缘告警视图中展示，不归 Module_02 代理。
 
-> **MVP 决策**：告警规则通过 [Module_01](Modules/Module_01_Metric_Collection_Center.md) 的类 YAML 表单 UI 产出；告警收敛/静默/通知借助 Alertmanager 原生能力；本模块负责规则记录的持久化、分组与 `rules.yml` 生成协同。
+> **MVP 决策**：告警规则通过 [Module_01](Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md) 的类 YAML 表单 UI 产出；告警收敛/静默/通知借助 Alertmanager 原生能力；本模块负责规则记录的持久化、分组与 `rules.yml` 生成协同。
 
 ---
 
@@ -371,13 +371,13 @@ global:
 
 | 本文档模块 | 对应模块文档 |
 |------------|--------------|
-| 监控对象管理 | [Module_07_Monitoring_Object_Management.md](Modules/Module_07_Monitoring_Object_Management.md) |
-| 监控策略与指标管理 | [Module_01_Metric_Collection_Center.md](Modules/Module_01_Metric_Collection_Center.md) |
-| 网域与边缘配置中心 | [Module_09_Network_Domain_and_Edge_Config_Center.md](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) |
-| 查询中心 | [Module_02_Query_Center.md](Modules/Module_02_Query_Center.md) |
-| 告警规则管理 | [Module_08_Alertmanager_Notification_Management.md](Modules/Module_08_Alertmanager_Notification_Management.md) |
-| 监控源管理 | [Module_10_Monitoring_Source_Registry.md](Modules/Module_10_Monitoring_Source_Registry.md) |
-| 系统与平台管理 | [Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md) |
+| 监控对象管理 | [SRS](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md) |
+| 监控策略与指标管理 | [SRS](Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md) |
+| 网域与边缘配置中心 | [SRS](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) |
+| 查询中心 | [SRS](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) |
+| 告警规则管理 | [SRS](Modules/SRS/Module_08_Alertmanager_Notification_Management_Requirements.md) |
+| 监控源管理 | —（PRD 已移除，无 SRS） |
+| 系统与平台管理 | [SRS](Modules/SRS/Module_06_Multi_Tenant_Requirements.md) |
 
 > **说明**：模块文件名保持历史命名不变；模块显示名称以本文档及对应 PRD 标题为准。
 

@@ -128,11 +128,11 @@ echo $! > logs/blackbox_exporter.pid
 | 9115 | blackbox_exporter（M01/M09） | 仅内网 |
 
 ## 8. 持久化与升级
-- `data/`：SQLite（`metric_center.db`）+ Prometheus TSDB + alertmanager 数据
+- `data/`：PostgreSQL 元数据由外部实例承载（交付包不内置），包内 `data/` 仅含 Prometheus TSDB 与 alertmanager 数据
 - `logs/`：进程日志与 pid 文件
 - 升级：重新打包 → 覆盖 `bin/` 与 `web/`，**保留 `data/`**
-- 依赖：`metric-center` 为动态链接（CGO / mattn/go-sqlite3），需目标机 glibc（Ubuntu 默认满足）；
-  `prometheus` / `alertmanager` / `blackbox_exporter` 均为静态链接，无额外依赖
+- 依赖：全部二进制（含 `metric-center`）均为纯 Go 静态编译，无 CGO/glibc 依赖；
+  运行前需准备可用的 PostgreSQL 16 实例，并在 `env/env.sh` 配置 `METRIC_CENTER_DB_DSN`
 
 ## 9. 停止
 ```bash

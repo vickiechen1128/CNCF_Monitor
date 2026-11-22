@@ -1,7 +1,7 @@
 # PostgreSQL 测试与迁移说明（v2.0）
 
-> **目标**：v3 生产使用 PostgreSQL；SQLite 仅本地开发/快速测试。
-> **状态**：B1-5 / B1-6 配套说明
+> **目标**：v3 生产与测试统一使用 PostgreSQL；SQLite 驱动与方言迁移已移除。
+> **状态**：B1-5 / B1-6 配套说明（测试全量迁 PG 后更新）
 
 ---
 
@@ -61,7 +61,7 @@ DSN：`postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=di
 ./scripts/pg-dev.sh migrate             # 对测试库执行 v3 迁移
 ./scripts/pg-dev.sh mstatus             # 迁移状态
 ./scripts/pg-dev.sh mdown               # 回滚一个迁移（开发用）
-./scripts/pg-dev.sh test                # 跑 PG 迁移集成测试（Up + 逐版本 Down）
+./scripts/pg-dev.sh test                # 跑 platform/ 全量测试（PG，逐测试独立 schema）
 ./scripts/pg-dev.sh run                 # v3-only 模式连 PG 启动 metric-center
 ```
 
@@ -71,36 +71,39 @@ DSN：`postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=di
 
 ## 2. 执行 PG migration
 
+`make migrate` 默认连本机 PostgreSQL（`postgres://<系统用户>@127.0.0.1:5432/metric_center`），
+生产/自定义实例用 `METRIC_CENTER_DB_DSN` 覆盖：
+
 ```bash
-METRIC_CENTER_DB_DRIVER=postgres \
-METRIC_CENTER_DB_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
+METRIC_CENTER_DB_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center?sslmode=disable' \
 make migrate
 ```
 
-查看状态 / 回滚：
+查看状态 / 回滚（同样可用 `METRIC_CENTER_DB_DSN` 覆盖）：
 
 ```bash
-METRIC_CENTER_DB_DRIVER=postgres \
-METRIC_CENTER_DB_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
 make migrate-status
-
-METRIC_CENTER_DB_DRIVER=postgres \
-METRIC_CENTER_DB_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
 make migrate-down
 ```
 
 ---
 
-## 3. 执行 PG 集成测试
+## 3. 执行后端测试（全量，PostgreSQL）
+
+```bash
+make test-platform        # 自动启动本机 PG、建 metric_center_test，并导出测试 DSN
+```
+
+也可手动指定一次性测试库：
 
 ```bash
 METRIC_CENTER_TEST_POSTGRES_DSN='postgres://postgres:postgres@127.0.0.1:5432/metric_center_test?sslmode=disable' \
-  make test-postgres
+  make test-platform
 ```
 
-测试覆盖：应用全部迁移 → 校验 core / M07 表 → 用 `MigrateV3DownTo` 按版本逐级 Down → 全部 Down。
-回滚按版本目标而非固定步数，因此新增迁移（含 postgres-only 的 0013）不会让测试错位。
-未设置 `METRIC_CENTER_TEST_POSTGRES_DSN` 时测试自动 skip，不影响 SQLite 快速测试。
+- 每个测试通过 `platform/testutil/testdb` 创建独立 schema（`test_<random>`），结束后 DROP，可并行；
+- `platform/db` 的迁移测试用 `testPostgresDSN` 同样按测试隔离 schema，覆盖全量 Up/Down、0016 合并回填、0023 采集模板化、0024 is_primary 类型修正；
+- 未设置 `METRIC_CENTER_TEST_POSTGRES_DSN` 且本机无 PG 时测试直接失败并提示，**不再回退 SQLite**。
 
 ---
 

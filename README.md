@@ -9,7 +9,7 @@
 ## 1. 项目定位
 
 - **控制面与数据面分离**：控制面（`platform/` + `ui-custom/`）负责配置、CMDB 和规则下发；数据面（Prometheus 及生态组件）负责抓取、存储和查询
-- **开发期轻量运行**：MVP 使用 SQLite（平台元数据）+ Prometheus TSDB（时序数据），本地单机即可运行
+- **本地可运行**：控制面元数据使用 PostgreSQL 16，时序数据使用 Prometheus TSDB，本地单机即可运行
 - **统一指标采集**：管理多源、多协议、多环境的指标采集目标
 - **统一查询入口**：门户化指标查询与可视化
 - **可扩展底座**：支持自定义服务发现、采集逻辑、前端展示与数据转发
@@ -53,6 +53,8 @@ CNCF_Monitor/
 │   ├── 03-engineering-standards/     # 工程标准（API / 测试 / 分支 / 隔离）
 │   ├── 04-source-architecture/       # 源码架构理解
 │   ├── 05-execution-records/         # 执行记录（Agent 留痕）
+│   ├── 06-mvp-e2e-testing/           # MVP 配置下发闭环测试指导
+│   ├── 07-design/                    # 模块概要设计与关键设计专题（HLD）
 │   └── prototypes/                   # 可点击原型（分模块）
 ├── Makefile                          # 统一构建入口
 ├── setup.sh                          # 一键初始化脚本（跨平台）
@@ -149,12 +151,12 @@ bash setup.sh
 该脚本**跨平台**（macOS / Linux / Windows-Git Bash），会自动：
 
 1. 检测并获取 `make`（Windows 下优先复用 Git 自带 make，否则下载 MinGW-w64 取其中的 mingw32-make，全程不污染系统）；
-2. 安装工具链（Go / Node / pnpm）到 `.tools/`（Windows 额外装 MinGW-w64 供 CGO）；
+2. 安装工具链（Go / Node / pnpm）到 `.tools/`（Windows 若缺 make，会取 WinLibs 中的 mingw32-make）；
 3. 初始化 git 子模块 → 应用 patch → 编译后端 → 构建前端 → 运行测试 → 安装 Kimi hooks。
 
 > 注意：`setup.sh` 中的 `go test ./platform/...` 使用系统 PATH 中的 `go`。如果系统未安装 Go，可改为 `make test-platform` 使用 `.tools/go/bin/go`。
 >
-> **Windows 专属细节**（Git Bash 前提、国内镜像下载、CGO 编译器、常见排错）见 [SETUP\_WINDOWS.md](SETUP_WINDOWS.md)。
+> **Windows 专属细节**（Git Bash 前提、国内镜像下载、make 获取、常见排错）见 [SETUP\_WINDOWS.md](SETUP_WINDOWS.md)。
 
 ***
 
@@ -259,7 +261,7 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)
 
 ## 6. 文档索引
 
-> docs/ 按读者/使用场景分 6 个目录，每个目录的 README 提供导航：团队协作 / 产品需求 / 工程标准 / 源码架构 / 执行记录 / 原型。
+> docs/ 按读者/使用场景分 7 个编号目录 + 原型目录，每个目录的 README 提供导航：团队协作 / 产品需求 / 工程标准 / 源码架构 / 执行记录 / MVP 端到端测试 / 概要设计 / 原型。
 
 ### 6.1 团队协作（docs/01-team-collaboration/）
 
@@ -278,7 +280,7 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)
 - [全局架构](docs/02-product-requirements/00_Global_Architecture.md)
 - [用户故事](docs/02-product-requirements/01_User_Stories.md)
 - [产品路线图](docs/02-product-requirements/02_Product_Roadmap.md)
-- [模块需求](docs/02-product-requirements/Modules/)（11 个模块，MVP 核心见下）
+- [模块 SRS](docs/02-product-requirements/Modules/SRS/)（需求基线；历史 PRD 已移除）
 
 ### 6.3 工程标准（docs/03-engineering-standards/）
 
@@ -299,7 +301,13 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)
 
 - 各模块的 Agent 执行记录与设计决策（module-XX/design-decisions.md、<agent>.md）
 
-### 6.6 原型（docs/prototypes/）
+### 6.6 概要设计（docs/07-design/）
+
+- [设计文档目录与 SRS/设计分层约定](docs/07-design/README.md)
+- [M09 配置与查询中心概要设计](docs/07-design/Module_09_Config_and_Query_Center_High_Level_Design.md)
+- [M09 关键设计专题](docs/07-design/design-notes/)（PromQL 网域注入 / 配置发布 / 查询页交互）
+
+### 6.7 原型（docs/prototypes/）
 
 - 分模块可点击原型（module-XX/），GitHub Pages 部署说明见各模块 README
 

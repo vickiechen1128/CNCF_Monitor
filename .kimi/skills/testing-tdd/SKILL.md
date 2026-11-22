@@ -76,7 +76,7 @@ func TestLoadConfig(t *testing.T) {
 ### 3.2 集成测试
 
 - 使用 `testcontainers-go` 或本地 Docker 启动依赖服务。
-- 或使用 SQLite 内存数据库。
+- 数据库测试统一用 `platform/testutil/testdb`（逐测试独立 PostgreSQL schema）；`make test-platform` 自动准备测试库。
 - 覆盖关键路径：发现源同步、查询代理、认证鉴权、配置下发。
 
 ### 3.3 常用命令

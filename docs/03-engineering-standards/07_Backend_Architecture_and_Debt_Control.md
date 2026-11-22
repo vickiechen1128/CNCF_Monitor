@@ -189,7 +189,7 @@ func CreateXxx(svc *XxxService) gin.HandlerFunc { ... }
 
 **rewrite 模式（v2.0 起）**：`rewrite/vX.Y` 允许直接演进 schema，但仍必须遵守 R2：一次变更 = 独立 commit + migration（Up/Down）+ 回滚说明 + 数据对账。禁止只改模型让 `AutoMigrate` 隐式生效。
 
-**数据库目标（v2.0 起）**：PostgreSQL 为 v3 生产库；SQLite 仅本地开发/快速测试；旧 v2 继续 SQLite。migration DDL 必须保持两种 dialect 可移植，或提供明确的 dialect 分支。
+**数据库目标（v2.0 起）**：PostgreSQL 是唯一数据库（生产与测试同方言）。migration 不再维护 SQLite 方言分支；新增 DDL 按 PostgreSQL 编写并在 `make test-platform` 下验证。
 
 ### R3：禁止新增字符串字段映射调用
 

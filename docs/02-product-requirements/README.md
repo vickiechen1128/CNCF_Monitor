@@ -16,27 +16,31 @@
 | [03_Functional_Architecture.md](03_Functional_Architecture.md) | 全量功能架构：模块 → 一级功能 → 二级功能 | 产品经理、开发 | 不写 Prometheus 复用度、不写落地难度 |
 | [04_Implementation_Map.md](04_Implementation_Map.md) | 实施难度地图：Prometheus 复用度、前后端工作量、落地优先级 | 技术负责人、开发 | 不写功能详细定义、不写完整数据模型 |
 | [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) | 代码实施计划（开发路径）：阶段划分、模块依赖与开发顺序、前后端分工、各阶段验收标准与风险规避 | 技术负责人、开发工程师、AI 开发（Orchestrator/子 Agent） | 不写功能详细定义（在 03 / Modules）、不写系统架构（在 00_Global_Architecture）、不写实施难度矩阵（在 04）、不写里程碑路线（在 02） |
-| [Modules/*.md](Modules/) | 各模块详细需求：数据模型、接口、验收标准 | 对应模块开发 | 不写整体架构、不写演进路线 |
+| [Modules/SRS/*.md](Modules/SRS/) | 需求规格说明书（SRS）：只写范围/场景/FR/NFR/验收，不写接口、字段、算法、页面实现 | 产品、测试、开发（了解范围） | 设计细节（在 [docs/07-design/](../07-design/)） |
+| [Modules/Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md) | 历史模块职责矩阵（索引性质；11 个 PRD 已移除） | 架构师、AI Agent | 不写新需求（以 SRS 为准） |
+
+> **需求与设计分层**：SRS 只放需求；接口契约、字段、数据模型、算法、状态机、页面交互、测试设计等放在 [docs/07-design/](../07-design/)。两者通过 FR/NFR 编号追溯，不互相复制。
 
 ---
 
-## 模块总览（Modules/）
+## 模块文档（Modules/）
 
-共 11 个模块文档，详细需求、数据模型与验收标准见各模块文件：
+> **2026-11-20 文档收敛**：11 个历史 PRD（`Module_01` ~ `Module_11`）已移除，Git 历史可追溯；需求以 `Modules/SRS/` 下的 SRS 为唯一基线，设计以 `docs/07-design/` 为准。`Module_00` 保留为历史集成索引。
 
 | 模块 | 文档 | 主题 |
 |------|------|------|
-| Module 00 | [Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md) | 模块职责矩阵与集成关系 |
-| Module 01 | [Module_01_Metric_Collection_Center.md](Modules/Module_01_Metric_Collection_Center.md) | 监控策略与指标管理 |
-| Module 02 | [Module_02_Query_Center.md](Modules/Module_02_Query_Center.md) | 查询中心 |
-| Module 03 | [Module_03_Gateway_and_Auth.md](Modules/Module_03_Gateway_and_Auth.md) | 网关与认证 |
-| Module 04 | [Module_04_Custom_Discovery.md](Modules/Module_04_Custom_Discovery.md) | 自定义服务发现与外部 CMDB 生命周期管理 |
-| Module 05 | [Module_05_Custom_UI.md](Modules/Module_05_Custom_UI.md) | 自定义前端门户 |
-| Module 06 | [Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md) | 系统与平台管理（含多租户） |
-| Module 07 | [Module_07_Monitoring_Object_Management.md](Modules/Module_07_Monitoring_Object_Management.md) | 监控对象管理 |
-| Module 08 | [Module_08_Alertmanager_Notification_Management.md](Modules/Module_08_Alertmanager_Notification_Management.md) | 告警规则管理 |
-| Module 09 | [Module_09_Network_Domain_and_Edge_Config_Center.md](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) | 网域与边缘配置中心 |
-| Module 10 | [Module_10_Monitoring_Source_Registry.md](Modules/Module_10_Monitoring_Source_Registry.md) | 监控源登记册与异构接入 |
+| Module 00 | [Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md) | 历史模块职责矩阵（索引性质） |
+| Module 01 | [SRS](Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md) | 采集策略与指标管理 |
+| Module 02 | [SRS（并入 M09）](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) | 查询中心 |
+| Module 03 | —（PRD 已移除，无 SRS） | 网关与认证 |
+| Module 04 | —（PRD 已移除，无 SRS） | 自定义服务发现 |
+| Module 05 | [SRS](Modules/SRS/Module_05_Visualization_Center_Requirements.md) | 可视化中心 |
+| Module 06 | [SRS](Modules/SRS/Module_06_Multi_Tenant_Requirements.md) | 系统与平台管理（含多租户） |
+| Module 07 | [SRS](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md) | 监控对象管理 |
+| Module 08 | [SRS](Modules/SRS/Module_08_Alertmanager_Notification_Management_Requirements.md) | 告警收敛与通知管理 |
+| Module 09 | [SRS](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) | 配置与查询中心 |
+| Module 10 | —（PRD 已移除，无 SRS） | 监控源登记册 |
+| Module 11 | [SRS（并入 M09）](Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md) | 网域边缘接入 |
 
 ---
 
@@ -52,7 +56,7 @@
 | 有哪些模块和功能？ | [03_Functional_Architecture.md](03_Functional_Architecture.md) |
 | 这个功能落地难不难？是否需要自研后端？ | [04_Implementation_Map.md](04_Implementation_Map.md) |
 | 按什么顺序开发？每个阶段交付什么、怎么验收、前后端怎么分工？ | [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) |
-| 这个模块的字段、接口、验收标准是什么？ | [Modules/对应模块.md](Modules/) |
+| 这个模块的需求与验收是什么？ | [Modules/SRS/](Modules/SRS/) |
 
 ---
 
@@ -63,7 +67,7 @@
 3. **02_Product_Roadmap.md 只写"什么时候做"和"做到什么程度"**：不写实施难度矩阵（在 04_Implementation_Map 中）。
 4. **03_Functional_Architecture.md 只写"有什么功能"**：不写 Prometheus 复用度评估。
 5. **04_Implementation_Map.md 只写"落地难度和优先级"**：不写功能完整定义。
-6. **Modules/*.md 只写"这个模块怎么做"**：不写整体架构、不写演进路线。
+6. **Modules/SRS/*.md 只写"这个模块做什么、验收什么"**：不写接口、字段、算法与页面实现。
 7. **05_Code_Implementation_Plan.md 只写"怎么落地开发"**：不写功能完整定义（在 03 / Modules）、不写系统架构（在 00_Global_Architecture）、不写实施难度矩阵（在 04）、不写里程碑路线（在 02）。
 
 ---

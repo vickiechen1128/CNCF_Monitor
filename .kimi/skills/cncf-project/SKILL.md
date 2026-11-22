@@ -20,7 +20,7 @@ MVP 聚焦：**配置管理 + 手动 CMDB + Prometheus 配置下发**。
 |------|------|------|
 | 控制面后端 | Go 1.26.1 | `go.mod` 声明；项目级工具链 `.tools/go/` |
 | Web 框架 | Gin v1.10 | 路由、中间件、HTTP API |
-| 元数据存储 | PostgreSQL（v3 生产）/ SQLite（开发/测试）+ GORM | `METRIC_CENTER_DB_DRIVER=sqlite|postgres`；旧 v2 继续 SQLite |
+| 元数据存储 | PostgreSQL 16 + GORM | 生产与测试统一 PG；`METRIC_CENTER_DB_DSN` 注入连接串 |
 | 数据面引擎 | Prometheus | `upstream/prometheus/` 子模块 |
 | 前端 | React 18 + TypeScript 5.5 + Vite 5 | `ui-custom/web/` |
 | UI 组件 | Ant Design 5 | 企业级后台组件库 |
@@ -61,7 +61,7 @@ CNCF_Monitor-worktree/
 │   ├── cmd/metric-center/           # 主程序入口
 │   ├── edge-sync-agent/             # v0.2 边缘采集客户端（独立 module）
 │   ├── models/                      # CMDB / 标签 / 采集任务模型
-│   ├── db/                          # SQLite 初始化与 migration
+│   ├── db/                          # PostgreSQL 连接与 v3 migration
 │   ├── api/response/                # 统一响应封装
 │   └── examples/simple-agent/       # 采集端 Agent 模板
 ├── ui-custom/web/                   # React 前端门户

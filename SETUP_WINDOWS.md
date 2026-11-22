@@ -6,7 +6,7 @@
 >
 > ⚠️ **核心原则：所有工具链都装在项目内的 `.tools/` 目录，跟着仓库走，不污染系统。**
 > 仓库根目录的 `Makefile` 已内置 **Windows 分支**（自动检测 `MINGW` / `MSYS` / `CYGWIN`），
-> 通过一条 `make install-tools` 把 Go / Node / pnpm / MinGW-w64 全部下载安装到 `.tools/`，
+> 通过一条 `make install-tools` 把 Go / Node / pnpm 下载安装到 `.tools/`（Windows 下若缺 make，会额外取 WinLibs 里的 mingw32-make），
 > 且 `export PATH` 只在 `make` 进程内生效，**不会写入系统/用户 PATH**。
 > 因此 Windows 与 macOS / Linux 同事的依赖**版本完全一致**（同源 `Makefile` 版本常量）。
 >
@@ -32,7 +32,7 @@
 | **Go** | **1.26.1（精确）** | 后端 & Prometheus 编译 | `.tools/go`（项目级） |
 | **Node.js** | **22.14.0（精确）** | 前端运行时 | `.tools/node`（项目级） |
 | **pnpm** | **9.x（精确 9）** | 前端包管理 | `.tools/pnpm`（项目级） |
-| **MinGW-w64 (GCC)** | **16.2.0（仅 Windows）** | CGO 编译控制面 SQLite | `.tools/gcc`（项目级） |
+| **MinGW-w64 (GCC)** | **16.2.0（仅 Windows，可选）** | 仅为取 `mingw32-make`（控制面已纯 Go，不再需要 CGO） | `.tools/gcc`（项目级） |
 | promu | latest（可选） | Prometheus 上游 `make build` 用 | `.tools/promu`（项目级） |
 | Docker Desktop | 可选 | 容器化跑 Prometheus | 系统（可选；MVP 建议本地编译） |
 
@@ -55,7 +55,7 @@ make install-tools      # 装 Go/Node/pnpm 到 .tools/，并确保 C 编译器�
 
 1. 下载 Go 1.26.1、Node 22.14.0 的 `.zip` 到 `.tools/`（Windows 包是 `.zip`，用 `unzip` 解压）；
 2. 用 `npm` 把 pnpm 9 装到 `.tools/pnpm`；
-3. **确保 C 编译器（CGO）可用**（见第 3 节）。
+3. （已废弃）控制面不再需要 C 编译器/CGO，见第 3 节说明。
 
 完成后验证：
 
@@ -100,16 +100,16 @@ make build-prometheus      # 应能成功编译出 upstream/prometheus/prometheu
 1. **首选：复用 Git for Windows 自带的 `mingw32-make.exe`**（若你的 Git 安装包含它）。脚本会检测 `mingw32-make`（含 PATH、已知安装目录、`git.exe` 反推三种探测方式），复制为项目级 `.tools/bin/make.exe`。
 
 2. **回退（可靠路径）：下载 WinLibs MinGW-w64，取其中的 `mingw32-make.exe`。**
-   - 本项目的 CGO（控制面编译 SQLite）**本来就要下载 WinLibs MinGW-w64**（见第 3 节 / Makefile 的 `install-gcc`，版本同源 `GCC_VERSION`）。
+   - 控制面已改为纯 Go（PostgreSQL 驱动），不再需要 CGO；WinLibs 只用于提供 `mingw32-make`。
    - 因此 `setup.sh` 若发现 Git 没带 `mingw32-make`，就**直接下载这份 WinLibs 工具链**到 `.tools/gcc`，把其中的 `mingw32-make.exe` 复制为 `.tools/bin/make.exe`，并把 `.tools/gcc/bin` 也加进 PATH（供 make 运行期找依赖 DLL）。
-   - 这次下载会被后续 `make ensure-cgo` **复用**（Makefile 的 `install-gcc` 幂等，检测到 `gcc.exe` 已存在即跳过），不会重复下载。
-   - ✅ 信任链与 CGO 工具链一致（同一 WinLibs 官方发布）；✅ 零系统污染；✅ 无需 winget/choco。
+   - 下载后解压位置固定为 `.tools/gcc`，重复执行 `setup.sh` 会直接复用，不会重复下载。
+   - ✅ 零系统污染；✅ 无需 winget/choco。
 
 3. **极少见再回退：chocolatey / winget**（仅当 WinLibs 下载失败，如本机无外网时）。按"安全/可维护"排序：
    - **chocolatey（社区）** —— 包全、自动加 PATH，但需先以管理员安装 choco 本体，信任链较长。
    - **winget（微软官方）** —— 系统自带、供应链最安全，但 `GnuWin32.make` 在部分机器的 winget 社区源里查不到（本次实测即遇到"找不到与输入条件匹配的程序包"），且 `GnuWin32\bin` 不自动进 PATH。
 
-> 你本机实测：Git for Windows **未随附** `mingw32-make.exe`（已 `ls` 确认 `G:\Git\mingw64\bin\mingw32-make.exe` 不存在——你的 Git 自定义装在 `G:\Git`），且 winget 社区源查不到 `GnuWin32.make`，同时直连 GitHub 下载 WinLibs 在国内网络会被拦截（`curl: (35) Recv failure: Connection was aborted`）。所以脚本最终走**第 2 步（下载 WinLibs MinGW-w64 取 mingw32-make）**，并通过 `scripts/dl-windows.sh` 自动走 ghproxy 国内镜像完成下载——它顺带把 CGO 需要的编译器也准备好了。
+> 你本机实测：Git for Windows **未随附** `mingw32-make.exe`（已 `ls` 确认 `G:\Git\mingw64\bin\mingw32-make.exe` 不存在——你的 Git 自定义装在 `G:\Git`），且 winget 社区源查不到 `GnuWin32.make`，同时直连 GitHub 下载 WinLibs 在国内网络会被拦截（`curl: (35) Recv failure: Connection was aborted`）。所以脚本最终走**第 2 步（下载 WinLibs MinGW-w64 取 mingw32-make）**，并通过 `scripts/dl-windows.sh` 自动走 ghproxy 国内镜像完成下载。
 
 ### 2.3 成员自定义路径（环境变量覆盖，无需改脚本、无需生成个人脚本）
 
@@ -140,7 +140,7 @@ make build-prometheus      # 应能成功编译出 upstream/prometheus/prometheu
 
 > ✅ **已验证**：2026-08-10 用户在本机（Git 装在 `G:\Git`、无 `mingw32-make`）用此方法成功装上 gcc，`.tools/gcc/bin/gcc.exe` 就位；`setup.sh` 与 `make install-tools` 均正确复用、不再重复下载。推荐作为首选。
 
-**为什么推荐它**：它把 `gcc.exe` 直接摆到 `setup.sh` 和 `make install-tools`→`install-gcc` **两处都会检测的位置**（`.tools/gcc/bin/gcc.exe`），因此**不依赖 `make` 是否已安装**，对团队任何成员的机器都稳。相比之下，方法二只在「`make` 未安装」这一特定场景下才复用手动包（详见 2.6）。
+**为什么推荐它**：把 WinLibs 直接解压到 `.tools/gcc`，`setup.sh` 在「Git 未带 make」时可直接复用其中的 `mingw32-make.exe`，不依赖系统包管理器。
 
 **操作步骤**（在 Git Bash 中执行；把 zip 路径换成你迅雷/aria2 实际下载到的位置，且必须是**下载完成的 `.zip`，不是迅雷的 `.xltd` 临时文件**）：
 
@@ -174,7 +174,7 @@ bash setup.sh
 
 #### 2.6 方法二（备选·有前提）：`_gcc_make.zip` + `DL_SKIP_EXISTING`
 
-> ⚠️ **前提（务必先读）**：方法二只有在**当前环境 `make` 未安装**时才复用手动包。原理是 `setup.sh` 仅在 `command -v make` 失败时进入「下载 WinLibs 顺带取 mingw32-make」分支，该分支才会读取 `.tools/_gcc_make.zip` 并尊重 `DL_SKIP_EXISTING`。若你的 Git 自带 `mingw32-make`（或已装 `make`），`setup.sh` 会跳过该分支，`make install-tools`→`install-gcc` 会**重新把 gcc 下载到 `/tmp/gcc.zip`**，你手动下的包被忽略。因此方法二更适合「像本机这样 `make` 缺失」的机器；通用场景请优先用 2.4 的方法一。
+> ⚠️ **前提（务必先读）**：方法二只有在**当前环境 `make` 未安装**时才复用手动包。原理是 `setup.sh` 仅在 `command -v make` 失败时进入「下载 WinLibs 顺带取 mingw32-make」分支，该分支才会读取 `.tools/_gcc_make.zip` 并尊重 `DL_SKIP_EXISTING`。若你的 Git 自带 `mingw32-make`（或已装 `make`），`setup.sh` 会跳过该分支，不会再去 `/tmp/gcc.zip` 下载 WinLibs；你手动下的包仅在 make 缺失时才被使用。因此方法二更适合「像本机这样 `make` 缺失」的机器；通用场景请优先用 2.4 的方法一。
 
 如果 `dl-parallel-windows.sh` 在你网络里仍频繁断流，可用 **aria2**（自带断点续传/重试）先把那份 WinLibs 压缩包下好，再让脚本跳过重复下载。**整条命令必须一行粘贴执行，不要带 `\` 续行符**（aria2 会把 `\` 当成 URI 报 `Unrecognized URI or unsupported protocol`）：
 
@@ -203,24 +203,13 @@ DL_SKIP_EXISTING=1 bash setup.sh
 
 ---
 
-## 3. CGO / C 编译器（控制面必需，Prometheus 不需要）
+## 3. CGO / C 编译器（已不再需要）
 
-> **这是 Windows 上最容易踩的坑，现已由 Makefile 自动处理。**
+> **2026-11 更新**：控制面元数据已统一到 PostgreSQL，`mattn/go-sqlite3` 已移除，`metric-center` 为纯 Go 静态编译。
 
-- 控制面（MetricCenter）用 `gorm.io/driver/sqlite` → `mattn/go-sqlite3`，**必须 CGO**，编译期需要 C 编译器（`gcc`/`clang`）。
-- **Prometheus 是纯 Go，不需要 CGO**，`make build-prometheus` 不会触发 C 编译。
-
-三端处理方式（由 `make ensure-cgo` 自动判断）：
-
-| 系统 | C 编译器来源 | Makefile 行为 |
-|------|-------------|---------------|
-| **Windows** | 自动下载 **WinLibs MinGW-w64 (GCC 16.2.0)** 到 `.tools/gcc`，并 `export CGO_ENABLED=1` | 项目级，不污染系统 |
-| **macOS** | 系统自带 `clang`（Xcode Command Line Tools） | 未安装则提示 `xcode-select --install` |
-| **Linux** | 系统 `gcc`（build-essential） | 未安装则提示 `apt install build-essential` |
-
-由于 Windows 走项目级 MinGW-w64，**你无需在系统里装任何 C/C++ 编译器**，也不会动系统环境变量。
-
----
+- `make build-metric-center` / `make test-platform` 不再要求 CGO 或任何系统 C 编译器。
+- `.tools/gcc` 中若仍存在 WinLibs，只用于 `setup.sh` 在「Git 未带 make」时取 `mingw32-make`。
+- 交叉编译（`scripts/package-center.sh CROSS=linux/amd64`）已使用 `CGO_ENABLED=0`，不需要 zig。
 
 ## 4. 初始化 Git 子模块（关键，否则 Prometheus 无法编译）
 
@@ -241,9 +230,9 @@ ls upstream/prometheus/cmd/prometheus   # 能看到 prometheus 源码目录
 
 ---
 
-## 5. 编译 MetricCenter 控制面（后端，Go + CGO）
+## 5. 编译 MetricCenter 控制面（后端，纯 Go + PostgreSQL）
 
-直接走 make target（它会自动确保 go 与 C 编译器就位）：
+直接走 make target：
 
 ```bash
 cd F:/code-program/CNCF_Monitor-worktree
@@ -258,7 +247,7 @@ make build-metric-center
 # 健康检查：浏览器打开 http://localhost:8080/health
 ```
 
-> 注意：不要手写裸 `go build` 来编译控制面——因为 CGO 依赖 `.tools/gcc`，只有 `make` 进程内的 PATH 才包含它。
+> 注意：构建已无 CGO 依赖；仍建议走 `make`，以便使用项目级 Go 工具链（`.tools/go`）。
 > 始终用 `make build-metric-center`（或 `make run-metric-center` 编译并直接启动）。
 
 ---
@@ -372,7 +361,7 @@ A：检查网络是否能访问 go.dev / nodejs.org / github.com。代理环境�
 
 **Q2：编译控制面报 `gcc: command not found` 或 `cgo: C compiler "gcc" not found`**
 A：说明 CGO 编译器不可用。`make install-tools` 在 Windows 会自动下载 MinGW-w64 到 `.tools/gcc`；
-若失败，手动检查 `make ensure-cgo` 的输出，并确认 `.tools/gcc/bin/gcc.exe` 存在。
+若失败，确认 `.tools/gcc/bin/mingw32-make.exe`（或 `.tools/bin/make.exe`）存在；控制面构建已不再需要 `gcc.exe`。
 （macOS 报此错 → `xcode-select --install`；Linux → `sudo apt install build-essential`。）
 
 **Q3：编译 Prometheus 报 `pattern static: no matching files` 或 `//go:embed` 错误**
@@ -406,7 +395,7 @@ A：以管理员身份运行 `git config --system core.longpaths true`，或把�
   - Windows 下 `export CGO_ENABLED=1` 且 `CC` 指向 `.tools/gcc/bin/gcc.exe`；
   - 编译 / 运行产物**自动带 `.exe`**。
 - 所有工具均在仓库内的 `.tools/`，**不写系统/用户 PATH**，关掉项目即消失——满足"项目走、不污染系统"。
-- macOS/Linux 走系统 C 编译器（clang/gcc），`make ensure-cgo` 会自动检测并提示缺失时的安装命令。
+- macOS/Linux 无需任何 C 编译器（控制面为纯 Go）。
 
 > 备注：本机执行 `make` 由 `setup.sh` 自动取得——优先复用 Git Bash 自带的 `mingw32-make`；若 Git 未随附（本机 Git 装在 `G:\Git` 即如此，已 `ls` 确认），则通过 `scripts/dl-windows.sh` 走 ghproxy 国内镜像自动下载 WinLibs MinGW-w64 取其中的 `mingw32-make`，复制为项目级 `.tools/bin/make.exe`，**无需手动安装任何包管理器**。若 `unzip` 缺失，可 `winget install unzip`（或 `choco install unzip`）。
 

@@ -17,9 +17,9 @@
 
 当前处于 **MVP 阶段**，已实现：
 
-- `platform/cmd/metric-center/`：基于 Gin 的控制面主程序，提供健康检查、SQLite 元数据、`/api/v1/*` Prometheus 查询代理、`/api/v2/platform/*` 配置占位 API。
+- `platform/cmd/metric-center/`：基于 Gin 的 v3-only 控制面主程序，提供 `/api/v3/platform/*` 管理接口、`/api/v3/edge/*` 边缘接口与 `/api/v1/*` Prometheus 查询代理。
 - `platform/models/`：CMDB 资源模型（Host / Middleware / Application）、标签模板、采集任务、Blackbox 探测配置的 GORM 模型。
-- `platform/db/`：SQLite + GORM 初始化与迁移。
+- `platform/db/`：PostgreSQL + GORM 初始化与 v3 版本化迁移（`migrations/v3/*.postgres.sql`）。
 - `platform/api/response/`：统一 JSON 响应格式。
 - `ui-custom/web/`：基于 Vite + React 18 + TypeScript + Ant Design 的独立前端门户。
 - `platform/examples/simple-agent/`：标准采集端 Agent 模板，演示 Prometheus client_golang 用法。
@@ -32,7 +32,7 @@
 |------|------|------|
 | 控制面后端 | Go 1.26.1 | `go.mod` 中声明，使用项目级工具链 `.tools/go/` |
 | Web 框架 | Gin v1.10 | 路由、中间件、HTTP API |
-| 元数据存储 | SQLite + GORM | `gorm.io/driver/sqlite`，开发期零运维；默认 `metric_center.db` |
+| 元数据存储 | PostgreSQL 16 + GORM | `gorm.io/driver/postgres`；本地默认 `postgres://<系统用户>@127.0.0.1:5432/metric_center`，生产由 `METRIC_CENTER_DB_DSN` 注入 |
 | 数据面引擎 | Prometheus（Go） | `upstream/prometheus/` 子模块，负责抓取/存储/查询 |
 | 采集示例 | node_exporter + simple-agent | `upstream/node_exporter/` 子模块；`platform/examples/simple-agent/` |
 | 前端 | React 18 + TypeScript 5.5 | `ui-custom/web/` |
@@ -65,7 +65,7 @@ CNCF_Monitor-worktree/
 │   ├── cmd/metric-center/          # 控制面主程序入口
 │   ├── edge-sync-agent/            # v0.2 边缘采集客户端（独立 Go module）
 │   ├── api/response/                 # 统一 API 响应封装
-│   ├── db/                         # SQLite + GORM 连接与迁移
+│   ├── db/                         # PostgreSQL + GORM 连接与迁移
 │   ├── models/                     # 领域模型（CMDB、标签模板、采集任务等）
 │   ├── examples/simple-agent/      # 标准采集端 Agent 模板（独立 Go 模块）
 │   └── gateway/、discovery/、collector/、storage/、config/  # 预留扩展目录
@@ -81,10 +81,12 @@ CNCF_Monitor-worktree/
 │   └── vercel.json                 # Vercel 部署配置
 ├── docs/                           # 项目文档（按读者/场景编号）
 │   ├── 01-team-collaboration/      # 团队协作、角色、流程
-│   ├── 02-product-requirements/    # PRD、模块需求（Modules/Module_XX_*.md）
+│   ├── 02-product-requirements/    # 产品需求（Modules/SRS/*.md 为需求基线）
 │   ├── 03-engineering-standards/   # 工程标准（必读）
 │   ├── 04-source-architecture/     # 源码架构分析
 │   ├── 05-execution-records/       # Agent 执行记录（含 design-proposals/ 功能详细设计提案）
+│   ├── 06-mvp-e2e-testing/         # MVP 配置下发闭环测试指导
+│   ├── 07-design/                  # 模块概要设计与关键设计专题（HLD，承接 SRS）
 │   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
 ├── scripts/                        # 构建与辅助脚本（含可选的 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
@@ -107,7 +109,7 @@ CNCF_Monitor-worktree/
 - `make`（构建编排入口）
 - `curl`（下载二进制包）
 - `git`（子模块、源码管理）
-- C 编译器（macOS/Linux 通常已自带；Windows 由 `setup.sh` / Makefile 自动下载 MinGW-w64）
+- PostgreSQL 16（控制面元数据库；macOS `brew install postgresql@16`，Linux 用发行版包）
 - Docker（可选，用于本地运行 Prometheus / node_exporter）
 
 ### 4.2 一键安装工具链
@@ -120,18 +122,17 @@ bash setup.sh
 
 1. 确保 `make` 可用（Windows Git Bash 下自动处理）。
 2. 安装 Go 1.26.1、Node.js 22.14.0、pnpm 到 `.tools/`（项目级，不污染系统 PATH）。
-3. 确保 CGO 编译器可用（Windows 自动下载 MinGW-w64）。
-4. 初始化 Git 子模块。
-5. 应用 `patches/prometheus/*.patch`（当前 patch 目录尚未创建）。
-6. 编译 `metric-center` 后端。
-7. 构建 Custom UI。
-8. 运行后端测试。
-9. 安装 Kimi hooks（可选）。
+3. 初始化 Git 子模块。
+4. 应用 `patches/prometheus/*.patch`（当前 patch 目录尚未创建）。
+5. 编译 `metric-center` 后端（纯 Go，无需 CGO）。
+6. 构建 Custom UI。
+7. 运行后端测试（PostgreSQL；`make test-platform` 自动准备本地测试库）。
+8. 安装 Kimi hooks（可选）。
 
 ### 4.3 手动安装工具链
 
 ```bash
-make install-tools   # 安装 Go + Node.js + pnpm + CGO 编译器
+make install-tools   # 安装 Go + Node.js + pnpm
 ```
 
 验证：
@@ -166,8 +167,7 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ### 5.2 运行
 
 ```bash
-make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；M09 reload 走 --prometheus.url 的 /-/reload）
-make run-metric-center-v3  # v3-only 启动：独立 SQLite（metric_center_v3.db，V3_DB_DSN 可覆盖），只挂 /api/v3，不跑 legacy 后台任务；用于 M01 v3 改造验证
+make run-metric-center     # 编译、迁移并启动控制面（默认 http://localhost:8080，连本地 PostgreSQL；M09 reload 走 --prometheus.url 的 /-/reload）
 make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
 make run-alertmanager      # 编译并启动 Alertmanager（默认 http://localhost:9093；--config.file 指向 config-output/alertmanager.yml（首次自动 seed），M08 静默代理/配置挂载依赖）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
@@ -214,7 +214,7 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
   - 注册 `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status`。
   - 注册 `/api/v1/query`、`/api/v1/query_range`、`/api/v1/labels`、`/api/v1/label/:name/values`、`/api/v1/series`，代理到 Prometheus。
   - 注册 `/api/v2/platform/config/preview` 和 `/api/v2/platform/config/apply` 占位。
-- `db/db.go`：SQLite 初始化、GORM 迁移；支持 `METRIC_CENTER_DB_DSN` 环境变量覆盖默认 `metric_center.db`。
+- `db/db.go`：PostgreSQL 连接（GORM）与 v3 迁移入口；DSN 由 `METRIC_CENTER_DB_DSN`（或 `METRIC_CENTER_DB_HOST/PORT/USER/...`）覆盖；`migrations/v3/` 为嵌入式版本化迁移。
 - `models/`：领域模型，统一嵌入 `BaseModel`（ID、时间戳、软删除），实现 `Resource` 接口。
 - `api/response/`：统一响应格式 `{status, data, errorType, error}`。
 - `edge-sync-agent/`（v0.2）：部署在边缘监控代理节点的独立客户端，负责心跳上报、配置包拉取、进程守护与 reload；使用独立 `go.mod`，便于最小化依赖与交叉编译。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
@@ -292,15 +292,15 @@ v0.2 计划落地的目录：`platform/edge-sync-agent/`（边缘采集客户端
 
 - 所有 `platform/` 业务包必须包含 `*_test.go`。
 - 单元测试使用标准 `testing` + `testify`。
-- 数据库测试优先使用内存 DSN：`file::memory:?cache=shared`。
+- 数据库测试统一跑 PostgreSQL（生产同方言，SQLite 已移除）：用
+  `platform/testutil/testdb` 打开逐测试独立的 schema，或直接导出
+  `METRIC_CENTER_TEST_POSTGRES_DSN`。
 - 不修改 `upstream/prometheus/` 原有测试。
 
 当前已验证的测试命令：
 
 ```bash
-make test-platform
-# 或
-.tools/go/bin/go test ./platform/...
+make test-platform   # 自动准备本地 PG 测试库并跑全量（DSN 可用 METRIC_CENTER_TEST_POSTGRES_DSN 覆盖）
 ```
 
 ### 8.2 前端测试
@@ -340,7 +340,7 @@ pnpm test                              # 全量，仅 testing-tdd §4.2 允许�
 1. **上游源码隔离**：不直接修改 `upstream/`，避免引入难以追踪的安全补丁冲突。
 2. **Prometheus 代理鉴权**：`platform/cmd/metric-center/main.go` 中的 Prometheus 查询代理目前仅做透传，TODO 中已标注需要在转发前完成租户/用户认证与查询范围隔离。
 3. **URL 校验**：`parseURL` 强制校验 `http`/`https` scheme 和非空 host，避免异常 scheme 或空目标。
-4. **数据库**：SQLite 文件 `metric_center.db` 默认生成在项目根目录，生产环境应迁移到受保护的持久化存储。
+4. **数据库**：PostgreSQL 连接串可能含口令，必须通过 `METRIC_CENTER_DB_DSN` / 部署环境 `env.sh` 注入，禁止写入仓库；本地开发用 `./scripts/pg-dev.sh` 管理实例与库。
 5. **敏感文件保护**：`.env`、SSH 私钥、数据库文件等已被 `.gitignore` 忽略；hooks 中也有 `protect-env.sh` 防止误改。
 6. **依赖安全**：Go 依赖通过 `go.mod` / `go.sum` 锁定；前端依赖通过 `pnpm-lock.yaml` 锁定。
 7. **SSRF 防护**：后端代理 Prometheus 接口时，应校验目标 URL 是否属于允许列表，避免用户构造请求访问内网服务。
@@ -367,7 +367,7 @@ make dev-ui
 
 > 测试/生产环境建议将 `metric-center` 与 Prometheus 作为「一体化交付包」同机部署：一个安装包内同时包含两个二进制，由 systemd / supervisor / 启动脚本统一拉起，但二者仍是独立进程。M09 `local` 下发通道要求控制面能直接写 Prometheus 配置目录并触发 reload。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
 >
-> **生产目录规范（决策 64）**：生产部署对齐《业务软件标准化目录与权限配置操作手册》三目录基线——程序/种子配置 `/opt/apps/metric-center/`（只读）、数据 `/opt/data/metric-center/`（TSDB / SQLite / config-output 活配置）、日志 `/opt/log/metric-center/`，三目录由运维预建；交付包 `env/env.sh` 集中定义 `DATA_ROOT` / `LOG_ROOT` / TSDB 保留策略，`start.sh` 双模式（有 env.sh 走生产路径，否则回落包内 data/logs 解压即用）；活配置落 `/opt/data/.../config-output/` 以兼容程序目录只读红线。详见 `docs/06-mvp-e2e-testing/package-center-guide.md` §2.4。
+> **生产目录规范（决策 64）**：生产部署对齐《业务软件标准化目录与权限配置操作手册》三目录基线——程序/种子配置 `/opt/apps/metric-center/`（只读）、数据 `/opt/data/metric-center/`（TSDB / config-output 活配置；元数据在外部 PostgreSQL）、日志 `/opt/log/metric-center/`，三目录由运维预建；交付包 `env/env.sh` 集中定义 `DATA_ROOT` / `LOG_ROOT` / TSDB 保留策略，`start.sh` 双模式（有 env.sh 走生产路径，否则回落包内 data/logs 解压即用）；活配置落 `/opt/data/.../config-output/` 以兼容程序目录只读红线。详见 `docs/06-mvp-e2e-testing/package-center-guide.md` §2.4。
 
 ### 10.2 Vercel 预览
 
@@ -437,7 +437,10 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | AI Agent 协作流程 |
 | `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 分支策略与回退指南 |
 | `docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md` | 后端分层、migration、技术债控制红线（R1-R4）与还债路线图 |
-| `docs/02-product-requirements/Modules/Module_XX_*.md` | 各模块 PRD |
+| `docs/02-product-requirements/Modules/SRS/*.md` | 各模块 SRS（需求基线） |
+| `docs/07-design/README.md` | 概要设计目录：SRS/设计分层约定、模板与索引 |
+| `docs/07-design/Module_09_Config_and_Query_Center_High_Level_Design.md` | M09 配置与查询中心概要设计（接口清单/数据归属/关键流程/追溯） |
+| `docs/07-design/design-notes/` | M09 关键设计专题（PromQL 注入 / 配置发布 / 查询页交互） |
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
 | `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
@@ -454,7 +457,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 
 ## 13. 已知当前状态（截至本文件生成时）
 
-- 后端 MVP 骨架已跑通，`go test ./platform/...` 全部通过。
+- 后端 MVP 骨架已跑通，`make test-platform`（PostgreSQL 全量）通过。
 - 前端骨架已建立，包含首页状态卡片、MainLayout、API 客户端和若干页面占位。
 - `platform/examples/simple-agent/` 可独立运行，用于验证采集链路。
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。

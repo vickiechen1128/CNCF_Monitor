@@ -14,12 +14,12 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | 层级 | 示例 | 含义 | 维护位置 |
 |------|------|------|----------|
 | **产品版本** | MVP、v0.2、v0.3、v0.4、v1.0 | 对外发布的里程碑，决定用户可见功能集合 | 本文档 |
-| **PRD 版本** | Module_09 v1.2 | 单个模块 PRD 的文档迭代号，记录需求变更历史 | `docs/02-product-requirements/Modules/Module_XX_*.md` |
-| **原型版本** | v1.2 | 验证某版 PRD 的可点击原型版本，**必须与 PRD 版本保持一致** | `docs/prototypes/module-XX/` |
+| **SRS 版本** | Module_09 v1.10 | 单个模块 SRS 的文档迭代号，记录需求变更历史 | `docs/02-product-requirements/Modules/SRS/*.md` |
+| **原型版本** | v1.2 | 验证某版 SRS 的可点击原型版本，**必须与 SRS 版本保持一致** | `docs/prototypes/module-XX/` |
 
 **关联规则**：
 
-- 每个模块 PRD 顶部必须标注：PRD 状态、PRD 版本、**产品版本覆盖**、**原型版本**、**对应原型路径**。
+- 每个模块 SRS 顶部必须标注：SRS 状态、SRS 版本、**产品版本覆盖**、**原型版本**、**对应原型路径**。
 - 原型 `README.md` / `package.json` 必须声明：验证的 PRD 版本、覆盖的产品版本。
 - 模块 PRD 的 Change Log 必须包含 **「产品版本影响」** 列。
 - 本文档的「功能-版本矩阵」是跨模块统一视图；各模块 PRD 仍保留 `{MVP}`、`{v0.2}`、`{v0.4+}` 等阶段标签作为细节标注。
@@ -79,7 +79,7 @@ MVP 聚焦 **"五类资源管理 + 网域登记 + 采集/拨测配置 + promethe
 
 ### 2.3 交付物
 
-- **配置管理**（[Module 07](Modules/Module_07_Monitoring_Object_Management.md)）：
+- **配置管理**（[Module 07](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md)）：
   - 网域模型：预置默认网域 `default` + **网域登记管理（Module_06，MVP 范围）**，资源必须归属网域
   - 主机 / 数据库 / 中间件 / 应用服务 / 通用指标目标**五类资源管理**；`resource_id` 为稳定唯一键（服务端生成），`instance_name` / `hostname` 作为可读展示名；application 粒度 = 服务实例（多副本多行，`service_name + endpoint` 判重）
   - 按资源类型的固定列 Excel 导入（含可选 `network_domain_id` 列，留空默认 `default`；预留 `cmdb_*` 可选列）；**支持 upsert 模式**（按类型判重键覆盖更新）

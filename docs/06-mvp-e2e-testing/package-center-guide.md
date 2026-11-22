@@ -37,7 +37,7 @@ dist/metric-center-bundle-<os>-<arch>-<timestamp>/   # 解压后的目录
 ```text
 metric-center-bundle-linux-amd64-<timestamp>/
 ├── bin/
-│   ├── metric-center          # MetricCenter 控制面二进制（Go + CGO/SQLite）
+│   ├── metric-center          # MetricCenter 控制面二进制（纯 Go + PostgreSQL）
 │   ├── prometheus             # Prometheus 数据面二进制（Web UI 内嵌）
 │   ├── promtool               # M09 草稿校验依赖（exec.LookPath("promtool")），随包常驻
 │   ├── amtool                 # [WITH_ALERTMANAGER] M08 AM 配置挂载校验依赖
@@ -61,7 +61,7 @@ metric-center-bundle-linux-amd64-<timestamp>/
 
 ## 2. 推荐：在 Ubuntu 上直接构建（最可靠）
 
-由于 `metric-center` 依赖 CGO（`mattn/go-sqlite3`），**最可靠的做法是在 Ubuntu 本机执行打包**，避免交叉编译工具链的兼容性问题。
+控制面已是纯 Go（PostgreSQL 驱动），可直接交叉编译；在 Ubuntu 本机打包仍是回归验证最稳妥的方式。
 
 ### 2.1 前置依赖
 
@@ -124,7 +124,6 @@ cd metric-center-bundle-linux-amd64-*/
 ├── prometheus/                   # TSDB（磁盘扩容就挂这层）
 ├── alertmanager/
 ├── config-output/                # M09/M08 下发的活配置（prometheus.yml / targets/ / rules.yml / alertmanager.yml / blackbox.yml）
-├── metric_center.db              # SQLite
 └── run/*.pid
 
 /opt/log/metric-center/           # 日志
@@ -149,12 +148,12 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `DATA_ROOT` | `/opt/data/metric-center` | 数据根（TSDB / SQLite / config-output / run） |
+| `DATA_ROOT` | `/opt/data/metric-center` | 数据根（TSDB / config-output / run） |
 | `LOG_ROOT` | `/opt/log/metric-center` | 日志根 |
 | `PROM_RETENTION_TIME` | `15d` | TSDB 时间保留（`--storage.tsdb.retention.time`） |
 | `PROM_RETENTION_SIZE` | `10GB` | TSDB 容量兜底（`--storage.tsdb.retention.size`，到量淘汰最旧 block） |
 | `PROM_PORT` / `AM_PORT` / `BB_PORT` / `MC_PORT` / `AM_CLUSTER_PORT` | `9090` / `9093` / `9115` / `8080` / `9094` | 组件端口；安装期可用 `install.sh --prom-port` 等参数（或同名环境变量）指定，装后也可直接改本文件。五端口须互不相同（安装期会做冲突校验）；改动后需同步放通防火墙，并更新采集节点侧 `CENTER_ENDPOINT` / remote write 地址（若改了 `MC_PORT` / `PROM_PORT`） |
-| `METRIC_CENTER_DB_DSN` | `$DATA_ROOT/metric_center.db` | SQLite 路径 |
+| `METRIC_CENTER_DB_DSN` | 无（必须显式配置） | PostgreSQL 连接串；交付包不内置 PG，需指向既有实例 |
 
 **双模式**：`start.sh` 检测到 `env/env.sh` 走 `/opt/*` 生产路径；未安装（无 env.sh）时回落包内 `data/` / `logs/`，解压即用模式不受影响。systemd 注册不在 MVP 范围，默认 start.sh。
 
@@ -163,7 +162,7 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 - **日志清理**：随包 `scripts/logrotate.conf.example`（daily / rotate 14 / compress），是否写入 `/etc/logrotate.d/` 由运维决定（手册将 /etc 列为系统保留区，默认不碰）；手动清理直接清空 `/opt/log/metric-center/*.log` 即可；
 - **TSDB 瘦身**：调 `env.sh` 的 `PROM_RETENTION_TIME` / `PROM_RETENTION_SIZE` 后重启 Prometheus 生效；紧急释放空间可停服后删除 `/opt/data/metric-center/prometheus/` 下的旧 block 目录（`01J*` 开头的过期 block），勿删 `wal/` 与当前 head block；
 - **磁盘扩容**：把 `/opt/data/metric-center` 作为独立挂载点；加盘 = 新盘挂载 → 停服 → `rsync -a` 迁移 → 改挂载 → 启服，程序与日志目录不动；
-- **SQLite**：增长缓慢；如需收缩，停服后 `sqlite3 metric_center.db 'VACUUM;'`。
+- **PostgreSQL**：元数据增长缓慢，按库常规备份（`pg_dump`）与 `VACUUM` 维护；交付包本身不携带数据库。
 
 访问（把 `<服务器IP>` 换成部署机实际可达的 IP 或域名，本机访问可用 `127.0.0.1`）：
 
@@ -339,9 +338,9 @@ curl -s http://127.0.0.1:9115/     -o /dev/null -w '%{http_code}\n'   # Blackbox
 
 ## 7. 已知注意事项
 
-1. **必须本机构建或使用 zig 交叉**：`metric-center` 的 SQLite 驱动依赖 CGO，不能直接用 `GOOS=linux go build` 在 macOS 上完成。
+1. **可直接交叉编译**：`metric-center` 为纯 Go，`CGO_ENABLED=0 GOOS=linux go build` 即可，无需 zig；打包脚本已按此执行。
 2. **Prometheus Web UI 已内嵌二进制**：`build-prometheus` 通过 `-tags builtinassets` 把 `web/ui/static` 编译进 prometheus，交付包无需附带静态文件，也不再要求从特定目录启动 Prometheus。
 3. **首次启动会自动 seed 配置**：`start.sh` 会在 `config/prometheus/` 下复制示例配置（含 `WITH_BLACKBOX` 时的 `blackbox.yml`），无需手动准备。
-4. **数据目录默认生成在包内**：解压即用模式下运行后会出现 `data/`（SQLite + TSDB + Alertmanager storage）和 `logs/`，如需持久化，建议把包部署到固定目录；**生产环境请走 §2.4 生产标准化部署**（/opt 三目录分离，决策 64）。
+4. **数据目录默认生成在包内**：解压即用模式下运行后会出现 `data/`（TSDB + Alertmanager storage）和 `logs/`，如需持久化，建议把包部署到固定目录；**生产环境请走 §2.4 生产标准化部署**（/opt 三目录分离，决策 64）。
 5. **M08/M09 闭环依赖随包组件**：`alertmanager.yml` 下发（决策 60）需要 `WITH_ALERTMANAGER=1` 产物，否则 M08 配置挂载校验会因找不到 `amtool`/AM 环境而 pending；拨测下发需要 `WITH_BLACKBOX=1` 产物。
 6. **交叉打包后须重建本机二进制**：`CROSS=...` 打包会把源码目录二进制覆盖为 ELF，macOS 本地 `make run-*` 会失败；重跑原生 `make build-center` 恢复（详见 §3 副作用提示）。

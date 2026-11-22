@@ -12,7 +12,7 @@
 2. **业务与源码隔离**：所有改造代码位于 `platform/`，上游源码保持可升级
 3. **可扩展**：通过插件化机制支持自定义发现、采集、存储、前端
 4. **可协作**：目录结构与文档体系适配 AI Agent 开发模式
-5. **以 CMDB 为唯一数据源 {v0.4+}**：监控对象（主机、中间件、应用服务）以 BlueKing CMDB 为权威来源，由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责同步与生命周期管理；业务/业务域映射到 BlueKing Business 并落地为 [Module_07](Modules/Module_07_Monitoring_Object_Management.md) 业务分组字典，网域映射到 BlueKing Cloud Area；ITSM 服务目录通过显式 CMDB 业务/模块路径与监控对象关联 {v1.0+}。
+5. **以 CMDB 为唯一数据源 {v0.4+}**：监控对象（主机、中间件、应用服务）以 BlueKing CMDB 为权威来源，由 Module_04 负责同步与生命周期管理；业务/业务域映射到 BlueKing Business 并落地为 [Module_07](Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md) 业务分组字典，网域映射到 BlueKing Cloud Area；ITSM 服务目录通过显式 CMDB 业务/模块路径与监控对象关联 {v1.0+}。
 
 ## 1.1 核心设计原则：物理拓扑、租户治理与业务分组正交
 
@@ -171,7 +171,7 @@
 | **标签归一化** | Ingestion Gateway 对外部 Prometheus/Zabbix 标签进行标准化，统一为 `instance`/`app`/`env`/`network_domain` |
 | **指标过滤** | 支持按 MonitoringSource 配置指标白名单/黑名单与高基数丢弃规则 |
 | **边缘自治告警** | v0.4+ 支持边缘 vmalert + 本地 Alertmanager，断网时仍可本地通知 |
-| **CMDB 为唯一数据源 {v0.4+}** | BlueKing CMDB 是监控对象权威来源；MetricCenter 本地资源为其只读/缓存镜像；同步策略、失败时保留旧快照 7 天、孤儿资源管理由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责 |
+| **CMDB 为唯一数据源 {v0.4+}** | BlueKing CMDB 是监控对象权威来源；MetricCenter 本地资源为其只读/缓存镜像；同步策略、失败时保留旧快照 7 天、孤儿资源管理由 Module_04 负责 |
 | **Tenant/NetworkDomain 映射** | 租户 → 蓝鲸业务（Business）{v0.2 起数据模型，v0.4+ 同步}；网域 → 蓝鲸云区域（Cloud Area）{v0.4+}；`network_domain_id` 全局唯一，采用**部署级前缀**（`<deploy_code>-<domain_code>`，决策 20），网域为部署级资源、可跨租户共享（决策 18~20） |
 | **ITIL 事件字段映射 {v1.0+}** | 告警转 ITIL 事件时，严重等级来自 Prometheus label，影响范围来自 CMDB 拓扑，接收人来自告警规则 receiver，负责人来自 CMDB 维护人 + ITSM 值班，服务目录来自 ITSM 与 CMDB 的显式映射；MVP 不做 ITSM 对接 |
 
@@ -189,7 +189,7 @@ BlueKing CMDB                    MetricCenter              ITSM/ITIL
 ```
 
 **核心原则**：
-- CMDB 是监控对象唯一数据源 {v0.4+}；MetricCenter 本地资源为其只读/缓存镜像，同步策略与生命周期由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责。
+- CMDB 是监控对象唯一数据源 {v0.4+}；MetricCenter 本地资源为其只读/缓存镜像，同步策略与生命周期由 Module_04 负责。
 - 告警转 ITIL 事件时，影响范围与负责人必须从 CMDB 拓扑/维护人派生，服务目录必须通过显式 CMDB 业务/模块路径映射 {v1.0+}。
 - 同步失败时继续使用旧对象快照，7 天后进入孤儿资源管理，避免监控中断 {v0.4+}。
 
