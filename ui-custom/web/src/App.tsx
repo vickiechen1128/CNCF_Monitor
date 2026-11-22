@@ -23,7 +23,6 @@ import CollectorListPage from './pages/strategy/CollectorListPage'
 import RulesPage from './pages/strategy/RulesPage'
 import MetricLibraryPage from './pages/strategy/MetricLibraryPage'
 import LoginPage from './pages/login/LoginPage'
-import QueryPage from './pages/query/QueryPage'
 import { getToken, setUnauthorizedNavigate } from './api/client'
 import './App.css'
 
@@ -44,6 +43,8 @@ const TargetStatusPage = lazy(() =>
 )
 const DashboardPanelsPage = lazy(() => import('./pages/admin/dashboard-panels/DashboardPanelsPage'))
 const DashboardPanelPage = lazy(() => import('./pages/dashboard/DashboardPanelPage'))
+// M09 指标查询页：ECharts 按需引入体积较大，随路由懒加载
+const QueryPage = lazy(() => import('./pages/query/QueryPage'))
 
 // Module_08 告警收敛与通知管理路由，懒加载
 const AlertConfigPage = lazy(() =>

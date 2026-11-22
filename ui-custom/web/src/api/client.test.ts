@@ -46,6 +46,28 @@ describe('apiClient', () => {
     expect(res.data).toEqual({ version: '1.0.0' })
   })
 
+  it('preserves the query meta envelope', async () => {
+    mockFetch(
+      createJsonResponse({
+        status: 'success',
+        data: { resultType: 'vector', result: [] },
+        meta: {
+          data_source: 'prometheus',
+          freshness_at: '2026-11-22T10:00:00Z',
+          network_domains: ['mc-a', 'mc-b'],
+        },
+      }),
+    )
+
+    const res = await apiClient.get('/api/v1/query', { params: { query: 'up' } })
+
+    expect(res.meta).toEqual({
+      data_source: 'prometheus',
+      freshness_at: '2026-11-22T10:00:00Z',
+      network_domains: ['mc-a', 'mc-b'],
+    })
+  })
+
   it('throws ApiError when status is error even if HTTP is 200', async () => {
     mockFetch(
       createJsonResponse({

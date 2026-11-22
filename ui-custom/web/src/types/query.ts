@@ -1,12 +1,13 @@
 /**
  * 查询中心领域类型（Module_02 采集状态回显 / 决策 47，api-contract-snapshot.md §2）
  *
- * 本文件为 module-02 前端独占的权威类型出口（T02-F1）：
+ * 本文件为 module-02 前端权威类型出口（T02-F1）：
  * - TargetItem      ：GET /api/v1/targets 单条 target 对象（§2.1.1，透传 Prometheus + network_domain 补全）
  * - CoverageItem    ：GET /api/v1/health/coverage 实例状态聚合 item（§2.2.1）
  * - CoverageState   ：实例状态枚举 collecting / pending_down / not_monitored
  * - CoverageSummary ：覆盖率汇总（§2.2.2）
- * 被 module-01（Job 实例采集状态回显）与 module-07（资源列表实例状态 badge）只读消费。
+ * 被 module-01（Job 实例采集状态回显）、module-07（资源列表实例状态 badge）与
+ * module-09 指标查询页（PromQueryData / PromMatrixItem）只读消费。
  */
 import type { ResourceCategory } from './resource'
 

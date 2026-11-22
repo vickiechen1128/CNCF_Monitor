@@ -114,6 +114,7 @@ async function parseResponse<T>(res: Response): Promise<ApiResponse<T>> {
     return {
       status,
       data: json.data as T,
+      meta: json.meta,
       error: json.error,
       errorType: json.errorType,
     }
