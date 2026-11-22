@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,17 +15,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 type stubSource struct{}
@@ -58,10 +54,8 @@ func (s stubValidator) Validate(_ context.Context, _ *configgen.Artifacts, _ []s
 func newSnapshotTestStack(t *testing.T, user *models.User) (*gin.Engine, *service.ConfigSyncService) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m09_snapshot.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
+	var err error
 
 	require.NoError(t, gormDB.Create(&models.Tenant{
 		ID: models.PlatformAdminTenantID, Name: "平台默认租户",

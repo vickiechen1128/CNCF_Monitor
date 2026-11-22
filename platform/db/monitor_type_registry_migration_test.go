@@ -1,7 +1,6 @@
 package db
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,12 +14,11 @@ import (
 // this test migrates up to 22. The 0023 data migration has its own test in
 // collection_template_migration_test.go.
 func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "metric_center_v3_monitor_types.db")
-	migrateV3UpTo(t, "sqlite", dsn, 22)
+	dsn := testPostgresDSN(t)
+	migrateV3UpTo(t, "postgres", dsn, 22)
 
-	sqlDB, err := openMigrationDB("sqlite", dsn)
-	require.NoError(t, err)
-	defer sqlDB.Close()
+	sqlDB := openTestSQL(t, dsn)
+	var err error
 
 	requireTableCount(t, sqlDB, "m01_monitor_types", 1)
 	requireTableCount(t, sqlDB, "m01_monitor_type_rules", 1)

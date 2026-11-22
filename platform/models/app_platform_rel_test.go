@@ -3,14 +3,15 @@ package models
 import (
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func TestAppPlatformRelManyToManyAndUniquePair(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:app-platform-rel-pair?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&AppPlatformRel{}))
 
@@ -26,7 +27,7 @@ func TestAppPlatformRelManyToManyAndUniquePair(t *testing.T) {
 }
 
 func TestValidateAppPlatformPrimaryUnique(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:app-platform-rel-primary?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&AppPlatformRel{}))
 

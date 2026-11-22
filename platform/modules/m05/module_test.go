@@ -2,7 +2,6 @@ package m05
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,47 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m05/dto"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
-// newTestDB builds an isolated in-memory v3 database.
-//
-// `file:name?mode=memory&cache=shared` shares one database between connections
-// of the same process, so every test uses a unique name derived from t.Name()
-// (without it the suites would leak rows into each other). A keeper *sql.DB is
-// opened before migrating because a shared-cache in-memory database is dropped
-// as soon as its last connection closes.
+// newTestDB opens an isolated PostgreSQL schema with the v3 migrations applied.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	dsn := fmt.Sprintf("file:m05_%s?mode=memory&cache=shared", name)
-
-	keeper, err := sql.Open("sqlite3", dsn+"&_foreign_keys=on")
-	require.NoError(t, err)
-	// database/sql connects lazily: ping so the shared in-memory database exists
-	// before the migration runner opens (and later closes) its own pool.
-	require.NoError(t, keeper.Ping())
-	t.Cleanup(func() { _ = keeper.Close() })
-
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"&_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		sqlDB, err := gormDB.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return gormDB
+	return testdb.Open(t)
 }
 
 // seedUsersAndSessions creates one admin and one read-only user with live
@@ -154,7 +125,7 @@ func seedReferenceData(t *testing.T, gormDB *gorm.DB) {
 		`INSERT INTO platform_dicts(platform_code, platform_name, enabled)
 			VALUES ('ecommerce', '电商平台', TRUE)`,
 		`INSERT INTO app_platform_rels(id, app_code, platform_code, is_primary)
-			VALUES ('rel-1', 'order', 'ecommerce', 1)`,
+			VALUES ('rel-1', 'order', 'ecommerce', TRUE)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}

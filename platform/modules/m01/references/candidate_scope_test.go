@@ -2,18 +2,15 @@ package references_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // newCapabilityDB seeds one Linux host with an NPU, one plain Linux host and one
@@ -21,10 +18,7 @@ import (
 // it must match both host_linux (node-exporter) and host_npu (npu-exporter).
 func newCapabilityDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m01_capability.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
@@ -33,15 +27,15 @@ func newCapabilityDB(t *testing.T) *gorm.DB {
 		`INSERT INTO resources(resource_id,resource_category,tenant_id,network_domain_id,env,status,source_type,scrape_port,dedup_key)
 			VALUES ('r-npu','host','platform_admin','mc-a','PRD','online','manual',0,'host|mc-a|10.0.0.31')`,
 		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type,has_npu,has_gpu)
-			VALUES ('r-npu','npu-01','10.0.0.31','Ubuntu',1,0)`,
+			VALUES ('r-npu','npu-01','10.0.0.31','Ubuntu',TRUE,FALSE)`,
 		`INSERT INTO resources(resource_id,resource_category,tenant_id,network_domain_id,env,status,source_type,scrape_port,dedup_key)
 			VALUES ('r-plain','host','platform_admin','mc-a','PRD','online','manual',0,'host|mc-a|10.0.0.32')`,
 		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type,has_npu,has_gpu)
-			VALUES ('r-plain','plain-01','10.0.0.32','CentOS',0,0)`,
+			VALUES ('r-plain','plain-01','10.0.0.32','CentOS',FALSE,FALSE)`,
 		`INSERT INTO resources(resource_id,resource_category,tenant_id,network_domain_id,env,status,source_type,scrape_port,dedup_key)
 			VALUES ('r-win','host','platform_admin','mc-a','PRD','online','manual',0,'host|mc-a|10.0.0.33')`,
 		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type,has_npu,has_gpu)
-			VALUES ('r-win','win-01','10.0.0.33','Windows Server 2019',0,0)`,
+			VALUES ('r-win','win-01','10.0.0.33','Windows Server 2019',FALSE,FALSE)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}

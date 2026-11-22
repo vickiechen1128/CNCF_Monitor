@@ -1,26 +1,24 @@
 package seed
 
 import (
-	"fmt"
-	"sync/atomic"
 	"testing"
 
-	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+
+	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
-// testDBSeq keeps each call to newTestDB on a fresh, isolated in-memory
-// database so tests never pollute one another via the shared cache DSN.
-var testDBSeq int64
-
+// newTestDB opens an isolated PostgreSQL schema (no v3 migrations) so the seed
+// tests can AutoMigrate the models they exercise.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	n := atomic.AddInt64(&testDBSeq, 1)
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:seed_%d?mode=memory&cache=shared", n)), &gorm.Config{})
+	gormDB, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(
+	require.NoError(t, gormDB.AutoMigrate(
 		&models.Tenant{},
 		&models.User{},
 		&models.CloudDict{},
@@ -29,7 +27,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ApplicationDict{},
 		&models.AppPlatformRel{},
 	))
-	return db
+	return gormDB
 }
 
 func countRows(t *testing.T, db *gorm.DB, model any, out *int64) {

@@ -1,27 +1,20 @@
 package seed
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-// bizSeedTestDBCounter 为每个业务 seed 测试生成唯一的内存 DB 名，避免共享库串扰。
-var bizSeedTestDBCounter int64
-
+// openBizSeedTestDB 在每个测试自己的 PostgreSQL schema 里建表，避免相互串扰。
 func openBizSeedTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	n := atomic.AddInt64(&bizSeedTestDBCounter, 1)
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:biz_seed_%d?mode=memory&cache=shared", n)), &gorm.Config{})
-	require.NoError(t, err)
+	db := newTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.BusinessDomain{}))
 	return db
 }

@@ -2,20 +2,19 @@ package dictionary
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 func TestEnsureDeclarations(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "m07_declarations.db")
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{Logger: logger.Discard})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.BusinessDomain{}, &models.ApplicationDict{}, &models.PlatformDict{}))
 

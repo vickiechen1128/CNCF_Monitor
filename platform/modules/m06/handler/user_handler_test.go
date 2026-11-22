@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,24 +11,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/service"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func newUserTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m06_user.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
 	require.NoError(t, err)

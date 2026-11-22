@@ -148,15 +148,19 @@ func TestSyncSinkBatchesUpdatesPerMessage(t *testing.T) {
 	assert.Equal(t, 2, counter.updateCount(), "one UPDATE per outcome group instead of one per job")
 }
 
-func TestPostgresUpdatedAfterUsesWallClock(t *testing.T) {
-	// Postgres returns a server-local wall clock (16:08) with a UTC location,
-	// while generatedAt is UTC (08:08). The job was edited at 15:18 local,
-	// before the sync started, so it must be updated.
-	row := time.Date(2026, 11, 18, 15, 18, 0, 0, time.UTC)
+func TestUpdatedAfterComparesUTC(t *testing.T) {
+	// GORM writes UTC and the schema uses `timestamp without time zone`, so the
+	// value read back and generatedAt are both UTC instants: a plain comparison
+	// decides whether the row was edited after the snapshot started.
+	sink := &SyncSink{}
 	generated := time.Date(2026, 11, 18, 8, 8, 0, 0, time.UTC)
-	assert.False(t, postgresUpdatedAfter(row, generated))
 
-	// A real edit after the sync start (17:00 local) keeps pending.
-	newer := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
-	assert.True(t, postgresUpdatedAfter(newer, generated))
+	before := time.Date(2026, 11, 18, 7, 18, 0, 0, time.UTC)
+	assert.False(t, sink.updatedAfter(before, generated), "an edit before the sync start is overwritten")
+
+	same := generated
+	assert.False(t, sink.updatedAfter(same, generated))
+
+	after := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+	assert.True(t, sink.updatedAfter(after, generated), "a later edit keeps its pending state")
 }

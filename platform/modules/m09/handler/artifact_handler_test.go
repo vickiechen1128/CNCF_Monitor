@@ -6,33 +6,28 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/configgen"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/storage"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func newArtifactTestStack(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m09_artifacts.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
+	var err error
 
 	require.NoError(t, gormDB.Create(&models.Tenant{
 		ID: models.PlatformAdminTenantID, Name: "平台默认租户",
@@ -64,11 +59,11 @@ func newArtifactTestStack(t *testing.T, user *models.User) (*gin.Engine, *gorm.D
 	require.NoError(t, err)
 	require.NoError(t, gormDB.Exec(`INSERT INTO config_snapshots
 		(scope, scope_key, version, checksum, content, validation_status, validation_cause, is_current, generated_by, created_at)
-		VALUES ('center', 'center', ?, ?, '', 'passed', 'none', 1, 'system', ?)`,
+		VALUES ('center', 'center', ?, ?, '', 'passed', 'none', TRUE, 'system', ?)`,
 		center.Version, center.Checksum, time.Now().UTC()).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO config_snapshots
 		(scope, scope_key, version, checksum, content, validation_status, validation_cause, is_current, generated_by, created_at)
-		VALUES ('alertmanager', 'alertmanager', 'am-20261117-dddd', 'sum-am', 'route:\n  receiver: web\n', 'passed', 'none', 1, 'admin', ?)`,
+		VALUES ('alertmanager', 'alertmanager', 'am-20261117-dddd', 'sum-am', 'route:\n  receiver: web\n', 'passed', 'none', TRUE, 'admin', ?)`,
 		time.Now().UTC()).Error)
 
 	router := gin.New()

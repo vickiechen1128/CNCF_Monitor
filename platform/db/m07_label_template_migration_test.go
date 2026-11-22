@@ -1,7 +1,6 @@
 package db
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,12 +9,11 @@ import (
 // TestMigrateV3M07LabelTemplates validates the 00007 schema: table, unique
 // name+category, single default per category and rollback.
 func TestMigrateV3M07LabelTemplates(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "metric_center_v3_m07_label.db")
-	require.NoError(t, MigrateV3("sqlite", dsn))
+	dsn := testPostgresDSN(t)
+	require.NoError(t, MigrateV3("postgres", dsn))
 
-	sqlDB, err := openMigrationDB("sqlite", dsn)
-	require.NoError(t, err)
-	defer sqlDB.Close()
+	sqlDB := openTestSQL(t, dsn)
+	var err error
 
 	requireTableCount(t, sqlDB, "m07_label_templates", 1)
 
@@ -54,12 +52,12 @@ func TestMigrateV3M07LabelTemplates(t *testing.T) {
 	// dashboard), 00009 (M08 alerting), 00008 (center rules) then 00007;
 	// M01/M09/M06 tables stay.
 	rollbackV3To(t, dsn, 12)
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M01 job groups migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 dictionary lifecycle migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M05 dashboard migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M08 alerting migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M09 center rules migration")
-	require.NoError(t, MigrateV3Down("sqlite", dsn), "rollback M07 label templates migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M01 job groups migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M07 dictionary lifecycle migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M05 dashboard migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M08 alerting migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M09 center rules migration")
+	require.NoError(t, MigrateV3Down("postgres", dsn), "rollback M07 label templates migration")
 	requireTableCount(t, sqlDB, "m07_label_templates", 0)
 	requireTableCount(t, sqlDB, "m01_scrape_jobs", 1)
 	requireTableCount(t, sqlDB, "config_snapshots", 1)

@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -124,7 +125,7 @@ func TestApplicationImplementsResource(t *testing.T) {
 }
 
 func TestAutoMigrate(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	assert.NoError(t, err)
 
 	assert.NoError(t, db.AutoMigrate(
@@ -138,7 +139,7 @@ func TestAutoMigrate(t *testing.T) {
 }
 
 func TestHostSoftDelete(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	assert.NoError(t, err)
 	assert.NoError(t, db.AutoMigrate(&Host{}))
 
@@ -454,7 +455,7 @@ func TestEdgeAgentAndBusinessMetric(t *testing.T) {
 
 func newMemDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	assert.NoError(t, err)
 	return db
 }

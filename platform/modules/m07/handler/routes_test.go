@@ -6,46 +6,39 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/importer"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/service"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m07_handler.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		// M01-owned reference table: not part of the v3 M00/M07 migrations.
-		`CREATE TABLE IF NOT EXISTS scrape_jobs (job_name TEXT, network_domain_id TEXT, enabled INTEGER, selected_instance_ids TEXT)`,
+		`CREATE TABLE IF NOT EXISTS scrape_jobs (job_name TEXT, network_domain_id TEXT, enabled BOOLEAN, selected_instance_ids TEXT)`,
 		// 00000 core tables already exist; only seed the rows M07 reads.
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
 		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status) VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
-		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',1)`,
+		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',TRUE)`,
 		`INSERT INTO application_dicts(app_code,app_name,status) VALUES ('order-service','订单服务','enabled')`,
-		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
-		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',1)`,
-		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,description,enabled) VALUES ('PUB-TX','腾讯云','PUB','TX','预置',1)`,
+		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',TRUE)`,
+		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',TRUE)`,
+		`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,description,enabled) VALUES ('PUB-TX','腾讯云','PUB','TX','预置',TRUE)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}
@@ -150,7 +143,7 @@ func TestV3ResourceAndLabelRoutes(t *testing.T) {
 	assert.EqualValues(t, 1, out["data"].(map[string]any)["total"])
 
 	require.NoError(t, gormDB.Exec(
-		`INSERT INTO scrape_jobs(job_name,network_domain_id,enabled,selected_instance_ids) VALUES ('job-a','mc-demo',1,?)`,
+		`INSERT INTO scrape_jobs(job_name,network_domain_id,enabled,selected_instance_ids) VALUES ('job-a','mc-demo',TRUE,$1)`,
 		`["`+resourceID+`"]`,
 	).Error)
 	code, out = doJSON(t, router, http.MethodGet, "/api/v3/platform/resources/"+resourceID+"/referenced-by", "")
@@ -431,7 +424,7 @@ func TestV3CloudLifecycleRoutes(t *testing.T) {
 
 	// Seed merge targets (M06 owns cloud creation; tests insert directly).
 	require.NoError(t, gormDB.Exec(`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled)
-		VALUES ('PUB-ALI','阿里云','PUB','ALI',1)`).Error)
+		VALUES ('PUB-ALI','阿里云','PUB','ALI',TRUE)`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains(id,name,domain_type,tenant_id,cloud_code,status)
 		VALUES ('dom-a','测试域','edge','platform_admin','PUB-TX','enabled')`).Error)
 
@@ -472,7 +465,7 @@ func TestV3CloudLifecycleRoutes(t *testing.T) {
 
 	// 5. Zero-reference dictionaries revoke successfully and become terminal.
 	require.NoError(t, gormDB.Exec(`INSERT INTO cloud_dicts(cloud_code,cloud_name,cloud_type,carrier,enabled)
-		VALUES ('PUB-ZERO','空闲云','PUB','ZZ',1)`).Error)
+		VALUES ('PUB-ZERO','空闲云','PUB','ZZ',TRUE)`).Error)
 	code, out = doJSON(t, router, http.MethodPost, "/api/v3/platform/cloud-dict/PUB-ZERO/revoke", "")
 	require.Equal(t, http.StatusOK, code, out)
 	revoked := out["data"].(map[string]any)

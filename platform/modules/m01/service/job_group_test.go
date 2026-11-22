@@ -2,18 +2,15 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 type groupResourceReader struct {
@@ -62,12 +59,7 @@ func hostRef(id, domainID string) domain.ResourceRef {
 
 func newGroupTestStack(t *testing.T) (*gorm.DB, *JobGroupService, *JobService) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m01_job_group.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on&_busy_timeout=5000"), &gorm.Config{
-		Logger: logger.Discard,
-	})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
 		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)

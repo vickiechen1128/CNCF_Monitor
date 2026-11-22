@@ -13,7 +13,7 @@ import (
 )
 
 // widget is a throwaway model used only to prove that Open returns a working
-// GORM handle on both backends.
+// GORM handle bound to the isolated schema.
 type widget struct {
 	ID   uint   `gorm:"primaryKey"`
 	Name string `gorm:"not null"`
@@ -39,21 +39,19 @@ func exerciseCRUD(t *testing.T, db *gorm.DB) {
 	assert.Zero(t, count, "delete must remove the row")
 }
 
-func TestOpenSQLiteDefault(t *testing.T) {
-	if MigrateDriver() != "sqlite" {
-		t.Skip("PostgresDSNEnv is set; skipping SQLite default-path test")
-	}
-
+// TestOpenAppliesMigrationsAndIsStable proves that Open migrates the isolated
+// schema, that DSN(t) points at it and stays stable, and that the raw DSN can
+// see the migration bookkeeping.
+func TestOpenAppliesMigrationsAndIsStable(t *testing.T) {
 	db := Open(t)
 	exerciseCRUD(t, db)
 
 	dsn := DSN(t)
-	assert.Contains(t, dsn, "mode=memory", "default backend should use an in-memory SQLite DB")
 	assert.Equal(t, dsn, DSN(t), "DSN must be stable for the same *testing.T")
+	schema := schemaFromDSN(t, dsn)
+	assert.NotEmpty(t, schema, "DSN must pin an isolated search_path")
 
-	// DSN(t) must point at the same (already migrated) database: a raw sql.DB
-	// opened from it can see schema_migrations created by Open's MigrateV3.
-	raw, err := sql.Open("sqlite3", dsn)
+	raw, err := sql.Open("pgx", dsn)
 	require.NoError(t, err)
 	defer raw.Close()
 	var migrations int
@@ -61,11 +59,9 @@ func TestOpenSQLiteDefault(t *testing.T) {
 	assert.Positive(t, migrations, "Open should apply v3 migrations")
 }
 
-func TestOpenPostgresIsolationAndCleanup(t *testing.T) {
-	if MigrateDriver() != "postgres" {
-		t.Skip("set " + PostgresDSNEnv + " to run the PostgreSQL backend test")
-	}
+func TestOpenIsolatesSchemasAndCleansUp(t *testing.T) {
 	baseDSN := os.Getenv(PostgresDSNEnv)
+	require.NotEmpty(t, baseDSN, "make test-platform sets the DSN")
 
 	var schemaA, schemaB string
 	t.Run("schema-a", func(t *testing.T) {

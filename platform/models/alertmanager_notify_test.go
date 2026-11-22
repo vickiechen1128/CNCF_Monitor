@@ -1,23 +1,19 @@
 package models
 
 import (
-	"fmt"
-	"sync/atomic"
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-var notifyModelDBCounter int64
-
-// newNotifyModelDB 打开逐测试独享的内存 SQLite 并迁移 PL-3 通知模型表。
+// newNotifyModelDB 打开逐测试独享的 PostgreSQL schema 并迁移 PL-3 通知模型表。
 func newNotifyModelDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:notify_model_%d?mode=memory&cache=shared", atomic.AddInt64(&notifyModelDBCounter, 1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&NotifyChannel{}, &NotifyTemplate{}))
 	return db

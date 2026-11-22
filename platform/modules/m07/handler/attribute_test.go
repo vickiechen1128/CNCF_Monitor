@@ -19,7 +19,7 @@ func TestAttributeDefinitionAndResourceValues(t *testing.T) {
 	) VALUES ('host-attr','host','platform_admin','mc-demo','PRD','online','manual',0,'host|mc-demo|10.9.9.9')`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO host_resources(
 		resource_id,hostname,instance_ip,os_type,has_npu,has_gpu
-	) VALUES ('host-attr','attr-01','10.9.9.9','Ubuntu',1,0)`).Error)
+	) VALUES ('host-attr','attr-01','10.9.9.9','Ubuntu',TRUE,FALSE)`).Error)
 
 	code, out := doJSON(t, router, http.MethodPost, "/api/v3/platform/attribute-definitions", `{
 		"attribute_key":"dpu_model",
@@ -128,7 +128,7 @@ func TestCIModelBuiltinAndCustomFields(t *testing.T) {
 	) VALUES ('host-ci-model','host','platform_admin','mc-demo','PRD','online','manual',0,'host|mc-demo|10.9.9.8')`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO host_resources(
 		resource_id,hostname,instance_ip,os_type,has_npu,has_gpu
-	) VALUES ('host-ci-model','cm-01','10.9.9.8','Ubuntu',0,0)`).Error)
+	) VALUES ('host-ci-model','cm-01','10.9.9.8','Ubuntu',FALSE,FALSE)`).Error)
 
 	code, out = doJSON(t, router, http.MethodPut, "/api/v3/platform/resources/host-ci-model/attributes", `{
 		"attributes":[{"key":"rack_position","value":"B-12"}]

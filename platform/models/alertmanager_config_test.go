@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -67,7 +68,7 @@ type AlertmanagerConfigVersionView struct {
 }
 
 func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&AlertmanagerConfigVersion{}))
 

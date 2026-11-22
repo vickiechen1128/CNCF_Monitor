@@ -2,22 +2,19 @@ package handler
 
 import (
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m06/service"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // newCloudDictTestRouter mounts the M06 v3 routes with the cloud dictionary
@@ -25,10 +22,7 @@ import (
 func newCloudDictTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m06_cloud.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

@@ -2,19 +2,16 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func TestNormalizeExporterDefaults(t *testing.T) {
@@ -71,13 +68,9 @@ func TestNoopLabelTemplateResolver(t *testing.T) {
 }
 
 // newServiceDB opens an isolated v3 database for the service tests.
-func newServiceDB(t *testing.T, name string) *gorm.DB {
+func newServiceDB(t *testing.T, _ string) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), name)
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
-	return gormDB
+	return testdb.Open(t)
 }
 
 // seedNodeTemplate writes the exporter + host_linux recipe a standard job needs:

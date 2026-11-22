@@ -4,30 +4,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/metriccenter/metriccenter/platform/db"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func newTestRouter(t *testing.T) (*gin.Engine, *Module) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "system.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	m := NewModule(gormDB, Options{
-		Driver:  "sqlite",
+		Driver:  "postgres",
 		Modules: func() []string { return []string{"system", "m07"} },
 	})
 	router := gin.New()
@@ -60,7 +52,7 @@ func TestReadyWithMigratedDatabase(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	data := out["data"].(map[string]any)
 	assert.Equal(t, "ready", data["status"])
-	assert.Equal(t, "sqlite", data["driver"])
+	assert.Equal(t, "postgres", data["driver"])
 	assert.NotZero(t, data["schema_version"])
 }
 
@@ -81,7 +73,7 @@ func TestMeta(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	data := out["data"].(map[string]any)
 	assert.Equal(t, "v3", data["api"])
-	assert.Equal(t, "sqlite", data["driver"])
+	assert.Equal(t, "postgres", data["driver"])
 	assert.Equal(t, []any{"system", "m07"}, data["modules"])
 	assert.NotEmpty(t, data["version"])
 }

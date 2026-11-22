@@ -2,26 +2,20 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func newAttributeService(t *testing.T) (*AttributeService, *gorm.DB) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m07_attributes.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
@@ -30,7 +24,7 @@ func newAttributeService(t *testing.T) (*AttributeService, *gorm.DB) {
 		`INSERT INTO resources(resource_id,resource_category,tenant_id,network_domain_id,env,status,source_type,scrape_port,dedup_key)
 			VALUES ('r-npu','host','platform_admin','mc-a','PRD','online','manual',0,'host|mc-a|10.0.0.41')`,
 		`INSERT INTO host_resources(resource_id,hostname,instance_ip,os_type,has_npu,has_gpu)
-			VALUES ('r-npu','npu-01','10.0.0.41','Ubuntu',1,0)`,
+			VALUES ('r-npu','npu-01','10.0.0.41','Ubuntu',TRUE,FALSE)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}

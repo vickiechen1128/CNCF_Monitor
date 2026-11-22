@@ -6,13 +6,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // TestCoreV3SeedIdempotent verifies that a fresh v3 database gets the minimal
@@ -21,11 +18,7 @@ func TestCoreV3SeedIdempotent(t *testing.T) {
 	t.Setenv("METRIC_CENTER_ENV", "test")
 	businessDomains := filepath.Join("..", "config", "business_domains.yaml")
 
-	dsn := filepath.Join(t.TempDir(), "core_v3.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains), "seed must be idempotent")
@@ -63,10 +56,7 @@ func TestCoreV3ReconcilesTenantDomainAuthorizations(t *testing.T) {
 	t.Setenv("METRIC_CENTER_ENV", "test")
 	businessDomains := filepath.Join("..", "config", "business_domains.yaml")
 
-	dsn := filepath.Join(t.TempDir(), "core_v3_authorization.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, seed.CoreV3(gormDB, businessDomains))
 
 	require.NoError(t, gormDB.Create(&models.Tenant{

@@ -2,22 +2,15 @@ package references
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func TestGORMScrapeJobCounter(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "scrape_jobs.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, domainID := range []string{"mc-demo", "mc-other"} {
 		require.NoError(t, gormDB.Exec(

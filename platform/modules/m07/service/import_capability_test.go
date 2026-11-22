@@ -3,20 +3,17 @@ package service
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xuri/excelize/v2"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
+	"github.com/xuri/excelize/v2"
 )
 
 func buildCapabilityXLSX(t *testing.T, ip, attributes string) []byte {
@@ -36,23 +33,20 @@ func buildCapabilityXLSX(t *testing.T, ip, attributes string) []byte {
 	return buf.Bytes()
 }
 
-// newCapabilityImportService builds an import service over a real (sqlite)
+// newCapabilityImportService builds an import service over a real (PostgreSQL)
 // repository, because capability values have to be persisted, not faked.
 func newCapabilityImportService(t *testing.T) (*ImportService, *gorm.DB, *repository.GORMRepository) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m07_import_capability.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
 		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
 			VALUES ('mc-demo','演示采集域','edge','platform_admin','enabled')`,
-		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',1)`,
+		`INSERT INTO business_domains(code,name,enabled) VALUES ('payment','支付',TRUE)`,
 		`INSERT INTO application_dicts(app_code,app_name,status) VALUES ('order-service','订单服务','enabled')`,
-		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',1)`,
-		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',1)`,
+		`INSERT INTO platform_dicts(platform_code,platform_name,enabled) VALUES ('ecommerce','电商平台',TRUE)`,
+		`INSERT INTO app_platform_rels(id,app_code,platform_code,is_primary) VALUES ('rel-1','order-service','ecommerce',TRUE)`,
 	} {
 		require.NoError(t, gormDB.Exec(stmt).Error, stmt)
 	}

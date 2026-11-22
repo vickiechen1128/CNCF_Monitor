@@ -2,33 +2,27 @@ package service_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/foundation/apierror"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/service"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func kindOf(err error) apierror.Kind { return apierror.KindOf(err) }
 
 func newTestStack(t *testing.T) (*gorm.DB, *service.OnboardingService, *repository.GORMRepository) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m09_onboarding.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	require.NoError(t, gormDB.Create(&models.Tenant{
 		ID: models.PlatformAdminTenantID, Name: "平台默认租户",
@@ -235,7 +229,7 @@ func TestMonitoringRetirerCascades(t *testing.T) {
 		(network_domain_id, job, instance, last_report_at) VALUES ('mc-a','node','10.0.0.1:9100',?)`,
 		time.Now().UTC()).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO config_snapshots
-		(scope, scope_key, version, checksum, is_current) VALUES ('domain','mc-a','v1','sha256:x',1)`).Error)
+		(scope, scope_key, version, checksum, is_current) VALUES ('domain','mc-a','v1','sha256:x',TRUE)`).Error)
 
 	assert.True(t, svc.Available())
 	impact, err := svc.Impact(ctx, "mc-a")

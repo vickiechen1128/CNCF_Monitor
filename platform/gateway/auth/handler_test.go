@@ -7,30 +7,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-// memDBSeq produces a unique in-memory DB name per test so sequential/parallel
-// tests in one package never share the same backing database.
-var memDBSeq int64
 
 // openTestDB opens a per-test in-memory SQLite DB with exactly the tables the
 // auth package touches.
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	n := atomic.AddInt64(&memDBSeq, 1)
-	dsn := fmt.Sprintf("file:auth_%d?mode=memory&cache=shared", n)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.User{},

@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -38,7 +39,7 @@ func TestCloudDictModel(t *testing.T) {
 }
 
 func TestCloudDictDisabledPersistsWithoutGORMDefault(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:cloud_dict_model?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(testdb.DSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&CloudDict{}))
 

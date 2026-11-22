@@ -2,28 +2,23 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/apply"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m08/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // newTestDB opens a migrated v3 SQLite database for the M08 tests.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m08-test.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	g, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	g := testdb.Open(t)
 	return g
 }
 

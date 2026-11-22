@@ -7,17 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
@@ -25,6 +21,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/seed"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/service"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 // testAdmin is the authenticated platform administrator used by the default test
@@ -108,11 +105,7 @@ func seedHandlerTemplates(t *testing.T, gormDB *gorm.DB) {
 func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dsn := filepath.Join(t.TempDir(), "m01_handler.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,

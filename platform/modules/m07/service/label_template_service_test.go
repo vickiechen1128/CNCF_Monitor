@@ -2,18 +2,15 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 type fixedUsageChecker struct {
@@ -26,10 +23,7 @@ func (f fixedUsageChecker) CountReferences(context.Context, string) (int64, erro
 
 func newLabelTemplateService(t *testing.T, usage fixedUsageChecker) (*LabelTemplateService, *gorm.DB) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m07_label_service.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	repo := repository.NewLabelTemplateRepository(gormDB)
 	return NewLabelTemplateService(repo, usage), gormDB
 }

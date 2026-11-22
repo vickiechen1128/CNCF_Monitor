@@ -1,7 +1,6 @@
 package db
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,12 +9,10 @@ import (
 // TestMigrateV3M01Strategy validates the 00006 M01 schema: tables, partial
 // uniqueness, foreign keys and rollback.
 func TestMigrateV3M01Strategy(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "metric_center_v3_m01.db")
-	require.NoError(t, MigrateV3("sqlite", dsn))
+	dsn := testPostgresDSN(t)
+	require.NoError(t, MigrateV3("postgres", dsn))
 
-	sqlDB, err := openMigrationDB("sqlite", dsn)
-	require.NoError(t, err)
-	defer sqlDB.Close()
+	sqlDB := openTestSQL(t, dsn)
 
 	tables := []string{
 		"m01_exporter_templates", "m01_collection_templates",
@@ -26,7 +23,7 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 		requireTableCount(t, sqlDB, table, 1)
 	}
 
-	_, err = sqlDB.Exec(`INSERT INTO network_domains(
+	_, err := sqlDB.Exec(`INSERT INTO network_domains(
 			id,name,domain_type,tenant_id,authorized_tenant_ids,status
 		) VALUES (
 			'dom-m01','策略域','edge','platform_admin','["platform_admin"]','enabled'
@@ -115,7 +112,7 @@ func TestMigrateV3M01Strategy(t *testing.T) {
 	// tables), using a version target so later no-op migrations (0014 legacy
 	// column drop, 0015 M01 nullable FKs) cannot leave stale M01 tables behind.
 	// M06/M09 core tables (<= 00005) stay. ---
-	require.NoError(t, MigrateV3DownTo("sqlite", dsn, 5))
+	require.NoError(t, MigrateV3DownTo("postgres", dsn, 5))
 	for _, table := range tables {
 		requireTableCount(t, sqlDB, table, 0)
 	}

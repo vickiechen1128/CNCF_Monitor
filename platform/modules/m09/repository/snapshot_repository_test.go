@@ -2,26 +2,20 @@ package repository_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m09/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func newRepoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "m09_repo.db")
-	require.NoError(t, db.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	require.NoError(t, gormDB.Exec(
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO network_domains

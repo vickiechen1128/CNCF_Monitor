@@ -2,26 +2,19 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
-	platformdb "github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/references"
 	"github.com/metriccenter/metriccenter/platform/modules/m01/repository"
+	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
 func TestReconcileReclaimsMissingInstances(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "m01_reconcile.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
@@ -63,10 +56,7 @@ func TestReconcileReclaimsMissingInstances(t *testing.T) {
 
 // SRS JG v1.0 FR-JG-07：域被禁用 → 组内子 Job 自动停用并留在库里；单域 Job 不受影响。
 func TestReconcileDisablesGroupChildrenWhenDomainUnavailable(t *testing.T) {
-	dsn := filepath.Join(t.TempDir(), "m01_reconcile_domain.db")
-	require.NoError(t, platformdb.MigrateV3("sqlite", dsn))
-	gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{Logger: logger.Discard})
-	require.NoError(t, err)
+	gormDB := testdb.Open(t)
 	for _, stmt := range []string{
 		`INSERT INTO tenants(id,name,status) VALUES ('platform_admin','平台默认租户','active')`,
 		`INSERT INTO network_domains(id,name,domain_type,tenant_id,status)
