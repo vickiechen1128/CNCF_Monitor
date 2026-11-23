@@ -220,10 +220,10 @@ export function TemplateDownloadModal({
           </li>
         ))}
         <li>
-          <Text style={{ fontSize: 13 }}>网域强烈建议填写：在页面上新增或编辑资源时网域是必填项；用本模板导入时留空会自动归入中心直连域</Text>
+          <Text style={{ fontSize: 13 }}>网域必填：在页面上新增或编辑资源时网域是必填项，用本模板导入时同样不能留空</Text>
         </li>
         <li>
-          <Text style={{ fontSize: 13 }}>中心直连域必须先到「系统设置 → 网域管理」登记（全平台唯一），否则留空导入会直接失败；请先确认后再导入</Text>
+          <Text style={{ fontSize: 13 }}>网域须先到「系统与平台管理 → 网域管理」登记并纳管；未登记、未启用或未纳管的网域会导致整行导入失败</Text>
         </li>
         <li>
           <Text style={{ fontSize: 13 }}>环境（env）必填，填 OPS / PRD / UAT 之一；负责人与集群按下方说明填写</Text>

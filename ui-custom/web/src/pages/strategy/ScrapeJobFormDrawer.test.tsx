@@ -670,8 +670,9 @@ describe('ScrapeJobFormDrawer', () => {
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
-    // 空态文案引导先去网域管理登记/纳管网域（中心直连域不再自动预置）
+    // 空态文案引导先去网域管理登记/纳管网域（v3 无中心直连域，也不再自动预置默认域）
     expect(await screen.findByText(/请选择已纳管网域；未纳管请前往/)).toBeInTheDocument()
+    expect(screen.queryByText(/中心直连域/)).not.toBeInTheDocument()
     const guideLink = screen.getByText(/网域管理/)
     expect(guideLink).toBeInTheDocument()
     // 可点击引导跳转 /admin/domains（系统与平台管理 → 网域管理）

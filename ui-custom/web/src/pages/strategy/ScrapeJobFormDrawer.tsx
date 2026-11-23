@@ -655,7 +655,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                     showSearch
                     optionFilterProp="label"
                     placeholder="仅已纳管非冻结网域"
-                    notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记中心直连域或采集节点域"
+                    notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记并纳管网域"
                   >
                     {domains.map((d) => (
                       <Select.Option key={d.id} value={d.id} label={d.name}>
@@ -800,7 +800,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 showSearch
                 optionFilterProp="label"
                 placeholder="仅已纳管非冻结网域"
-                notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记中心直连域或采集节点域"
+                notFoundContent="暂无可用网域，请先到「系统与平台管理 → 网域管理」登记并纳管网域"
               >
                 {domains.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
