@@ -192,7 +192,7 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs [
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "blackbox_exporter 不可调用，待环境就绪后重校"
 		}
 	}
-	// 决策 60：存在 alertmanager.yml 时需 amtool 校验（管理域 default 范围）。
+	// 决策 60：存在 alertmanager.yml 时需 amtool 校验（平台级 scope=alertmanager）。
 	if ca.AlertmanagerYML != "" {
 		if _, err := ToolLookPath("amtool"); err != nil {
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "amtool 不可调用，待环境就绪后重校"
@@ -423,7 +423,7 @@ func runBlackboxCheck(blackboxYAML string) error {
 }
 
 // runAmmtoolCheck 用 amtool check-config 校验 alertmanager.yml 内容
-// （决策 60：amtool 对应 amtool 随 Alertmanager 附带的校验入口，管理域 default 范围）。
+// （决策 60：amtool 对应 amtool 随 Alertmanager 附带的校验入口，平台级 scope=alertmanager）。
 func runAmmtoolCheck(alertmanagerYAML string) error {
 	f, err := os.CreateTemp("", "amcheck-*.yml")
 	if err != nil {

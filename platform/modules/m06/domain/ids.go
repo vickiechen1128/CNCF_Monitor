@@ -11,9 +11,10 @@ import (
 
 const defaultDeployCode = "mc"
 
-// DefaultDomainID is the historical center-direct domain id. It is reserved in
-// v3 so a newly registered domain can never collide with a migrated row.
-const DefaultDomainID = "default"
+// LegacyDefaultDomainID is the historical center-direct domain id. V3 no
+// longer creates or seeds it, but the value stays reserved so a newly
+// registered domain can never collide with a migrated historical row.
+const LegacyDefaultDomainID = "default"
 
 var (
 	domainCodeRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
@@ -34,8 +35,8 @@ func GenerateDomainID(deployCode, domainCode string) (string, error) {
 	if domainCode == "" {
 		return "", &ValidationError{Field: "domain_code", Message: "is required"}
 	}
-	if domainCode == DefaultDomainID {
-		return "", &ValidationError{Field: "domain_code", Message: fmt.Sprintf("%q is reserved", DefaultDomainID)}
+	if domainCode == LegacyDefaultDomainID {
+		return "", &ValidationError{Field: "domain_code", Message: fmt.Sprintf("%q is reserved", LegacyDefaultDomainID)}
 	}
 	if !domainCodeRe.MatchString(domainCode) {
 		return "", &ValidationError{

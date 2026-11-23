@@ -28,7 +28,7 @@ type ConfigDraft struct {
 	PrometheusYml     string      `gorm:"type:text" json:"prometheus_yml"`
 	RulesYml          string      `gorm:"type:text" json:"rules_yml,omitempty"`
 	BlackboxYml       string      `gorm:"type:text" json:"blackbox_yml,omitempty"`
-	AlertmanagerYml   string      `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
+	AlertmanagerYml   string      `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：平台级告警配置（scope=alertmanager），不归属网域
 	TargetsFiles      string      `gorm:"type:text" json:"targets_files,omitempty"`    // JSON 载体
 	Metadata          string      `gorm:"type:text" json:"metadata,omitempty"`         // JSON 载体（含 checksum）
 	Summary           string      `gorm:"size:1000" json:"summary,omitempty"`
@@ -142,7 +142,7 @@ type ConfigVersion struct {
 	PrometheusYml   string `gorm:"type:text" json:"prometheus_yml"`
 	RulesYml        string `gorm:"type:text" json:"rules_yml,omitempty"`
 	BlackboxYml     string `gorm:"type:text" json:"blackbox_yml,omitempty"`
-	AlertmanagerYml string `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
+	AlertmanagerYml string `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：平台级告警配置（scope=alertmanager），不归属网域
 	TargetsFiles    string `gorm:"type:text" json:"targets_files,omitempty"`    // JSON 载体
 	Metadata        string `gorm:"type:text" json:"metadata,omitempty"`         // JSON 载体（含 checksum）
 }

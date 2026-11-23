@@ -43,7 +43,7 @@ const (
 //	AppliedAt     M09 下发 reload 成功时间（回写后才回填；挂载时为空）
 //	AppliedBy     应用/挂载人（挂载时为上传者；M09 下发回写时以回写为准）
 //	Status        applied（待确认下发 / 已生效）或 discarded（已废弃，无活单可确认）
-//	SourceChangeNo 关联 M09 管理域（default）变更单号（决策 60，管道侧确认后回填）
+//	SourceChangeNo 关联 M09 平台级告警配置（scope=alertmanager）变更单号（决策 60，管道侧确认后回填）
 //	CreatedAt     挂载留痕时间（BaseModel）
 type AlertmanagerConfigVersion struct {
 	BaseModel

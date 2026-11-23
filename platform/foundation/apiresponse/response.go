@@ -191,7 +191,7 @@ func (e strErr) Error() string {
 
 // ErrorTypeConflict indicates an id / reference coexistence violation, e.g. a
 // duplicate domain id, deletion of a non-empty domain, or freezing/deleting a
-// management domain.
+// domain that is still referenced.
 const ErrorTypeConflict = "conflict"
 
 // Conflict writes a conflict response (HTTP 409) to the gin context.

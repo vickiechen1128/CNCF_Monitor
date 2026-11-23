@@ -14,6 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// testDomainID is a fixture id; v3 no longer has an implicit/default domain.
+const testDomainID = "mc-test"
+
 func TestResourceTypeConstants(t *testing.T) {
 	assert.Equal(t, ResourceType("host"), ResourceTypeHost)
 	assert.Equal(t, ResourceType("middleware"), ResourceTypeMiddleware)
@@ -183,7 +186,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 		ResourceBase: ResourceBase{
 			ResourceID:       "db-01",
 			ResourceCategory: ResourceCategoryDatabase,
-			NetworkDomainID:  DefaultDomainID,
+			NetworkDomainID:  testDomainID,
 			BizCode:          "pay",
 			Env:              "PRD",
 			Status:           "online",
@@ -202,7 +205,7 @@ func TestResourceInterfaceImplementations(t *testing.T) {
 		ResourceBase: ResourceBase{
 			ResourceID:       "gt-01",
 			ResourceCategory: ResourceCategoryGenericTarget,
-			NetworkDomainID:  DefaultDomainID,
+			NetworkDomainID:  testDomainID,
 			Env:              "PRD",
 			Status:           "online",
 			SourceType:       SourceTypeManual,
@@ -239,7 +242,7 @@ func TestTenantCreateAndDefaults(t *testing.T) {
 	tenant := &Tenant{
 		ID:               PlatformAdminTenantID,
 		Name:             "平台默认租户",
-		NetworkDomainIDs: []string{DefaultDomainID},
+		NetworkDomainIDs: []string{testDomainID},
 		MultiSiteEnabled: false,
 		IsPlatformAdmin:  true,
 		Status:           TenantStatusActive,
@@ -250,29 +253,30 @@ func TestTenantCreateAndDefaults(t *testing.T) {
 	assert.NoError(t, db.First(&got, "id = ?", PlatformAdminTenantID).Error)
 	assert.Equal(t, PlatformAdminTenantID, got.ID)
 	assert.Equal(t, TenantStatusActive, got.Status)
-	assert.Equal(t, []string{DefaultDomainID}, got.NetworkDomainIDs)
+	assert.Equal(t, []string{testDomainID}, got.NetworkDomainIDs)
 	assert.False(t, got.MultiSiteEnabled)
 }
 
-func TestNetworkDomainDefaultLocal(t *testing.T) {
-	db := newMemDB(t)
-	assert.NoError(t, db.AutoMigrate(&NetworkDomain{}))
+// TestNetworkDomainModelMatchesV3Schema locks the v3 administrative model to
+// the migrated `network_domains` table (0013 removed the management type,
+// 0014 dropped the M09 runtime columns). GORM writes must not reference any
+// removed column.
+func TestNetworkDomainModelMatchesV3Schema(t *testing.T) {
+	db := testdb.Open(t)
 
 	domain := &NetworkDomain{
-		ID:         DefaultDomainID,
-		Name:       "默认网域",
-		DomainType: DomainTypeManagement,
-		Channel:    ChannelTypeLocal,
+		ID:         "mc-align",
+		Name:       "采集节点域",
+		DomainType: DomainTypeEdge,
 		TenantID:   PlatformAdminTenantID,
 		Status:     DomainStatusEnabled,
 	}
-	assert.NoError(t, db.Create(domain).Error)
-	assert.True(t, domain.IsManagement())
+	require.NoError(t, db.Create(domain).Error)
 
 	var got NetworkDomain
-	assert.NoError(t, db.First(&got, "id = ?", DefaultDomainID).Error)
-	assert.Equal(t, ChannelTypeLocal, got.Channel)
-	assert.Equal(t, DomainTypeManagement, got.DomainType)
+	require.NoError(t, db.First(&got, "id = ?", domain.ID).Error)
+	assert.Equal(t, DomainTypeEdge, got.DomainType)
+	assert.Equal(t, DomainStatusEnabled, got.Status)
 	assert.Equal(t, PlatformAdminTenantID, got.TenantID)
 }
 
@@ -362,7 +366,7 @@ func TestScrapeJobAndMonitoringRule(t *testing.T) {
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
 		TemplateCode:          "host_linux",
-		NetworkDomainID:       DefaultDomainID,
+		NetworkDomainID:       testDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		SelectedInstanceIDs:   []string{"srv-001"},
 		ScrapeInterval:        "15s",
@@ -395,7 +399,7 @@ func TestConfigModelsSmoke(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&ConfigDraft{}, &ConfigVersion{}, &ConfigDeployment{}))
 
 	draft := &ConfigDraft{
-		NetworkDomainID:  DefaultDomainID,
+		NetworkDomainID:  testDomainID,
 		ChangeNo:         "CHG-20260821-001",
 		PrometheusYml:    "global: { scrape_interval: 15s }",
 		Status:           DraftStatusPending,
@@ -405,7 +409,7 @@ func TestConfigModelsSmoke(t *testing.T) {
 	assert.NotZero(t, draft.ID)
 
 	version := &ConfigVersion{
-		NetworkDomainID: DefaultDomainID,
+		NetworkDomainID: testDomainID,
 		DraftID:         "1",
 		ChangeNo:        "CHG-20260821-001",
 		PrometheusYml:   "global: { scrape_interval: 15s }",
@@ -413,10 +417,10 @@ func TestConfigModelsSmoke(t *testing.T) {
 	assert.NoError(t, db.Create(version).Error)
 
 	deploy := &ConfigDeployment{
-		NetworkDomainID:  DefaultDomainID,
+		NetworkDomainID:  testDomainID,
 		ConfigVersionID:  "1",
 		SourceChangeNo:   "CHG-20260821-001",
-		Channel:          ChannelTypeLocal,
+		Channel:          ChannelTypeAgentPull,
 		Status:           DeploymentStatusSuccess,
 		ValidationStatus: "passed",
 		TriggeredBy:      "system",
@@ -467,7 +471,7 @@ func TestScrapeJobSecretsNotSerialized(t *testing.T) {
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
 		TemplateCode:          "host_linux",
-		NetworkDomainID:       DefaultDomainID,
+		NetworkDomainID:       testDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",
 		ScrapeTimeout:         "12s",
@@ -623,7 +627,7 @@ func TestScrapeJobBlackboxTargetsPersistence(t *testing.T) {
 		JobName:               "blackbox-http",
 		JobType:               JobTypeBlackbox,
 		ResourceType:          ResourceTypeApplication,
-		NetworkDomainID:       DefaultDomainID,
+		NetworkDomainID:       testDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",
 		ScrapeTimeout:         "12s",
@@ -683,7 +687,7 @@ func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T) {
 		JobType:               JobTypeStandard,
 		ResourceType:          ResourceTypeHost,
 		TemplateCode:          "host_linux",
-		NetworkDomainID:       DefaultDomainID,
+		NetworkDomainID:       testDomainID,
 		InstanceSelectionMode: InstanceSelectionManual,
 		ScrapeInterval:        "15s",
 		ScrapeTimeout:         "12s",
@@ -724,19 +728,10 @@ func TestInstallationStatusEnums(t *testing.T) {
 
 // --- Module 09 (T09-01): config-center enum & JSON carrier contracts ---
 
-// TestChannelForDomainType 覆盖通道口径的单一事实来源（F-28 方案 A）：
-// 管理域↔local、边缘域↔agent_pull。
-func TestChannelForDomainType(t *testing.T) {
-	assert.Equal(t, ChannelTypeLocal, ChannelForDomainType(DomainTypeManagement))
-	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainTypeEdge))
-	// 空 / 未知域类型不得落回 local（历史 bug 即错在此），一律按边缘域处理。
-	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(""))
-	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainType("bogus")))
-}
-
 func TestConfigCenterEnumConstants(t *testing.T) {
 	// ChannelType / AgentType / DraftStatus / DeploymentStatus enum values.
-	assert.Equal(t, ChannelType("local"), ChannelTypeLocal)
+	// v3 removed the center-local channel: the only delivery channel is
+	// agent_pull.
 	assert.Equal(t, ChannelType("agent_pull"), ChannelTypeAgentPull)
 	assert.Equal(t, AgentType("vmagent"), AgentTypeVMAgent)
 	// 决策 C4：采集器强制单一 vmagent，prometheus-agent 已收敛移除。

@@ -6,13 +6,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// DomainType distinguishes a management domain from an edge domain.
+// DomainType is the v3 network-domain type. The center-direct management type
+// was removed (M06 SRS v1.5 / D16): every network domain is served by a
+// collection node.
 type DomainType string
 
 // Domain type constants.
 const (
-	DomainTypeManagement DomainType = "management"
-	DomainTypeEdge       DomainType = "edge"
+	DomainTypeEdge DomainType = "edge"
 )
 
 // DomainStatus is the administrative enabled/disabled status.
@@ -24,12 +25,13 @@ const (
 	DomainStatusDisabled DomainStatus = "disabled"
 )
 
-// ChannelType is the config delivery channel for a network domain.
+// ChannelType is the config delivery channel for a network domain. V3 removed
+// the center-local channel together with the management domain type; every
+// domain receives its config through the Edge Sync Agent.
 type ChannelType string
 
 // Channel type constants.
 const (
-	ChannelTypeLocal     ChannelType = "local"      // 中心同机写盘 reload
 	ChannelTypeAgentPull ChannelType = "agent_pull" // Edge Sync Agent 心跳拉包
 )
 
@@ -41,12 +43,6 @@ const (
 	AgentTypeVMAgent AgentType = "vmagent"
 )
 
-// DefaultDomainID is the fixed internal id of the center-direct (management)
-// domain. The row is no longer seeded: it is registered on demand through M06
-// (at most one), but it always uses this id so config generation, alertmanager
-// ownership and Prometheus external_labels stay stable.
-const DefaultDomainID = "default"
-
 // RegistrationStatus 表示网域纳管状态（PRD Module_11 §8.3）。
 type RegistrationStatus string
 
@@ -57,16 +53,17 @@ const (
 	RegistrationStatusRetired   RegistrationStatus = "retired"   // 删除-级联清退终态（供审计）
 )
 
-// NetworkDomain represents a network domain, combining Module_06 administrative
-// fields and Module_09 monitoring-management fields (same table). ID is a
-// business string primary key, generated as `<deploy_code>-<domain_code>` with
-// `default` as the historical exception.
+// NetworkDomain represents the v3 administrative columns of `network_domains`.
+// Runtime onboarding fields (token / channel / heartbeats / registration
+// status) live in `network_domain_access` (M09) and were dropped from this
+// table by migration 0014. Keeping only the administrative columns also keeps
+// GORM writes aligned with the schema.
 type NetworkDomain struct {
 	ID          string     `gorm:"primarykey;size:64" json:"id"`
 	Name        string     `gorm:"size:100;not null" json:"name"`
 	Description string     `gorm:"size:500" json:"description"`
 	DomainType  DomainType `gorm:"size:20;not null" json:"domain_type"`
-	// ZoneType is retained only for legacy v2 compilation/rows. v3 removed the
+	// ZoneType is retained only for legacy v2 rows. v3 removed the
 	// network-partition feature (M06 SRS v1.3): v3 repositories never read or
 	// write this column and config generation no longer injects zone labels.
 	ZoneType string `gorm:"size:50" json:"zone_type,omitempty"`
@@ -83,54 +80,10 @@ type NetworkDomain struct {
 	CmdbCloudAreaID   string `gorm:"size:100" json:"cmdb_cloud_area_id"`
 	CmdbCloudAreaPath string `gorm:"size:500" json:"cmdb_cloud_area_path"`
 
-	// Monitoring-management fields (Module_09).
-	Channel         ChannelType `gorm:"size:20;not null" json:"channel"`
-	Token           string      `gorm:"size:500" json:"-"`               // agent_pull 时必填；仅服务端存取，不回显明文（token_masked 经 AfterFind 派生）
-	TokenMaskedView string      `gorm:"-" json:"token_masked,omitempty"` // 派生视图：完全脱敏的 token，不落库
-	AgentType       AgentType   `gorm:"size:30" json:"agent_type,omitempty"`
-	// CenterEndpoint 中心接入地址（网域视角，agent 可达）。边缘域（agent_pull 通道）
-	// 的配置包下载 URL **优先**使用该地址（与 agent 侧 CENTER_ENDPOINT 环境变量同源——
-	// 中心地址变更时这是唯一需要同步更新的字段）；为空或解析异常时回落由入站请求的
-	// X-Forwarded-*/Host 推导（见 platform/edge/helpers.go::resolveDownloadAuthority）。
-	// {v0.4+} 仍可复用为网闸映射场景（节点够不到中心、须填转发侧地址）。
-	CenterEndpoint string `gorm:"size:500" json:"center_endpoint,omitempty"`
-	RemoteWriteURL string `gorm:"size:500" json:"remote_write_url,omitempty"`
-	// MaxDiskUsagePerURL 是网域级 vmagent 回传参数 -remoteWrite.maxDiskUsagePerURL
-	//（F-42）：持久队列磁盘上限，非空时随配置包 metadata.json 下发（空 = agent 按
-	// 内置优先级回落：env > 硬兜底默认）。per-URL 口径、同域多节点共享，故落网域级。
-	MaxDiskUsagePerURL string     `gorm:"size:32" json:"max_disk_usage_per_url,omitempty"`
-	MonitoredStatus    string     `gorm:"size:20" json:"monitored_status,omitempty"` // online/offline/unknown（运行态）
-	LastHeartbeat      *time.Time `json:"last_heartbeat,omitempty"`
-	AgentVersion       string     `gorm:"size:50" json:"agent_version,omitempty"`
-	IsMonitored        bool       `json:"is_monitored"` // 已纳管监控标记（M09）
-	// RegistrationStatus 纳管状态（PRD §8.3 / 决策 D3：新增对齐 PRD，保留既有 IsMonitored/MonitoredStatus）。
-	RegistrationStatus RegistrationStatus `gorm:"size:20;default:created" json:"registration_status"`
-
 	Status    DomainStatus   `gorm:"size:20;not null" json:"status"` // enabled/disabled（行政）
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
-}
-
-// IsManagement reports whether the domain is a management (non-deletable) domain.
-func (d *NetworkDomain) IsManagement() bool { return d.DomainType == DomainTypeManagement }
-
-// ChannelForDomainType 返回域类型对应的下发通道（MVP 固定映射，通道口径的单一
-// 事实来源）：管理域↔local（中心同机写盘 reload）/ 边缘域↔agent_pull（Edge Sync
-// Agent 心跳拉包）。登记接口早期版本把新网域无条件记为 local，导致未纳管边缘域在
-// 列表 / 详情 / 纳管抽屉被误判为 local 通道（F-28 方案 A）。
-func ChannelForDomainType(dt DomainType) ChannelType {
-	if dt == DomainTypeManagement {
-		return ChannelTypeLocal
-	}
-	return ChannelTypeAgentPull
-}
-
-// AfterFind 在每次从库读出后派生 token_masked（完全脱敏），并确保不回显明文。
-// 列表 / 详情（含 M06 网域列表）因此自动返回 token_masked 而非明文（契约 §3/§6.1）。
-func (d *NetworkDomain) AfterFind(tx *gorm.DB) error {
-	d.TokenMaskedView = TokenMasked(d.Token)
-	return nil
 }
 
 // TableName returns the GORM table name for a NetworkDomain.

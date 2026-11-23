@@ -85,7 +85,7 @@ const (
 	ChangeItemTargetMonitoringRule  ChangeItemTarget = "monitoring_rule"     // 告警规则
 	ChangeItemTargetProbeTarget     ChangeItemTarget = "probe_target"        // 拨测目标
 	ChangeItemTargetLabelTemplate   ChangeItemTarget = "label_template"      // 标签模板
-	ChangeItemTargetAlertmanagerCfg ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
+	ChangeItemTargetAlertmanagerCfg ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：平台级 scope=alertmanager）
 	// 决策 68-2 补丁：prometheus.yml 的 alerting 段由生成器注入（不来自 M01/M08 源数据），
 	// 须参与变更清单 diff，否则「仅 alerting 变化」被 ErrNoChanges 抑制、配置永远无法重新下发。
 	ChangeItemTargetPromAlerting ChangeItemTarget = "prom_alerting" // Prometheus 告警投递配置（alerting 段）
@@ -119,7 +119,7 @@ const (
 	AffectedFileTargets      AffectedFile = "targets"      // targets/*.json
 	AffectedFileRules        AffectedFile = "rules"        // rules.yml
 	AffectedFileBlackbox     AffectedFile = "blackbox"     // blackbox.yml
-	AffectedFileAlertmanager AffectedFile = "alertmanager" // alertmanager.yml（决策 60：管理域 default scope）
+	AffectedFileAlertmanager AffectedFile = "alertmanager" // alertmanager.yml（决策 60：平台级 scope=alertmanager）
 )
 
 // ConfigChangeItem 是变更列表中的一条结构化变更项（PRD §3.4，契约 §4）。

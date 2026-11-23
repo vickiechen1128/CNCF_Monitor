@@ -10,11 +10,10 @@ import (
 // runTenantAndDomain upserts the platform admin tenant, aligned with
 // Module_06 §5/§9.2.
 //
-// The center-direct (management) domain is no longer seeded: it is registered
-// on demand through the M06 network-domain page (at most one, internal id
-// "default"), and the registration flow is responsible for its monitoring
-// fields. Existing databases keep their pre-existing default row; seed never
-// deletes user data.
+// The center-direct (management) domain is no longer seeded or supported:
+// every domain is registered through the M06 network-domain page as an edge
+// domain and onboarded through a collection node. Existing databases keep
+// their migrated historical rows; seed never deletes user data.
 func runTenantAndDomain(db *gorm.DB) error {
 	tenant := &models.Tenant{
 		ID:               models.PlatformAdminTenantID,
