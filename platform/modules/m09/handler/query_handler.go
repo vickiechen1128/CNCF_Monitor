@@ -106,10 +106,13 @@ func (h *QueryHandler) Coverage(c *gin.Context) {
 		respondError(c, err)
 		return
 	}
-	counts, err := h.svc.Coverage(c.Request.Context(), actorOf(c))
-	if err != nil {
-		respondError(c, err)
-		return
+	// Legacy three-state counters are compatibility aliases of the
+	// resource-level summary; keeping them on a different (target-level) basis
+	// produced contradictory numbers when resources and targets diverged.
+	counts := service.CoverageCounts{
+		Collecting:           report.Summary.Collecting,
+		DeployedNotCollected: report.Summary.PartialCollecting + report.Summary.PendingDown,
+		NotMonitored:         report.Summary.NotMonitored,
 	}
 	response.OK(c, dto.FromCoverageReport(report, counts))
 }

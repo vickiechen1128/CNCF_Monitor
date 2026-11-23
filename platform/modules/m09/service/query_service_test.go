@@ -53,8 +53,14 @@ func TestQueryTargetsAndCoverage(t *testing.T) {
 		healthByInstance[row.Instance] = row.Health
 	}
 	assert.Equal(t, "up", healthByInstance["10.0.0.1:9100"])
-	assert.Equal(t, "unknown", healthByInstance["10.0.0.2:9100"], "stale report is downgraded")
+	assert.Equal(t, "up", healthByInstance["10.0.0.2:9100"], "stale report keeps last health")
 	assert.Equal(t, "down", healthByInstance["10.0.0.3:9100"])
+	staleByInstance := map[string]bool{}
+	for _, row := range rows {
+		staleByInstance[row.Instance] = row.Stale
+	}
+	assert.False(t, staleByInstance["10.0.0.1:9100"], "fresh report is not stale")
+	assert.True(t, staleByInstance["10.0.0.2:9100"], "old report is stale")
 
 	tenantRows, tenantTotal, err := svc.Targets(ctx, service.Actor{TenantID: "tenant-a"},
 		repository.TargetFilter{Page: 1, PageSize: 50})

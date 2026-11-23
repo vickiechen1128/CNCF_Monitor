@@ -76,8 +76,11 @@ func failed(cause string) fakeValidator {
 }
 
 func TestSyncDomainPublishesPassedSnapshot(t *testing.T) {
-	_, _, repo := newTestStack(t)
+	gormDB, _, repo := newTestStack(t)
 	ctx := context.Background()
+	require.NoError(t, gormDB.Exec(`INSERT INTO network_domain_access
+		(domain_id, token_hash, registration_status)
+		VALUES ('mc-a', 'hash-walkthrough', 'monitored')`).Error)
 	store := storage.NewContentStore(t.TempDir())
 	sources := &fakeSource{src: configgen.Source{Jobs: []configgen.Job{{
 		Name:    "node",
@@ -91,11 +94,29 @@ func TestSyncDomainPublishesPassedSnapshot(t *testing.T) {
 	assert.True(t, snap.IsCurrent)
 	assert.Regexp(t, regexp.MustCompile(`^\d{8}-[0-9a-f]{4}$`), snap.Version)
 
+	var lastConfigVersion string
+	require.NoError(t, gormDB.Raw(
+		`SELECT last_config_version FROM network_domain_access WHERE domain_id = ?`, "mc-a",
+	).Scan(&lastConfigVersion).Error)
+	assert.Equal(t, snap.Version, lastConfigVersion,
+		"activating a snapshot must keep network_domain_access.last_config_version in sync")
+
 	checksum, content, err := svc.CurrentContent(ctx, "mc-a")
 	require.NoError(t, err)
 	assert.Equal(t, snap.Checksum, checksum)
 	require.NotNil(t, content)
 	assert.Contains(t, string(content), "network_domain_id: mc-a")
+
+	// Existing current snapshot but an empty access version (pre-fix data) must
+	// be healed by the checksum-equal sync path.
+	require.NoError(t, gormDB.Exec(
+		`UPDATE network_domain_access SET last_config_version = '' WHERE domain_id = ?`, "mc-a").Error)
+	_, err = svc.SyncDomain(ctx, "mc-a")
+	require.NoError(t, err)
+	require.NoError(t, gormDB.Raw(
+		`SELECT last_config_version FROM network_domain_access WHERE domain_id = ?`, "mc-a",
+	).Scan(&lastConfigVersion).Error)
+	assert.Equal(t, snap.Version, lastConfigVersion)
 }
 
 func TestSyncDomainFailureKeepsCurrent(t *testing.T) {

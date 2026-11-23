@@ -124,9 +124,9 @@ export function TargetStatusPage() {
       dataIndex: 'health',
       key: 'health',
       width: 120,
-      render: (v?: TargetHealth) => {
+      render: (v: TargetHealth | undefined, record: TargetItem) => {
         const meta = HEALTH_META[v ?? 'unknown']
-        return <Badge status={meta.badge} text={meta.label} />
+        return <Badge status={record.stale ? 'warning' : meta.badge} text={record.stale ? `${meta.label}（数据陈旧）` : meta.label} />
       },
     },
     {

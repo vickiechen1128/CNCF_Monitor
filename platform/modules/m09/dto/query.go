@@ -14,6 +14,7 @@ type TargetResponse struct {
 	NetworkDomain string     `json:"network_domain"`
 	InstanceName  string     `json:"instance_name"`
 	Health        string     `json:"health"`
+	Stale         bool       `json:"stale"`
 	LastScrape    *time.Time `json:"last_scrape"`
 	LastError     string     `json:"last_error"`
 	Source        string     `json:"source"`
@@ -100,6 +101,7 @@ func FromEdgeTarget(row *repository.EdgeTargetRow) TargetResponse {
 		NetworkDomain: row.NetworkDomainID,
 		InstanceName:  row.ResourceID,
 		Health:        health,
+		Stale:         row.Stale,
 		LastScrape:    row.LastScrape,
 		LastError:     row.LastError,
 		Source:        "edge",

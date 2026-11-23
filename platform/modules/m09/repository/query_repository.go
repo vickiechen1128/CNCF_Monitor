@@ -19,6 +19,10 @@ type EdgeTargetRow struct {
 	LastScrape      *time.Time `gorm:"column:last_scrape"`
 	LastError       string     `gorm:"column:last_error"`
 	LastReportAt    time.Time  `gorm:"column:last_report_at"`
+	// Stale marks a snapshot older than the query freshness window. Health
+	// keeps the last reported value so the UI can distinguish "stale" from
+	// "unknown instead of overwriting it.
+	Stale bool `gorm:"-"`
 }
 
 // TargetFilter carries /api/v1/targets filters.
@@ -63,11 +67,6 @@ type CoverageTargetRow struct {
 	LastError    string    `gorm:"column:last_error"`
 	LastReportAt time.Time `gorm:"column:last_report_at"`
 }
-
-// effectiveHealthSQL derives the display health: a stale or missing report is
-// downgraded to unknown (contract §7.1). It is only used as a comparison
-// expression (never as a bare WHERE condition).
-const effectiveHealthSQL = `(CASE WHEN last_report_at < ? OR health IS NULL OR health = '' THEN 'unknown' ELSE health END)`
 
 // ListCoverageResources returns the resources in scope with their display
 // instance name, derived from the category extension table.
@@ -145,7 +144,13 @@ func (r *GORMRepository) ListEdgeTargets(ctx context.Context, filter TargetFilte
 			q = q.Where("job = ?", filter.Job)
 		}
 		if filter.Health != "" {
-			q = q.Where(effectiveHealthSQL+" = ?", filter.FreshAfter, filter.Health)
+			if filter.Health == "unknown" {
+				q = q.Where("(health IS NULL OR health = '' OR health = 'unknown')")
+			} else {
+				// Health filtering is independent of freshness: stale rows keep
+				// their last reported up/down value and carry Stale=true.
+				q = q.Where("health = ?", filter.Health)
+			}
 		}
 		if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 			like := "%" + keyword + "%"

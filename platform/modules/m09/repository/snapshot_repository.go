@@ -56,6 +56,10 @@ type SnapshotRepository interface {
 	CurrentPassed(ctx context.Context, domainID string) (*ConfigSnapshot, error)
 	GetSnapshot(ctx context.Context, domainID string, id int64) (*ConfigSnapshot, error)
 	ListSnapshots(ctx context.Context, domainID string, limit int) ([]ConfigSnapshot, error)
+	// SetLastConfigVersion updates the domain onboarding row's current config
+	// version. It is used to heal domains whose current snapshot exists but the
+	// access row is empty (e.g. pre-fix data).
+	SetLastConfigVersion(ctx context.Context, domainID, version string) error
 	// PruneSnapshots keeps the current snapshot plus at most one successful
 	// snapshot per natural day for the last keepDays days.
 	PruneSnapshots(ctx context.Context, domainID string, keepDays int, loc *time.Location) ([]string, error)
@@ -91,6 +95,14 @@ func (r *GORMRepository) InsertAndActivate(ctx context.Context, rec ConfigSnapsh
 			Update("is_current", true).Error; err != nil {
 			return fmt.Errorf("activate snapshot %d: %w", row.ID, err)
 		}
+		// Keep onboarding/agent config-sync status in lockstep with the
+		// activated snapshot. A domain without an access row (unit tests,
+		// imported snapshots) simply updates zero rows.
+		if err := tx.Table("network_domain_access").
+			Where("domain_id = ?", rec.NetworkDomainID).
+			Update("last_config_version", rec.Version).Error; err != nil {
+			return fmt.Errorf("update last config version for %q: %w", rec.NetworkDomainID, err)
+		}
 		id = row.ID
 		return nil
 	})
@@ -98,6 +110,17 @@ func (r *GORMRepository) InsertAndActivate(ctx context.Context, rec ConfigSnapsh
 		return 0, err
 	}
 	return id, nil
+}
+
+// SetLastConfigVersion updates the domain onboarding row's current config
+// version. A missing access row is a no-op (imported snapshots / unit tests).
+func (r *GORMRepository) SetLastConfigVersion(ctx context.Context, domainID, version string) error {
+	if err := r.db.WithContext(ctx).Table("network_domain_access").
+		Where("domain_id = ?", domainID).
+		Update("last_config_version", version).Error; err != nil {
+		return fmt.Errorf("update last config version for %q: %w", domainID, err)
+	}
+	return nil
 }
 
 // CurrentPassed returns the current, validation-passed snapshot or nil.

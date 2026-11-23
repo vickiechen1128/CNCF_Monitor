@@ -25,6 +25,8 @@ export interface TargetItem {
   network_domain: string
   /** 采集状态 up / down / unknown */
   health: TargetHealth
+  /** 快照超过新鲜度阈值；health 保留最后上报值 */
+  stale?: boolean
   /** 最后采集时间（上游透传） */
   lastScrape?: string
   /** 最后抓取错误，空串表示无 */

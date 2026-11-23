@@ -81,6 +81,7 @@ func TestQueryTargetsAndCoverageRoutes(t *testing.T) {
 	assert.Equal(t, "mc-a", target["network_domain"])
 	assert.Equal(t, "r-1", target["instance_name"])
 	assert.Equal(t, "up", target["health"])
+	assert.Equal(t, false, target["stale"])
 	assert.Equal(t, "edge", target["source"])
 
 	code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage")
@@ -113,7 +114,11 @@ func TestQueryTargetsAndCoverageRoutes(t *testing.T) {
 
 	code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage?resource_category=database")
 	require.Equal(t, http.StatusOK, code, out)
-	assert.EqualValues(t, 0, out["data"].(map[string]any)["total"])
+	filtered = out["data"].(map[string]any)
+	assert.EqualValues(t, 0, filtered["total"])
+	assert.EqualValues(t, 0, filtered["collecting"])
+	assert.EqualValues(t, 0, filtered["deployed_not_collected"])
+	assert.EqualValues(t, 0, filtered["not_monitored"])
 
 	for _, query := range []string{"state=bogus", "resource_category=bogus"} {
 		code, out = doJSON(t, router, http.MethodGet, "/api/v1/health/coverage?"+query)

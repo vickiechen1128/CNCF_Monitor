@@ -67,6 +67,19 @@ describe('TargetStatusPage', () => {
     expect(targetsListMock).toHaveBeenCalled()
   })
 
+  it('超过新鲜度阈值时显示“数据陈旧”，不降级为未知', async () => {
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        activeTargets: [target('res-1', 'up', { stale: true })],
+        droppedTargets: [],
+        targetsByJob: {},
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('在线（数据陈旧）')).toBeInTheDocument()
+  })
+
   it('网域列展示 M06 中文名称而非网域 ID', async () => {
     domainListMock.mockResolvedValue({
       status: 'success',

@@ -30,6 +30,7 @@ interface TargetResponse {
   network_domain: string
   instance_name: string
   health: string
+  stale?: boolean
   last_scrape?: string | null
   last_error?: string
   source?: string
@@ -50,6 +51,7 @@ function toTargetItem(item: TargetResponse): TargetItem {
     instance: item.instance,
     network_domain: item.network_domain,
     health: (item.health as TargetHealth) || 'unknown',
+    stale: item.stale === true,
     lastScrape: item.last_scrape ?? undefined,
     lastError: item.last_error || undefined,
     instance_name: item.instance_name || undefined,

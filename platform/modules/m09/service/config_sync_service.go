@@ -122,6 +122,9 @@ func (s *ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*r
 		// Even without a new version, reconcile M01's sync_status and prune any
 		// legacy failed/intra-day rows. This heals a pending state left by an
 		// older writeback or a previous platform fault.
+		if err := s.repo.SetLastConfigVersion(ctx, domainID, current.Version); err != nil {
+			return nil, err
+		}
 		s.recordSyncResult(ctx, source, *current, now)
 		s.prune(ctx, domainID)
 		return current, nil // no substantive change

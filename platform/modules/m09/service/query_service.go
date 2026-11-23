@@ -144,9 +144,12 @@ func (s *QueryService) Targets(ctx context.Context, actor Actor, filter reposito
 		return nil, 0, err
 	}
 	for i := range rows {
-		if rows[i].Health == "" || rows[i].LastReportAt.Before(freshAfter) {
+		if rows[i].Health == "" {
 			rows[i].Health = "unknown"
 		}
+		// Keep the last reported health so the UI can show "在线/离线（数据陈旧）"
+		// instead of collapsing a merely old snapshot into "unknown".
+		rows[i].Stale = rows[i].LastReportAt.Before(freshAfter)
 	}
 	return rows, total, nil
 }
