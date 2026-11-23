@@ -1,1046 +1,18 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-23 12:04 · commit: `5aef68a`
+> 生成时间: 2026-11-23 10:55 · commit: `997e638`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
 ## platform/（Go 后端）
 
-### `platform/admin/networkdomain/access_progress.go`
-
-- `type DomainListItemView struct`
-- `func AccessStepOf(d *models.NetworkDomain, hasOnline, hasEffectiveJob bool) int`
-- `func effectiveScrapeJobDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
-- `func onlineAgentDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
-- `func DomainListView(db *gorm.DB, list []models.NetworkDomain) ([]DomainListItemView, error)`
-
-### `platform/admin/networkdomain/access_progress_test.go`
-
-- `func TestAccessStepOf(t *testing.T)`
-- `func effectiveJobFixture(name, domainID string, mutate func(*models.ScrapeJob)) *models.ScrapeJob`
-- `func TestEffectiveScrapeJobDomainIDs_Filters(t *testing.T)`
-- `func TestEffectiveScrapeJobDomainIDs_EmptyList(t *testing.T)`
-- `func TestDomainListView_AggregatesOnlineAgents(t *testing.T)`
-- `func TestDomainListView_Step4(t *testing.T)`
-- `func TestDomainListView_EmptyList(t *testing.T)`
-
-### `platform/admin/networkdomain/authorized_test.go`
-
-- `func TestAuthorizedTenantsDefaultBackfill(t *testing.T)`
-- `func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T)`
-- `func TestAuthorizedTenantsClearToEmpty(t *testing.T)`
-
-### `platform/admin/networkdomain/cascade_retire.go`
-
-- `type WillRetireAgent struct`
-- `type CascadeRetireResult struct`
-- `func CascadeRetire(db *gorm.DB, domainID string) (*CascadeRetireResult, error)`
-
-### `platform/admin/networkdomain/cascade_retire_test.go`
-
-- `func setupTestDB(t *testing.T) *gorm.DB`
-- `func TestCascadeRetire_Success(t *testing.T)`
-- `func TestCascadeRetire_NoAgents(t *testing.T)`
-- `func TestCascadeRetire_MultipleAgents(t *testing.T)`
-- `func TestCascadeRetire_DomainNotFound(t *testing.T)`
-- `func TestCascadeRetire_RetiredStatusIsTerminal(t *testing.T)`
-- `func TestCascadeRetire_RollbackOnAgentUpdateFailure(t *testing.T)`
-
-### `platform/admin/networkdomain/create.go`
-
-- `type CreateNetworkDomainRequest struct`
-- `func validDomainType(dt models.DomainType) bool`
-- `func activeManagementDomainExists(db *gorm.DB) (bool, error)`
-- `func randomDomainCode() (string, error)`
-- `func isUniqueConstraintError(err error) bool`
-- `func validateCloudCodeEnabled(db *gorm.DB, code string) error`
-- `func validateNetworkDomainZoneType(db *gorm.DB, zt string) error`
-- `func nameExists(db *gorm.DB, name, excludeID string) (bool, error)`
-- `func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
-- `func validateCenterEndpoint(raw string) error`
-
-### `platform/admin/networkdomain/create_test.go`
-
-- `func postCreate(t *testing.T, db *gorm.DB, body string) (int, models.NetworkDomain, string)`
-- `func TestCreateNetworkDomainOK(t *testing.T)`
-- `func TestCreateNetworkDomainBackfillsAuthorizedDefault(t *testing.T)`
-- `func TestCreateNetworkDomainIgnoresClientTenant(t *testing.T)`
-- `func TestCreateNetworkDomainWithIPCIDRs(t *testing.T)`
-- `func TestCreateNetworkDomainRejectsDuplicateName(t *testing.T)`
-- `func TestCreateNetworkDomainMissingName(t *testing.T)`
-- `func TestCreateNetworkDomainMissingDomainType(t *testing.T)`
-- `func TestCreateNetworkDomainInvalidDomainType(t *testing.T)`
-- `func TestCreateManagementDomain(t *testing.T)`
-- `func TestCreateSecondManagementDomainRejected(t *testing.T)`
-- `func TestCreateManagementDomainRevivesSoftDeleted(t *testing.T)`
-- `func TestCreateNetworkDomainReservedDefault(t *testing.T)`
-- `func TestCreateNetworkDomainDuplicateConflict(t *testing.T)`
-- `func TestCreateNetworkDomainInvalidDomainCode(t *testing.T)`
-- `func TestCreateNetworkDomainAfterSoftDeleteConflict(t *testing.T)`
-
-### `platform/admin/networkdomain/delete.go`
-
-- `func DeleteNetworkDomain(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/admin/networkdomain/delete_test.go`
-
-- `func delDomain(t *testing.T, db *gorm.DB, id string) (int, map[string]interface{})`
-- `func TestDeleteEmptyDomainSoftDeletes(t *testing.T)`
-- `func TestDeleteNonEmptyRejected(t *testing.T)`
-- `func TestDeleteManagedAgentCascadeImpact(t *testing.T)`
-- `func TestDeleteManagementDomainAllowed(t *testing.T)`
-- `func TestDeleteRejectedByScrapeJob(t *testing.T)`
-- `func TestDeleteRejectedByPendingDraft(t *testing.T)`
-- `func TestDeleteIgnoresNonPendingDrafts(t *testing.T)`
-- `func TestDeleteOfflineAgentDoesNotBlock(t *testing.T)`
-
-### `platform/admin/networkdomain/detail.go`
-
-- `func GetNetworkDomain(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/admin/networkdomain/detail_test.go`
-
-- `func TestGetNetworkDomainOK(t *testing.T)`
-- `func TestGetNetworkDomainNotFound(t *testing.T)`
-- `func TestGetNetworkDomainIgnoresSoftDeleted(t *testing.T)`
-
-### `platform/admin/networkdomain/idgen.go`
-
-- `func ReadDeployCode() string`
-- `func GenerateDomainID(deployCode, domainCode string) (string, error)`
-
-### `platform/admin/networkdomain/idgen_test.go`
-
-- `func TestReadDeployCodeDefault(t *testing.T)`
-- `func TestReadDeployCodeFromEnv(t *testing.T)`
-- `func TestGenerateDomainIDDefaultPrefix(t *testing.T)`
-- `func TestGenerateDomainIDEscapesPrefix(t *testing.T)`
-- `func TestGenerateDomainIDDefaultSpecialCase(t *testing.T)`
-- `func TestGenerateDomainIDInvalidDomainCode(t *testing.T)`
-- `func TestGenerateDomainIDInvalidDeployCode(t *testing.T)`
-
-### `platform/admin/networkdomain/impact.go`
-
-- `type DomainImpact struct`
-- `func countResources(db *gorm.DB, domainID string) (int64, error)`
-- `func countManagedEdgeAgents(db *gorm.DB, domainID string) (int64, error)`
-- `func countOnlineEdgeAgents(db *gorm.DB, domainID string) (int64, error)`
-- `func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error)`
-
-### `platform/admin/networkdomain/impact_test.go`
-
-- `func seedImpactDomain(t *testing.T, db *gorm.DB, agents []*models.EdgeAgent) string`
-- `func TestComputeImpact_HasOnlineAgents(t *testing.T)`
-- `func TestComputeImpact_NoOnlineAgent(t *testing.T)`
-- `func TestComputeImpact_RetiredNotCounted(t *testing.T)`
-- `func TestComputeImpact_EmptyDomain(t *testing.T)`
-
-### `platform/admin/networkdomain/list.go`
-
-- `func ListNetworkDomains(db *gorm.DB) gin.HandlerFunc`
-- `func parseIntDefault(raw string, def, min int) int`
-
-### `platform/admin/networkdomain/list_test.go`
-
-- `func TestListNetworkDomains(t *testing.T)`
-
-### `platform/admin/networkdomain/routes.go`
-
-- `func RegisterReadRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `func RegisterWriteRoutes(admin *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/admin/networkdomain/status.go`
-
-- `type UpdateStatusRequest struct`
-- `func validDomainStatus(s models.DomainStatus) bool`
-- `func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/admin/networkdomain/status_test.go`
-
-- `func patchStatus(t *testing.T, db *gorm.DB, id, body string) (int, map[string]interface{})`
-- `func seedEdgeDomain(t *testing.T, db *gorm.DB)`
-- `func TestDisableReturnsNestedImpact(t *testing.T)`
-- `func TestReEnable(t *testing.T)`
-- `func TestManagementCannotDisable(t *testing.T)`
-- `func TestInvalidStatusValue(t *testing.T)`
-- `func TestStatusNotFound(t *testing.T)`
-
-### `platform/admin/networkdomain/tenant_auth.go`
-
-- `func containsStr(list []string, s string) bool`
-- `func syncAuthorizedTenants(db *gorm.DB, domainID string, tenantIDs []string) error`
-
-### `platform/admin/networkdomain/testutil_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newGin() *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
-- `func seedZoneTypes(t *testing.T, db *gorm.DB)`
-- `func seedDomainRegistrationDicts(t *testing.T, db *gorm.DB)`
-- `func seedTenants(t *testing.T, db *gorm.DB)`
-- `func insertDomain(t *testing.T, db *gorm.DB, d *models.NetworkDomain)`
-
-### `platform/admin/networkdomain/update.go`
-
-- `type UpdateNetworkDomainRequest struct`
-- `func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/admin/networkdomain/update_test.go`
-
-- `func putUpdate(t *testing.T, db *gorm.DB, id, body string) (int, models.NetworkDomain)`
-- `func TestUpdateNetworkDomainEditableFields(t *testing.T)`
-- `func TestUpdateNetworkDomainTenantIgnored(t *testing.T)`
-- `func TestUpdateNetworkDomainCloudCodeImmutable(t *testing.T)`
-- `func TestUpdateNetworkDomainNotFound(t *testing.T)`
-- `func TestUpdateNetworkDomainDefaultAllowedForName(t *testing.T)`
-
-### `platform/admin/networkdomain/zone_type.go`
-
-- `type ZoneTypeView struct`
-- `func ListZoneTypes(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/admin/networkdomain/zone_type_test.go`
-
-- `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
-- `func TestListZoneTypesEmpty(t *testing.T)`
-
-### `platform/admin/storagelog/diskusage_unix.go`
-
-- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
-
-### `platform/admin/storagelog/diskusage_windows.go`
-
-- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
-
-### `platform/admin/storagelog/handler.go`
-
-- `type Options struct`
-- `func RegisterRoutes(admin *gin.RouterGroup, opts Options)`
-- `type Handler struct`
-- `type retentionState struct`
-- `type diskInfo struct`
-- `type logRotationInfo struct`
-- `type overviewResponse struct`
-- `type updateRetentionRequest struct`
-- `method (*Handler) GetOverview(c *gin.Context)`
-- `method (*Handler) UpdateRetention(c *gin.Context)`
-- `method (*Handler) overview(ctx context.Context) (*overviewResponse, error)`
-- `method (*Handler) fetchRuntimeFlags(ctx context.Context) (vals RetentionValues, tsdbPath string, ok bool)`
-- `method (*Handler) diskEntries(tsdbPath string, rtOK bool) []diskInfo`
-- `func newDiskInfo(label, dirPath string) diskInfo`
-
-### `platform/admin/storagelog/handler_test.go`
-
-- `func newTestRouter(t *testing.T, envFile string, promURL *url.URL) *gin.Engine`
-- `func mockPromFlags(t *testing.T, retentionTime, retentionSize, tsdbPath string) *httptest.Server`
-- `func mustParseURL(t *testing.T, raw string) *url.URL`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func decodeOK(t *testing.T, w *httptest.ResponseRecorder) *overviewResponse`
-- `func decodeError(t *testing.T, w *httptest.ResponseRecorder) (errorType, errMsg string)`
-- `func TestGetOverview_RuntimeDefaultWhenEnvMissing(t *testing.T)`
-- `func TestGetOverview_PendingRestartOnRealDiff(t *testing.T)`
-- `func TestGetOverview_NoFalsePendingOnUnitDifference(t *testing.T)`
-- `func TestGetOverview_DegradesWhenPrometheusDown(t *testing.T)`
-- `func TestGetOverview_LogRootDiskRow(t *testing.T)`
-- `func TestUpdateRetention_InvalidInputs(t *testing.T)`
-- `func TestUpdateRetention_WritesEnvAndReportsPending(t *testing.T)`
-- `func TestUpdateRetention_SameAsRuntimeNoPending(t *testing.T)`
-- `func TestUpdateRetention_OverviewAlwaysPresent(t *testing.T)`
-
-### `platform/admin/storagelog/retention.go`
-
-- `type RetentionValues struct`
-- `func ValidateRetentionTime(s string) error`
-- `func ValidateRetentionSize(s string) error`
-- `func parsePromDuration(s string) (time.Duration, error)`
-- `func parsePromBytes(s string) (int64, error)`
-- `func valuesEqual(a, b RetentionValues) bool`
-- `func durationEqual(a, b string) bool`
-- `func bytesEqual(a, b string) bool`
-- `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
-- `func writeRetentionPolicy(path string, vals RetentionValues) error`
-
-### `platform/admin/storagelog/retention_test.go`
-
-- `func TestValidateRetentionTime(t *testing.T)`
-- `func TestValidateRetentionSize(t *testing.T)`
-- `func TestValuesEqual_Normalized(t *testing.T)`
-- `func TestValuesEqual_ParseFailureFallsBackToString(t *testing.T)`
-- `func TestReadWriteRetentionPolicy(t *testing.T)`
-- `func TestReadRetentionPolicy_SkipsComments(t *testing.T)`
-- `func TestDiskUsage(t *testing.T)`
-- `func TestDetectLogRotation_SummaryAlwaysPresent(t *testing.T)`
-
-### `platform/admin/storagelog/system.go`
-
-- `func detectLogRotation() logRotationInfo`
-- `func readConf(path string) (content string, ok bool)`
-
-### `platform/admin/tenant/handler.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `type Handler struct`
-- `func NewHandler(svc *Service) *Handler`
-- `type tenantDTO struct`
-- `func toTenantDTO(tn *models.Tenant) tenantDTO`
-- `type updateTenantRequest struct`
-- `method (*Handler) ListTenants(c *gin.Context)`
-- `method (*Handler) GetTenant(c *gin.Context)`
-- `method (*Handler) UpdateTenant(c *gin.Context)`
-- `method (*Handler) CreateTenantNotAllowed(c *gin.Context)`
-- `method (*Handler) UpdateTenantStatusNotAllowed(c *gin.Context)`
-- `func writeError(c *gin.Context, err error)`
-- `func errInvalidPayload(err error) error`
-- `func parsePage(c *gin.Context) (int, int)`
-- `func parseIntDefault(raw string, def int) int`
-
-### `platform/admin/tenant/handler_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func seedTenant(t *testing.T, db *gorm.DB, id, name string, multiSite bool) models.Tenant`
-- `func newTestRouter(db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `type envelope struct`
-- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
-- `func TestListTenants_Success(t *testing.T)`
-- `func TestListTenants_Pagination(t *testing.T)`
-- `func TestListTenants_StatusFilter(t *testing.T)`
-- `func TestGetTenant_Success(t *testing.T)`
-- `func TestGetTenant_NotFound(t *testing.T)`
-- `func TestUpdateTenant_Success(t *testing.T)`
-- `func TestUpdateTenant_Validation(t *testing.T)`
-- `func TestUpdateTenant_NotFound(t *testing.T)`
-- `func TestCreateTenant_Forbidden(t *testing.T)`
-- `func TestUpdateTenantStatus_Forbidden(t *testing.T)`
-- `func TestTenantFieldsConformToContract(t *testing.T)`
-
-### `platform/admin/tenant/repository.go`
-
-- `type Repository struct`
-- `func NewRepository(db *gorm.DB) *Repository`
-- `method (*Repository) FindByID(id string) (*models.Tenant, error)`
-- `method (*Repository) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
-- `method (*Repository) Save(tn *models.Tenant) error`
-
-### `platform/admin/tenant/service.go`
-
-- `type ValidationError struct`
-- `method (*ValidationError) Error() string`
-- `func newValidationError(format string, args ...interface{}) *ValidationError`
-- `type Service struct`
-- `func NewService(repo *Repository) *Service`
-- `method (*Service) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
-- `method (*Service) GetTenant(id string) (*models.Tenant, error)`
-- `method (*Service) UpdateTenant(id string, name *string, multiSiteEnabled *bool) (*models.Tenant, error)`
-
-### `platform/admin/user/handler.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `type Handler struct`
-- `func NewHandler(svc *Service) *Handler`
-- `type userDTO struct`
-- `func toUserDTO(u *models.User) userDTO`
-- `type loginLogDTO struct`
-- `func toLoginLogDTO(l *models.LoginLog) loginLogDTO`
-- `type createUserRequest struct`
-- `type updateUserRequest struct`
-- `type updateStatusRequest struct`
-- `type resetPasswordRequest struct`
-- `method (*Handler) CreateUser(c *gin.Context)`
-- `method (*Handler) ListUsers(c *gin.Context)`
-- `method (*Handler) UpdateUser(c *gin.Context)`
-- `method (*Handler) UpdateUserStatus(c *gin.Context)`
-- `method (*Handler) DeleteUser(c *gin.Context)`
-- `method (*Handler) ResetPassword(c *gin.Context)`
-- `method (*Handler) ListLoginLogs(c *gin.Context)`
-- `func writeError(c *gin.Context, err error)`
-- `func errInvalidPayload(err error) error`
-- `func parsePage(c *gin.Context) (int, int)`
-- `func parseIntDefault(raw string, def int) int`
-
-### `platform/admin/user/handler_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newTestRouter(db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `type envelope struct`
-- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
-- `func seedSession(t *testing.T, db *gorm.DB, userID, token string)`
-- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
-- `func createUserViaAPI(t *testing.T, r *gin.Engine, username, displayName, password string) map[string]interface{}`
-- `func TestCreateUser_Success(t *testing.T)`
-- `func TestCreateUser_ResponseNeverLeaksPasswordHash(t *testing.T)`
-- `func TestCreateUser_DuplicateUsername(t *testing.T)`
-- `func TestCreateUser_Validation(t *testing.T)`
-- `func TestDeleteUser_RemoveOrdinaryUser(t *testing.T)`
-- `func TestDeleteUser_AdminForbidden(t *testing.T)`
-- `func TestDeleteUser_NotFound(t *testing.T)`
-- `func TestListUsers_PaginationAndFields(t *testing.T)`
-- `func TestUpdateUser_DisplayName(t *testing.T)`
-- `func TestUpdateUser_UsernameImmutable(t *testing.T)`
-- `func TestUpdateUser_NotFound(t *testing.T)`
-- `func TestUpdateUserStatus_DisableInvalidatesSessions(t *testing.T)`
-- `func TestUpdateUserStatus_InvalidValue(t *testing.T)`
-- `func TestUpdateUserStatus_NotFound(t *testing.T)`
-- `func TestResetPassword_UpdatesHashAndInvalidatesSessions(t *testing.T)`
-- `func TestResetPassword_ValidationAndNotFound(t *testing.T)`
-- `func TestListLoginLogs_FilterOrderPagination(t *testing.T)`
-
-### `platform/admin/user/repository.go`
-
-- `type Repository struct`
-- `func NewRepository(db *gorm.DB) *Repository`
-- `method (*Repository) ExistsByUsername(username string) (bool, error)`
-- `method (*Repository) Create(u *models.User) error`
-- `method (*Repository) FindByID(id string) (*models.User, error)`
-- `method (*Repository) ListUsers(page, pageSize int) ([]models.User, int64, error)`
-- `method (*Repository) Save(u *models.User) error`
-- `method (*Repository) Delete(id string) error`
-- `method (*Repository) DeleteSessionsByUserID(userID string) error`
-- `method (*Repository) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
-- `func isUniqueConstraintError(err error) bool`
-
-### `platform/admin/user/service.go`
-
-- `type ValidationError struct`
-- `method (*ValidationError) Error() string`
-- `func newValidationError(format string, args ...interface{}) *ValidationError`
-- `type Service struct`
-- `func NewService(repo *Repository) *Service`
-- `type CreateUserInput struct`
-- `func normalizeRole(role string) (string, error)`
-- `method (*Service) CreateUser(in CreateUserInput) (*models.User, error)`
-- `method (*Service) ListUsers(page, pageSize int) ([]models.User, int64, error)`
-- `method (*Service) UpdateDisplayName(id, displayName string) (*models.User, error)`
-- `method (*Service) UpdateRole(id, role string) (*models.User, error)`
-- `method (*Service) UpdateStatus(id string, status models.UserStatus) (*models.User, error)`
-- `method (*Service) ResetPassword(id, newPassword string) error`
-- `method (*Service) DeleteUser(id string) error`
-- `method (*Service) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
-- `func validatePassword(password string) error`
-- `func newUserID() (string, error)`
-
-### `platform/alertmanager/alerts/alerts_test.go`
-
-- `type fakeAMAlerts struct`
-- `func startFakeAMAlerts(t *testing.T, f *fakeAMAlerts) string`
-- `func amFixture() []amAlert`
-- `func newTestService(t *testing.T, f *fakeAMAlerts) *Service`
-- `func TestNewProxyRejectsBadTarget(t *testing.T)`
-- `func TestServiceListNotifyStatusFourStates(t *testing.T)`
-- `func TestNotifyStatusPriority(t *testing.T)`
-- `func TestServiceListAuthorizedScopeFilter(t *testing.T)`
-- `func TestServiceListNetworkDomainUXFilter(t *testing.T)`
-- `func TestServiceListNetworkDomainWriteBack(t *testing.T)`
-- `func TestServiceListNetworkDomainFromExternalLabelKey(t *testing.T)`
-- `func TestServiceListAMUnreachable(t *testing.T)`
-- `func newAlertsRouter(svc *Service) *gin.Engine`
-- `type alertsResp struct`
-- `func doListAlerts(t *testing.T, r *gin.Engine, query string) (int, alertsResp)`
-- `func TestListEndpointHappy(t *testing.T)`
-- `func TestListEndpointUXFilter(t *testing.T)`
-- `func TestListEndpointEmptyNotNull(t *testing.T)`
-- `func TestListEndpointAMError(t *testing.T)`
-- `func openAlertsIdentityDB(t *testing.T) *gorm.DB`
-- `func TestServiceListInstanceFieldsResolvedFromM01(t *testing.T)`
-- `func TestServiceListInstanceFieldsWithoutResourceID(t *testing.T)`
-
-### `platform/alertmanager/alerts/handler.go`
-
-- `func ListHandler(svc *Service) gin.HandlerFunc`
-- `func authorizedScopeForUser(_ *gin.Context) *models.AuthorizedMatcherScope`
-
-### `platform/alertmanager/alerts/proxy.go`
-
-- `type amAlertStatus struct`
-- `type amAlert struct`
-- `type Proxy struct`
-- `func NewProxy(baseURL string) (*Proxy, error)`
-- `method (*Proxy) ListAlerts(ctx context.Context) ([]amAlert, error)`
-- `func sanitize(b []byte) string`
-
-### `platform/alertmanager/alerts/service.go`
-
-- `type AlertStatus struct`
-- `type AlertItem struct`
-- `type Service struct`
-- `func NewService(proxy *Proxy, db *gorm.DB) *Service`
-- `method (*Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope, networkDomain string) ([]AlertItem, error)`
-- `func domainInScope(scope *models.AuthorizedMatcherScope, domain string) bool`
-- `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
-- `func normalizeNotifyStatus(st amAlertStatus) string`
-
-### `platform/alertmanager/config/config_test.go`
-
-- `func newMemConfigDB(t *testing.T) *gorm.DB`
-- `func stubAmtoolAvailable(t *testing.T)`
-- `func stubAmtoolFails(t *testing.T)`
-- `func stubAmtoolUnavailable(t *testing.T)`
-- `func stubChangeTrigger(t *testing.T) *int32`
-- `func TestSubmitPersistsOnValid(t *testing.T)`
-- `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
-- `func TestSubmitRejectsEmptyContent(t *testing.T)`
-- `func TestSubmitAmtoolUnavailableValidationFails(t *testing.T)`
-- `func TestSubmitIdempotentOnSameChecksum(t *testing.T)`
-- `func TestSubmitAfterDiscardedVersionCreatesNewVersion(t *testing.T)`
-- `func TestLatestAppliedSkipsDiscarded(t *testing.T)`
-- `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
-- `func TestErrValidationError(t *testing.T)`
-
-### `platform/alertmanager/config/handler.go`
-
-- `func queryPage(c *gin.Context) (page, pageSize int)`
-- `func parseID(c *gin.Context) (uint, error)`
-- `func CurrentHandler(db *gorm.DB) gin.HandlerFunc`
-- `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/config/management_domain_test.go`
-
-- `func TestSubmitRejectsWhenManagementDomainMissing(t *testing.T)`
-
-### `platform/alertmanager/config/pendingdraft_test.go`
-
-- `func stubEnsurePendingDraft(t *testing.T) *int32`
-- `func stubEnsurePendingDraftErr(t *testing.T, err error)`
-- `func TestSubmitTriggersChangeDetectionAndPendingDraft(t *testing.T)`
-- `func TestSubmitDoesNotAutoConfirmDraft(t *testing.T)`
-- `func TestSubmitPendingDraftErrNoChangesNotBlockSubmit(t *testing.T)`
-- `func TestSubmitPendingDraftErrOtherNotBlockSubmit(t *testing.T)`
-- `func TestEnsurePendingDraftGeneratesWhenNoLivePending(t *testing.T)`
-
-### `platform/alertmanager/config/service.go`
-
-- `type ErrValidation struct`
-- `method (*ErrValidation) Error() string`
-- `func TriggerChangeDetection(db *gorm.DB) error`
-- `func EnsurePendingDraft(db *gorm.DB) error`
-- `func generateOrReusePendingDraft(db *gorm.DB) error`
-- `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
-- `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
-- `func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error)`
-- `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
-- `func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
-
-### `platform/alertmanager/config/template_validate.go`
-
-- `func TemplateFuncs() template.FuncMap`
-- `func templateDefault(def, val interface{}) interface{}`
-- `func templateJSONStr(v interface{}) string`
-- `func ValidateTemplate(content string) error`
-- `func buildTemplateCheckConfig(tplPath string) string`
-
-### `platform/alertmanager/config/template_validate_test.go`
-
-- `func TestValidateTemplateValidPasses(t *testing.T)`
-- `func TestValidateTemplateRejectsEmpty(t *testing.T)`
-- `func TestValidateTemplateRejectsSyntaxError(t *testing.T)`
-- `func TestValidateTemplateAmtoolUnavailable(t *testing.T)`
-- `func TestValidateTemplateAmtoolReportsError(t *testing.T)`
-- `func TestTemplateFuncsJSONStr(t *testing.T)`
-
-### `platform/alertmanager/config/validate.go`
-
-- `func validateAlertmanagerConfig(content string) error`
-- `func runCheckConfig(content string) ([]models.ValidateErrorItem, error)`
-- `func isSuccess(output string) bool`
-- `func parseCheckErrors(output string) []models.ValidateErrorItem`
-- `func extractLine(line string) int`
-
-### `platform/alertmanager/config/version.go`
-
-- `type VersionListItem struct`
-- `func toListItem(v *models.AlertmanagerConfigVersion) VersionListItem`
-- `func formatTimeOrNil(t *time.Time) *string`
-- `func ListVersions(db *gorm.DB, page, pageSize int) ([]VersionListItem, int64, error)`
-- `func GetVersion(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
-
-### `platform/alertmanager/config/version_test.go`
-
-- `func newConfigRouter(db *gorm.DB) *gin.Engine`
-- `func do(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
-- `func seedVersion(t *testing.T, db *gorm.DB, content, user string) *models.AlertmanagerConfigVersion`
-- `func TestCurrentEndpointEmptyThenAfterSubmit(t *testing.T)`
-- `func TestListVersionsEndpointPagination(t *testing.T)`
-- `func TestGetVersionEndpointDetail(t *testing.T)`
-
-### `platform/alertmanager/notify/bridge.go`
-
-- `type BridgeConfig struct`
-- `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
-- `func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig)`
-- `func parseUintQuery(s string) (uint, error)`
-- `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel) (*models.NotifyTemplate, error)`
-- `func respondBridgeTemplateError(c *gin.Context, err error)`
-
-### `platform/alertmanager/notify/bridge_test.go`
-
-- `type fakeReceiver struct`
-- `method (*fakeReceiver) record(path, query string, body []byte)`
-- `method (*fakeReceiver) calls() int`
-- `method (*fakeReceiver) lastBody() []byte`
-- `method (*fakeReceiver) lastQuery() string`
-- `func startFakeReceiver(t *testing.T, f *fakeReceiver) string`
-- `func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine`
-- `func doBridgeJSON(t *testing.T, r *gin.Engine, path string, body interface{}) (int, channelResp)`
-- `func amBridgePayload(status string) map[string]interface{}`
-- `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string) *models.NotifyChannel`
-- `func mustCreateChannelWithSecret(t *testing.T, db *gorm.DB, name, chType, url, secret string) *models.NotifyChannel`
-- `func TestBridgeRejectsArbitraryTargetURL(t *testing.T)`
-- `func TestBridgeChannelNotFound(t *testing.T)`
-- `func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T)`
-- `func mustBindChannel(t *testing.T, db *gorm.DB, ch *models.NotifyChannel, tplID uint)`
-- `func mustCreateFeishuTemplate(t *testing.T, db *gorm.DB, name, marker string) *models.NotifyTemplate`
-- `func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.NotifyChannel) (int, channelResp, string)`
-- `func captureBridgeLogs(t *testing.T) *[]string`
-- `func TestBridgeUsesChannelBoundTemplate(t *testing.T)`
-- `func TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing(t *testing.T)`
-- `func TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch(t *testing.T)`
-- `func TestBridgeSendFailureReturnsBadGateway(t *testing.T)`
-- `func TestBridgeSuccessStructuredLog(t *testing.T)`
-- `func TestSanitizeOutboundErrorStripsURL(t *testing.T)`
-- `func TestOutboundClientDoesNotFollowRedirects(t *testing.T)`
-- `func TestFeishuSignVector(t *testing.T)`
-- `func TestBridgeSignsFeishuPayloadWithSecret(t *testing.T)`
-- `func TestBridgeSkipsFeishuSignatureWithoutSecret(t *testing.T)`
-- `func TestSendOutboundTreatsBusinessErrorAsFailure(t *testing.T)`
-- `func TestBridgeReturns502WhenFeishuReturnsBusinessError(t *testing.T)`
-- `func TestDingTalkSign(t *testing.T)`
-- `func TestBridgeSignsDingTalkURL(t *testing.T)`
-- `func TestBridgeDingTalkWithoutSecretDoesNotSign(t *testing.T)`
-- `func TestBridgeWebhookForwardsRawPayload(t *testing.T)`
-- `func TestBridgeWebhookRejectsMalformedPayload(t *testing.T)`
-
-### `platform/alertmanager/notify/bridge_url.go`
-
-- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
-
-### `platform/alertmanager/notify/channel.go`
-
-- `func SetAllowPrivateWebhookTargets(allow bool)`
-- `func ValidateWebhookURL(raw string) error`
-- `func rejectPrivateHost(host string) error`
-- `type ChannelInput struct`
-- `type UpdateChannelInput struct`
-- `func resolveChannelTemplateID(db *gorm.DB, raw *uint, chType models.NotifyChannelType) (*uint, error)`
-- `func CreateChannel(db *gorm.DB, in ChannelInput) (*models.NotifyChannel, error)`
-- `func UpdateChannel(db *gorm.DB, id uint, in UpdateChannelInput) (*models.NotifyChannel, error)`
-- `func ListChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
-- `func GetChannel(db *gorm.DB, id uint) (*models.NotifyChannel, error)`
-- `type ErrChannelInUse struct`
-- `method (*ErrChannelInUse) Error() string`
-- `func DeleteChannel(db *gorm.DB, id uint) error`
-- `type ChannelView struct`
-- `func ToChannelView(ch *models.NotifyChannel) ChannelView`
-- `func toChannelViewWithRouteRefs(ch *models.NotifyChannel, refs map[string][]string) ChannelView`
-- `func maskWebhookURL(raw string) string`
-
-### `platform/alertmanager/notify/channel_handler.go`
-
-- `func parseID(c *gin.Context) (uint, error)`
-- `func respondChannelError(c *gin.Context, err error)`
-- `func ListChannelsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteChannelHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/notify/channel_test.go`
-
-- `func newNotifyDB(t *testing.T) *gorm.DB`
-- `func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T)`
-- `func TestCreateChannelPersistsAndValidates(t *testing.T)`
-- `func TestCreateWebhookChannel(t *testing.T)`
-- `func TestDeleteChannelBlockedWhenReferencedByRoute(t *testing.T)`
-- `func TestChannelViewMasksCredentials(t *testing.T)`
-- `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
-- `func TestDeleteChannelAndList(t *testing.T)`
-- `func newTemplateForType(t *testing.T, db *gorm.DB, name string, chType models.NotifyChannelType) *models.NotifyTemplate`
-- `func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate`
-- `func TestCreateChannelBindsDefaultTemplate(t *testing.T)`
-- `func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T)`
-- `func TestUpdateChannelRebindAndTypeSwitch(t *testing.T)`
-- `func newNotifyRouter(db *gorm.DB) *gin.Engine`
-- `type channelResp struct`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
-- `func TestChannelCRUDHandlers(t *testing.T)`
-- `func TestChannelHandlerTemplateBinding(t *testing.T)`
-- `func TestChannelHandlerWebhookType(t *testing.T)`
-
-### `platform/alertmanager/notify/client.go`
-
-- `func newOutboundHTTPClient() *http.Client`
-- `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
-- `func sendOutboundRaw(ctx context.Context, target string, body []byte) (int, error)`
-- `func sendOutboundWithCheck(ctx context.Context, target string, body []byte, checkBusinessError bool) (int, error)`
-- `func sanitizeOutboundError(err error) error`
-- `func feishuSign(secret, timestamp string) string`
-- `func applyFeishuSignature(ch *models.NotifyChannel, rendered []byte, now time.Time) ([]byte, error)`
-- `func dingTalkSign(secret, timestamp string) string`
-- `func applyDingTalkSignature(ch *models.NotifyChannel, rawURL string, now time.Time) (string, error)`
-- `func checkOutboundBusinessError(respBody []byte) error`
-
-### `platform/alertmanager/notify/register.go`
-
-- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/alertmanager/notify/render.go`
-
-- `type amWebhookPayload struct`
-- `type amWebhookAlert struct`
-- `type RenderAlert struct`
-- `type RenderData struct`
-- `func decodeWebhook(raw []byte) (amWebhookPayload, error)`
-- `func buildRenderData(p amWebhookPayload, loc *time.Location) RenderData`
-- `func formatLocal(t time.Time, loc *time.Location) string`
-- `func Render(templateContent string, payload amWebhookPayload, loc *time.Location) ([]byte, error)`
-
-### `platform/alertmanager/notify/render_test.go`
-
-- `func renderFixture(status string) amWebhookPayload`
-- `func TestRenderBuiltinFeishuCardTemplate(t *testing.T)`
-- `func TestRenderLocalizesTimeToRenderZone(t *testing.T)`
-- `func TestRenderRejectsEmptyOutput(t *testing.T)`
-- `func TestDecodeWebhookInvalid(t *testing.T)`
-- `func TestRenderUsesSharedFuncMap(t *testing.T)`
-
-### `platform/alertmanager/notify/template.go`
-
-- `type ErrTemplateInUse struct`
-- `method (*ErrTemplateInUse) Error() string`
-- `type builtinTemplate struct`
-- `func builtinTemplates() []builtinTemplate`
-- `func EnsureBuiltinTemplates(db *gorm.DB) error`
-- `type CreateTemplateInput struct`
-- `type UpdateTemplateInput struct`
-- `func CreateTemplate(db *gorm.DB, in CreateTemplateInput) (*models.NotifyTemplate, error)`
-- `func UpdateTemplate(db *gorm.DB, id uint, in UpdateTemplateInput) (*models.NotifyTemplate, error)`
-- `func ensureTemplateNameAvailable(db *gorm.DB, name, channelType string, excludeID uint) error`
-- `type TemplateListItem struct`
-- `type TemplateDetail struct`
-- `func ListTemplates(db *gorm.DB, channelType string) ([]TemplateListItem, error)`
-- `func templateBoundChannelCount(db *gorm.DB, id uint) (int64, error)`
-- `func templateBoundChannelCounts(db *gorm.DB) (map[uint]int64, error)`
-- `func GetTemplate(db *gorm.DB, id uint) (*models.NotifyTemplate, error)`
-- `func DeleteTemplate(db *gorm.DB, id uint) error`
-- `func CompactTemplateVersions(db *gorm.DB) error`
-- `func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemplate, error)`
-- `func toTemplateListItem(t *models.NotifyTemplate, bound int64) TemplateListItem`
-- `func toTemplateDetail(t *models.NotifyTemplate, bound int64) TemplateDetail`
-
-### `platform/alertmanager/notify/template_handler.go`
-
-- `func respondTemplateError(c *gin.Context, err error)`
-- `func ListTemplatesHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetTemplateHandler(db *gorm.DB) gin.HandlerFunc`
-- `func CreateTemplateHandler(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateTemplateHandler(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteTemplateHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/notify/template_test.go`
-
-- `func stubTemplateValid(t *testing.T)`
-- `func stubTemplateInvalid(t *testing.T)`
-- `func TestCreateTemplateValidatesAndPersists(t *testing.T)`
-- `func TestCreateTemplateRejectsValidationFailureNoPersist(t *testing.T)`
-- `func TestCreateTemplateRejectsBadNameAndType(t *testing.T)`
-- `func TestCreateTemplateNameConflict(t *testing.T)`
-- `func TestCreateTemplateCloneBuiltinVerbatimCreatesNewRow(t *testing.T)`
-- `func TestUpdateTemplateInPlace(t *testing.T)`
-- `func TestUpdateTemplateRejectsBuiltinAndTypeChange(t *testing.T)`
-- `func TestUpdateTemplateNameConflict(t *testing.T)`
-- `func TestDeleteTemplateRejectsBuiltinAndBound(t *testing.T)`
-- `func TestDeleteTemplateSoftDeletesUnbound(t *testing.T)`
-- `func TestCompactTemplateVersionsRemapsBindings(t *testing.T)`
-- `func TestEnsureBuiltinTemplatesIdempotent(t *testing.T)`
-- `func TestBuiltinFeishuTemplateParses(t *testing.T)`
-- `func newTemplateRouter(db *gorm.DB) *gin.Engine`
-- `func TestTemplateHandlersCRUD(t *testing.T)`
-
-### `platform/alertmanager/register.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
-
-### `platform/alertmanager/route/convert.go`
-
-- `func boolPtr(b bool) *bool`
-- `func ToEditNodes(nodes []RouteNode) []generator.RouteEditNode`
-- `func ToRouteNodes(nodes []generator.RouteEditNode) []RouteNode`
-
-### `platform/alertmanager/route/convert_test.go`
-
-- `func TestToEditNodes_FromParse(t *testing.T)`
-- `func TestToRouteNodes_RoundTrip(t *testing.T)`
-- `func TestToEditNodes_PreservesUnmodeledKeys(t *testing.T)`
-- `func toEditMatchers(in []RouteMatcher) []generator.RouteEditMatcher`
-
-### `platform/alertmanager/route/declared_receivers.go`
-
-- `func ParseDeclaredReceivers(baseYAML string) []string`
-
-### `platform/alertmanager/route/declared_receivers_test.go`
-
-- `func TestParseDeclaredReceivers(t *testing.T)`
-
-### `platform/alertmanager/route/handler.go`
-
-- `func ListRoutes(db *gorm.DB) (gin.H, error)`
-- `func pendingChangeView(db *gorm.DB) interface{}`
-- `func effectiveAlertmanagerYAML(db *gorm.DB) (string, error)`
-- `func ListRoutesHandler(db *gorm.DB) gin.HandlerFunc`
-- `func EffectiveAlertmanagerYAML(db *gorm.DB) (gin.H, error)`
-- `func EffectiveAlertmanagerYAMLHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/route/handler_test.go`
-
-- `func adminUser() *models.User`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func newRoutesDB(t *testing.T) *gorm.DB`
-- `func seedAppliedConfig(t *testing.T, db *gorm.DB, content string)`
-- `func seedWebhookChannel(t *testing.T, db *gorm.DB, name, webhook string) *models.NotifyChannel`
-- `func newRoutesRouter(db *gorm.DB) *gin.Engine`
-- `type routesData struct`
-- `func decodeRoutes(t *testing.T, w *httptest.ResponseRecorder) routesData`
-- `func TestListRoutesHandler_OK(t *testing.T)`
-- `func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T)`
-- `func TestListRoutesHandler_NoConfig(t *testing.T)`
-- `func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T)`
-- `func TestListRoutes_PrefersNewerDraftOverVersion(t *testing.T)`
-- `func TestListRoutes_IgnoresDiscardedDraft(t *testing.T)`
-- `func TestListRoutesHandler_ParseErrorDegradesTo200(t *testing.T)`
-- `func TestListRoutesHandler_AuthOnlyNoWrite(t *testing.T)`
-- `func TestListRoutesHandler_NoSensitiveValues(t *testing.T)`
-
-### `platform/alertmanager/route/parse.go`
-
-- `type RouteMatcher struct`
-- `type RouteNode struct`
-- `func ParseRouteTree(baseYAML string) ([]RouteNode, error)`
-- `func appendRoute(out *[]RouteNode, n *yaml.Node, parentID, id string, order int, locked bool) error`
-- `func parseRouteNode(n *yaml.Node, parentID, id string, order int, locked bool) (*RouteNode, error)`
-- `func captureUnmodeledKeys(n *yaml.Node) (string, error)`
-- `func routeChildren(n *yaml.Node) ([]*yaml.Node, error)`
-- `func parseMatchers(n *yaml.Node) ([]RouteMatcher, error)`
-- `func parseMatcherItem(item *yaml.Node) (RouteMatcher, error)`
-- `func parseMatcherShorthand(raw string) (RouteMatcher, error)`
-- `func parseStringList(n *yaml.Node) ([]string, error)`
-- `func routeNameFromComments(n *yaml.Node) string`
-- `func routeNameFromComment(comment string) (string, bool)`
-- `func deref(n *yaml.Node) *yaml.Node`
-- `func mappingValue(m *yaml.Node, key string) *yaml.Node`
-- `func firstNonNil(nodes ...*yaml.Node) *yaml.Node`
-- `func scalarValue(n *yaml.Node) string`
-- `func boolOrDefault(n *yaml.Node, def bool) bool`
-
-### `platform/alertmanager/route/parse_test.go`
-
-- `func TestParseRouteTree_MatchersBothForms(t *testing.T)`
-- `func TestParseRouteTree_RegexShorthand(t *testing.T)`
-- `func TestParseRouteTree_HierarchyOrderAndRootLocked(t *testing.T)`
-- `func TestParseRouteTree_NameFromComment(t *testing.T)`
-- `func TestParseRouteTree_GroupByDurationsContinue(t *testing.T)`
-- `func TestParseRouteTree_EmptyContent(t *testing.T)`
-- `func TestParseRouteTree_Errors(t *testing.T)`
-
-### `platform/alertmanager/route/refs.go`
-
-- `func ReferencedReceiverNames(db *gorm.DB) (map[string][]string, error)`
-
-### `platform/alertmanager/route/save_handler.go`
-
-- `type ErrRouteTreeInvalid struct`
-- `method (*ErrRouteTreeInvalid) Error() string`
-- `type SaveRoutesRequest struct`
-- `type SaveRoutesResult struct`
-- `func SaveRoutes(db *gorm.DB, req SaveRoutesRequest, uploadedBy string) (*SaveRoutesResult, error)`
-- `func SaveRoutesHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/route/save_handler_test.go`
-
-- `func rootEditNode(receiver string) generator.RouteEditNode`
-- `func stubSubmitRoutes(t *testing.T) *string`
-- `func TestSaveRoutes_RejectsStaleBaseChecksum(t *testing.T)`
-- `func TestSaveRoutes_RejectsInvalidTree(t *testing.T)`
-- `func TestSaveRoutes_RejectsDanglingReceiver(t *testing.T)`
-- `func TestSaveRoutes_RebuildsWholeConfig(t *testing.T)`
-- `func TestSaveRoutes_WritesFullBridgeURL(t *testing.T)`
-- `func TestValidateRouteReceivers_OnlyEmittedNodes(t *testing.T)`
-
-### `platform/alertmanager/route/validate.go`
-
-- `type RouteIssue struct`
-- `func HasBlockingIssue(issues []RouteIssue) bool`
-- `func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue`
-- `func ValidateRouteReceivers(nodes []generator.RouteEditNode, allowed []string) []RouteIssue`
-- `func validateRouteEditNodeFields(n *generator.RouteEditNode) []RouteIssue`
-- `func durationIssue(n *generator.RouteEditNode, field, value string) RouteIssue`
-- `func parseRouteDurationIfSet(raw string) (int64, bool)`
-- `func ParseRouteDuration(raw string) (int64, bool)`
-
-### `platform/alertmanager/route/validate_test.go`
-
-- `func TestValidateRouteTree_HealthyTreeNoIssues(t *testing.T)`
-- `func TestValidateRouteTree_RootReceiverRequired(t *testing.T)`
-- `func TestValidateRouteTree_RootMatchersForbidden(t *testing.T)`
-- `func TestValidateRouteTree_MatcherIssues(t *testing.T)`
-- `func TestValidateRouteTree_InvalidDurationIsError(t *testing.T)`
-- `func TestValidateRouteTree_RepeatIntervalNotMultipleIsWarningOnly(t *testing.T)`
-- `func TestValidateRouteTree_EmptyTreeNoIssues(t *testing.T)`
-- `func TestParseRouteDuration(t *testing.T)`
-- `func TestGenerateRouteSection_RoundTripParseGenParse(t *testing.T)`
-- `func TestGenerateRouteSection_RoundTripPreservesInterfaceOrder(t *testing.T)`
-- `func TestParseRoute_PreservesUnmodeledRouteKeys(t *testing.T)`
-- `func TestValidateRouteTree_SkipsDisabledSubtree(t *testing.T)`
-- `func TestValidateRouteTree_EditNodeEmptyNameMatcherBlocked(t *testing.T)`
-- `func issueCodes(issues []RouteIssue) []string`
-
-### `platform/alertmanager/silence/authorize.go`
-
-- `func AuthorizeMatchers(scope *models.AuthorizedMatcherScope, matchers []models.SilenceMatcher) error`
-- `func buildScopeForUser() *models.AuthorizedMatcherScope`
-
-### `platform/alertmanager/silence/handler.go`
-
-- `func queryPage(c *gin.Context) (page, pageSize int)`
-- `func ListHandler(svc *Service) gin.HandlerFunc`
-- `func CreateHandler(svc *Service) gin.HandlerFunc`
-- `func DeleteHandler(svc *Service) gin.HandlerFunc`
-- `func paginate(list []Silence, page, pageSize int) (int, []Silence)`
-
-### `platform/alertmanager/silence/label_options.go`
-
-- `type LabelOption struct`
-- `type LabelOptionGroup struct`
-- `func BuildLabelOptionGroups(db *gorm.DB) []LabelOptionGroup`
-- `func targetSystemGroup() LabelOptionGroup`
-- `func templateGroup(db *gorm.DB) LabelOptionGroup`
-- `func ruleGroup(db *gorm.DB) LabelOptionGroup`
-- `func externalGroup() LabelOptionGroup`
-- `func LabelOptionsHandler(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/alertmanager/silence/label_options_test.go`
-
-- `func newLabelOptionsTestDB(t *testing.T) *gorm.DB`
-- `func performLabelOptions(t *testing.T, db *gorm.DB) (*httptest.ResponseRecorder, map[string]any)`
-- `func groupBySource(t *testing.T, data map[string]any, source string) []LabelOption`
-- `func TestLabelOptionsEmptyDB(t *testing.T)`
-- `func TestLabelOptionsTemplateGroupReflectsReadyJobs(t *testing.T)`
-- `func TestLabelOptionsRuleGroup(t *testing.T)`
-- `func TestLabelOptionsNilDB(t *testing.T)`
-
-### `platform/alertmanager/silence/proxy.go`
-
-- `type amMatcher struct`
-- `type amSilence struct`
-- `type amCreateSilenceRequest struct`
-- `type amCreateSilenceResponse struct`
-- `type Proxy struct`
-- `func NewProxy(baseURL string) (*Proxy, error)`
-- `method (*Proxy) ListSilences(ctx context.Context) ([]amSilence, error)`
-- `method (*Proxy) CreateSilence(ctx context.Context, body []byte) (string, error)`
-- `method (*Proxy) GetSilence(ctx context.Context, id string) (*amSilence, error)`
-- `method (*Proxy) DeleteSilence(ctx context.Context, id string) error`
-- `func decodeList(resp *http.Response) ([]amSilence, error)`
-- `func sanitize(b []byte) string`
-
-### `platform/alertmanager/silence/service.go`
-
-- `type Silence struct`
-- `type Service struct`
-- `func NewService(proxy *Proxy) *Service`
-- `type CreateInput struct`
-- `method (*CreateInput) Validate() error`
-- `method (*Service) List(ctx context.Context, activeOnly bool) ([]Silence, error)`
-- `method (*Service) Create(ctx context.Context, scope *models.AuthorizedMatcherScope, in CreateInput) (*Silence, error)`
-- `method (*Service) Delete(ctx context.Context, id string) (string, error)`
-- `func toSilence(am amSilence) Silence`
-- `func silenceStatusAt(starts, ends time.Time) models.SilenceStatus`
-- `func buildCreateBody(in CreateInput) ([]byte, error)`
-
-### `platform/alertmanager/silence/silence_test.go`
-
-- `type fakeAM struct`
-- `method (*fakeAM) setList(s []amSilence)`
-- `method (*fakeAM) createdBodies() []amCreateSilenceRequest`
-- `method (*fakeAM) markNotFound(ids ...string)`
-- `method (*fakeAM) handler() http.Handler`
-- `func startFakeAM(t *testing.T, f *fakeAM) string`
-- `func boolp(b bool) *bool`
-- `func newTestService(t *testing.T) (*Service, *fakeAM)`
-- `func TestServiceListMapsActiveSilences(t *testing.T)`
-- `func TestServiceListEmpty(t *testing.T)`
-- `func TestServiceCreateValid(t *testing.T)`
-- `func TestServiceCreateValidatesMissingFields(t *testing.T)`
-- `func TestServiceCreateRejectsOutOfScopeMatcher(t *testing.T)`
-- `func TestServiceDeleteOK(t *testing.T)`
-- `func TestServiceDeleteNotFound(t *testing.T)`
-- `func TestNewProxyRejectsBadScheme(t *testing.T)`
-- `func TestPaginate(t *testing.T)`
-- `func newSilenceRouter(svc *Service) *gin.Engine`
-- `func silenceRequest(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func TestListEndpoint(t *testing.T)`
-- `func TestCreateEndpointInvalidBody(t *testing.T)`
-- `func TestDeleteEndpointNotFound(t *testing.T)`
-- `func decodeAt(w *httptest.ResponseRecorder, path []string) string`
-
-### `platform/api/response/response.go`
-
-- `type Response struct`
-- `func Success(data interface{}) Response`
-- `func Fail(errorType string, err error) Response`
-- `func Error(err error) Response`
-- `func OK(c *gin.Context, data interface{})`
-- `func BadRequest(c *gin.Context, err error)`
-- `func BadRequestWithType(c *gin.Context, errorType string, err error)`
-- `func Unauthorized(c *gin.Context, message string)`
-- `func Forbidden(c *gin.Context, message string)`
-- `func NotFound(c *gin.Context, message string)`
-- `func TooManyRequests(c *gin.Context, message string)`
-- `func InternalServerError(c *gin.Context, err error)`
-- `func BadGateway(c *gin.Context, err error, message string)`
-- `func strError(message string) error`
-- `type strErr = string`
-- `method (strErr) Error() string`
-- `func Conflict(c *gin.Context, err error)`
-
-### `platform/api/response/response_test.go`
-
-- `func TestSuccess(t *testing.T)`
-- `func TestSuccessWithNilData(t *testing.T)`
-- `func TestFail(t *testing.T)`
-- `func TestError(t *testing.T)`
-- `func TestErrorWithNil(t *testing.T)`
-- `func TestInternalErrorDetailNotEchoed(t *testing.T)`
-- `func TestJSONSerializationSuccess(t *testing.T)`
-- `func TestJSONSerializationError(t *testing.T)`
-- `func TestOK(t *testing.T)`
-- `func TestBadRequest(t *testing.T)`
-- `func TestUnauthorized(t *testing.T)`
-- `func TestForbidden(t *testing.T)`
-- `func TestNotFound(t *testing.T)`
-- `func TestInternalServerError(t *testing.T)`
-- `func TestStatusAndErrorTypeConstants(t *testing.T)`
-- `func TestStrError(t *testing.T)`
-
 ### `platform/cmd/metric-center/main.go`
 
+- `func registerDeprecatedFlags()`
 - `func main()`
-- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error)`
-- `func registerHealthRoutes(g *gin.RouterGroup)`
-- `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
-- `func registerSPA(r *gin.Engine, dir string) error`
-- `func healthHandler(c *gin.Context)`
-- `func healthDBHandler(c *gin.Context)`
-- `func statusHandler(c *gin.Context)`
-- `func prometheusProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc`
-- `func newPrometheusProxy(target *url.URL) *httputil.ReverseProxy`
 - `func parseURL(raw string) (*url.URL, error)`
-- `func loadRenderLocation(name string) *time.Location`
-- `func buildReloadFunc(reloadURL string) func() error`
-- `type safeResponseWriter struct`
-- `method (*safeResponseWriter) CloseNotify() <-chan bool`
+- `func registerSPA(r *gin.Engine, dir string) error`
 
 ### `platform/cmd/metric-center/main_static_test.go`
 
@@ -1054,1692 +26,149 @@
 - `func TestRegisterSPA_PathTraversalBlocked(t *testing.T)`
 - `func TestRegisterSPA_InvalidDir(t *testing.T)`
 
-### `platform/cmd/metric-center/main_test.go`
-
-- `func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB)`
-- `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
-- `type apiClient struct`
-- `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
-- `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
-- `func mustJSON(t *testing.T, v interface{}) string`
-- `func buildXLSX(t *testing.T, category models.ResourceCategory, rows [][]string) []byte`
-- `func resourcePayload(category string, overrides map[string]interface{}) map[string]interface{}`
-- `func TestEndToEndDomainRegistry(t *testing.T)`
-- `func TestNetworkDomainWriteForbiddenWithoutAdmin(t *testing.T)`
-- `func listItems(out map[string]interface{}) []interface{}`
-- `func TestEndToEndResourceCRUD(t *testing.T)`
-- `func TestEndToEndSmoke(t *testing.T)`
-- `func hostExcelRow(vals map[string]string) [][]string`
-- `func hostRows(ip, name, status string) [][]string`
-- `func TestEndToEndExcelImport(t *testing.T)`
-- `func TestEndToEndResourceLabels(t *testing.T)`
-- `func TestEndToEndLabelTemplates(t *testing.T)`
-- `func TestEndToEndBusinessDomains(t *testing.T)`
-- `func TestEndToEndConfigCenterSmoke(t *testing.T)`
-- `func TestBuildReloadFunc(t *testing.T)`
-- `type fakeAMState struct`
-- `func newFakeAMState() *fakeAMState`
-- `func fakeAlertmanager(t *testing.T) *httptest.Server`
-- `func writeAMJSON(w http.ResponseWriter, v interface{})`
-- `func TestEndToEndAlertmanagerSmoke(t *testing.T)`
-- `func fakePromUpstream(t *testing.T) *httptest.Server`
-- `func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string)`
-- `func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string)`
-- `func TestEndToEndQueryCoverageRoutes(t *testing.T)`
-- `func TestEndToEndAlertStatusSmoke(t *testing.T)`
-- `func TestEndToEndNotifyBridgeSmoke(t *testing.T)`
-- `type bridgeReceiver struct`
-- `method (*bridgeReceiver) append(b []byte)`
-- `method (*bridgeReceiver) snapshot() [][]byte`
-
-### `platform/cmd/metric-center/module07_integration_test.go`
-
-- `func buildDeclareXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares [][]stri…`
-- `func writeDeclareSheet(t *testing.T, f *excelize.File, sheet string, header []string, rows [][]string)`
-- `func resourceTemplateColumns(t *testing.T, category models.ResourceCategory) []string`
-- `func declareHostRow(ip, biz, app string) []string`
-- `func TestModule07ApplicationDictEndToEnd(t *testing.T)`
-- `func TestModule07DeclareImportEndToEnd(t *testing.T)`
-- `func assertDictCounts(t *testing.T, dbm *gorm.DB, bizCount, appCount int64)`
-
 ### `platform/cmd/metric-center/route_probe_test.go`
 
 - `func TestRouteProbeParamNameConflict(t *testing.T)`
 
-### `platform/cmd/metric-center/strategy_integration_test.go`
-
-- `func TestEndToEndStrategyScrapeJob(t *testing.T)`
-- `func TestEndToEndStrategyRuleAndMetricLibrary(t *testing.T)`
-
-### `platform/config/label/generator.go`
-
-- `type SystemLabel struct`
-- `func ComputeSystemLabels(template *models.LabelTemplate, res models.Resource) []SystemLabel`
-- `func GetApplicableTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error)`
-
-### `platform/config/label/generator_test.go`
-
-- `func hostDefaultTemplate() *models.LabelTemplate`
-- `func sampleHost() *models.Host`
-- `func labelsByKey(t *testing.T, labels []SystemLabel) map[string]SystemLabel`
-- `func TestComputeSystemLabelsHostDefaultTemplate(t *testing.T)`
-- `func TestComputeSystemLabelsSourceMap(t *testing.T)`
-- `func TestComputeSystemLabelsApplicationTemplate(t *testing.T)`
-- `func TestComputeSystemLabelsSeedDefaultMappings(t *testing.T)`
-- `func TestComputeSystemLabelsSkipsEmptyValues(t *testing.T)`
-- `func TestComputeSystemLabelsSkipsUnknownAndNonProcessedSources(t *testing.T)`
-- `func TestComputeSystemLabelsNilInputs(t *testing.T)`
-- `func TestGetApplicableTemplateReturnsDefault(t *testing.T)`
-- `func TestGetApplicableTemplateNone(t *testing.T)`
-
-### `platform/config/label/instances.go`
-
-- `type templateInstanceItem struct`
-- `func ListTemplateResources(db *gorm.DB) gin.HandlerFunc`
-- `func listCategoryInstances(db *gorm.DB, cat models.ResourceCategory, page, pageSize int, keyword, status string) ([]template…`
-- `func queryInstances[T any](db *gorm.DB, rows *[]T, page, pageSize int, keyword, status, keywordCol string, name func(*T) str…`
-
-### `platform/config/label/instances_test.go`
-
-- `func mountTemplateResources(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type templateResourcesResponse struct`
-- `func doTemplateResources(t *testing.T, r *gin.Engine, templateID uint, query string) (int, templateResourcesResponse)`
-- `func templateFor(name string, cat models.ResourceCategory, isDefault bool) *models.LabelTemplate`
-- `func seedHostInstance(t *testing.T, db *gorm.DB, resourceID, instanceName, status string)`
-- `func seedDatabaseInstance(t *testing.T, db *gorm.DB, resourceID, instanceIP, status string)`
-- `func seedMiddlewareInstance(t *testing.T, db *gorm.DB, resourceID, instanceIP, status string)`
-- `func seedApplicationInstance(t *testing.T, db *gorm.DB, resourceID, serviceName, status string)`
-- `func seedGenericInstance(t *testing.T, db *gorm.DB, resourceID, targetName, status string)`
-- `func TestListTemplateResourcesDisplayNameByCategory(t *testing.T)`
-- `func TestListTemplateResourcesHostExcludesSoftDeleted(t *testing.T)`
-- `func TestListTemplateResourcesPaginationAndDefaults(t *testing.T)`
-- `func TestListTemplateResourcesKeywordStatusFilter(t *testing.T)`
-- `func TestListTemplateResourcesEmptyCategory(t *testing.T)`
-- `func TestListTemplateResourcesTemplateNotFoundAndSoftDeleted(t *testing.T)`
-
-### `platform/config/label/list.go`
-
-- `type templateListItem struct`
-- `func ListLabelTemplates(db *gorm.DB) gin.HandlerFunc`
-- `func categoryResourceCounts(db *gorm.DB, templates []models.LabelTemplate) (map[models.ResourceCategory]int64, error)`
-- `func countCategoryResources(db *gorm.DB, cat models.ResourceCategory) (int64, error)`
-- `func parseIntDefault(raw string, def, min int) int`
-
-### `platform/config/label/list_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newGin() *gin.Engine`
-- `func mountList(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, path string) *httptest.ResponseRecorder`
-- `type listResponse struct`
-- `func doList(t *testing.T, r *gin.Engine, query string) (int, listResponse)`
-- `func seedTemplates(t *testing.T, db *gorm.DB, templates ...*models.LabelTemplate)`
-- `func seedHost(t *testing.T, db *gorm.DB, resourceID string)`
-- `func seedDatabase(t *testing.T, db *gorm.DB, resourceID string)`
-- `func hostTemplate(name string, isDefault bool) *models.LabelTemplate`
-- `func TestListLabelTemplatesDefaultsAndMappings(t *testing.T)`
-- `func TestListLabelTemplatesResourceCategoryFilter(t *testing.T)`
-- `func TestListLabelTemplatesIsDefaultFilter(t *testing.T)`
-- `func TestListLabelTemplatesKeywordFilter(t *testing.T)`
-- `func TestListLabelTemplatesPaginationAndPageSizeClamp(t *testing.T)`
-- `func TestListLabelTemplatesInstanceCount(t *testing.T)`
-- `func TestListLabelTemplatesSoftDeleteExcluded(t *testing.T)`
-- `func TestListLabelTemplatesMappingsSerialization(t *testing.T)`
-
-### `platform/config/label/mappings.go`
-
-- `type CreateMappingRequest struct`
-- `type UpdateMappingRequest struct`
-- `func validSourceType(st models.LabelSourceType) bool`
-- `func validateTransformRule(rule string) error`
-- `func validateTransformRuleForMapping(rule string, sourceType models.LabelSourceType, sourceField string) error`
-- `func validateTargetLabel(st models.LabelSourceType, targetLabel string) error`
-- `func resolveCreateTargetLabel(st models.LabelSourceType, sourceField, targetLabel string) (string, error)`
-- `func parseMappingID(c *gin.Context) (int, bool)`
-- `func loadTemplate(c *gin.Context, db *gorm.DB, id uint) (*models.LabelTemplate, bool)`
-- `func rejectDefaultTemplate(c *gin.Context, tmpl *models.LabelTemplate) bool`
-- `func CreateLabelMapping(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateLabelMapping(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteLabelMapping(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/config/label/mappings_test.go`
-
-- `func mountMappings(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func decodeMappings(t *testing.T, w *httptest.ResponseRecorder) (int, []models.LabelMapping)`
-- `func decodeMappingID(t *testing.T, w *httptest.ResponseRecorder) (int, uint)`
-- `func seedMappingTemplate(t *testing.T, db *gorm.DB) models.LabelTemplate`
-- `func seedDefaultMappingTemplate(t *testing.T, db *gorm.DB) models.LabelTemplate`
-- `func assertMappingsTargets(t *testing.T, mappings []models.LabelMapping, want ...string)`
-- `func TestCreateLabelMappingResourceFieldDefaultPrefill(t *testing.T)`
-- `func TestCreateLabelMappingExplicitTarget(t *testing.T)`
-- `func TestCreateLabelMappingProtectedLabelRejected(t *testing.T)`
-- `func TestCreateLabelMappingCompositeLocksInstance(t *testing.T)`
-- `func TestCreateLabelMappingDuplicateTargetLabelRejected(t *testing.T)`
-- `func TestCreateLabelMappingTransformValidation(t *testing.T)`
-- `func TestCreateLabelMappingInvalidSourceType(t *testing.T)`
-- `func TestCreateLabelMappingTemplateNotFound(t *testing.T)`
-- `func TestCreateLabelMappingDefaultTemplateForbidden(t *testing.T)`
-- `func TestUpdateLabelMappingSuccess(t *testing.T)`
-- `func TestUpdateLabelMappingExcludeSelfUniqueness(t *testing.T)`
-- `func TestUpdateLabelMappingDuplicateRejected(t *testing.T)`
-- `func TestUpdateLabelMappingCompositeLocked(t *testing.T)`
-- `func TestUpdateLabelMappingNotFound(t *testing.T)`
-- `func TestUpdateLabelMappingDefaultTemplateForbidden(t *testing.T)`
-- `func TestDeleteLabelMappingSuccess(t *testing.T)`
-- `func TestDeleteLabelMappingNotFound(t *testing.T)`
-- `func TestDeleteLabelMappingDefaultTemplateForbidden(t *testing.T)`
-- `func TestValidateMappingsEnhanced(t *testing.T)`
-
-### `platform/config/label/references.go`
-
-- `type TemplateReference struct`
-- `type TemplateReferenceSource interface`
-- `type TemplateReferenceSourceFunc`
-- `method (TemplateReferenceSourceFunc) ListReferences(labelTemplateID uint) ([]TemplateReference, error)`
-- `type gormTemplateReferenceSource struct`
-- `func NewTemplateReferenceSource(db *gorm.DB) TemplateReferenceSource`
-- `method (*gormTemplateReferenceSource) ListReferences(labelTemplateID uint) ([]TemplateReference, error)`
-- `func ListTemplateReferences(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc`
-
-### `platform/config/label/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/config/label/template_clone.go`
-
-- `type CloneLabelTemplateRequest struct`
-- `func CloneLabelTemplate(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/config/label/template_crud.go`
-
-- `type CreateLabelTemplateRequest struct`
-- `type UpdateLabelTemplateRequest struct`
-- `func validResourceCategory(cat models.ResourceCategory) bool`
-- `func validateMappings(mappings []models.LabelMapping) error`
-- `func templateExistsByNameCategory(db *gorm.DB, name string, cat models.ResourceCategory) (bool, error)`
-- `func CreateLabelTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateLabelTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteLabelTemplate(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc`
-- `func referencedDeleteMessage(refs []TemplateReference) string`
-- `func parseTemplateID(c *gin.Context) (uint, bool)`
-- `func appendTemplateSnapshot(db *gorm.DB, templateID uint, changes []models.MappingChange) error`
-- `func newMappingChanges(mappings []models.LabelMapping) []models.MappingChange`
-- `func removedMappingChanges(mappings []models.LabelMapping) []models.MappingChange`
-
-### `platform/config/label/template_crud_test.go`
-
-- `func openCRUDTestDB(t *testing.T) *gorm.DB`
-- `func mountCRUD(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func decodeTemplate(t *testing.T, w *httptest.ResponseRecorder) (int, models.LabelTemplate)`
-- `func decodeTemplateID(t *testing.T, w *httptest.ResponseRecorder) (int, uint)`
-- `func decodeErr(t *testing.T, w *httptest.ResponseRecorder) (int, response.Response)`
-- `func decodeForbidden(t *testing.T, w *httptest.ResponseRecorder) (int, response.Response, referencedData)`
-- `type referencedData struct`
-- `func decodeRefs(t *testing.T, w *httptest.ResponseRecorder) (int, referencedData)`
-- `func seedReferencingJob(t *testing.T, db *gorm.DB, labelTemplateID uint, name string, enabled bool) *models.ScrapeJob`
-- `func seedReferencingMapping(t *testing.T, db *gorm.DB, labelTemplateID uint, monitorType string) *models.CITypeExporterMappi…`
-- `func newReferencedTemplate(t *testing.T, r *gin.Engine, name string) models.LabelTemplate`
-- `func countSnapshots(t *testing.T, db *gorm.DB, templateID uint) int64`
-- `func lastSnapshot(t *testing.T, db *gorm.DB, templateID uint) models.LabelTemplateSnapshot`
-- `func TestCreateLabelTemplateSuccess(t *testing.T)`
-- `func TestCreateLabelTemplateDuplicateConflict(t *testing.T)`
-- `func TestCreateLabelTemplateValidation(t *testing.T)`
-- `func TestUpdateLabelTemplateSuccess(t *testing.T)`
-- `func TestUpdateLabelTemplateResourceCategoryImmutable(t *testing.T)`
-- `func TestUpdateLabelTemplateNotFound(t *testing.T)`
-- `func TestDeleteLabelTemplateSuccess(t *testing.T)`
-- `func TestDeleteLabelTemplateDefaultForbidden(t *testing.T)`
-- `func TestDeleteLabelTemplateNotFound(t *testing.T)`
-- `func TestCloneLabelTemplate(t *testing.T)`
-- `func TestCloneLabelTemplateNameOverride(t *testing.T)`
-- `func TestCloneLabelTemplateNotFound(t *testing.T)`
-- `func openRollbackTestDB(t *testing.T) *gorm.DB`
-- `func TestCreateLabelTemplateRollbackOnSnapshotFailure(t *testing.T)`
-- `func TestDeleteLabelTemplateForbiddenByScrapeJob(t *testing.T)`
-- `func TestDeleteLabelTemplateForbiddenByDisabledScrapeJob(t *testing.T)`
-- `func TestDeleteLabelTemplateForbiddenByCIMapping(t *testing.T)`
-- `func TestDeleteLabelTemplateForbiddenMergesBothSources(t *testing.T)`
-- `func TestDeleteLabelTemplateSoftDeletedRefsDoNotBlock(t *testing.T)`
-- `func TestDeleteLabelTemplateDefaultTemplateChecksBeforeReferences(t *testing.T)`
-- `func TestDeleteLabelTemplateConservativeOnSourceFailure(t *testing.T)`
-- `func TestDeleteLabelTemplateNilSourceFailsClosed(t *testing.T)`
-- `func TestListTemplateReferencesAggregation(t *testing.T)`
-- `func TestListTemplateReferencesEmptyAndNotFound(t *testing.T)`
-- `func TestListTemplateReferencesExcludesSoftDeleted(t *testing.T)`
-
-### `platform/config/resource/app_platform_rel.go`
-
-- `type AppPlatformRel struct`
-- `type AppPlatformStore struct`
-- `func NewAppPlatformStore(db *gorm.DB) *AppPlatformStore`
-- `func toAppPlatformRel(m models.AppPlatformRel) AppPlatformRel`
-- `method (*AppPlatformStore) List(appCode, platformCode string) ([]AppPlatformRel, error)`
-- `method (*AppPlatformStore) PlatformCodesOf(appCode string) ([]string, error)`
-- `method (*AppPlatformStore) PrimaryPlatformOf(appCode string) (string, bool, error)`
-- `method (*AppPlatformStore) Create(rel models.AppPlatformRel) (AppPlatformRel, error)`
-- `method (*AppPlatformStore) SetPrimary(relID uint, isPrimary bool) (AppPlatformRel, error)`
-- `method (*AppPlatformStore) Delete(relID uint) error`
-- `type CreateAppPlatformRelRequest struct`
-- `type UpdateAppPlatformRelRequest struct`
-- `func validateAppPlatformRefs(appStore *ApplicationDictStore, platformStore *PlatformDictStore, appCode, platformCode string)…`
-- `func parseAppPlatformRelID(c *gin.Context) (uint, bool)`
-- `func ListAppPlatformRels(store *AppPlatformStore) gin.HandlerFunc`
-- `func CreateAppPlatformRel(store *AppPlatformStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore) gin.Han…`
-- `func UpdateAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
-- `func DeleteAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
-
-### `platform/config/resource/app_platform_rel_test.go`
-
-- `func openAppPlatformRelTestDB(t *testing.T) *gorm.DB`
-- `func newAppPlatformStore(t *testing.T) *AppPlatformStore`
-- `func TestAppPlatformRelEndpoints(t *testing.T)`
-- `func TestValidateAppPlatformRefs_GuidanceByRegistrationState(t *testing.T)`
-- `func TestAppPlatformStorePrimaryPlatformOf(t *testing.T)`
-
-### `platform/config/resource/application_dict.go`
-
-- `type ApplicationDict struct`
-- `type ApplicationDictStore struct`
-- `func NewApplicationDictStore(db *gorm.DB) *ApplicationDictStore`
-- `func toApplicationDict(m models.ApplicationDict) ApplicationDict`
-- `method (*ApplicationDictStore) List() ([]ApplicationDict, error)`
-- `method (*ApplicationDictStore) Lookup(code string) (ApplicationDict, bool, error)`
-- `method (*ApplicationDictStore) EnabledList() ([]ApplicationDict, error)`
-- `method (*ApplicationDictStore) GetEnabledMap() (map[string]ApplicationDict, error)`
-- `method (*ApplicationDictStore) Create(m models.ApplicationDict) (ApplicationDict, error)`
-- `method (*ApplicationDictStore) Update(code string, req UpdateApplicationDictRequest) (ApplicationDict, error)`
-- `type CreateApplicationDictRequest struct`
-- `type UpdateApplicationDictRequest struct`
-- `func validatePlatformCodeRef(platformStore *PlatformDictStore, code string) error`
-- `func validateCreateApplicationDict(req *CreateApplicationDictRequest) error`
-- `func ListApplicationDicts(store *ApplicationDictStore) gin.HandlerFunc`
-- `func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
-- `func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
-
-### `platform/config/resource/application_dict_test.go`
-
-- `func openAppTestDB(t *testing.T, fixtures ...models.ApplicationDict) *gorm.DB`
-- `func newAppStore(t *testing.T) *ApplicationDictStore`
-- `func TestValidateResourceInput_AppCodeEnabled(t *testing.T)`
-- `func TestApplicationDictEndpoints(t *testing.T)`
-- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) (int, map[string]interface{})`
-
-### `platform/config/resource/application_test.go`
-
-- `func openAppPlatformTestDB(t *testing.T, platforms []models.PlatformDict, apps []models.ApplicationDict) *gorm.DB`
-- `func TestApplicationDictPlatformCodeWriteIgnored(t *testing.T)`
-
-### `platform/config/resource/business.go`
-
-- `type BusinessDomain struct`
-- `type BusinessDomainStore struct`
-- `func NewBusinessDomainStore(db *gorm.DB) *BusinessDomainStore`
-- `func toBusinessDomain(m models.BusinessDomain) BusinessDomain`
-- `method (*BusinessDomainStore) List() ([]BusinessDomain, error)`
-- `method (*BusinessDomainStore) Lookup(code string) (BusinessDomain, bool, error)`
-- `method (*BusinessDomainStore) EnabledList() ([]BusinessDomain, error)`
-- `method (*BusinessDomainStore) GetEnabledMap() (map[string]BusinessDomain, error)`
-- `method (*BusinessDomainStore) Create(m models.BusinessDomain) (BusinessDomain, error)`
-- `method (*BusinessDomainStore) Update(code string, req UpdateBusinessDomainRequest) (BusinessDomain, error)`
-- `func ListBusinessDomains(store *BusinessDomainStore) gin.HandlerFunc`
-
-### `platform/config/resource/business_domain_write.go`
-
-- `type CreateBusinessDomainRequest struct`
-- `type UpdateBusinessDomainRequest struct`
-- `func validateCreateBusinessDomain(req *CreateBusinessDomainRequest) error`
-- `func CreateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
-- `func UpdateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
-
-### `platform/config/resource/business_domain_write_test.go`
-
-- `func mountBusinessRouter(t *testing.T) (*gin.Engine, *BusinessDomainStore)`
-- `func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
-- `func putJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
-- `func TestCreateBusinessDomainSuccess(t *testing.T)`
-- `func TestCreateBusinessDomainInvalidCode(t *testing.T)`
-- `func TestCreateBusinessDomainEmptyName(t *testing.T)`
-- `func TestCreateBusinessDomainDuplicate(t *testing.T)`
-- `func TestUpdateBusinessDomainProfile(t *testing.T)`
-- `func TestUpdateBusinessDomainInfraDisableRejected(t *testing.T)`
-- `func TestUpdateBusinessDomainNotFound(t *testing.T)`
-- `func TestUpdateBusinessDomainEmptyNameRejected(t *testing.T)`
-
-### `platform/config/resource/business_test.go`
-
-- `func testBizFixtures() []models.BusinessDomain`
-- `func openBizTestDB(t *testing.T, fixtures ...models.BusinessDomain) *gorm.DB`
-- `func newBizStore(t *testing.T) *BusinessDomainStore`
-- `func TestStoreListPreservesOrder(t *testing.T)`
-- `func TestStoreLookup(t *testing.T)`
-- `func TestStoreEnabledListAndMapExcludeDisabled(t *testing.T)`
-- `func TestStoreCreateThenVisible(t *testing.T)`
-- `func TestStoreUpdateLimitedFields(t *testing.T)`
-- `func TestListBusinessDomainsHandlerDBBacked(t *testing.T)`
-- `func strPtrT(s string) *string`
-
-### `platform/config/resource/cloud_dict.go`
-
-- `type CloudDict struct`
-- `type CloudDictStore struct`
-- `func NewCloudDictStore(db *gorm.DB) *CloudDictStore`
-- `func toCloudDict(row models.CloudDict) CloudDict`
-- `method (*CloudDictStore) List() ([]CloudDict, error)`
-- `method (*CloudDictStore) EnabledList() ([]CloudDict, error)`
-- `method (*CloudDictStore) GetEnabledMap() (map[string]CloudDict, error)`
-- `func ListCloudDicts(store *CloudDictStore) gin.HandlerFunc`
-
-### `platform/config/resource/cloud_dict_test.go`
-
-- `func TestCloudDictStoreAndHandlerReturnAllEntries(t *testing.T)`
-- `func TestCloudDictStoreNilDBReturnsError(t *testing.T)`
-
-### `platform/config/resource/create.go`
-
-- `func networkDomainExistsFunc(db *gorm.DB) func(string) bool`
-- `func newResourceID() (string, error)`
-- `func newTypedModel(category models.ResourceCategory, resourceID string) (any, error)`
-- `func buildResourceModel(category models.ResourceCategory, in *ResourceInput) (any, error)`
-- `func applyInputToModel(category models.ResourceCategory, model any, in *ResourceInput)`
-- `func strPtr(s string) *string`
-- `func applyHostInput(h *models.Host, in *ResourceInput)`
-- `func applyDatabaseInput(d *models.Database, in *ResourceInput)`
-- `func applyMiddlewareInput(m *models.Middleware, in *ResourceInput)`
-- `func applyApplicationInput(a *models.Application, in *ResourceInput)`
-- `func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput)`
-- `func applyInterfaceServiceInput(o *models.InterfaceService, in *ResourceInput)`
-- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictS…`
-
-### `platform/config/resource/create_update_test.go`
-
-- `func openCreateUpdateTestDB(t *testing.T) *gorm.DB`
-- `func seedDefaultDomain(t *testing.T, db *gorm.DB)`
-- `func mountCreateUpdate(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func seedDomain(t *testing.T, db *gorm.DB, id, name string) *models.NetworkDomain`
-- `type cuResponse struct`
-- `func doCreate(t *testing.T, r *gin.Engine, body map[string]interface{}) (*httptest.ResponseRecorder, cuResponse)`
-- `func doUpdate(t *testing.T, r *gin.Engine, resourceID string, body map[string]interface{}) (*httptest.ResponseRecorder, cuRe…`
-- `func loadHostByResourceID(t *testing.T, db *gorm.DB, resourceID string) *models.Host`
-- `func hostBody() map[string]interface{}`
-- `func TestCreateResource_Host_Success(t *testing.T)`
-- `func TestCreateResource_EachCategory_Success(t *testing.T)`
-- `func TestCreateResource_GeneratesUniqueUUID(t *testing.T)`
-- `func TestCreateResource_DomainMissing(t *testing.T)`
-- `func TestCreateResource_RegisteredDomainAccepted(t *testing.T)`
-- `func TestCreateResource_BizDisabledRejected(t *testing.T)`
-- `func TestCreateResource_FieldValidationError(t *testing.T)`
-- `func TestUpdateResource_Success(t *testing.T)`
-- `func TestUpdateResource_NotFound(t *testing.T)`
-- `func TestUpdateResource_ResourceIDImmutable(t *testing.T)`
-- `func TestUpdateResource_CategoryChangeRejected(t *testing.T)`
-- `func TestUpdateResource_SourceTypeChangeRejected(t *testing.T)`
-- `func TestUpdateResource_DomainValidationSameAsPost(t *testing.T)`
-- `func appCreateBody() map[string]interface{}`
-- `func loadAppByResourceID(t *testing.T, db *gorm.DB, resourceID string) *models.Application`
-- `func TestCreateResource_Application_AddressSplit(t *testing.T)`
-- `func TestCreateResource_Application_EmptyHealthCheckURLAccepted(t *testing.T)`
-- `func TestCreateResource_Application_MissingAddressRejected(t *testing.T)`
-- `func TestUpdateResource_Application_AddressPersistsAsGiven(t *testing.T)`
-
-### `platform/config/resource/delete.go`
-
-- `func DeleteResource(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/config/resource/delete_test.go`
-
-- `func openDeleteTestDB(t *testing.T) *gorm.DB`
-- `func mountDelete(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type delResponse struct`
-- `func doDelete(t *testing.T, r *gin.Engine, resourceID string) (*httptest.ResponseRecorder, delResponse)`
-- `func deleteCreate(t *testing.T, r *gin.Engine, body map[string]interface{}) string`
-- `func assertSoftDeleted(t *testing.T, db *gorm.DB, category, resourceID string)`
-- `func TestDeleteResource_Success(t *testing.T)`
-- `func TestDeleteResource_CleansTargetSnapshots(t *testing.T)`
-- `func TestDeleteResource_NotFound(t *testing.T)`
-- `func TestDeleteResource_DoubleDelete(t *testing.T)`
-- `func TestDeleteResource_CleansResourceLabels(t *testing.T)`
-
-### `platform/config/resource/excel.go`
-
-- `type ImportRow struct`
-- `type ImportRowError struct`
-- `method (*ImportRowError) Error() string`
-- `func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow, error)`
-- `func validateHeader(header, expected []string) error`
-- `func applyCells(row *ImportRow, header, cells []string)`
-- `func parsePort(raw string) (int, string)`
-- `func allEmpty(cells []string) bool`
-- `func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool`
-- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
-- `func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDom…`
-- `func fieldErr(row *ImportRow, field, value, reason string) error`
-- `func parseCustomLabels(raw string) (map[string]string, error)`
-- `func fieldFromResourceInputError(msg string) string`
-- `func valueFromField(in *ResourceInput, field, portRaw string) string`
-- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
-- `func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomain…`
-
-### `platform/config/resource/excel_declare.go`
-
-- `type DeclareEntry struct`
-- `type DeclareSheets struct`
-- `func ParseDeclareSheets(fileBytes []byte) (*DeclareSheets, error)`
-- `func parseDeclareSheet(f *excelize.File, sheet string, expected []string) ([]DeclareEntry, error)`
-- `func cellAt(cells []string, idx int) string`
-- `func sheetExists(f *excelize.File, name string) bool`
-- `func trimCells(cells []string) []string`
-- `func validateDeclareSheets(sheets *DeclareSheets, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformSto…`
-- `func validateDeclareEntries(sheet string, entries []DeclareEntry, codeRe *regexp.Regexp, lookup func(code string) (name stri…`
-- `func sheetCodeField(sheet string) string`
-- `func sheetNameField(sheet string) string`
-- `func applyDeclaredDicts(db *gorm.DB, sheets *DeclareSheets) error`
-
-### `platform/config/resource/excel_declare_test.go`
-
-- `func writeSheetRows(t *testing.T, f *excelize.File, sheet string, header []string, rows [][]string)`
-- `func buildDeclareXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares [][]stri…`
-- `func mountImportOnDict(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func TestParseDeclareSheets_Valid(t *testing.T)`
-- `func TestParseDeclareSheets_MissingSheetsOK(t *testing.T)`
-- `func TestParseDeclareSheets_OnlyBizSheet(t *testing.T)`
-- `func TestParseDeclareSheets_SkipsBlankRows(t *testing.T)`
-- `func TestParseDeclareSheets_HeaderErrors(t *testing.T)`
-- `func TestParseDeclareSheets_NotXLSX(t *testing.T)`
-- `func TestValidateDeclareSheets_NewCodesPass(t *testing.T)`
-- `func TestValidateDeclareSheets_MissingCodeFails(t *testing.T)`
-- `func TestValidateDeclareSheets_MissingNameFails(t *testing.T)`
-- `func TestValidateDeclareSheets_InvalidCodeFails(t *testing.T)`
-- `func TestValidateDeclareSheets_DuplicateCodeHardRejected(t *testing.T)`
-- `func TestValidateDeclareSheets_ExistingSameNameIdempotent(t *testing.T)`
-- `func TestValidateDeclareSheets_ExistingDifferentNameHardRejected(t *testing.T)`
-- `func TestValidateDeclareSheets_DisabledEntryRejected(t *testing.T)`
-- `func TestApplyDeclaredDicts_CreatesWithExcelImportSource(t *testing.T)`
-- `func TestApplyDeclaredDicts_SkipsExisting(t *testing.T)`
-- `func TestImportResource_DeclareSheets_CreatesDictAndResources(t *testing.T)`
-- `func TestImportResource_DeclareSheets_AtomicRollbackNoOrphanDict(t *testing.T)`
-- `func TestImportResource_DeclareSheets_DuplicateNameRejected(t *testing.T)`
-- `func TestImportResource_DeclareSheets_MissingNameRejected(t *testing.T)`
-- `func TestImportResource_DeclareSheets_UndeclaredCodeGoesToPendingList(t *testing.T)`
-- `func TestImportResource_DeclareSheets_IdempotentReimport(t *testing.T)`
-- `func buildDeclareXLSX4(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares, platfo…`
-- `func TestParseDeclareSheets_FourSheets(t *testing.T)`
-- `func TestParseDeclareSheets_OnlyBizApp(t *testing.T)`
-- `func TestValidateDeclareSheets_PlatformRules(t *testing.T)`
-- `func TestApplyDeclaredDicts_CreatesPlatform(t *testing.T)`
-- `func TestImportResource_PlatformDeclareAtomic(t *testing.T)`
-
-### `platform/config/resource/excel_test.go`
-
-- `func buildXLSXWithHeader(t *testing.T, header []string, dataRows [][]string) []byte`
-- `func buildXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string) []byte`
-- `func makeRow(category models.ResourceCategory, vals map[string]string) []string`
-- `func baseValues(category models.ResourceCategory) map[string]string`
-- `func existsDomains(ids ...string) func(string) bool`
-- `func requireIndex(t *testing.T, header []string, col string) int`
-- `func mustParse(t *testing.T, category models.ResourceCategory, dataRows [][]string) []ImportRow`
-- `func assertRowError(t *testing.T, err error, row int, field, value string) *ImportRowError`
-- `func TestParseExcel_ValidRows(t *testing.T)`
-- `func TestParseExcel_DatabasePortParsed(t *testing.T)`
-- `func TestParseExcel_SkipsBlankRowsAndReturnsEmptyData(t *testing.T)`
-- `func TestParseExcel_HeaderErrors(t *testing.T)`
-- `func TestParseExcel_InvalidInput(t *testing.T)`
-- `func TestValidateImportRow_Host(t *testing.T)`
-- `func TestValidateImportRow_Database(t *testing.T)`
-- `func TestValidateImportRow_Application(t *testing.T)`
-- `func TestValidateImportRow_GenericTarget(t *testing.T)`
-- `func TestValidateImportRow_ChineseStatusMapping(t *testing.T)`
-- `func TestValidateImportRow_StatusMappingFailureCountsAsFailed(t *testing.T)`
-- `func TestValidateRows_CollectsErrorsWithRowNumbers(t *testing.T)`
-- `func TestValidateRows_UnregisteredDomainCollected(t *testing.T)`
-- `func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T)`
-- `func TestApplyCells_ScrapePort(t *testing.T)`
-- `func TestValidateImportRow_ScrapePort(t *testing.T)`
-- `func withoutScrapePort(cols []string) []string`
-- `func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T)`
-- `func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T)`
-- `func legacyHostHeaderWithZoneEnv() []string`
-- `func TestExcelLegacyTemplateWithZoneEnvStillImports(t *testing.T)`
-- `func TestExcelZoneEnvRemovedColumnStillRejectsRealExtraColumn(t *testing.T)`
-- `func TestExcelNonHostTemplatesUnaffectedByZoneEnvRemoval(t *testing.T)`
-
-### `platform/config/resource/import.go`
-
-- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDict…`
-- `func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *ImportRow) (model any, found bool, err error)`
-- `func setSourceType(model any, st models.SourceType)`
-- `func newImportNo() string`
-
-### `platform/config/resource/import_records.go`
-
-- `func ListImports(db *gorm.DB) gin.HandlerFunc`
-- `func GetImportRecord(db *gorm.DB) gin.HandlerFunc`
-- `func isValidImportStatus(s string) bool`
-
-### `platform/config/resource/import_test.go`
-
-- `func openImportTestDB(t *testing.T) *gorm.DB`
-- `func mountImport(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func seedHostImport(t *testing.T, db *gorm.DB, id, ip, instanceName, status string) *models.Host`
-- `func seedImportRecord(t *testing.T, db *gorm.DB, importNo string, category models.ResourceCategory, status models.ImportStat…`
-- `type importResponse struct`
-- `func doImportUpload(t *testing.T, r *gin.Engine, typeName string, fileBytes []byte, form map[string]string) (*httptest.Respo…`
-- `func doListImports(t *testing.T, r *gin.Engine, query string) (*httptest.ResponseRecorder, importListResponse)`
-- `type importListResponse struct`
-- `func doGetImport(t *testing.T, r *gin.Engine, importID string) (*httptest.ResponseRecorder, importDetailResponse)`
-- `type importDetailResponse struct`
-- `func loadLatestImport(t *testing.T, db *gorm.DB) *models.ImportRecord`
-- `func countHosts(t *testing.T, db *gorm.DB) int64`
-- `func hostRow(ip, status string) []string`
-- `func TestImportResource_CreateOnly_Success(t *testing.T)`
-- `func TestImportResource_LegacyTemplateZoneEnvIgnored(t *testing.T)`
-- `func TestImportResource_CreateOnly_DuplicateFails(t *testing.T)`
-- `func TestImportResource_Upsert_UpdatesExisting(t *testing.T)`
-- `func TestImportResource_Upsert_InterfaceService(t *testing.T)`
-- `func TestImportResource_Upsert_Mixed(t *testing.T)`
-- `func TestImportResource_InvalidMode(t *testing.T)`
-- `func TestImportResource_UnknownCategory(t *testing.T)`
-- `func TestImportResource_TypeFromPathFallback(t *testing.T)`
-- `func TestImportResource_InvalidFileFormat(t *testing.T)`
-- `func TestImportResource_MissingFile(t *testing.T)`
-- `func TestImportResource_OversizedFileRejected(t *testing.T)`
-- `func TestImportResource_InvalidRowsFailWithoutWrite(t *testing.T)`
-- `func TestImportResource_EmptyFileData(t *testing.T)`
-- `func TestListImports_FilterAndPagination(t *testing.T)`
-- `func TestGetImportRecord_Detail(t *testing.T)`
-- `func TestGetImportRecord_NotFound(t *testing.T)`
-
-### `platform/config/resource/label_read.go`
-
-- `type labelItem struct`
-- `func GetResourceLabels(db *gorm.DB) gin.HandlerFunc`
-- `func computeSystemLabels(db *gorm.DB, category models.ResourceCategory, res models.Resource) []labelItem`
-- `func readStoredLabels(db *gorm.DB, resourceID string) ([]labelItem, error)`
-- `func mergeLabels(system, stored []labelItem) []labelItem`
-
-### `platform/config/resource/label_read_test.go`
-
-- `func openLabelReadTestDB(t *testing.T) *gorm.DB`
-- `func mountGetResourceLabels(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type labelReadItem struct`
-- `type labelReadResponse struct`
-- `func doGetResourceLabels(t *testing.T, r *gin.Engine, resourceID string) (*httptest.ResponseRecorder, labelReadResponse)`
-- `func seedLabelReadHost(t *testing.T, db *gorm.DB, id string) *models.Host`
-- `func seedLabelReadApplication(t *testing.T, db *gorm.DB, id string) *models.Application`
-- `func hostLabelReadDefaultTemplate() *models.LabelTemplate`
-- `func seedLabelReadTemplate(t *testing.T, db *gorm.DB, tmpl *models.LabelTemplate)`
-- `func seedLabelReadUserLabel(t *testing.T, db *gorm.DB, resourceID, key, value string) *models.ResourceLabel`
-- `func seedLabelReadCMDBLabel(t *testing.T, db *gorm.DB, resourceID, key, value string) *models.ResourceLabel`
-- `func itemIndex(items []labelReadItem, key string) int`
-- `func TestGetResourceLabelsSystemComputed(t *testing.T)`
-- `func TestGetResourceLabelsUserStored(t *testing.T)`
-- `func TestGetResourceLabelsMergeOrder(t *testing.T)`
-- `func TestGetResourceLabelsSameKeyUserWins(t *testing.T)`
-- `func TestGetResourceLabelsNotFound(t *testing.T)`
-- `func TestGetResourceLabelsNoDefaultTemplate(t *testing.T)`
-
-### `platform/config/resource/label_write.go`
-
-- `type labelWriteRequest struct`
-- `type labelValueRequest struct`
-- `func canWriteUserLabels(category models.ResourceCategory) bool`
-- `func CreateResourceLabel(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateResourceLabel(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteResourceLabel(db *gorm.DB) gin.HandlerFunc`
-- `func parseLabelID(raw string) (uint, error)`
-- `func findLabelByID(db *gorm.DB, resourceID string, labelID uint) (*models.ResourceLabel, error)`
-- `func labelKeyIsSystem(db *gorm.DB, category models.ResourceCategory, model any, key string) bool`
-
-### `platform/config/resource/label_write_test.go`
-
-- `func openLabelWriteTestDB(t *testing.T) *gorm.DB`
-- `func mountLabelWriteHandlers(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type labelWriteResponse struct`
-- `func doCreateLabel(t *testing.T, r *gin.Engine, resourceID, body string) (*httptest.ResponseRecorder, labelWriteResponse)`
-- `func doUpdateLabel(t *testing.T, r *gin.Engine, resourceID, labelID, body string) (*httptest.ResponseRecorder, labelWriteRes…`
-- `func doDeleteLabel(t *testing.T, r *gin.Engine, resourceID, labelID string) (*httptest.ResponseRecorder, labelWriteResponse)`
-- `func seedLabelWriteApplication(t *testing.T, db *gorm.DB, id string) *models.Application`
-- `func seedLabelWriteHost(t *testing.T, db *gorm.DB, id string) *models.Host`
-- `func seedLabelWriteDatabase(t *testing.T, db *gorm.DB, id string) *models.Database`
-- `func seedLabelWriteMiddleware(t *testing.T, db *gorm.DB, id string) *models.Middleware`
-- `func seedLabelWriteGenericTarget(t *testing.T, db *gorm.DB, id string) *models.GenericTarget`
-- `func seedLabelWriteUserLabel(t *testing.T, db *gorm.DB, resourceID, key, value string) *models.ResourceLabel`
-- `func seedLabelWriteCMDBLabel(t *testing.T, db *gorm.DB, resourceID, key, value string) *models.ResourceLabel`
-- `func seedLabelWriteTemplate(t *testing.T, db *gorm.DB, tmpl *models.LabelTemplate)`
-- `func applicationLabelDefaultTemplate() *models.LabelTemplate`
-- `func countStoredLabels(t *testing.T, db *gorm.DB, resourceID string) int64`
-- `func TestCreateResourceLabel_ApplicationSuccess(t *testing.T)`
-- `func TestCreateResourceLabel_StaticResourceForbidden(t *testing.T)`
-- `func TestCreateResourceLabel_ResourceNotFound(t *testing.T)`
-- `func TestCreateResourceLabel_KeyInvalid(t *testing.T)`
-- `func TestCreateResourceLabel_ProtectedKeyRejected(t *testing.T)`
-- `func TestCreateResourceLabel_SystemKeyRejected(t *testing.T)`
-- `func TestCreateResourceLabel_DuplicateKeyConflict(t *testing.T)`
-- `func TestUpdateResourceLabel_Success(t *testing.T)`
-- `func TestUpdateResourceLabel_NonUserForbidden(t *testing.T)`
-- `func TestUpdateResourceLabel_StaticResourceForbidden(t *testing.T)`
-- `func TestUpdateResourceLabel_NotFound(t *testing.T)`
-- `func TestUpdateResourceLabel_ResourceNotFound(t *testing.T)`
-- `func TestDeleteResourceLabel_Success(t *testing.T)`
-- `func TestDeleteResourceLabel_NonUserForbidden(t *testing.T)`
-- `func TestDeleteResourceLabel_StaticResourceForbidden(t *testing.T)`
-- `func TestDeleteResourceLabel_NotFound(t *testing.T)`
-- `func TestDeleteResourceLabel_ResourceNotFound(t *testing.T)`
-- `func TestResourceLabelUniqueIndex(t *testing.T)`
-
-### `platform/config/resource/list.go`
-
-- `func ListResources(db *gorm.DB) gin.HandlerFunc`
-- `func listCategory(db *gorm.DB, category models.ResourceCategory, f ListFilter) ([]map[string]interface{}, int64, error)`
-- `func listTyped[T any](db *gorm.DB, category models.ResourceCategory, f ListFilter) ([]map[string]interface{}, int64, error)`
-- `func networkDomainIDOf(res any) string`
-- `func loadDomainCloudZone[T any](db *gorm.DB, rows []T) (map[string]models.NetworkDomain, error)`
-- `func buildListItem(res any, category models.ResourceCategory) map[string]interface{}`
-
-### `platform/config/resource/list_test.go`
-
-- `func openListTestDB(t *testing.T) *gorm.DB`
-- `func mountListResources(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type resourceListResponse struct`
-- `func doResourceList(t *testing.T, r *gin.Engine, query string) (*httptest.ResponseRecorder, resourceListResponse)`
-- `func seedHostList(t *testing.T, db *gorm.DB, id, domain, name, ip, status string) *models.Host`
-- `func seedDatabaseList(t *testing.T, db *gorm.DB, id, domain, ip string, port int, status string) *models.Database`
-- `func seedMiddlewareList(t *testing.T, db *gorm.DB, id, domain, ip string, port int, status string) *models.Middleware`
-- `func seedApplicationList(t *testing.T, db *gorm.DB, id, domain, service, endpoint, status string) *models.Application`
-- `func seedGenericTargetList(t *testing.T, db *gorm.DB, id, domain, name, ip string, port int, status string) *models.GenericT…`
-- `func TestListResourcesCategoryRequiredAndInvalid(t *testing.T)`
-- `func TestListResourcesEachCategory(t *testing.T)`
-- `func TestListResourcesResourceIDStableMergeKey(t *testing.T)`
-- `func TestListResourcesItemFields(t *testing.T)`
-- `func TestListResourcesGenericItemCustomLabels(t *testing.T)`
-- `func TestListResourcesCloudCodeAndHostZoneType(t *testing.T)`
-- `func TestListResourcesNetworkDomainFilter(t *testing.T)`
-- `func TestListResourcesKeywordFilter(t *testing.T)`
-- `func TestListResourcesFilterCombination(t *testing.T)`
-- `func TestListResourcesPagination(t *testing.T)`
-- `func TestListResourcesEmptyResult(t *testing.T)`
-- `func TestListResourcesSoftDeleteExcluded(t *testing.T)`
-- `func TestListResourcesBizCodeStatusFilter(t *testing.T)`
-- `func TestListResourcesIsMonitoredPassthrough(t *testing.T)`
-- `func TestParseIsMonitored(t *testing.T)`
-- `func seedHostListPlatformApp(t *testing.T, db *gorm.DB, id, name, ip, platform, appCode, status string)`
-- `func seedAppWithFourDims(t *testing.T, db *gorm.DB, id, service, platform, appCode, bizCode, status string)`
-- `func TestListResourcesPlatformAppFilter(t *testing.T)`
-- `func TestParseListFilterFourDimensionFields(t *testing.T)`
-- `func TestAppCodeColumn(t *testing.T)`
-- `func TestColumnSchemaHelpersCoverAllCategories(t *testing.T)`
-
-### `platform/config/resource/monitored.go`
-
-- `func ParseIsMonitored(raw string) (valid, monitored bool)`
-
-### `platform/config/resource/os_options.go`
-
-- `func ListOSOptions() gin.HandlerFunc`
-
-### `platform/config/resource/os_options_test.go`
-
-- `func TestListOSOptions(t *testing.T)`
-
-### `platform/config/resource/platform.go`
-
-- `type PlatformDict struct`
-- `type PlatformDictStore struct`
-- `func NewPlatformDictStore(db *gorm.DB) *PlatformDictStore`
-- `func toPlatformDict(m models.PlatformDict) PlatformDict`
-- `method (*PlatformDictStore) List() ([]PlatformDict, error)`
-- `method (*PlatformDictStore) Lookup(code string) (PlatformDict, bool, error)`
-- `method (*PlatformDictStore) EnabledList() ([]PlatformDict, error)`
-- `method (*PlatformDictStore) GetEnabledMap() (map[string]PlatformDict, error)`
-- `method (*PlatformDictStore) Create(m models.PlatformDict) (PlatformDict, error)`
-- `method (*PlatformDictStore) UpdateEnabledNameDesc(code string, req UpdatePlatformDictRequest) (PlatformDict, error)`
-- `type CreatePlatformDictRequest struct`
-- `type UpdatePlatformDictRequest struct`
-- `func validateCreatePlatformDict(req *CreatePlatformDictRequest) error`
-- `func ListPlatformDicts(store *PlatformDictStore) gin.HandlerFunc`
-- `func CreatePlatformDict(store *PlatformDictStore) gin.HandlerFunc`
-- `func UpdatePlatformDict(store *PlatformDictStore) gin.HandlerFunc`
-
-### `platform/config/resource/platform_test.go`
-
-- `func openPlatformTestDB(t *testing.T, fixtures ...models.PlatformDict) *gorm.DB`
-- `func newPlatformStore(t *testing.T) *PlatformDictStore`
-- `func TestPlatformDictEndpoints(t *testing.T)`
-- `func TestPlatformDictStoreEnabledSemantics(t *testing.T)`
-
-### `platform/config/resource/query.go`
-
-- `type PageParams struct`
-- `func ParsePageParams(values url.Values) PageParams`
-- `type ListFilter struct`
-- `func ParseListFilter(values url.Values) ListFilter`
-- `func appCodeColumn(category models.ResourceCategory) string`
-- `func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter) *gorm.DB`
-- `func parseIntDefault(raw string, def, min int) int`
-
-### `platform/config/resource/references.go`
-
-- `type ResourceReferenceJob struct`
-- `func ListResourceReferences(db *gorm.DB) gin.HandlerFunc`
-- `func containsInstance(ids []string, target string) bool`
-
-### `platform/config/resource/references_test.go`
-
-- `func openReferencesTestDB(t *testing.T) *gorm.DB`
-- `func refJob(jobName, domain string, ids []string, enabled bool) models.ScrapeJob`
-- `func mountReferences(t *testing.T, db *gorm.DB) *gin.Engine`
-- `type refResponse struct`
-- `func doReferences(t *testing.T, r *gin.Engine, resourceID string) (*httptest.ResponseRecorder, refResponse)`
-- `func TestListResourceReferences_Referenced(t *testing.T)`
-- `func TestListResourceReferences_NoReference(t *testing.T)`
-- `func TestListResourceReferences_NotFound(t *testing.T)`
-
-### `platform/config/resource/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, c…`
-- `func withTypeParam(h gin.HandlerFunc) gin.HandlerFunc`
-- `func listDomainOptions(db *gorm.DB) func() ([]DomainOption, error)`
-
-### `platform/config/resource/status_mapping.go`
-
-- `type Rule struct`
-- `func MapStatus(source string, category models.ResourceCategory, extraRules []Rule) (models.ResourceStatus, error)`
-- `func ruleMatches(r *Rule, source string) bool`
-- `func ruleAppliesToCategory(r *Rule, category models.ResourceCategory) bool`
-- `func betterRule(new, old *Rule) bool`
-- `func defaultRules() []Rule`
-- `func validStatus(s models.ResourceStatus) bool`
-
-### `platform/config/resource/status_mapping_test.go`
-
-- `func TestMapStatusDefaultChineseMappings(t *testing.T)`
-- `func TestMapStatusEnglishValuesAndCaseInsensitive(t *testing.T)`
-- `func TestMapStatusCategoryExactWinsOverGeneric(t *testing.T)`
-- `func TestMapStatusPriorityDescending(t *testing.T)`
-- `func TestMapStatusExtraRulesOverrideDefault(t *testing.T)`
-- `func TestMapStatusDisabledRuleSkipped(t *testing.T)`
-- `func TestMapStatusDefaultTargetFallback(t *testing.T)`
-- `func TestMapStatusInvalidTargetReturnsError(t *testing.T)`
-
-### `platform/config/resource/template.go`
-
-- `type DomainOption struct`
-- `type templateColumnDoc struct`
-- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, listD…`
-- `func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platfo…`
-- `func templateColumnRequiredLabel(category models.ResourceCategory, col string) string`
-- `func templateExampleRow(category models.ResourceCategory) []string`
-- `func statusValueDescription() string`
-- `func buildTemplateXLSX(category models.ResourceCategory, valueRows [][]string) ([]byte, error)`
-
-### `platform/config/resource/template_test.go`
-
-- `func fakeDomains() ([]DomainOption, error)`
-- `func setupTemplateRouter(t *testing.T) *gin.Engine`
-- `func openEmptyAppDictDB(t *testing.T) *gorm.DB`
-- `func openEmptyDictDB(t *testing.T) *gorm.DB`
-- `func allCategories() []models.ResourceCategory`
-- `func containsColumn(cols []string, want string) bool`
-- `func flattenRows(rows [][]string) string`
-- `func downloadTemplate(t *testing.T, category models.ResourceCategory) (sheet1, valueSheet [][]string)`
-- `func valueSheetColumnRows(valueSheet [][]string) [][]string`
-- `func TestTemplateColumnsMatchPRD(t *testing.T)`
-- `func TestDownloadTemplateHeaders(t *testing.T)`
-- `func TestDownloadTemplateSheet1Columns(t *testing.T)`
-- `func TestDownloadTemplateValueSheet(t *testing.T)`
-- `func TestDownloadTemplateValueSheet_CustomLabelsOnlyForGenericTarget(t *testing.T)`
-- `func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T)`
-- `func TestDownloadTemplateUnknownTypeNotFound(t *testing.T)`
-- `func TestTemplateColumnDocsCoverAllColumns(t *testing.T)`
-- `func TestDownloadTemplateValueSheetColumnsPerCategory(t *testing.T)`
-- `func TestDownloadTemplateValueSheetHasChineseLabel(t *testing.T)`
-- `func TestDownloadTemplateValueSheetRequiredLabel(t *testing.T)`
-- `func TestDownloadTemplateValueSheetNoteRow(t *testing.T)`
-- `func TestDownloadTemplateExampleRow(t *testing.T)`
-- `func TestDownloadTemplateExampleRowStyle(t *testing.T)`
-- `func TestParseExcelSkipsTemplateExampleRow(t *testing.T)`
-- `func TestDownloadedTemplateParsesToZeroRows(t *testing.T)`
-- `func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T)`
-
-### `platform/config/resource/update.go`
-
-- `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
-- `func sourceTypeOf(model any) models.SourceType`
-- `func updatableColumns(category models.ResourceCategory) []string`
-- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictS…`
-
-### `platform/config/resource/validate.go`
-
-- `type ResourceInput struct`
-- `type KeepDisabledValues struct`
-- `type PlatformRefs struct`
-- `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
-- `func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appS…`
-- `func ValidateResourceInputWithPlatform(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, a…`
-- `func ValidateResourceInputWithPlatformForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomai…`
-- `func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
-- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
-- `func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisabledValues) error`
-- `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
-- `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
-- `func validateScrapePort(in *ResourceInput) error`
-- `func validateHost(in *ResourceInput) error`
-- `func validateDatabase(in *ResourceInput) error`
-- `func validateMiddleware(in *ResourceInput) error`
-- `func validateIPPortResource(in *ResourceInput) error`
-- `func validateApplication(in *ResourceInput) error`
-- `func validateGenericTarget(in *ResourceInput) error`
-- `func validateInterfaceService(in *ResourceInput) error`
-- `func validateInterfaceServiceURL(raw string) error`
-- `func IsValidIPv4(s string) bool`
-- `func IsValidInstanceIP(s string) bool`
-- `func ValidateHealthCheckURL(raw string) error`
-- `func DedupKey(category models.ResourceCategory, in *ResourceInput) string`
-- `func LegacyFieldMap(c models.ResourceCategory) map[string]string`
-- `func GetResourceField(res any, field string) (string, bool)`
-- `func isValidCategory(c models.ResourceCategory) bool`
-- `func isValidStatus(s string) bool`
-- `func containsString(list []string, v string) bool`
-
-### `platform/config/resource/validate_test.go`
-
-- `func alwaysExists(string) bool`
-- `func validHostInput() *ResourceInput`
-- `func TestValidateResourceInput_Host(t *testing.T)`
-- `func TestValidateResourceInput_Database(t *testing.T)`
-- `func TestValidateResourceInput_Middleware(t *testing.T)`
-- `func TestValidateResourceInput_Application(t *testing.T)`
-- `func TestValidateResourceInput_GenericTarget(t *testing.T)`
-- `func TestValidateResourceInput_InterfaceService(t *testing.T)`
-- `func TestValidateResourceInput_Common(t *testing.T)`
-- `func TestDedupKey(t *testing.T)`
-- `func TestLegacyFieldMap_Host(t *testing.T)`
-- `func TestGetResourceField(t *testing.T)`
-- `func TestParsePageParams(t *testing.T)`
-- `func TestParseListFilter(t *testing.T)`
-- `func selectModel(cat models.ResourceCategory) any`
-- `func TestBuildListQuery(t *testing.T)`
-- `func TestValidateResourceInput_BizTypology(t *testing.T)`
-- `func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T)`
-- `func TestValidateApplication_AddressSplit(t *testing.T)`
-- `func platformTestRefs(t *testing.T) *PlatformRefs`
-- `func platformTestAppStore(t *testing.T) *ApplicationDictStore`
-- `func platformTestInput(appCode, platformCode string) *ResourceInput`
-- `func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T)`
-- `func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T)`
-- `func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T)`
-- `func TestValidatePlatformCode_GuidanceByRegistrationState(t *testing.T)`
-- `func scrapePortInput(category models.ResourceCategory) *ResourceInput`
-- `func TestValidateResourceInput_ScrapePort(t *testing.T)`
-- `func TestScrapePortAutoMigrateAddsColumn(t *testing.T)`
-- `func TestGetResourceField_ScrapePort(t *testing.T)`
-- `func TestScrapePort_CreateUpdateListChannels(t *testing.T)`
-
-### `platform/configcenter/change/watcher.go`
-
-- `func Start(ctx context.Context, db *gorm.DB, minInterval, maxInterval time.Duration)`
-- `func runDetectionPass(db *gorm.DB, minInterval, maxInterval time.Duration) error`
-- `func ProcessDomain(db *gorm.DB, domainID string) error`
-- `func ProcessDomainWithIntervals(db *gorm.DB, domainID string, minInterval, maxInterval time.Duration) error`
-- `func loadBaseline(db *gorm.DB, domainID string) (*models.ConfigChangeBaseline, error)`
-- `func upsertBaseline( db *gorm.DB, domainID, sourceVersion string, status models.ChangeDetectStatus, lastErr string, checkedA…`
-- `func recordDetectFailed(db *gorm.DB, domainID, stage string, cause error, minInterval, maxInterval time.Duration) error`
-
-### `platform/configcenter/change/watcher_test.go`
-
-- `func newMemDB(t *testing.T) *gorm.DB`
-- `func seedDomain(t *testing.T, db *gorm.DB, id string, monitored bool)`
-- `func seedHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
-- `func setHostUpdatedAt(t *testing.T, db *gorm.DB, resourceID string, ts time.Time)`
-- `func seedJob(t *testing.T, db *gorm.DB, domainID, name string) *models.ScrapeJob`
-- `func countDrafts(t *testing.T, db *gorm.DB, domainID string) int64`
-- `func loadBaselineForTest(t *testing.T, db *gorm.DB, domainID string) *models.ConfigChangeBaseline`
-- `func forceCheckNow(t *testing.T, db *gorm.DB, domainID string)`
-- `func TestProcessDomain_FirstRunInitializesWithoutGenerating(t *testing.T)`
-- `func TestProcessDomain_ChangeGeneratesPending(t *testing.T)`
-- `func TestProcessDomain_ChangeWithLivePendingSkips(t *testing.T)`
-- `func TestProcessDomain_LivePendingSupersededOnChecksumChange(t *testing.T)`
-- `func TestProcessDomain_NoChangesSuppressed(t *testing.T)`
-- `func TestProcessDomain_GenerateFailDoesNotAdvanceVersion(t *testing.T)`
-- `func TestProcessDomain_AdaptiveBackoff(t *testing.T)`
-- `func versionAtInit(t *testing.T, db *gorm.DB, domainID string) string`
-
-### `platform/configcenter/deployment/callback.go`
-
-- `func writebackChangeStatus(db *gorm.DB, domainID string) error`
-- `func writebackRuleChangeStatus(db *gorm.DB) error`
-- `func writebackChangeStatuses(db *gorm.DB, domainID string) error`
-- `func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error`
-- `func draftAlertmanagerSourceID(db *gorm.DB, version *models.ConfigVersion) uint`
-- `func writebackAlertmanagerSource(db *gorm.DB, version *models.ConfigVersion, sourceID uint, at time.Time) error`
-- `func applyAlertmanagerWriteback(db *gorm.DB, cfg *models.AlertmanagerConfigVersion, changeNo string, at time.Time) error`
-
-### `platform/configcenter/deployment/callback_alertmanager_test.go`
-
-- `func TestDispatchAlertmanagerWritebackPreciseSource(t *testing.T)`
-- `func TestDispatchAlertmanagerWritebackMarksSiblings(t *testing.T)`
-- `func TestDispatchAlertmanagerWritebackSkipsDiscardedSibling(t *testing.T)`
-- `func TestDispatchAlertmanagerWritebackLegacyFallback(t *testing.T)`
-- `func TestDispatchAlertmanagerWritebackSelfHealsDiscardedSource(t *testing.T)`
-- `func seedAMVersionPending(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
-- `func seedAMSourceDraft(t *testing.T, db *gorm.DB, domainID, changeNo string, sourceAMVersionID uint) *models.ConfigDraft`
-
-### `platform/configcenter/deployment/deployment_test.go`
-
-- `func newMemDB(t *testing.T) *gorm.DB`
-- `func seedLocalDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedAgentPullDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedEdgeAgentForSync(t *testing.T, db *gorm.DB, domainID string, status models.ConfigSyncStatus) *models.EdgeAgent`
-- `func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.ConfigVersion`
-- `func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.ConfigVersion, status models.DeploymentStatus, err…`
-- `func idStr(id uint) string`
-- `func nextDeploymentIDForTest(t *testing.T, db *gorm.DB) string`
-- `func seedJob(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus) *models.ScrapeJob`
-- `func seedJobWithDraft(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus, draftStatus string) *mod…`
-- `func seedRule(t *testing.T, db *gorm.DB, name string, changeStatus models.ChangeStatus, draftStatus string) *models.Monitori…`
-- `func newMemDBNoJobTable(t *testing.T) *gorm.DB`
-- `type applyRecorder struct`
-- `method (*applyRecorder) Apply(*generator.ConfigArtifacts) error`
-- `func TestDispatchLocalSuccessWritesBackChangeStatus(t *testing.T)`
-- `func TestDispatchLocalFailureRecordsFailed(t *testing.T)`
-- `func TestDispatchAgentPullPlaceholder(t *testing.T)`
-- `func TestDispatchAgentPullMarksAgentsPullPending(t *testing.T)`
-- `func TestDispatchLocalKeepsAgentSyncStatus(t *testing.T)`
-- `func TestRetryLocalFailed(t *testing.T)`
-- `func TestRetryRejectsNonLocal(t *testing.T)`
-- `func TestRetryRejectsNotFailed(t *testing.T)`
-- `func TestRollbackCreatesRolledBackDeployment(t *testing.T)`
-- `func TestRollbackFailureRecordsFailed(t *testing.T)`
-- `func TestRolledBackCountsAsLatestSuccess(t *testing.T)`
-- `func TestRollbackVersionNotFound(t *testing.T)`
-- `func TestDispatchWritebackFailureDegrades(t *testing.T)`
-- `func TestWritebackChangeStatusFiltersDraftReady(t *testing.T)`
-- `func TestWritebackRuleChangeStatus(t *testing.T)`
-- `func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T)`
-- `func seedAlertmanagerApplied(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
-- `func TestDiskApplierWritesAlertmanagerReloadsSeparately(t *testing.T)`
-- `func TestDiskApplierSkipsAMWhenNoArtifact(t *testing.T)`
-- `func TestDispatchLocalWithAlertmanagerWritesBackApplied(t *testing.T)`
-- `func TestDispatchWithoutAlertmanagerSkipsAppliedWriteback(t *testing.T)`
-- `func TestListAndGetVersion(t *testing.T)`
-- `func TestListDeploymentsFilter(t *testing.T)`
-- `func TestDeploymentHandlerRoutes(t *testing.T)`
-- `func TestDispatchAssignsDeploymentID(t *testing.T)`
-- `func TestRollbackPreview(t *testing.T)`
-- `func TestRollbackPreviewNoCurrentVersion(t *testing.T)`
-- `func TestRollbackPreviewVersionNotFound(t *testing.T)`
-- `func mustJSONItems(t *testing.T, items []models.ConfigChangeItem) string`
-- `func mustJSON(t *testing.T, s string) *strings.Reader`
-- `func adminInjector() gin.HandlerFunc`
-
-### `platform/configcenter/deployment/handler.go`
-
-- `func queryPage(c *gin.Context) (page, pageSize int)`
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RollbackPreviewHandler(db *gorm.DB) gin.HandlerFunc`
-- `func ListDeploymentsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RetryDeploymentHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RollbackDeploymentHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondDeploymentError(c *gin.Context, err error)`
-
-### `platform/configcenter/deployment/history.go`
-
-- `func ListVersions(db *gorm.DB, domainID, changeNo string, page, pageSize int) ([]models.ConfigVersion, int64, error)`
-- `func GetVersion(db *gorm.DB, ref string) (*models.ConfigVersion, error)`
-- `func isNumeric(s string) bool`
-- `func loadVersionByChangeNo(db *gorm.DB, changeNo string) (*models.ConfigVersion, error)`
-- `func ListDeployments(db *gorm.DB, domainID, status, changeNo string, page, pageSize int) ([]models.ConfigDeployment, int64, …`
-- `func pagedVersions(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigVersion, int64, error)`
-- `func pagedDeployments(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigDeployment, int64, error)`
-
-### `platform/configcenter/deployment/rollback_preview.go`
-
-- `func RollbackPreview(db *gorm.DB, versionID string) (*models.RollbackPreview, error)`
-- `func currentEffectiveVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
-- `func changeItemsOfVersion(db *gorm.DB, v *models.ConfigVersion) ([]models.ConfigChangeItem, error)`
-- `func deriveRollbackDiff(targetItems, currentItems []models.ConfigChangeItem) []models.RollbackDiffItem`
-
-### `platform/configcenter/deployment/service.go`
-
-- `type Applier interface`
-- `type noopApplier struct`
-- `method (noopApplier) Apply(*generator.ConfigArtifacts) error`
-- `func Dispatch(db *gorm.DB, version *models.ConfigVersion, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
-- `func DeployConfirmedVersion(db *gorm.DB, version *models.ConfigVersion, triggeredBy string) (*models.ConfigDeployment, error)`
-- `func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
-- `func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
-- `func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier,…`
-- `func applySafe(app Applier, ca *generator.ConfigArtifacts) error`
-- `func markAgentsPullPending(db *gorm.DB, domainID string) error`
-- `func localReloadURL(dom *models.NetworkDomain) string`
-- `func loadDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
-- `func loadVersion(db *gorm.DB, id string) (*models.ConfigVersion, error)`
-- `func artifactsFromVersion(v *models.ConfigVersion) (*generator.ConfigArtifacts, error)`
-- `type DiskApplier struct`
-- `method (*DiskApplier) Apply(ca *generator.ConfigArtifacts) error`
-- `method (*DiskApplier) writeAlertmanagerAndReload(ca *generator.ConfigArtifacts) error`
-- `method (*DiskApplier) writeStructural(ca *generator.ConfigArtifacts) error`
-- `method (*DiskApplier) writeTargets(files map[string]string) error`
-- `func structuralChanged(ca *generator.ConfigArtifacts, dir string) (bool, error)`
-- `func writeFile(path, content string) error`
-- `func nextDeploymentID(db *gorm.DB) (string, error)`
-- `func writeFileAtomic(path, content string) error`
-
-### `platform/configcenter/domain/onboard.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `func MonitorDomainHandler(db *gorm.DB) gin.HandlerFunc`
-- `func UpdateDomainMonitoringHandler(db *gorm.DB) gin.HandlerFunc`
-- `func ResetTokenHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondDomainError(c *gin.Context, err error)`
-
-### `platform/configcenter/domain/onboard_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func seedDomain(t *testing.T, db *gorm.DB, id string, domainType models.DomainType, monitored bool) *models.NetworkDomain`
-- `func newGin() *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
-- `func TestMonitorDomainDefaultForcesLocal(t *testing.T)`
-- `func TestMonitorDomainManagementNonDefaultIDForcesLocal(t *testing.T)`
-- `func TestMonitorDomainEdgeAgentPullSignsToken(t *testing.T)`
-- `func TestMonitorDomainRejectsAlreadyMonitored(t *testing.T)`
-- `func TestMonitorDomainRejectsInvalidAgentType(t *testing.T)`
-- `func TestMonitorDomainNotFound(t *testing.T)`
-- `func TestValidateMaxDiskUsage(t *testing.T)`
-- `func TestMonitorDomainEdgeAcceptsMaxDiskUsage(t *testing.T)`
-- `func TestMonitorDomainRejectsInvalidMaxDiskUsage(t *testing.T)`
-- `func TestUpdateDomainMonitoringMaxDiskUsage(t *testing.T)`
-- `func TestResetDomainTokenEdgePush(t *testing.T)`
-- `func TestResetDomainTokenRejectsLocal(t *testing.T)`
-- `func TestResetDomainTokenRejectsNotMonitored(t *testing.T)`
-- `func TestUpdateDomainMonitoring(t *testing.T)`
-- `func TestUpdateDomainMonitoringUnmonitor(t *testing.T)`
-- `func TestUpdateDomainMonitoringRequiresMonitored(t *testing.T)`
-- `func TestMonitorHandlerRoutes(t *testing.T)`
-- `func TestResetTokenHandler(t *testing.T)`
-
-### `platform/configcenter/domain/service.go`
-
-- `type MonitorParams struct`
-- `type MonitorOutcome struct`
-- `type UpdateParams struct`
-- `type TokenResult struct`
-- `func MonitorDomain(db *gorm.DB, id string, p MonitorParams) (MonitorOutcome, error)`
-- `func UpdateDomainMonitoring(db *gorm.DB, id string, p UpdateParams) (*models.NetworkDomain, error)`
-- `func ResetDomainToken(db *gorm.DB, id string) (TokenResult, error)`
-- `func newToken() (string, error)`
-- `func validateMaxDiskUsage(v string) error`
-
-### `platform/configcenter/draft/bootstrap.go`
-
-- `func EnsureBootstrapVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
-
-### `platform/configcenter/draft/bootstrap_test.go`
-
-- `func TestEnsureBootstrapVersionCreatesEmptyConfigVersion(t *testing.T)`
-- `func TestEnsureBootstrapVersionIdempotent(t *testing.T)`
-- `func TestEnsureBootstrapVersionSkipsNonEligibleDomains(t *testing.T)`
-- `func TestEnsureBootstrapVersionSkipsWhenVersionExists(t *testing.T)`
-
-### `platform/configcenter/draft/change_items.go`
-
-- `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
-- `func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
-- `func snapshotAlerting(promYML string) string`
-- `func diffPromAlertingItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
-- `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
-- `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
-- `type targetSnapshotEntry struct`
-- `func diffTargetItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Con…`
-- `func targetItemsFor(verb, jobName string, addrs []string, entries []targetSnapshotEntry, artifacts *generator.ConfigArtifact…`
-- `func skipReasonText(reason string) string`
-- `func diffTargetEntries(base, cur []targetSnapshotEntry) (added, removed, changed []string)`
-- `func parseTargetSnapshot(content string) ([]targetSnapshotEntry, error)`
-- `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
-- `func jobAffectedFiles(isBlackbox bool) []string`
-- `func snapshotScrapeConfigs(promYML string) map[string]string`
-- `func snapshotRuleGroups(rulesYML string) (map[string]string, error)`
-- `func normalizeYAML(v interface{}) string`
-- `func sortedKeys(m map[string]string) []string`
-
-### `platform/configcenter/draft/change_items_target_test.go`
-
-- `func seedHostWithIP(t *testing.T, db *gorm.DB, domainID, resourceID, ip string)`
-- `func seedJobWithInstances(t *testing.T, db *gorm.DB, domainID, name string, instanceIDs []string) *models.ScrapeJob`
-- `func confirmBaseline(t *testing.T, db *gorm.DB, domainID string)`
-- `func itemsOf(t *testing.T, d *models.ConfigDraft) []models.ConfigChangeItem`
-- `func itemsByTarget(items []models.ConfigChangeItem, target string) []models.ConfigChangeItem`
-- `func TestTargetLevelItemsOnHostSoftDelete(t *testing.T)`
-- `func TestTargetLevelItemsOnHostAdd(t *testing.T)`
-- `func TestTargetLevelItemsAbsentWhenNothingChanged(t *testing.T)`
-- `func TestTargetLevelItemsSkipIPChangeAsUpdate(t *testing.T)`
-- `func TestTargetLevelItemsNotDoubleCountNewJob(t *testing.T)`
-- `func TestTargetLevelItemsNotDoubleCountRemovedJob(t *testing.T)`
-- `func TestExistingJobLevelItemsUnaffected(t *testing.T)`
-- `func TestTargetLevelItemsTolerateBrokenBaseSnapshot(t *testing.T)`
-- `func TestBuildSummaryTargetLabel(t *testing.T)`
-
-### `platform/configcenter/draft/draft_test.go`
-
-- `func TestMain(m *testing.M)`
-- `func stubValidationTools(t *testing.T)`
-- `func newMemDB(t *testing.T) *gorm.DB`
-- `func seedMonitoredDomain(t *testing.T, db *gorm.DB, id string, monitored bool)`
-- `func seedDraftWithStatus(t *testing.T, db *gorm.DB, changeNo, domainID, status string, valStatus string) *models.ConfigDraft`
-- `func newGin() *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
-- `func unmarshalData(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
-- `func TestGenerateDraftCreatesPending(t *testing.T)`
-- `func TestGenerateDraftPassedWhenToolsAvailable(t *testing.T)`
-- `func TestGenerateDraftReturnsExistingLivePending(t *testing.T)`
-- `func TestGenerateDraftRejectsNotMonitored(t *testing.T)`
-- `func TestGenerateDraftRejectsFrozenDomain(t *testing.T)`
-- `func TestGenerateDraftChangeNoSequence(t *testing.T)`
-- `func TestGenerateDraftBuildsChangeItemsWithJobsAndRules(t *testing.T)`
-- `func TestGenerateDraftPropagatesLoadFailure(t *testing.T)`
-- `func TestGenerateDraftDiffRemoveOnDisableJob(t *testing.T)`
-- `func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T)`
-- `func TestGenerateDraftAlertmanagerChangeItem(t *testing.T)`
-- `func TestGenerateDraftAlertingSectionChangeItem(t *testing.T)`
-- `func TestGenerateDraftBackfillsSourceVersion(t *testing.T)`
-- `func TestConfirmDraftKeepsSourceVersion(t *testing.T)`
-- `func TestConfirmDraftRejectsUnpassedValidation(t *testing.T)`
-- `func TestConfirmDraftCreatesVersion(t *testing.T)`
-- `func TestConfirmDraftRejectsNonPending(t *testing.T)`
-- `func TestDiscardDraft(t *testing.T)`
-- `func TestDiscardDraftRejectsNonPending(t *testing.T)`
-- `func TestGetDraftNotFound(t *testing.T)`
-- `func TestListDraftsFilterAndPagination(t *testing.T)`
-- `func TestListDraftsEmptyDomainReturnsAll(t *testing.T)`
-- `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
-- `func seedPendingRule(t *testing.T, db *gorm.DB, name string) *models.MonitoringRule`
-- `func TestRevalidateDraftFailedUnlocksSourceRule(t *testing.T)`
-- `func TestGenerateDraftFailedUnlocksSourceRule(t *testing.T)`
-- `func TestUnlockSourceDataOnFailedGuards(t *testing.T)`
-- `func adminInjector() gin.HandlerFunc`
-- `func TestDraftHandlerRoutes(t *testing.T)`
-- `func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T)`
-- `func TestDraftHandlerDiscardValidationFailed(t *testing.T)`
-- `func TestDiscardDraftImpactAndRollback(t *testing.T)`
-- `func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T)`
-- `func TestDiscardImpactHandler(t *testing.T)`
-- `func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T)`
-- `func todaySuffix() string`
-- `func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T)`
-- `func TestGenerateDraftOverridesHandwrittenSameNameReceiver(t *testing.T)`
-- `func TestGenerateDraftDiscardsOrphanPendings(t *testing.T)`
-- `func TestGenerateDraftConcurrentSameDomain(t *testing.T)`
-
-### `platform/configcenter/draft/handler.go`
-
-- `func queryPage(c *gin.Context) (page, pageSize int)`
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-- `func GenerateDraftHandler(db *gorm.DB) gin.HandlerFunc`
-- `func ListDraftsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetDraftHandler(db *gorm.DB) gin.HandlerFunc`
-- `func ConfirmDraftHandler(db *gorm.DB) gin.HandlerFunc`
-- `func RevalidateDraftHandler(db *gorm.DB) gin.HandlerFunc`
-- `func DiscardDraftHandler(db *gorm.DB) gin.HandlerFunc`
-- `func DiscardImpactHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondDraftError(c *gin.Context, err error)`
-
-### `platform/configcenter/draft/service.go`
-
-- `func lockDomain(domainID string) func()`
-- `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
-- `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
-- `func rebuildAlertmanagerConfig(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
-- `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
-- `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
-- `func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
-- `func reconcileWithExistingPending( db *gorm.DB, existing *models.ConfigDraft, artifacts *generator.ConfigArtifacts, jobs []m…`
-- `func lastConfirmedVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
-- `func jobNameOr(name, fallback string) string`
-- `func highRisk(items []models.ConfigChangeItem) bool`
-- `func computeRisk(items []models.ConfigChangeItem) string`
-- `func affectedFiles(items []models.ConfigChangeItem) []string`
-- `func buildSummary(items []models.ConfigChangeItem) string`
-- `func summaryTarget(target string) (label, unit string)`
-- `func join(parts []string, sep string) string`
-- `func nextChangeNo(db *gorm.DB) (string, error)`
-- `func ListDrafts(db *gorm.DB, domainID, status string, page, pageSize int) ([]models.ConfigDraft, int64, error)`
-- `func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
-- `func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error)`
-- `type DiscardImpact struct`
-- `func discardOrphanAlertmanagerVersions(tx *gorm.DB, protectedIDs []uint) error`
-- `func protectedVersionIDsFromLivePending(tx *gorm.DB, domainID, excludeChangeNo string) ([]uint, error)`
-- `func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error`
-- `func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error)`
-- `func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error)`
-- `func computeDiscardImpact(db *gorm.DB, d *models.ConfigDraft) (*DiscardImpact, error)`
-- `func jobNamesFromLiveVersion(db *gorm.DB, d *models.ConfigDraft) (map[string]bool, error)`
-- `func scrapeJobNamesFromPrometheusYml(yml string) (map[string]bool, error)`
-- `func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
-- `func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, error)`
-
-### `platform/configcenter/draft/service_alertmanager_discard_test.go`
-
-- `func TestDiscardDraftMarksOrphanAlertmanagerVersions(t *testing.T)`
-- `func TestDiscardDraftKeepsAppliedAlertmanagerVersion(t *testing.T)`
-- `func TestDiscardDraftNonDefaultDomainKeepsAlertmanagerVersions(t *testing.T)`
-- `func TestDiscardDraftProtectsOtherLivePendingSource(t *testing.T)`
-- `func TestSupersedePendingProtectsNewDraftSource(t *testing.T)`
-- `func TestGenerateDraftBackfillsAlertmanagerSourceVersionID(t *testing.T)`
-- `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
-- `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
-
-### `platform/configcenter/draft/service_test.go`
-
-- `func newTestDB(t *testing.T) *gorm.DB`
-- `func seedDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain`
-- `func seedManagementDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain`
-- `func seedRule(t *testing.T, db *gorm.DB, name string)`
-- `func stubGeneratorTools(t *testing.T)`
-- `func seedHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
-- `func seedJob(t *testing.T, db *gorm.DB, domainID, name string) *models.ScrapeJob`
-- `func touchJob(t *testing.T, db *gorm.DB, id uint)`
-- `func draftCount(t *testing.T, db *gorm.DB, domainID string) int64`
-- `func loadDraftMeta(t *testing.T, db *gorm.DB, changeNo string) models.ConfigDraftMetadata`
-- `func TestGenerateDraft_IdempotentWhenNoChange(t *testing.T)`
-- `func TestGenerateDraft_SupersedeWhenSourceChanged(t *testing.T)`
-- `func TestGenerateDraft_DomainNotMonitored(t *testing.T)`
-- `func TestGenerateDraft_NoChangesSuppressed(t *testing.T)`
-- `func TestShouldSupersedePending_ChecksumCompare(t *testing.T)`
-- `func TestShouldSupersedePending_BrokenMetadata(t *testing.T)`
-- `func TestGenerateDraft_RulesOnlyForCenterEvaluator(t *testing.T)`
-
-### `platform/configcenter/generator/alertmanager_config_build.go`
-
-- `type AlertmanagerConfigInput struct`
-- `func BuildAlertmanagerConfig(in AlertmanagerConfigInput) (string, error)`
-- `func ExtractRouteSection(baseYAML string) (string, error)`
-- `func routeNodeFromSection(routeSection string) (*yaml.Node, error)`
-- `func activeNotifyChannels(channels []models.NotifyChannel, referenced map[string]struct{}) []models.NotifyChannel`
-- `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
-- `func platformReceiverNode(name, url string) (*yaml.Node, error)`
-- `type genWebhookConfig struct`
-- `type genReceiver struct`
-- `func receiverNameNode(name string) *yaml.Node`
-- `func defaultReceiverNode() *yaml.Node`
-- `func mappingValueIndex(m *yaml.Node, key string) int`
-- `func encodeDocument(doc *yaml.Node) (string, error)`
-
-### `platform/configcenter/generator/alertmanager_config_build_test.go`
-
-- `func chWithID(id uint, name string) models.NotifyChannel`
-- `func buildTree(receivers ...string) []RouteEditNode`
-- `func routeSectionFor(t *testing.T, tree []RouteEditNode) string`
-- `func setBridgeURL(t *testing.T, url string)`
-- `func TestBuildAlertmanagerConfig_RebuildsWholeConfig(t *testing.T)`
-- `func TestBuildAlertmanagerConfig_WithBridgeURL(t *testing.T)`
-- `func TestBuildAlertmanagerConfig_RejectsInvalidRouteSection(t *testing.T)`
-- `func TestExtractRouteSection_OnlyRouteKept(t *testing.T)`
-- `func TestExtractRouteSection_RejectsMissingRoute(t *testing.T)`
-- `func TestRebuildFromLegacyConfig_DropsHandwrittenReceivers(t *testing.T)`
-- `func TestBuildAlertmanagerConfig_IdempotentThroughExtract(t *testing.T)`
-
-### `platform/configcenter/generator/change_detect.go`
-
-- `type sourceVersionRow struct`
-- `func SourceDataVersion(db *gorm.DB, domainID string) (string, error)`
-- `func NeedsRegeneration(prevSourceVersion, newSourceVersion string) bool`
-
-### `platform/configcenter/generator/data_source.go`
-
-- `type Inputs struct`
-- `type resourceTarget struct`
-- `func LoadDomain(db *gorm.DB, domainID string) (*models.NetworkDomain, error)`
-- `func LoadJobs(db *gorm.DB, domainID string) ([]models.ScrapeJob, error)`
-- `func LoadRules(db *gorm.DB) ([]models.MonitoringRule, error)`
-- `func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error)`
-- `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
-- `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
-- `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
-- `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
-- `func LoadNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
-- `func LoadAlertmanagerConfigInput(db *gorm.DB, routeSection string) (AlertmanagerConfigInput, error)`
-- `type ErrNotFound struct`
-- `method (ErrNotFound) Error() string`
-
-### `platform/configcenter/generator/generator.go`
-
-- `type ConfigArtifacts struct`
-- `type TargetDiagnostics struct`
-- `method (TargetDiagnostics) anyOfflineOnly() bool`
-- `type TargetGroup struct`
-- `func buildExternalLabels(domainID, zoneType, replica string) map[string]string`
-- `method (*ConfigArtifacts) Checksum() string`
-- `method (*ConfigArtifacts) ArtifactsChanged(activeChecksum string) bool`
-- `func NormalizeJobFilename(jobName string) string`
-- `func normalizeJobFilename(jobName string) string`
-
-### `platform/configcenter/generator/generator_test.go`
-
-- `func newMemDB(t *testing.T) *gorm.DB`
-- `func TestLoadDefaultTemplateRejectsMultipleDefaults(t *testing.T)`
-- `func TestAssemblePrometheusExternalLabels(t *testing.T)`
-- `func TestAssembleFileSDNotInline(t *testing.T)`
-- `func TestAssembleAuthTLSPassthrough(t *testing.T)`
-- `func TestAssembleRulesYAMLPassthrough(t *testing.T)`
-- `func TestAssembleZeroJobsEmitsScrapeConfigs(t *testing.T)`
-- `func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T)`
-- `func TestAssembleRendersScrapeIntervalTimeout(t *testing.T)`
-- `func TestAssembleBlackbox(t *testing.T)`
-- `func TestNormalizeJobFilename(t *testing.T)`
-- `func TestChecksumConsistency(t *testing.T)`
-- `func TestResolveTargetsOfflineExclusion(t *testing.T)`
-- `func TestResolveTargetsBlackboxResourceMode(t *testing.T)`
-- `func TestResolveTargetsBlackboxNonInterfaceServiceCategory(t *testing.T)`
-- `func TestResolveTargetsBlackboxFieldValueEmpty(t *testing.T)`
-- `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
-- `func TestResolveTargetsInjectsResourceID(t *testing.T)`
-- `func TestResolveTargetsExporterPort(t *testing.T)`
-- `func TestExporterPortOrEquivalenceToPortchain(t *testing.T)`
-- `func TestResolveTargetsScrapePortChain(t *testing.T)`
-- `func TestLoadExporterPortPriority(t *testing.T)`
-- `func TestLoadExporterPortIsDefaultFilter(t *testing.T)`
-- `func TestMergeLabelsPriority(t *testing.T)`
-- `func TestValidateTargetGroups(t *testing.T)`
-- `func TestValidateTargetGroupsRejectsEmpty(t *testing.T)`
-- `func TestApplicationEmptyAddressGuarded(t *testing.T)`
-- `func TestAllInstancesOfflineMessageDiffersFromAddressEmpty(t *testing.T)`
-- `func TestResolveTargetsAllValidUnaffected(t *testing.T)`
-- `func TestChecksumUnaffectedByTargetDiagnostics(t *testing.T)`
-- `func TestValidateArtifactsPendingWhenToolMissing(t *testing.T)`
-- `func TestValidateArtifactsPassed(t *testing.T)`
-- `func TestValidateArtifactsFailedSchema(t *testing.T)`
-- `func TestSourceDataVersionAndNeedsRegeneration(t *testing.T)`
-- `func newSourceVersionDB(t *testing.T) *gorm.DB`
-- `func seedVersionHost(t *testing.T, db *gorm.DB, domainID, serverID, resourceID string) *models.Host`
-- `func softDeleteHost(t *testing.T, db *gorm.DB, h *models.Host)`
-- `func hostMaxUpdatedAt(t *testing.T, db *gorm.DB, domainID string) *string`
-- `func hostMaxDeletedAt(t *testing.T, db *gorm.DB, domainID string) *string`
-- `func TestSourceDataVersionStableWithoutChange(t *testing.T)`
-- `func TestSourceDataVersionAdvancesOnSoftDelete(t *testing.T)`
-- `func TestSourceDataVersionAdvancesOnDeletedAtOnly(t *testing.T)`
-- `func TestSourceDataVersionPureNullDeletedAt(t *testing.T)`
-- `func TestSourceDataVersionEmptyDB(t *testing.T)`
-- `func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T)`
-- `func TestExpandLabelTemplateComposite(t *testing.T)`
-- `func TestExpandLabelTemplateDictTransform(t *testing.T)`
-- `func TestResolveTargetsDictTransform(t *testing.T)`
-- `func TestMarshalTargetGroupsJSON(t *testing.T)`
-- `func TestAssembleAlertmanagerYML(t *testing.T)`
-- `func TestLoadLatestAlertmanagerConfigContent(t *testing.T)`
-- `func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T)`
-- `func stubPassingTools(t *testing.T)`
-- `func TestValidateArtifactsJobRefErrorBlocks(t *testing.T)`
-- `func TestValidateArtifactsJobRefWarningPasses(t *testing.T)`
-- `func TestValidateArtifactsJobRefAllExisting(t *testing.T)`
-- `func TestValidateArtifactsJobRefLivenessExistingPasses(t *testing.T)`
-- `func TestAlertmanagerTargetFromURL(t *testing.T)`
-- `func TestAssembleAlertingSectionConditional(t *testing.T)`
-- `func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T)`
-- `func TestDefaultMappingBuildersPlatformMapping(t *testing.T)`
-- `func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T)`
-
-### `platform/configcenter/generator/label_dict.go`
-
-- `type labelDictionary struct`
-- `func newLabelDictionary(db *gorm.DB) *labelDictionary`
-- `method (*labelDictionary) translate(sourceField, value string) (string, bool)`
-
-### `platform/configcenter/generator/labels.go`
-
-- `func mergeLabels(system, user, cmdb map[string]string) map[string]string`
-- `func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string, dicts *labelDictionary) map[s…`
-- `func mergeIntoLabels(system, templateLabels map[string]string) map[string]string`
-
-### `platform/configcenter/generator/notify_route_generate.go`
-
-- `type RouteEditMatcher struct`
-- `type RouteEditNode struct`
-- `func NodeEnabled(n RouteEditNode) bool`
-- `func GenerateRouteSection(tree []RouteEditNode) (string, error)`
-- `type routeEditTreeIndex struct`
-- `func indexRouteEditTree(tree []RouteEditNode) (*routeEditTreeIndex, error)`
-- `func reachableCount(idx *routeEditTreeIndex) int`
-- `func buildRouteNode(idx *routeEditTreeIndex, i int, visiting map[string]bool) (*yaml.Node, error)`
-- `func appendRawExtra(m *yaml.Node, raw string) error`
-- `func buildChildRoutes(idx *routeEditTreeIndex, parentID string, visiting map[string]bool) (*yaml.Node, error)`
-- `func rawRouteNode(raw string) (*yaml.Node, error)`
-- `func matcherShorthand(m RouteEditMatcher) string`
-- `func appendMapping(m *yaml.Node, key string, value *yaml.Node)`
-- `func appendMappingIfSet(m *yaml.Node, key, value string)`
-
-### `platform/configcenter/generator/notify_route_generate_test.go`
-
-- `func ptrBool(b bool) *bool`
-- `func sampleRouteEditTree() []RouteEditNode`
-- `func TestGenerateRouteSection_ShapeAndInterfaceOrder(t *testing.T)`
-- `func TestGenerateRouteSection_MatcherShorthandForms(t *testing.T)`
-- `func TestGenerateRouteSection_ContinueOnlyWhenTrue(t *testing.T)`
-- `func TestGenerateRouteSection_GroupByOmittedWhenEmpty(t *testing.T)`
-- `func TestGenerateRouteSection_EditStateFieldsNeverPersisted(t *testing.T)`
-- `func TestGenerateRouteSection_DisabledNodeDropsWholeSubtree(t *testing.T)`
-- `func TestGenerateRouteSection_NilEnabledTreatedAsEnabled(t *testing.T)`
-- `func TestGenerateRouteSection_RawSubtreeWrittenBackVerbatim(t *testing.T)`
-- `func TestGenerateRouteSection_RejectsMalformedEditTree(t *testing.T)`
-- `func collectYAMLKeys(t *testing.T, content string) []string`
-
-### `platform/configcenter/generator/render.go`
-
-- `type cfgGlobal struct`
-- `type cfgAlerting struct`
-- `type cfgAlertmanager struct`
-- `type cfgStaticConfig struct`
-- `type cfgFile struct`
-- `type scrapeConf struct`
-- `type basicAuthConf struct`
-- `type authorizationConf struct`
-- `type tlsConf struct`
-- `type fileSDConf struct`
-- `type relabelConf struct`
-- `type JobBuild struct`
-- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmana…`
-- `func AlertmanagerTargetFromURL(raw string) string`
-- `func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error)`
-- `func orDefault(v, d string) string`
-- `type ruleGroupsFile struct`
-- `func renderRules(rules []models.MonitoringRule) string`
-- `func renderBlackbox(modules map[string]struct{}) string`
-- `func renderBlackboxModule(module string) string`
-
-### `platform/configcenter/generator/route_receivers.go`
-
-- `func CollectRouteReceiverNames(baseYAML string) (map[string]struct{}, error)`
-- `func collectRouteReceivers(n *yaml.Node, out map[string]struct{}) error`
-- `func derefYAMLNode(n *yaml.Node) *yaml.Node`
-
-### `platform/configcenter/generator/targets.go`
-
-- `type SkippedInstance struct`
-- `func addressEmptyDetail(category string) string`
-- `func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error)`
-- `func instanceAddress(ip string, port int) string`
-- `func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[string]string) map[string]string`
-- `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []Sk…`
-- `func resolveSelectedInstanceTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]Targ…`
-- `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
-- `func EnsureTargetsFilename(name string) error`
-
-### `platform/configcenter/generator/validate.go`
-
-- `type ToolCheckStatus = int`
-- `func ValidateTargetGroups(groups []TargetGroup) error`
-- `func validateTargetAddress(addr string) error`
-- `func validTargetHost(host string) bool`
-- `func validateLabelName(name string) error`
-- `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.Va…`
-- `func emptyTargetsMessage(name string, diag *TargetDiagnostics) string`
-- `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (ToolCheckStatus, string)`
-- `func toolCheckStatus(err error) ToolCheckStatus`
-- `func runPromtoolCheck(ca *ConfigArtifacts) error`
-- `type toolNotExecutableError struct`
-- `method (*toolNotExecutableError) Error() string`
-- `method (*toolNotExecutableError) Unwrap() error`
-- `func isToolNotExecutable(err error) bool`
-- `func toolCheckError(tool, out string, err error) error`
-- `func runBlackboxCheck(blackboxYAML string) error`
-- `func runAmmtoolCheck(alertmanagerYAML string) error`
-
-### `platform/configcenter/generator/validate_toolcheck_test.go`
-
-- `func TestToolCheckErrorKeepsToolOutput(t *testing.T)`
-- `func TestToolCheckErrorEmptyOutputFallsBackToExecError(t *testing.T)`
-- `func TestToolCheckStatusAttribution(t *testing.T)`
-- `func stubToolChecker(t *testing.T, st ToolCheckStatus, msg string)`
-- `func TestValidateArtifactsPendingWhenToolNotExecutable(t *testing.T)`
-- `func TestValidateArtifactsFailedWhenToolCheckUserConfig(t *testing.T)`
-- `func fakeToolsInPATH(t *testing.T, tools map[string][]byte)`
-- `func TestRunToolChecksClassifiesPlatformMismatchAsUnavailable(t *testing.T)`
-- `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
-- `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
-
-### `platform/configcenter/portchain/portchain.go`
-
-- `func Resolve(scrapePort, mappingPort, templatePort, businessPort int) (port int, source string)`
-
-### `platform/configcenter/portchain/portchain_test.go`
-
-- `func TestResolveFourLevelPermutations(t *testing.T)`
-- `func TestResolveAllZeroUnresolved(t *testing.T)`
-- `func TestResolveZeroTierFallsThrough(t *testing.T)`
-- `func TestResolveHostNoBusinessTier(t *testing.T)`
-- `func TestResolveHostCallFormNeverBusiness(t *testing.T)`
-
-### `platform/configcenter/register.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/dashboard/collection_health.go`
-
-- `type CollectionHealth struct`
-- `type UpHealthIndex struct`
-- `type UpHealthQuerier interface`
-- `type PromUpHealthQuerier struct`
-- `func NewPromUpHealthQuerier(baseURL *url.URL, client *http.Client) *PromUpHealthQuerier`
-- `method (*PromUpHealthQuerier) UpHealth(ctx context.Context) (*UpHealthIndex, error)`
-- `method (*PromUpHealthQuerier) queryResourceIDs(ctx context.Context, expr string) (map[string]bool, map[string]bool, error)`
-- `func classifyCollectionHealth(dispatched []string, idx *UpHealthIndex) *CollectionHealth`
-
-### `platform/dashboard/collection_health_test.go`
-
-- `type fakeUpHealthQuerier struct`
-- `method (*fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error)`
-- `func TestClassifyCollectionHealthTwoStates(t *testing.T)`
-- `func TestClassifyCollectionHealthNilIndex(t *testing.T)`
-- `func TestSummaryCollectionHealth(t *testing.T)`
-- `func TestSummaryCollectionHealthDegradesOnError(t *testing.T)`
-- `func TestSummaryCollectionHealthOmittedWhenNotInjected(t *testing.T)`
-- `func TestPromUpHealthQuerierUpHealth(t *testing.T)`
-- `func TestPromUpHealthQuerierNilBase(t *testing.T)`
-
-### `platform/dashboard/probe.go`
-
-- `type ProbeSample struct`
-- `type ProbeQuerier interface`
-- `type PromProbeQuerier struct`
-- `func NewPromProbeQuerier(baseURL *url.URL, client *http.Client) *PromProbeQuerier`
-- `method (*PromProbeQuerier) ProbeSuccess(ctx context.Context) (map[string]map[string]ProbeSample, error)`
-
-### `platform/dashboard/probe_test.go`
-
-- `func TestPromProbeQuerierProbeSuccess(t *testing.T)`
-- `func TestPromProbeQuerierNilBase(t *testing.T)`
-
-### `platform/dashboard/summary.go`
-
-- `func resourceModels() []interface{}`
-- `type DeploymentItem struct`
-- `type ProbeTargetItem struct`
-- `func lookupProbeSample( index map[string]map[string]ProbeSample, jobName string, addr string, ) (ProbeSample, bool)`
-- `type Summary struct`
-- `type PlatformAppSummary struct`
-- `type PlatformAppCell struct`
-- `type CloudSummary struct`
-- `type CategorySummary struct`
-- `type SubtypeSummary struct`
-- `type AppSummary struct`
-- `type buildOptions struct`
-- `type Option`
-- `func WithProbeQuerier(q ProbeQuerier) Option`
-- `func WithUpHealthQuerier(q UpHealthQuerier) Option`
-- `func Build(db *gorm.DB, opts ...Option) (*Summary, error)`
-- `func accumulateHostCell(cells map[string]map[string]int, platformCode, appCode string)`
-- `func buildPlatformAppSummary( hostCells map[string]map[string]int, platformNames map[string]string, appNames map[string]stri…`
-- `func platformAppRow( platformCode string, row map[string]int, platformNames map[string]string, appNames map[string]string, )…`
-- `func resolvePlatformName(code string, platformNames map[string]string) string`
-- `func resolveAppName(code string, appNames map[string]string) string`
-- `type cloudAgg struct`
-- `func accumulateCloudCell(aggs map[string]*cloudAgg, cloudCode string, monitored bool)`
-- `func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) []CloudSummary`
-- `func cloudSummaryRow(code string, agg *cloudAgg, cloudNames map[string]string) CloudSummary`
-- `func resolveCloudName(code string, cloudNames map[string]string) string`
-- `func loadDomainCloudCodes(db *gorm.DB) (map[string]string, error)`
-- `func loadCloudNames(db *gorm.DB) (map[string]string, error)`
-- `type categoryAgg struct`
-- `type subAgg struct`
-- `type appAgg struct`
-- `func accumulateResource(cats map[models.ResourceCategory]*categoryAgg, apps map[string]*appAgg, cat models.ResourceCategory,…`
-- `func loadResourceRows(db *gorm.DB, m interface{}) ([]models.Resource, error)`
-- `func subtypeFieldForCategory(cat models.ResourceCategory) string`
-- `func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error)`
-- `func SummaryHandler(db *gorm.DB, opts ...Option) gin.HandlerFunc`
-
-### `platform/dashboard/summary_test.go`
-
-- `func strPtr(s string) *string`
-- `func newTestDB(t *testing.T) *gorm.DB`
-- `func seed(t *testing.T, db *gorm.DB)`
-- `func newJob(name string, jobType models.JobType, draftStatus string, enabled bool, selected []string) models.ScrapeJob`
-- `func seedScrapeJobs(t *testing.T, db *gorm.DB)`
-- `func runSummaryRequest(t *testing.T, db *gorm.DB) (int, Summary)`
-- `func TestSummaryHandler(t *testing.T)`
-- `func TestSummaryHandlerEmpty(t *testing.T)`
-- `func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T)`
-- `type fakeProbeQuerier struct`
-- `method (*fakeProbeQuerier) ProbeSuccess(context.Context) (map[string]map[string]ProbeSample, error)`
-- `func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T)`
-- `func TestSummaryProbeTargetsUnknownWhenNoSample(t *testing.T)`
-- `func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T)`
-- `func TestSummaryProbeTargetsCoversBothCategories(t *testing.T)`
-- `func TestSummaryProbeTargetAppFallsBackToCodes(t *testing.T)`
-- `func TestLookupProbeSampleMatchesAddress(t *testing.T)`
-- `func TestLookupProbeSampleNilIndex(t *testing.T)`
-- `func TestResourceModelsAlignWithValidCategories(t *testing.T)`
-- `func seedMatrixHosts(t *testing.T, db *gorm.DB)`
-- `func findPlatformRow(rows []PlatformAppSummary, code string) *PlatformAppSummary`
-- `func TestSummaryByPlatformAppInvariants(t *testing.T)`
-- `func TestSummaryByPlatformAppTopNAndOther(t *testing.T)`
-- `func TestSummaryByPlatformAppEmptyAndNoHost(t *testing.T)`
-- `func TestSummaryByPlatformAppWithSeedFixture(t *testing.T)`
-- `func TestPlatformAppOtherCodeDoesNotCollide(t *testing.T)`
-- `func seedCloudHosts(t *testing.T, db *gorm.DB)`
-- `func findCloudRow(rows []CloudSummary, code string) *CloudSummary`
-- `func TestSummaryByCloudInvariants(t *testing.T)`
-- `func categoryOfHost(t *testing.T, s *Summary) (int, int)`
-- `func TestSummaryByCloudZeroResourceCountNoDivideByZero(t *testing.T)`
-- `func TestSummaryByCloudOnlyHosts(t *testing.T)`
-- `func TestSummaryByCloudWithSeedFixture(t *testing.T)`
-- `func TestSummaryByCloudJSONTags(t *testing.T)`
+### `platform/cmd/metric-center/v3.go`
+
+- `func runV3(ctx context.Context)`
+- `func setupV3Router(ctx context.Context, staticDir string, m06Opts m06.Options) (*gin.Engine, error)`
+- `type m07ChangeNotifier struct`
+- `method (m07ChangeNotifier) ResourceChanged(_ context.Context, domainIDs ...string)`
+- `method (m07ChangeNotifier) AllResourcesChanged(_ context.Context)`
+- `method (m07ChangeNotifier) run(domainIDs []string, all bool)`
+- `func mountV3Modules(ctx context.Context, platform, edge *gin.RouterGroup, m06Opts m06.Options) (*m09.Module, error)`
+- `type v3AuthModule struct`
+- `method (v3AuthModule) Name() string`
+- `method (v3AuthModule) RegisterRoutes(platform *gin.RouterGroup) error`
+- `func serveHTTP(ctx context.Context, handler http.Handler)`
+- `func alertmanagerHost() string`
+- `func alertmanagerBaseURL() *url.URL`
+- `func amReloadURL() *url.URL`
+- `func amConfigDir() string`
+- `func bridgeBaseURL() string`
+
+### `platform/cmd/metric-center/v3_test.go`
+
+- `func TestSetupV3RouterMountsSystemM06M07(t *testing.T)`
+- `func v3LoginToken(t *testing.T, router http.Handler, username, password string) string`
+- `func TestV3UserDisableInvalidatesSession(t *testing.T)`
+- `func TestV3StorageRoutesUseInjectedOptions(t *testing.T)`
+- `type fakeMonitoringRetirer struct`
+- `method (*fakeMonitoringRetirer) Available() bool`
+- `method (*fakeMonitoringRetirer) Impact(context.Context, string) (references.MonitoringImpact, error)`
+- `method (*fakeMonitoringRetirer) RetireDomain(_ context.Context, domainID string) error`
+- `func doV3JSON(t *testing.T, router http.Handler, method, path, token, body string) (int, map[string]any)`
+- `func TestV3M06EndToEndDomainLifecycle(t *testing.T)`
+- `func TestV3CloudDictMaintenanceEndToEnd(t *testing.T)`
+
+### `platform/cmd/migrate/main.go`
+
+- `func main()`
+
+### `platform/db/collection_template_migration_test.go`
+
+- `func TestMigrateV3CollectionTemplates(t *testing.T)`
+- `func seedCollectionTemplateLegacy(t *testing.T, dsn string)`
+- `func verifyCollectionTemplateMigration(t *testing.T, sqlDB *sql.DB)`
+- `func verifyCollectionTemplateDown(t *testing.T, dsn string)`
+
+### `platform/db/config_snapshots_merge_test.go`
+
+- `func migrateV3UpTo(t *testing.T, driver, dsn string, target int64)`
+- `func seedPreMergeSnapshots(t *testing.T, exec func(string, ...any) error)`
+- `func requireLegacyTableGone(t *testing.T, sqlDB *sql.DB, table string)`
+- `func verifyMergedSnapshots(t *testing.T, sqlDB *sql.DB)`
+- `func TestConfigSnapshotsMergeBackfill(t *testing.T)`
 
 ### `platform/db/db.go`
 
-- `func Init() error`
-- `func AutoMigrate() error`
-- `func Health() error`
+- `func utcNow() time.Time`
+- `func DBDriver() string`
+- `func DSN() string`
+- `func OpenDB(driver, dsn string) (*gorm.DB, error)`
+- `func InitV3() error`
 
 ### `platform/db/db_test.go`
 
-- `func TestInitWithEnvDSN(t *testing.T)`
-- `func TestAutoMigrate(t *testing.T)`
-- `func TestInitDefaultPath(t *testing.T)`
-- `func TestAuthTablesMigrated(t *testing.T)`
-- `func TestHealthWithoutInit(t *testing.T)`
-- `func TestSharedTablesCreatedAndHealthOK(t *testing.T)`
+- `func TestInitV3Postgres(t *testing.T)`
+
+### `platform/db/dsn_env_test.go`
+
+- `func TestDSNSegmentedEnv(t *testing.T)`
+- `func TestDSNFullOverrideWins(t *testing.T)`
+- `func TestDSNDefaults(t *testing.T)`
+
+### `platform/db/m01_migration_test.go`
+
+- `func TestMigrateV3M01Strategy(t *testing.T)`
+
+### `platform/db/m07_dictionary_lifecycle_cloud_zone_migration_test.go`
+
+- `func TestMigrateV3CloudZoneDictionaryLifecycle(t *testing.T)`
+
+### `platform/db/m07_label_template_migration_test.go`
+
+- `func TestMigrateV3M07LabelTemplates(t *testing.T)`
+
+### `platform/db/m08_migration_test.go`
+
+- `func TestMigrateV3M08Alerting(t *testing.T)`
+
+### `platform/db/m09_center_rules_migration_test.go`
+
+- `func TestMigrateV3M09CenterRules(t *testing.T)`
+
+### `platform/db/migrate.go`
+
+- `type migration struct`
+- `type appliedMigration struct`
+- `type MigrationStatus struct`
+- `func postgresDSNSimpleProtocol(dsn string) string`
+- `func sqlLiteral(s string) string`
+- `func openMigrationDB(driver, dsn string) (*sql.DB, error)`
+- `func loadV3Migrations(driver string) ([]migration, error)`
+- `func parseMigrationName(filename, driver string) (version int64, name string, ok bool, err error)`
+- `func migrationChecksum(up, down string) string`
+- `func splitGooseSections(raw string) (up, down string)`
+- `func ensureMigrationTable(sqlDB *sql.DB, driver string) error`
+- `func migrationChecksumColumnExists(sqlDB *sql.DB, driver string) (bool, error)`
+- `func appliedMigrations(sqlDB *sql.DB) (map[int64]appliedMigration, error)`
+- `func MigrateV3(driver, dsn string) error`
+- `func V3MigrationStatus(driver, dsn string) ([]MigrationStatus, error)`
+- `func MigrateV3Status(driver, dsn string) error`
+- `func MigrateV3Down(driver, dsn string) error`
+- `func MigrateV3Steps(driver, dsn string, steps int) error`
+- `func MigrateV3DownTo(driver, dsn string, target int64) error`
+- `func rollbackMigration(sqlDB *sql.DB, m migration) error`
+
+### `platform/db/migrate_test.go`
+
+- `func TestMigrateV3Lifecycle(t *testing.T)`
+- `func TestMigrateV3DropsLegacyDomainColumns(t *testing.T)`
+- `func TestMigrateV3ForeignKeysEnforced(t *testing.T)`
+- `func TestMigrateV3ResourceConstraints(t *testing.T)`
+- `func TestMigrateV3M06DomainAdministration(t *testing.T)`
+- `func TestMigrateV3M09EdgePlatform(t *testing.T)`
+- `func TestParseMigrationName(t *testing.T)`
+- `func TestSplitGooseSections(t *testing.T)`
+
+### `platform/db/monitor_type_registry_migration_test.go`
+
+- `func TestMigrateV3MonitorTypeRegistryAndCapabilities(t *testing.T)`
+
+### `platform/db/pg_test_support_test.go`
+
+- `func testPostgresDSN(t *testing.T) string`
+- `func openTestSQL(t *testing.T, dsn string) *sql.DB`
+- `func requireTableCount(t *testing.T, sqlDB *sql.DB, table string, want int)`
+- `func requireColumnCount(t *testing.T, sqlDB *sql.DB, table, column string, want int)`
+- `func requireIndexCount(t *testing.T, sqlDB *sql.DB, index string, want int)`
+- `func rollbackV3To(t *testing.T, dsn string, target int64)`
+- `func testWithSearchPath(dsn, schema string) string`
+- `func quoteIdent(s string) string`
+- `func randomHex(n int) string`
 
 ### `platform/db/seed/admin.go`
 
@@ -2753,49 +182,22 @@
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
 
-### `platform/db/seed/alertmanager_default.go`
-
-- `func EnsureDefaultAlertmanagerConfig(db *gorm.DB) error`
-
-### `platform/db/seed/alertmanager_default_test.go`
-
-- `func TestDefaultAlertmanagerConfigMatchesDeployTemplate(t *testing.T)`
-- `func TestEnsureDefaultAlertmanagerConfig_Idempotent(t *testing.T)`
-- `func TestEnsureDefaultAlertmanagerConfig_DoesNotOverwriteExisting(t *testing.T)`
-
-### `platform/db/seed/app_platform_rel.go`
-
-- `func runAppPlatformBackfill(db *gorm.DB) error`
-
-### `platform/db/seed/app_platform_rel_test.go`
-
-- `func relOf(t *testing.T, db *gorm.DB, appCode, platformCode string) models.AppPlatformRel`
-- `func primaryOf(t *testing.T, db *gorm.DB, appCode string) string`
-- `func TestRunAppPlatformBackfillMigratesLegacyCode(t *testing.T)`
-- `func TestRunAppPlatformBackfillIdempotent(t *testing.T)`
-- `func TestRunAppPlatformBackfillSkipsExistingPrimary(t *testing.T)`
-
-### `platform/db/seed/application_dict.go`
-
-- `func ApplicationDict(db *gorm.DB) error`
-
 ### `platform/db/seed/business_domain.go`
 
 - `type yamlBusinessDomain struct`
 - `func BusinessDomains(db *gorm.DB, path string) error`
 - `func readBusinessDomainsFile(path string) ([]yamlBusinessDomain, error)`
-- `func containsBizCode(entries []yamlBusinessDomain, code string) bool`
 
 ### `platform/db/seed/business_domain_test.go`
 
 - `func openBizSeedTestDB(t *testing.T) *gorm.DB`
 - `func writeBizSeedYAML(t *testing.T, content string) string`
 - `func countBizCodes(t *testing.T, db *gorm.DB) []string`
-- `func TestBusinessDomainsSeedsYAMLPlusInfraFallback(t *testing.T)`
-- `func TestBusinessDomainsYAMLAlreadyHasInfra(t *testing.T)`
+- `func TestBusinessDomainsDoesNotSeedInfra(t *testing.T)`
+- `func TestBusinessDomainsImportsExplicitYAML(t *testing.T)`
 - `func TestBusinessDomainsSkipsWhenNonEmpty(t *testing.T)`
 - `func TestBusinessDomainsIdempotent(t *testing.T)`
-- `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
+- `func TestBusinessDomainsMissingFileIsNoop(t *testing.T)`
 - `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
 
 ### `platform/db/seed/cloud_dict.go`
@@ -2807,110 +209,50 @@
 - `func TestRunSeedsCloudDictIdempotently(t *testing.T)`
 - `func TestRunCloudDictsRealignsPresetValues(t *testing.T)`
 
-### `platform/db/seed/domain_channel.go`
+### `platform/db/seed/core_v3.go`
 
-- `func runDomainChannelBackfill(db *gorm.DB) error`
+- `func CoreV3(db *gorm.DB, businessDomainsPath string) error`
+- `func reconcileTenantDomainAuthorizations(db *gorm.DB) error`
+- `func sameStringSet(a, b []string) bool`
 
-### `platform/db/seed/domain_channel_test.go`
+### `platform/db/seed/helpers.go`
 
-- `func channelOf(t *testing.T, db *gorm.DB, id string) models.ChannelType`
-- `func TestRunBackfillsDomainChannelFromDomainType(t *testing.T)`
-- `func TestRunBackfillsManagementChannel(t *testing.T)`
-- `func TestRunLeavesDomainTypeUnsetRowsUntouched(t *testing.T)`
+- `func firstOrCreate(db *gorm.DB, out any, query string, args ...any) error`
 
-### `platform/db/seed/exporter.go`
+### `platform/db/seed/helpers_test.go`
 
-- `func runExporters(db *gorm.DB) error`
-
-### `platform/db/seed/label_template.go`
-
-- `func runLabelTemplates(db *gorm.DB) error`
-- `func ensurePlatformMapping(db *gorm.DB, name string) error`
-- `func ensureLabelMapping(db *gorm.DB, name string, mapping models.LabelMapping) error`
-- `func ensureResourceIDMapping(db *gorm.DB, name string) error`
-
-### `platform/db/seed/label_template_test.go`
-
-- `func legacyLabelMappingSet(cat models.ResourceCategory) []models.LabelMapping`
-- `func seedLegacyLabelTemplates(t *testing.T, db *gorm.DB)`
-- `func loadLabelTemplate(t *testing.T, db *gorm.DB, name string) models.LabelTemplate`
-- `func countTargetLabel(mappings []models.LabelMapping, target string) int`
-- `func TestRunLabelTemplatesBackfillsPlatform(t *testing.T)`
-- `func TestRunLabelTemplatesBackfillPreservesLegacyMappings(t *testing.T)`
-- `func TestRunLabelTemplatesBackfillIdempotent(t *testing.T)`
-- `func TestEnsurePlatformMappingAppendOnce(t *testing.T)`
+- `func newTestDB(t *testing.T) *gorm.DB`
+- `func countRows(t *testing.T, db *gorm.DB, model any, out *int64)`
 
 ### `platform/db/seed/metric_library.go`
 
 - `type builtinMetricSeed struct`
 - `func BuiltinMetricLibrary() []builtinMetricSeed`
-- `func runMetricLibrary(db *gorm.DB) error`
-
-### `platform/db/seed/scrape_path.go`
-
-- `func runScrapeJobMetricsPathBackfill(db *gorm.DB) error`
-
-### `platform/db/seed/scrape_path_test.go`
-
-- `func metricsPathOf(t *testing.T, db *gorm.DB, id uint) string`
-- `func TestRunScrapeJobMetricsPathBackfillTrimsDirtyPath(t *testing.T)`
-- `func TestRunScrapeJobMetricsPathBackfillHandlesPureWhitespace(t *testing.T)`
-
-### `platform/db/seed/seed.go`
-
-- `func Run(db *gorm.DB) error`
-- `func firstOrCreate(db *gorm.DB, out interface{}, query string, args ...interface{}) error`
-
-### `platform/db/seed/seed_test.go`
-
-- `func newTestDB(t *testing.T) *gorm.DB`
-- `func countRows(t *testing.T, db *gorm.DB, model interface{}, out *int64)`
-- `func TestRunSeedsTenantWithoutDefaultDomain(t *testing.T)`
-- `func TestRunSeedsZoneTypes(t *testing.T)`
-- `func TestRunSeedsLabelTemplates(t *testing.T)`
-- `func TestRunLabelTemplatesBackfillsResourceID(t *testing.T)`
-- `func TestRunSeedsExportersAndMappings(t *testing.T)`
-- `func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T)`
-- `func TestRunIsIdempotent(t *testing.T)`
-- `func TestRunNilDBReturnsError(t *testing.T)`
-- `func TestRunSeedsMetricLibrary(t *testing.T)`
-- `func TestRunLeavesExistingDefaultDomainUntouched(t *testing.T)`
 
 ### `platform/db/seed/ten_domain.go`
 
 - `func runTenantAndDomain(db *gorm.DB) error`
 
-### `platform/db/seed/zone_type.go`
+### `platform/db/seed_core_v3_test.go`
 
-- `func runZoneTypes(db *gorm.DB) error`
+- `func TestCoreV3SeedIdempotent(t *testing.T)`
+- `func TestCoreV3ReconcilesTenantDomainAuthorizations(t *testing.T)`
 
-### `platform/domainregistry/registry.go`
+### `platform/db/v3_domain_type_alignment_test.go`
 
-- `func ManagementDomain(db *gorm.DB) (*models.NetworkDomain, error)`
-- `func ManagementDomainID(db *gorm.DB) (string, error)`
-
-### `platform/domainregistry/registry_test.go`
-
-- `func newTestDB(t *testing.T) *gorm.DB`
-- `func TestManagementDomainNotRegistered(t *testing.T)`
-- `func TestManagementDomainResolvesSingleton(t *testing.T)`
-- `func TestManagementDomainDeletedIsTreatedAsAbsent(t *testing.T)`
-- `func TestManagementDomainInvariantViolation(t *testing.T)`
+- `func TestV3DomainTypeCheckRejectsNonEdge(t *testing.T)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go`
 
-- `func buildHeartbeatRequest( cfg *config.Config, configVersion string, queueBacklogBytes int64, remoteWriteQueueSize int, hos…`
 - `type runtimeProvider struct`
 - `method (*runtimeProvider) Snapshot() puller.RuntimeSnapshot`
 - `method (*runtimeProvider) warnf(format string, args ...any)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat_test.go`
 
-- `func TestBuildHeartbeatRequestMapping(t *testing.T)`
 - `func badApplyZip(t *testing.T, version string) []byte`
 - `func goodApplyZip(t *testing.T, version string) []byte`
 - `func applyZip(t *testing.T, version, targetsJSON string) []byte`
-- `func TestHeartbeatRequestCarriesApplyError(t *testing.T)`
 - `func TestRuntimeProviderSnapshotCarriesApplyError(t *testing.T)`
 - `func TestRuntimeProviderSnapshot(t *testing.T)`
 - `type stubProbe struct`
@@ -2966,7 +308,6 @@
 - `method (*ProcProbe) FlushBacklog() error`
 - `method (*ProcProbe) StopAll()`
 - `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
-- `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
 - `func tcpProbe(ctx context.Context, addr string) error`
 - `func envOr(key, def string) string`
 - `func metadataRemoteWriteURL(versionDir string) string`
@@ -2978,7 +319,6 @@
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
 
 - `func TestHTTPGetOK200AndNon200(t *testing.T)`
-- `func TestHTTPPostOKReload(t *testing.T)`
 - `func TestTCPProbe(t *testing.T)`
 - `func TestProcProbeReadyRequiresConfigFile(t *testing.T)`
 - `func TestProcProbeSignalWhenNotRunning(t *testing.T)`
@@ -3028,6 +368,25 @@
 - `func TestFetchVMAgentTargets(t *testing.T)`
 - `func TestFetchVMAgentTargetsContractType(t *testing.T)`
 
+### `platform/edge-sync-agent/internal/app/app.go`
+
+- `type Service interface`
+- `type Probe interface`
+- `type Options struct`
+- `type Runner struct`
+- `func NewRunner(opts Options) *Runner`
+- `method (*Runner) Run(ctx context.Context)`
+
+### `platform/edge-sync-agent/internal/app/app_test.go`
+
+- `type fakeService struct`
+- `func newFakeService(runCount *int32) *fakeService`
+- `method (*fakeService) Run(ctx context.Context)`
+- `type fakeProbe struct`
+- `method (*fakeProbe) StopAll()`
+- `func TestRunnerStartsServicesAndStopsProbe(t *testing.T)`
+- `func TestRunnerNilProbeAndStepAreSafe(t *testing.T)`
+
 ### `platform/edge-sync-agent/internal/client/client.go`
 
 - `type Client struct`
@@ -3035,7 +394,7 @@
 - `method (*Client) heartbeatEndpoint() string`
 - `method (*Client) bearer() string`
 - `method (*Client) Heartbeat(ctx context.Context, hb contract.HeartbeatRequest) (*contract.HeartbeatResponse, error)`
-- `method (*Client) PullConfig(ctx context.Context, url string) ([]byte, error)`
+- `method (*Client) PullConfig(ctx context.Context, url, etag string) ([]byte, bool, error)`
 - `method (*Client) WaitAuthBackoff(ctx context.Context) (time.Duration, bool)`
 - `method (*Client) ConsecutiveAuthFailures() int`
 - `method (*Client) infof(f string, a ...any)`
@@ -3049,6 +408,7 @@
 - `func TestHeartbeatSuccessParsesResponse(t *testing.T)`
 - `func TestHeartbeatReturnsAuthOn401(t *testing.T)`
 - `func TestPullConfigReturnsBytes(t *testing.T)`
+- `func TestPullConfigSendsIfNoneMatchAndHandles304(t *testing.T)`
 - `func TestPullConfigAuthOn401(t *testing.T)`
 - `func TestWaitAuthBackoffBackoffSequenceAndDowngrade(t *testing.T)`
 - `func TestWaitAuthBackoffLogsDowngrade(t *testing.T)`
@@ -3297,243 +657,134 @@
 - `func TestThrottleReset(t *testing.T)`
 - `func TestTokenStore(t *testing.T)`
 
-### `platform/edge/bootstrap_test.go`
+### `platform/foundation/apierror/apierror.go`
 
-- `func TestHeartbeatBootstrapsBlankAgentPullDomain(t *testing.T)`
-- `func TestHeartbeatDoesNotBootstrapUnmonitoredDomain(t *testing.T)`
+- `type Kind = string`
+- `type Coded interface`
+- `type Error struct`
+- `method (*Error) Error() string`
+- `method (*Error) Unwrap() error`
+- `method (*Error) ErrorKind() Kind`
+- `func New(kind Kind, message string) *Error`
+- `func Newf(kind Kind, format string, args ...any) *Error`
+- `func Wrap(kind Kind, message string, err error) *Error`
+- `func KindOf(err error) Kind`
 
-### `platform/edge/config_handler.go`
+### `platform/foundation/apierror/apierror_test.go`
 
-- `type ConfigService struct`
-- `func NewConfigService(db *gorm.DB) *ConfigService`
-- `func ConfigHandler(svc *ConfigService) gin.HandlerFunc`
-- `method (*ConfigService) latestVersion(domainID string) (*models.ConfigVersion, error)`
-- `func trimETag(v string) string`
+- `func TestKindOf(t *testing.T)`
+- `func TestErrorDefaults(t *testing.T)`
+- `type legacyCoded struct`
+- `method (legacyCoded) Error() string`
+- `method (legacyCoded) ErrorKind() Kind`
+- `func TestKindOfInterface(t *testing.T)`
 
-### `platform/edge/edge_test.go`
+### `platform/foundation/apiresponse/response.go`
 
-- `func newEdgeTestDB(t *testing.T) *gorm.DB`
-- `func seedEdgeDomain(db *gorm.DB, id, channel, token, agentType, endpoint string) *models.NetworkDomain`
-- `func seedConfigVersion(db *gorm.DB, domainID, promYML, rulesYML, blackboxYML string, targets map[string]string, createdAt ti…`
-- `func newEdgeRouter(db *gorm.DB) *gin.Engine`
-- `func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T)`
-- `func TestHeartbeatApplyFailedCause(t *testing.T)`
-- `func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T)`
-- `func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T)`
-- `func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T)`
-- `func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T)`
-- `func TestHeartbeatPersistsRemoteWriteDropAndRetryStats(t *testing.T)`
-- `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
-- `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
-- `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
-- `func TestHeartbeatUnauthorizedMissingIdentity(t *testing.T)`
-- `func TestHeartbeatLocalDomainRejected(t *testing.T)`
-- `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
-- `func TestBuildConfigZipOptionalEntries(t *testing.T)`
-- `func TestBuildConfigZipRemoteWriteURL(t *testing.T)`
-- `func TestBuildConfigZipMaxDiskUsagePerURL(t *testing.T)`
-- `func TestConfigHandlerServeZipAnd304(t *testing.T)`
-- `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
-- `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
-- `func TestHeartbeatWritebackAgentPullDeploymentFlipsAllPending(t *testing.T)`
-- `func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T)`
-- `func countEdgeTargetSnapshots(t *testing.T, db *gorm.DB, domainID string) int64`
-- `func TestHeartbeatPersistsTargetSnapshots(t *testing.T)`
-- `func TestHeartbeatTargetUpsertOverwritesSameKey(t *testing.T)`
-- `func TestHeartbeatTargetClearOldSnapshots(t *testing.T)`
-- `func TestHeartbeatTargetClearCoversPreviousAgentRows(t *testing.T)`
-- `func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T)`
-- `func TestHeartbeatEmptyTargetsCollectedClearsSnapshots(t *testing.T)`
-- `func TestHeartbeatTargetPersistenceIndependent(t *testing.T)`
-- `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
-- `func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T)`
-- `func TestResolveDownloadAuthorityEndToEnd(t *testing.T)`
-- `func TestHeartbeatParamsChangedFingerprint(t *testing.T)`
-- `func TestHeartbeatCarriesRestartSeq(t *testing.T)`
+- `type Response struct`
+- `func Success(data interface{}) Response`
+- `func Fail(errorType string, err error) Response`
+- `func Error(err error) Response`
+- `func OK(c *gin.Context, data interface{})`
+- `func BadRequest(c *gin.Context, err error)`
+- `func BadRequestWithDetails(c *gin.Context, errorType string, err error, data interface{})`
+- `func Unauthorized(c *gin.Context, message string)`
+- `func Forbidden(c *gin.Context, message string)`
+- `func NotFound(c *gin.Context, message string)`
+- `func TooManyRequests(c *gin.Context, message string)`
+- `func InternalServerError(c *gin.Context, err error)`
+- `func BadGateway(c *gin.Context, err error, message string)`
+- `func ServiceUnavailable(c *gin.Context, err error)`
+- `func strError(message string) error`
+- `type strErr = string`
+- `method (strErr) Error() string`
+- `func Conflict(c *gin.Context, err error)`
 
-### `platform/edge/flush_handler.go`
+### `platform/foundation/apiresponse/response_test.go`
 
-- `func RequestFlushBacklog(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
-- `func FlushBacklogHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondFlushError(c *gin.Context, err error)`
+- `func TestSuccess(t *testing.T)`
+- `func TestSuccessWithNilData(t *testing.T)`
+- `func TestFail(t *testing.T)`
+- `func TestError(t *testing.T)`
+- `func TestErrorWithNil(t *testing.T)`
+- `func TestInternalErrorDetailNotEchoed(t *testing.T)`
+- `func TestJSONSerializationSuccess(t *testing.T)`
+- `func TestJSONSerializationError(t *testing.T)`
+- `func TestOK(t *testing.T)`
+- `func TestBadRequest(t *testing.T)`
+- `func TestUnauthorized(t *testing.T)`
+- `func TestForbidden(t *testing.T)`
+- `func TestNotFound(t *testing.T)`
+- `func TestInternalServerError(t *testing.T)`
+- `func TestStatusAndErrorTypeConstants(t *testing.T)`
+- `func TestStrError(t *testing.T)`
 
-### `platform/edge/heartbeat_handler.go`
+### `platform/foundation/httpapi/errors.go`
 
-- `func HeartbeatHandler(svc *HeartbeatService) gin.HandlerFunc`
+- `func WriteError(c *gin.Context, err error)`
 
-### `platform/edge/heartbeat_service.go`
+### `platform/foundation/httpapi/errors_test.go`
 
-- `type HeartbeatRequest struct`
-- `type EdgeTargetSnapshot struct`
-- `type HeartbeatResponse struct`
-- `type HeartbeatService struct`
-- `func NewHeartbeatService(db *gorm.DB) *HeartbeatService`
-- `method (*HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time, authority string) (*Heartbe…`
-- `func writebackAgentPullDeployments(db *gorm.DB, domainID string, version *models.ConfigVersion, now time.Time) error`
-- `method (*HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, req *HeartbeatRequest, now time.Time) error`
-- `method (*HeartbeatService) findOrRegisterAgent(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*models.EdgeA…`
+- `func writeAndDecode(t *testing.T, err error) (int, map[string]any)`
+- `func TestWriteErrorMapsKinds(t *testing.T)`
+- `func TestWriteErrorNil(t *testing.T)`
 
-### `platform/edge/helpers.go`
+### `platform/foundation/httpx/middleware.go`
 
-- `func configVersionString(v *models.ConfigVersion) string`
-- `func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
-- `func configDownloadURL(authority, domainID string) string`
-- `func resolveDownloadAuthority(dom *models.NetworkDomain, c *gin.Context) string`
-- `func authorityHost(ep string) string`
-- `func requestAuthority(c *gin.Context) string`
-- `func nowUTC() time.Time`
+- `func RequestID() gin.HandlerFunc`
+- `func RequestIDFrom(c *gin.Context) string`
+- `func AccessLog(logger *log.Logger) gin.HandlerFunc`
+- `func newRequestID() string`
+- `func validRequestID(id string) bool`
 
-### `platform/edge/management_handler.go`
+### `platform/foundation/httpx/middleware_test.go`
 
-- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier)`
-- `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondRetireError(c *gin.Context, err error)`
-- `func ListAgentsHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
-- `func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
-- `func respondAgentError(c *gin.Context, err error)`
-- `func ListPackagesHandler(dir string) gin.HandlerFunc`
-- `func DownloadLatestPackageHandler(dir string) gin.HandlerFunc`
-- `func DownloadPackageHandler(dir string) gin.HandlerFunc`
-- `func servePackageArtifact(c *gin.Context, dir string, art PackageArtifact)`
+- `func TestRequestIDPropagatesIncoming(t *testing.T)`
+- `func TestRequestIDGeneratesAndRejectsInjection(t *testing.T)`
+- `func TestRequestIDFromNilContext(t *testing.T)`
 
-### `platform/edge/management_service.go`
+### `platform/foundation/module/registry.go`
 
-- `func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
-- `type AgentView struct`
-- `func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView`
-- `func degradeComponentsToUnknown(comps []models.EdgeComponent) []models.EdgeComponent`
-- `func agentViewStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration, live string) string`
-- `type AgentsSummary struct`
-- `type EdgeAgentsResponse struct`
-- `func ListAgents(db *gorm.DB, now time.Time, threshold time.Duration) (*EdgeAgentsResponse, error)`
-- `func GetAgent(db *gorm.DB, id uint, now time.Time, threshold time.Duration) (*AgentView, error)`
-- `func normThreshold(t time.Duration) time.Duration`
-- `func fillSampleLags(views []AgentView, q SampleLagQuerier)`
-- `func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time)`
-- `func backlogInsight(hbs []models.EdgeHeartbeat) (age, growth *int64, channel string)`
+- `type Module interface`
+- `type Registry struct`
+- `func NewRegistry() *Registry`
+- `method (*Registry) Register(m Module) error`
+- `method (*Registry) Mount(group *gin.RouterGroup) error`
+- `method (*Registry) Names() []string`
+- `method (*Registry) Len() int`
 
-### `platform/edge/management_test.go`
+### `platform/foundation/module/registry_test.go`
 
-- `func seedMonitoredEdgeDomain(t *testing.T, db *gorm.DB, id, token, agentType, endpoint string) *models.NetworkDomain`
-- `func tPtr(t time.Time) *time.Time`
-- `func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.Time, comps []models.EdgeComponent) *models.…`
-- `func newManagementRouter(db *gorm.DB) *gin.Engine`
-- `func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine`
-- `func adminInjector() gin.HandlerFunc`
-- `func TestRequestVMAgentRestart(t *testing.T)`
-- `func TestRestartAgentEndpoint(t *testing.T)`
-- `func TestRequestFlushBacklog(t *testing.T)`
-- `func TestRequestSeqCommandsOnNullColumns(t *testing.T)`
-- `func TestFlushBacklogEndpoint(t *testing.T)`
-- `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
-- `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
-- `func TestRetireDomainHandlerHTTP(t *testing.T)`
-- `func TestDetectOfflineFlagsOldHeartbeatAndTriggersOfflineHook(t *testing.T)`
-- `func TestDetectOfflineHookFiresOnlyOnTransition(t *testing.T)`
-- `func TestDetectOfflineMixedAgentsYieldsPartialAndNoHook(t *testing.T)`
-- `func TestDetectOfflineRecoversWhenHeartbeatResumes(t *testing.T)`
-- `func TestListAgentsThreeTierAggregation(t *testing.T)`
-- `func TestListAgentsAllOnlineIsNormal(t *testing.T)`
-- `func TestGetAgentDetailIncludesComponents(t *testing.T)`
-- `func TestGetAgentNotFound(t *testing.T)`
-- `func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T)`
-- `func TestAgentViewDegradesPullPendingCauseWhenHeartbeatExpired(t *testing.T)`
-- `func TestAgentViewDegradesComponentsWhenRetired(t *testing.T)`
-- `func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T)`
-- `func TestListAgentsAndGetAgentHandlers(t *testing.T)`
-- `func newFakePackageDir(t *testing.T, version string) (string, []byte, string)`
-- `func decodePackageList(t *testing.T, body []byte) (string, []PackageArtifact)`
-- `func TestListPackagesFromManifest(t *testing.T)`
-- `func TestLatestPackageIsManifestPackage(t *testing.T)`
-- `func TestDownloadLatestPackageHandlerStreamsTarGz(t *testing.T)`
-- `func TestFindPackageByVersion(t *testing.T)`
-- `func TestDownloadPackageHandlerStreamsTarGzForVersion(t *testing.T)`
-- `func TestDownloadPackageHandlerUnknownVersionReturns404(t *testing.T)`
-- `func TestListPackagesEmptyWhenNoManifest(t *testing.T)`
-- `func TestListPackagesUnavailableArtifactVariants(t *testing.T)`
-- `func TestListPackagesInvalidManifestReturns500(t *testing.T)`
-- `func seedHeartbeat(t *testing.T, db *gorm.DB, domainID string, ts time.Time, backlog int64, lastErr string, retries int64)`
-- `func TestBacklogInsightGrowsAgeAndFlagsPersistentError(t *testing.T)`
-- `func TestBacklogInsightDrainingHasNoAge(t *testing.T)`
-- `func TestBacklogInsightSingleSampleStaysNil(t *testing.T)`
-- `func TestBacklogInsightTransientErrorNotFlagged(t *testing.T)`
-- `func TestBacklogInsightRetriesGrowthFlagsAbnormal(t *testing.T)`
-- `func TestFillBacklogInsightsFromHeartbeats(t *testing.T)`
-- `func TestFillBacklogInsightsStaleHeartbeatsStayNil(t *testing.T)`
-- `func TestFillBacklogInsightsNoHeartbeats(t *testing.T)`
+- `type fakeModule struct`
+- `method (fakeModule) Name() string`
+- `method (fakeModule) RegisterRoutes(*gin.RouterGroup) error`
+- `func TestRegistryRegisterAndMount(t *testing.T)`
+- `func TestRegistryRejectsInvalidModules(t *testing.T)`
+- `func TestRegistryMountError(t *testing.T)`
+- `func TestRegistryNilGroup(t *testing.T)`
 
-### `platform/edge/middleware.go`
+### `platform/foundation/system/system.go`
 
-- `func bearerToken(c *gin.Context) string`
-- `func domainIDFromRequest(c *gin.Context) string`
-- `func EdgeTokenMiddleware(db *gorm.DB) gin.HandlerFunc`
-- `func tokenMatches(expect, got string) bool`
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) *Module`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+- `method (*Module) health(c *gin.Context)`
+- `method (*Module) ready(c *gin.Context)`
+- `method (*Module) meta(c *gin.Context)`
+- `method (*Module) probe(ctx context.Context) (int64, error)`
+- `func buildVersion() string`
 
-### `platform/edge/offline_detector.go`
+### `platform/foundation/system/system_test.go`
 
-- `type SiteOfflineHook`
-- `type OfflineDetector struct`
-- `func NewOfflineDetector(db *gorm.DB, threshold, interval time.Duration, hook SiteOfflineHook) *OfflineDetector`
-- `method (*OfflineDetector) Run(ctx context.Context)`
-- `func StartOfflineDetector(ctx context.Context, db *gorm.DB, threshold, interval time.Duration, hook SiteOfflineHook) *Offlin…`
-- `func DetectOffline(db *gorm.DB, threshold time.Duration, now time.Time, hook SiteOfflineHook) ([]string, error)`
-- `func agentLiveStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration) string`
-- `func aggregateDomainStatus(agents []*models.EdgeAgent) string`
-
-### `platform/edge/packages_service.go`
-
-- `type PackageComponent struct`
-- `type PackageArtifact struct`
-- `func offlinePackageDownloadPathFor(version string) string`
-- `func loadManifest(dir string) (PackageArtifact, error)`
-- `func ListPackages(dir string) ([]PackageArtifact, error)`
-- `func LatestPackage(dir string) (PackageArtifact, error)`
-- `func FindPackage(dir, version string) (PackageArtifact, error)`
-- `func OpenPackageFile(dir string, art PackageArtifact) (*os.File, error)`
-
-### `platform/edge/register.go`
-
-- `func RegisterRoutes(group *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/edge/remote_write_lag.go`
-
-- `type SampleLagQuerier interface`
-- `type PromSampleLagQuerier struct`
-- `func NewPromSampleLagQuerier(base *url.URL, client *http.Client) *PromSampleLagQuerier`
-- `type promQueryResponse struct`
-- `method (*PromSampleLagQuerier) QueryDomainLags(ctx context.Context) (map[string]int64, error)`
-- `method (*PromSampleLagQuerier) fetch(ctx context.Context) (map[string]int64, error)`
-- `func toSeconds(v interface{}) (int64, bool)`
-
-### `platform/edge/remote_write_lag_test.go`
-
-- `func TestPromSampleLagQuerierParsesVector(t *testing.T)`
-- `func TestPromSampleLagQuerierTTLCache(t *testing.T)`
-- `func TestPromSampleLagQuerierUpstreamFailure(t *testing.T)`
-- `func TestPromSampleLagQuerierNegativeLagClampedToZero(t *testing.T)`
-- `type stubLagQuerier struct`
-- `method (stubLagQuerier) QueryDomainLags(context.Context) (map[string]int64, error)`
-- `func TestFillSampleLags(t *testing.T)`
-- `func mustParseURL(t *testing.T, raw string) *url.URL`
-
-### `platform/edge/restart_handler.go`
-
-- `func RequestVMAgentRestart(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
-- `func RestartAgentHandler(db *gorm.DB) gin.HandlerFunc`
-- `func respondRestartError(c *gin.Context, err error)`
-
-### `platform/edge/zipper.go`
-
-- `type metadata struct`
-- `type targetsCarrier`
-- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL, maxDiskUsagePerURL string) ([]byte,…`
-- `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
-
-### `platform/examples/simple-agent/main.go`
-
-- `func init()`
-- `func main()`
-- `func simulateMetrics()`
+- `func newTestRouter(t *testing.T) (*gin.Engine, *Module)`
+- `func getJSON(t *testing.T, router *gin.Engine, path string) (int, map[string]any)`
+- `func TestHealth(t *testing.T)`
+- `func TestReadyWithMigratedDatabase(t *testing.T)`
+- `func TestReadyWithoutDatabase(t *testing.T)`
+- `func TestMeta(t *testing.T)`
+- `func TestNewModuleDefaults(t *testing.T)`
 
 ### `platform/gateway/auth/admin_middleware.go`
 
@@ -3659,6 +910,12 @@
 - `func generateToken() (string, error)`
 - `func newID() (string, error)`
 
+### `platform/models/alert_event.go`
+
+- `type AlertEventStatus = string`
+- `type AlertEvent struct`
+- `method (AlertEvent) TableName() string`
+
 ### `platform/models/alertmanager_config.go`
 
 - `type AlertmanagerConfigStatus = string`
@@ -3666,35 +923,22 @@
 - `method (AlertmanagerConfigVersion) TableName() string`
 - `method (AlertmanagerConfigVersion) MarshalJSON() ([]byte, error)`
 - `func formatAMTimeOrNil(t *time.Time) *string`
-- `func AlertmanagerConfigChecksum(content string) string`
 - `type SilenceMatcher struct`
 - `type SilenceStatus = string`
-- `func ValidSilenceStatus() []string`
-- `type AuthorizedMatcherScope struct`
-- `method (*AuthorizedMatcherScope) Violations(matchers []SilenceMatcher) []SilenceMatcher`
 - `type ValidateErrorItem struct`
 
 ### `platform/models/alertmanager_config_test.go`
 
 - `func TestAlertmanagerConfigStatusEnum(t *testing.T)`
-- `func TestAlertmanagerConfigChecksum(t *testing.T)`
 - `func TestAlertmanagerConfigVersionSerializationRoundTrip(t *testing.T)`
 - `type AlertmanagerConfigVersionView struct`
 - `func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T)`
 - `func TestSilenceMatcherJSONRoundTrip(t *testing.T)`
-- `func TestSilenceStatusEnum(t *testing.T)`
-- `func TestAuthorizedMatcherScopeAllDomainsAlwaysPasses(t *testing.T)`
-- `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
 - `func TestValidateErrorItemJSON(t *testing.T)`
 
 ### `platform/models/alertmanager_notify.go`
 
-- `func SanitizeReceiverName(raw string) string`
-- `method (NotifyChannel) ReceiverName() string`
 - `type NotifyChannelType = string`
-- `func ValidNotifyChannelTypes() []string`
-- `func IsValidNotifyChannelType(t string) bool`
-- `func IsTemplateChannelType(t string) bool`
 - `type NotifyChannel struct`
 - `method (NotifyChannel) TableName() string`
 - `type NotifyTemplateStatus = string`
@@ -3705,9 +949,7 @@
 
 - `func newNotifyModelDB(t *testing.T) *gorm.DB`
 - `func TestNotifyChannelMigrateAndPersist(t *testing.T)`
-- `func TestNotifyChannelReceiverNameIsStable(t *testing.T)`
 - `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
-- `func TestValidNotifyChannelTypes(t *testing.T)`
 
 ### `platform/models/app_platform_rel.go`
 
@@ -3718,12 +960,15 @@
 
 - `func TestAppPlatformRelManyToManyAndUniquePair(t *testing.T)`
 - `func TestValidateAppPlatformPrimaryUnique(t *testing.T)`
-- `func TestResourcePlatformCodeFieldMappings(t *testing.T)`
 
 ### `platform/models/application_dict.go`
 
 - `type ApplicationDict struct`
-- `func NormalizeAppCode(raw string) string`
+
+### `platform/models/blackbox_module.go`
+
+- `type BlackboxModule struct`
+- `func DefaultBlackboxModules() []BlackboxModule`
 
 ### `platform/models/blackbox_probe.go`
 
@@ -3744,7 +989,6 @@
 ### `platform/models/business_domain_test.go`
 
 - `func TestBusinessDomainJSONTags(t *testing.T)`
-- `func TestInfraBizCodeConstant(t *testing.T)`
 
 ### `platform/models/business_metric.go`
 
@@ -3752,11 +996,6 @@
 - `type BusinessMetricStatus = string`
 - `type BusinessMetric struct`
 - `method (BusinessMetric) TableName() string`
-
-### `platform/models/ci_exporter_mapping.go`
-
-- `type CITypeExporterMapping struct`
-- `method (CITypeExporterMapping) TableName() string`
 
 ### `platform/models/cloud_dict.go`
 
@@ -3818,6 +1057,11 @@
 - `type ConfigChangeBaseline struct`
 - `method (ConfigChangeBaseline) TableName() string`
 
+### `platform/models/dashboard_panel.go`
+
+- `type DashboardPanel struct`
+- `method (DashboardPanel) TableName() string`
+
 ### `platform/models/database.go`
 
 - `type Database struct`
@@ -3826,15 +1070,8 @@
 
 ### `platform/models/edge_agent.go`
 
-- `func IsValidEdgeAgentStatus(status string) bool`
-- `func CanTransitionToEdgeAgentStatus(from, to string) error`
 - `type EdgeAgent struct`
 - `method (EdgeAgent) TableName() string`
-
-### `platform/models/edge_agent_test.go`
-
-- `func TestIsValidEdgeAgentStatus(t *testing.T)`
-- `func TestCanTransitionToEdgeAgentStatus(t *testing.T)`
 
 ### `platform/models/edge_heartbeat.go`
 
@@ -3858,8 +1095,6 @@
 ### `platform/models/exporter_metric_library.go`
 
 - `type MetricType = string`
-- `func ValidMetricTypes() []MetricType`
-- `func ValidMetricType(mt string) bool`
 - `type ExporterMetricAnchor struct`
 - `type ExporterMetricLibrary struct`
 - `method (ExporterMetricLibrary) TableName() string`
@@ -3907,7 +1142,7 @@
 ### `platform/models/label_rules.go`
 
 - `func IsProtectedLabel(key string) bool`
-- `func IsDictTranslatableSourceField(field string) bool`
+- `func IsSystemInjectedLabel(key string) bool`
 - `func ValidateLabelKey(key string) error`
 
 ### `platform/models/label_template.go`
@@ -3937,7 +1172,7 @@
 - `func TestResourceInterfaceImplementations(t *testing.T)`
 - `func TestResourceStatusMapping(t *testing.T)`
 - `func TestTenantCreateAndDefaults(t *testing.T)`
-- `func TestNetworkDomainDefaultLocal(t *testing.T)`
+- `func TestNetworkDomainModelMatchesV3Schema(t *testing.T)`
 - `func TestZoneTypePresetCodes(t *testing.T)`
 - `func TestResourceBaseAndLabel(t *testing.T)`
 - `func TestLabelTemplateByCategory(t *testing.T)`
@@ -3952,14 +1187,11 @@
 - `func TestImportRecordErrorsJSONRoundTrip(t *testing.T)`
 - `func TestProtectedPrometheusLabels(t *testing.T)`
 - `func TestLabelRules(t *testing.T)`
-- `func TestMonitorTypeDerivationMapFull(t *testing.T)`
-- `func TestValidMonitorTypes(t *testing.T)`
 - `func TestBlackboxTargetJSONRoundTrip(t *testing.T)`
 - `func TestScrapeJobBlackboxTargetsPersistence(t *testing.T)`
 - `func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T)`
 - `func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T)`
 - `func TestInstallationStatusEnums(t *testing.T)`
-- `func TestChannelForDomainType(t *testing.T)`
 - `func TestConfigCenterEnumConstants(t *testing.T)`
 - `func TestConfigCenterValidationStatus(t *testing.T)`
 - `func TestConfigCenterEnumCollections(t *testing.T)`
@@ -3975,16 +1207,6 @@
 - `func TestEdgeAgentSyncFieldsAndComponents(t *testing.T)`
 - `func TestDefaultMappingBuildersInterfaceServiceHasNoComposite(t *testing.T)`
 
-### `platform/models/monitor_type.go`
-
-- `func ValidMonitorTypes() []string`
-- `func ValidMonitorType(mt string) bool`
-- `func monitorKey(category ResourceCategory, subtype string) string`
-- `type MonitorTypeDerivation struct`
-- `func DeriveMonitorType(category ResourceCategory, subtype string) (string, bool)`
-- `func DeriveResourceFilter(monitorType string) (MonitorTypeDerivation, bool)`
-- `method (MonitorTypeDerivation) hostOSMatches(image string) bool`
-
 ### `platform/models/monitoring_rule.go`
 
 - `type RuleContentMode = string`
@@ -3999,39 +1221,18 @@
 - `type AgentType = string`
 - `type RegistrationStatus = string`
 - `type NetworkDomain struct`
-- `method (*NetworkDomain) IsManagement() bool`
-- `func ChannelForDomainType(dt DomainType) ChannelType`
-- `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`
 - `method (NetworkDomain) TableName() string`
-
-### `platform/models/network_domain_label.go`
-
-- `func ResolveNetworkDomain(labels map[string]string) string`
-- `func EnsureNetworkDomain(labels map[string]string, domain string) map[string]string`
-
-### `platform/models/network_domain_label_test.go`
-
-- `func TestResolveNetworkDomain(t *testing.T)`
-- `func TestEnsureNetworkDomain(t *testing.T)`
 
 ### `platform/models/os_dict.go`
 
 - `type OSOption struct`
 - `func ListOSOptions() []OSOption`
-- `func ResolveOSFamily(name string) string`
 - `func osKeywordsFor(family string) []string`
 - `func OSKeywordsForLinux() []string`
 - `func OSKeywordsForWindows() []string`
-- `func NormalizeOSType(raw string) string`
-- `func isWindowsLike(lower string) bool`
-- `func isLinuxLike(lower string) bool`
-- `func containsWord(lower, word string) bool`
-- `func isWordChar(r rune) bool`
 
 ### `platform/models/os_dict_test.go`
 
-- `func TestNormalizeOSType(t *testing.T)`
-- `func TestResolveOSFamily(t *testing.T)`
 - `func TestOSKeywordsFor(t *testing.T)`
 - `func TestOSOptionsAllClassified(t *testing.T)`
 - `func familyNames(family string) []string`
@@ -4080,21 +1281,6 @@
 
 - `type ResourceCategory = string`
 - `func ValidResourceCategories() []ResourceCategory`
-- `func CategoriesHint() string`
-- `func BlackboxProbeCategories() []ResourceCategory`
-- `func BlackboxTargetField(cat ResourceCategory) (string, bool)`
-- `func BlackboxCategoriesHint() string`
-
-### `platform/models/resource_fields.go`
-
-- `func LegacyFieldMap(category ResourceCategory) map[string]string`
-- `func GetResourceField(res any, field string) (string, bool)`
-- `func getHostField(h *Host, field string) (string, bool)`
-- `func getDatabaseField(d *Database, field string) (string, bool)`
-- `func getMiddlewareField(m *Middleware, field string) (string, bool)`
-- `func getApplicationField(a *Application, field string) (string, bool)`
-- `func getGenericTargetField(g *GenericTarget, field string) (string, bool)`
-- `func getInterfaceServiceField(o *InterfaceService, field string) (string, bool)`
 
 ### `platform/models/resource_label.go`
 
@@ -4108,7 +1294,6 @@
 - `type ChangeStatus = string`
 - `type MappingOverride struct`
 - `type InstanceSelectionMode = string`
-- `func ValidPromDuration(s string) bool`
 - `type ScrapeJob struct`
 
 ### `platform/models/status_mapping.go`
@@ -4147,428 +1332,465 @@
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
-### `platform/query/alert_annotation.go`
-
-- `type annotationTemplateData struct`
-- `func RenderAnnotation(src string, labels map[string]string, value string) (string, error)`
-- `func annotationFuncMap(labels map[string]string, value float64) template.FuncMap`
-- `func toFloat(v interface{}) (float64, bool)`
-- `func humanizeNumber(v interface{}, base float64, suffixes []string) string`
-- `func humanizeDurationValue(v interface{}) string`
-- `func humanizePercentageValue(v interface{}) string`
-- `func humanizeTimestampValue(v interface{}) string`
-- `func titleCase(s string) string`
-
-### `platform/query/alert_annotation_test.go`
-
-- `func TestRenderAnnotationLabels(t *testing.T)`
-- `func TestRenderAnnotationNoLeakOnMissingLabel(t *testing.T)`
-- `func TestRenderAnnotationFailure(t *testing.T)`
-- `func TestRenderAnnotationEmptyTemplate(t *testing.T)`
-- `func TestRenderHistorySummaryDegradesToEmpty(t *testing.T)`
-- `func TestRenderHistorySummaryInjectsNetworkDomain(t *testing.T)`
-
-### `platform/query/alerts.go`
-
-- `type promAlert struct`
-- `func AlertsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
-- `func fetchAlerts(ctx context.Context, client *http.Client, promURL *url.URL) ([]promAlert, error)`
-- `func tenantAuthorizedDomains(_ *gin.Context) []string`
-- `func alertDomainAllowed(authorized []string, domain string) bool`
-
-### `platform/query/alerts_history.go`
-
-- `type AlertHistoryItem struct`
-- `type alertHistoryQuery struct`
-- `func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
-- `func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error)`
-- `func normalizeHistoryStep(step, window time.Duration) time.Duration`
-- `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
-- `type promMatrixSample struct`
-- `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
-- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryTemplates map[string]string, identities map[str…`
-- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryTemplates…`
-- `func renderHistorySummary(tmpl string, labels map[string]string, domain string) string`
-- `func historyInstanceMatch(it AlertHistoryItem, keyword string) bool`
-- `type rulesAPIResponse struct`
-- `func fetchRuleSummaryTemplates(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
-- `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
-
-### `platform/query/alerts_history_test.go`
-
-- `func historyMatrixFixture() map[string]interface{}`
-- `func historyRulesFixture() map[string]interface{}`
-- `func newHistoryRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine`
-- `func doHistory(t *testing.T, r *gin.Engine, query string) (int, map[string]interface{})`
-- `func TestAlertHistoryRebuildsIntervals(t *testing.T)`
-- `func TestAlertHistoryFilterByNetworkDomain(t *testing.T)`
-- `func TestAlertHistoryNetworkDomainFromExternalLabelKey(t *testing.T)`
-- `func TestAlertHistoryFilterByState(t *testing.T)`
-- `func TestAlertHistoryFilterByStateFiring(t *testing.T)`
-- `func TestAlertHistoryPagination(t *testing.T)`
-- `func TestAlertHistoryTimeWindowClamped(t *testing.T)`
-- `func TestAlertHistoryEmptyNotNull(t *testing.T)`
-- `func TestAlertHistoryUpstreamError(t *testing.T)`
-- `func TestAlertHistoryInvalidState(t *testing.T)`
-- `func historyIdentityFixture() map[string]interface{}`
-- `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
-- `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
-- `func TestAlertHistoryRendersSummaryTemplate(t *testing.T)`
-- `func TestAlertHistoryUnrenderableTemplateDegradesToEmpty(t *testing.T)`
-- `func TestNormalizeHistoryStep(t *testing.T)`
-- `func newHistoryStepCaptureRouter(t *testing.T) (*gin.Engine, *string)`
-- `func historyWindowQuery(window time.Duration, extra url.Values) string`
-- `func TestAlertHistoryStepRaisedForMaxWindow(t *testing.T)`
-- `func TestAlertHistoryExplicitStepPreserved(t *testing.T)`
-- `func TestAlertHistoryDefaultStepUnchanged(t *testing.T)`
-
-### `platform/query/alerts_test.go`
-
-- `func promAlertsFixture() map[string]interface{}`
-- `type alertsResp struct`
-- `func newAlertsRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine`
-- `func newAlertsRouterOK(t *testing.T) *gin.Engine`
-- `func doAlerts(t *testing.T, r *gin.Engine, query string) (int, alertsResp)`
-- `func TestAlertsPassthroughFields(t *testing.T)`
-- `func TestAlertsFilterNetworkDomain(t *testing.T)`
-- `func TestAlertsNetworkDomainFallbackDefault(t *testing.T)`
-- `func TestAlertsNetworkDomainWriteBack(t *testing.T)`
-- `func TestAlertsNetworkDomainFromExternalLabelKey(t *testing.T)`
-- `func TestAlertsEmptyNotNull(t *testing.T)`
-- `func TestAlertsUpstreamError(t *testing.T)`
-- `func TestAlertsInstanceDisplay(t *testing.T)`
-- `func TestAlertsTenantScopeSkeleton(t *testing.T)`
-- `func TestAlertsInstanceFieldsWriteBack(t *testing.T)`
-- `func TestAlertsInstanceFieldsWithoutResourceID(t *testing.T)`
-
-### `platform/query/coverage.go`
-
-- `type CoverageItem struct`
-- `type CoverageSummary struct`
-- `type coverageResource struct`
-- `type upAggregation struct`
-- `func CoverageHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
-- `func loadResources(db *gorm.DB, netDomain, category string) ([]coverageResource, error)`
-- `func queryCategoryResources(db *gorm.DB, cat models.ResourceCategory, netDomain string) ([]coverageResource, error)`
-- `func loadSelectedInstances(db *gorm.DB) map[string]bool`
-- `func fetchUpAgg(ctx context.Context, client *http.Client, promURL *url.URL) (*upAggregation, error)`
-- `func fetchLastErrors(ctx context.Context, client *http.Client, promURL *url.URL) map[string]string`
-- `func buildCoverageItems(resources []coverageResource, selected map[string]bool, upState *upAggregation, lastErrors map[strin…`
-- `func summarize(items []CoverageItem) CoverageSummary`
-- `func parseCoveragePage(c *gin.Context) (int, int)`
-- `type promSeries struct`
-- `func queryInstantVector(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]promSeries, error)`
-- `func parseIntQuery(raw string, def int) int`
-- `func validCategories() []models.ResourceCategory`
-- `func categoryList() []string`
-- `func validCategory(c models.ResourceCategory) bool`
-- `func instanceIPPort(ip string, port int) string`
-
-### `platform/query/coverage_test.go`
-
-- `func openCoverageTestDB(t *testing.T) *gorm.DB`
-- `func seedCoverageHost(t *testing.T, db *gorm.DB, id, domain, name string)`
-- `func seedCoverageJob(t *testing.T, db *gorm.DB, jobName string, selected []string)`
-- `func coverageUpFixture() map[string]interface{}`
-- `func coverageTargetsFixture() map[string]interface{}`
-- `func newCoverageRouter(t *testing.T, db *gorm.DB, up, targets map[string]interface{}) (*gin.Engine, *httptest.Server)`
-- `func doCoverage(t *testing.T, r *gin.Engine, query string) coverageResp`
-- `type coverageResp struct`
-- `type coverageItemJSON struct`
-- `type coverageSummaryJSON struct`
-- `func mustJSON(v interface{}) string`
-- `func setupCoverageScenario(t *testing.T) (*gin.Engine, *httptest.Server)`
-- `func TestCoverageTriState(t *testing.T)`
-- `func TestCoverageFilterNetworkDomain(t *testing.T)`
-- `func TestCoverageFilterResourceCategory(t *testing.T)`
-- `func TestCoverageFilterState(t *testing.T)`
-- `func TestCoveragePagination(t *testing.T)`
-- `func TestCoveragePageSizeCap(t *testing.T)`
-- `func TestParseCoveragePageCap(t *testing.T)`
-- `func TestCoverageEmptyResources(t *testing.T)`
-- `func TestCoverageNoUpAggDependency(t *testing.T)`
-- `func TestCoverageBlackboxResourceSelectionCountsAsMonitored(t *testing.T)`
-
-### `platform/query/resource_identity.go`
-
-- `type ResourceIdentity struct`
-- `type InstanceFields struct`
-- `func InstanceFieldsOf(labels map[string]string, identities map[string]ResourceIdentity) InstanceFields`
-- `func firstLabelOf(labels map[string]string, keys []string) string`
-- `func ResolveResourceIdentities(db *gorm.DB, ids []string) (map[string]ResourceIdentity, error)`
-- `func ResolveResourceIdentitiesSafe(db *gorm.DB, ids []string) map[string]ResourceIdentity`
-
-### `platform/query/resource_identity_test.go`
-
-- `func openResourceIdentityTestDB(t *testing.T) *gorm.DB`
-- `func seedIdentityHost(t *testing.T, db *gorm.DB, id, name, ip string)`
-- `func seedIdentityDatabase(t *testing.T, db *gorm.DB, id, ip string, port int)`
-- `func seedIdentityMiddleware(t *testing.T, db *gorm.DB, id, ip string, port int)`
-- `func seedIdentityApplication(t *testing.T, db *gorm.DB, id, serviceName string, port int)`
-- `func seedIdentityGenericTarget(t *testing.T, db *gorm.DB, id, targetName, ip string, port int)`
-- `type countingLogger struct`
-- `method (*countingLogger) Trace(_ context.Context, _ time.Time, _ func() (string, int64), _ error)`
-- `func TestResolveResourceIdentitiesFiveCategories(t *testing.T)`
-- `func TestResolveResourceIdentitiesUnmatchedAndEmpty(t *testing.T)`
-- `func TestResolveResourceIdentitiesIsBatched(t *testing.T)`
-- `func TestInstanceFieldsOf(t *testing.T)`
-
-### `platform/query/routes.go`
-
-- `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
-- `func RegisterRuleInspectRoutes(platform *gin.RouterGroup, promURL *url.URL)`
-
-### `platform/query/rule_labels.go`
-
-- `type InspectRuleLabelsRequest struct`
-- `type InspectRuleLabel struct`
-- `type InspectRuleResult struct`
-- `func InspectRuleLabelsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
-- `type inspectRuleYAML struct`
-- `func inspectRuleContent(ctx context.Context, client *http.Client, promURL *url.URL, content string) []InspectRuleResult`
-- `func inspectSingleRule( ctx context.Context, client *http.Client, promURL *url.URL, group, alert, record, expr string, annot…`
-- `type inspectSeries struct`
-- `func queryInstantSeries(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]inspectSeries, error)`
-- `func sampleValueString(v []interface{}) string`
-- `func summarizeSeriesLabels(series []inspectSeries) []InspectRuleLabel`
-
-### `platform/query/rule_labels_test.go`
-
-- `func newInspectRouter(t *testing.T, upstream http.Handler) *gin.Engine`
-- `func doInspect(t *testing.T, r *gin.Engine, ruleContent string) []InspectRuleResult`
-- `func inspectSeriesFixture() map[string]interface{}`
-- `func TestInspectRuleLabelsForBlackbox(t *testing.T)`
-- `func TestInspectRuleLabelsNoSeries(t *testing.T)`
-- `func TestInspectRuleLabelsInvalidExpr(t *testing.T)`
-- `func TestInspectRuleLabelsPreviewRenderFailure(t *testing.T)`
-- `func TestInspectRuleLabelsSkipsNonAlertEntries(t *testing.T)`
-- `func TestInspectRuleLabelsInvalidYAML(t *testing.T)`
-
-### `platform/query/targets.go`
-
-- `type promTargetsData struct`
-- `func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
-- `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
-- `func fetchEdgeTargetSnapshots(db *gorm.DB, netDomain string) ([]models.EdgeTargetSnapshot, error)`
-- `func fetchBlackboxJobNames(db *gorm.DB) (map[string]struct{}, error)`
-- `func dedupKey(domain, job, instance string) string`
-- `func edgeTargetHealth(reported string, lastReportAt, now time.Time) string`
-- `func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health, instanceName string) map[string]interface{}`
-- `func loadInstanceNames(db *gorm.DB, netDomain string) (map[string]string, error)`
-- `func matchSearch(search, instanceName, instance string) bool`
-- `func resolveJob(t map[string]interface{}) string`
-- `func resolveLabel(t map[string]interface{}, key string) string`
-- `func resolveInstance(t map[string]interface{}) string`
-- `func hostPortFromURL(raw string) string`
-- `func asString(v interface{}) string`
-
-### `platform/query/targets_test.go`
-
-- `func promTargetsFixture() map[string]interface{}`
-- `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB)`
-- `func openTargetsTestDB(t *testing.T) *gorm.DB`
-- `func seedHostResource(t *testing.T, db *gorm.DB, resourceID, instanceName, netDomain string)`
-- `func seedScrapeJob(t *testing.T, db *gorm.DB, jobName string, jobType models.JobType)`
-- `func seedEdgeSnapshot(t *testing.T, db *gorm.DB, domain, job, instance, resourceID, health string, lastReportAt time.Time)`
-- `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
-- `type targetsResp struct`
-- `func TestTargetsPassthroughAndEnrichment(t *testing.T)`
-- `func TestTargetsNetworkDomainFallbackDefault(t *testing.T)`
-- `func TestTargetsFilterJob(t *testing.T)`
-- `func TestTargetsFilterNetworkDomain(t *testing.T)`
-- `func TestTargetsFilterHealth(t *testing.T)`
-- `func TestTargetsFilterCombination(t *testing.T)`
-- `func TestTargetsInvalidHealthBadRequest(t *testing.T)`
-- `func TestTargetsFilterNoMatchEmptyActive(t *testing.T)`
-- `func TestTargetsInstanceFallback(t *testing.T)`
-- `func TestTargetsEnrichInstanceName(t *testing.T)`
-- `func TestTargetsSearchByInstanceName(t *testing.T)`
-- `func TestTargetsSearchCaseInsensitive(t *testing.T)`
-- `func TestTargetsSearchByInstanceIP(t *testing.T)`
-- `func TestTargetsSearchNoMatchEmpty(t *testing.T)`
-- `func TestTargetsSearchAppliesToEdge(t *testing.T)`
-- `func TestTargetsSearchCombinesWithHealth(t *testing.T)`
-- `type fakeUpstream struct`
-- `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
-- `func newFakeUpstreamFailing() fakeUpstream`
-- `func TestTargetsFusionLocalPlusEdge(t *testing.T)`
-- `func TestTargetsFusionNetworkDomainFilter(t *testing.T)`
-- `func TestTargetsFusionJobFilterAppliesToEdge(t *testing.T)`
-- `func TestTargetsFusionHealthFilterAppliesToEdge(t *testing.T)`
-- `func TestTargetsFusionDedupLocalPriority(t *testing.T)`
-- `func TestTargetsFusionStaleEdgeDegradedToUnknown(t *testing.T)`
-- `func TestTargetsFusionNoEdgeSnapshotsFallsBackToLocal(t *testing.T)`
-- `func TestTargetsFusionDefaultDomainReturnedWhenNoFilter(t *testing.T)`
-- `func TestTargetsFusionUpstreamDownStillReturnsEdge(t *testing.T)`
-- `func TestTargetsFusionExcludesBlackboxSnapshots(t *testing.T)`
-- `func TestTargetsFusionKeepsStandardSnapshots(t *testing.T)`
-- `func TestTargetsFusionMixedKeepsOnlyStandard(t *testing.T)`
-- `func TestTargetsFusionNoBlackboxJobsKeepsAll(t *testing.T)`
-- `func TestTargetsFusionBlackboxMatchIsExact(t *testing.T)`
-- `func TestTargetsFusionBlackboxFilterLocalUntouched(t *testing.T)`
-
-### `platform/strategy/ci-exporter/ci_exporter_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newGin() *gin.Engine`
-- `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func seedExporterWithID(t *testing.T, db *gorm.DB, name string) string`
-- `func seedLabelTemplate(t *testing.T, db *gorm.DB, name, category string) uint`
-- `func TestListCITypeExporterMappingsEmpty(t *testing.T)`
-- `func TestListCITypeExporterMappingsFiltersAndFlags(t *testing.T)`
-- `func seedMappingWithLabelTemplate(t *testing.T, db *gorm.DB, monitorType, exporterName, labelTemplateID string, isDefault, i…`
-- `func reverseLookup(t *testing.T, r *gin.Engine, labelTemplateID string) (int, []models.CITypeExporterMapping, int64)`
-- `func TestListCITypeExporterMappingsByLabelTemplate(t *testing.T)`
-- `func TestListCITypeExporterMappingsByLabelTemplateSoftDeleted(t *testing.T)`
-- `func TestListCITypeExporterMappingsByLabelTemplateDisabledJobStillCounts(t *testing.T)`
-- `func TestListCITypeExporterMappingsReverseLookupKeepsListMode(t *testing.T)`
-- `func TestCreateCITypeExporterMappingOK(t *testing.T)`
-- `func TestCreateCITypeExporterMappingValidation(t *testing.T)`
-- `func TestCreateDuplicateDefaultRejected(t *testing.T)`
-- `func TestUpdateCITypeExporterMapping(t *testing.T)`
-- `func TestDeleteCITypeExporterMapping(t *testing.T)`
-- `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types ...string) string`
-- `func TestMappingExporterSupportTypeGuard(t *testing.T)`
-- `func TestUpdateCITypeExporterMappingDurationValidation(t *testing.T)`
-
-### `platform/strategy/ci-exporter/create.go`
-
-- `type CreateCITypeExporterMappingRequest struct`
-- `func CreateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
-- `func validateMappingReq(req CreateCITypeExporterMappingRequest, db *gorm.DB) error`
-- `func ensureSingleDefault(db *gorm.DB, monitorType string, wantDefault bool, excludeID uint) error`
-- `func ensureExporterSupportsType(tmpl *models.ExporterTemplate, monitorType string) error`
-
-### `platform/strategy/ci-exporter/delete.go`
-
-- `func DeleteCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/strategy/ci-exporter/list.go`
-
-- `type mappingListItem struct`
-- `func ListCITypeExporterMappings(db *gorm.DB) gin.HandlerFunc`
-- `func listMappingsByLabelTemplate(c *gin.Context, db *gorm.DB, labelTemplateID string)`
-- `func mappingReferenced(db *gorm.DB, m models.CITypeExporterMapping) bool`
-- `func findExporterTemplate(db *gorm.DB, id string) (*models.ExporterTemplate, error)`
-
-### `platform/strategy/ci-exporter/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/strategy/ci-exporter/update.go`
-
-- `type UpdateCITypeExporterMappingRequest struct`
-- `func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc`
-- `func loadExporterByID(db *gorm.DB, id string) (*models.ExporterTemplate, error)`
-- `func parseMappingID(c *gin.Context) (uint, bool)`
-
-### `platform/strategy/common/paging.go`
-
-- `type PageParams struct`
-- `func ParsePageParams(values url.Values) PageParams`
-- `func parseIntDefaultWithMax(raw string, def int) int`
-- `func parseIntDefault(raw string, def, min int) int`
-
-### `platform/strategy/exporter-template/create.go`
-
-- `type CreateExporterTemplateRequest struct`
-- `func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error`
-
-### `platform/strategy/exporter-template/delete.go`
-
-- `func DeleteExporterTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func exporterTemplateReferenced(db *gorm.DB, id uint) (bool, error)`
-
-### `platform/strategy/exporter-template/exporter_template_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newGin() *gin.Engine`
-- `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func seedExporter(t *testing.T, db *gorm.DB, e *models.ExporterTemplate) uint`
-- `func seedMapping(t *testing.T, db *gorm.DB, m *models.CITypeExporterMapping)`
-- `func TestListExporterTemplatesEmptyAndDefaults(t *testing.T)`
-- `func TestListExporterTemplatesMonitoredTypeAndSourceFilter(t *testing.T)`
-- `func TestCreateExporterTemplateInternal(t *testing.T)`
-- `func TestCreateExporterTemplateNameMetricsPathSchemeRequired(t *testing.T)`
-- `func TestCreateExporterTemplateRejectsBuiltinButAllowsOfficialThirdParty(t *testing.T)`
-- `func TestCreateExporterTemplateDuplicateName(t *testing.T)`
-- `func TestCreateExporterTemplateRecreateAfterSoftDelete(t *testing.T)`
-- `func TestUpdateExporterTemplateInternal(t *testing.T)`
-- `func TestUpdateExporterTemplateBuiltinForbiddenAndNotFound(t *testing.T)`
-- `func TestCreateExporterTemplateDownloadURLValidation(t *testing.T)`
-- `func TestCreateExporterTemplateWithDescription(t *testing.T)`
-- `func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T)`
-- `func TestDeleteExporterTemplateInternalOK(t *testing.T)`
-- `func TestDeleteExporterTemplateBuiltinAndReferencedForbidden(t *testing.T)`
-- `func TestCreateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
-- `func TestCreateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
-- `func TestCreateExporterTemplateAllowsAllValidSupportedMonitorTypes(t *testing.T)`
-- `func TestCreateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
-- `func TestUpdateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
-- `func TestUpdateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
-- `func TestUpdateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
-- `func quotedJoin(items []string) string`
-
-### `platform/strategy/exporter-template/list.go`
-
-- `func ListExporterTemplates(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/strategy/exporter-template/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/strategy/exporter-template/update.go`
-
-- `type UpdateExporterTemplateRequest struct`
-- `func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func parseTemplateID(c *gin.Context) (uint, bool)`
-
-### `platform/strategy/exporter-template/validate.go`
-
-- `func validateHTTPURL(field, raw string) error`
-- `func normalizeSupportedMonitorTypes(types []string) ([]string, error)`
-
-### `platform/strategy/metric-library/create.go`
-
-- `type CreateMetricLibraryRequest struct`
-- `func CreateMetricLibrary(db *gorm.DB) gin.HandlerFunc`
-- `func validateCreate(req CreateMetricLibraryRequest, db *gorm.DB) error`
-- `func UpdateMetricLibrary(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/strategy/metric-library/list.go`
-
-- `func ListMetricLibrary(db *gorm.DB) gin.HandlerFunc`
-
-### `platform/strategy/metric-library/metric_library_test.go`
-
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func seedBuiltinMetric(t *testing.T, db *gorm.DB, name, mtype, category, monitorType string, enabled bool)`
-- `func TestListMetricLibraryFilters(t *testing.T)`
-- `func TestCreateAndUpdateMetricLibrary(t *testing.T)`
-- `func TestUpdateBuiltinForbidden(t *testing.T)`
-
-### `platform/strategy/metric-library/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/strategy/routes.go`
-
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
-
-### `platform/strategy/rule/create.go`
-
-- `type CreateMonitoringRuleRequest struct`
-- `func CreateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
-- `func readRuleByID(c *gin.Context, db *gorm.DB, id uint) (*models.MonitoringRule, bool)`
-- `func parseRuleID(c *gin.Context) (uint, bool)`
-
-### `platform/strategy/rule/jobref/jobref.go`
+### `platform/modules/m01/domain/builtin_collection_templates.go`
+
+- `func BuiltinCollectionTemplates() []CollectionTemplate`
+- `func BuiltinCollectionTemplate(code string) (CollectionTemplate, bool)`
+
+### `platform/modules/m01/domain/candidate_fields.go`
+
+- `type FieldKind = string`
+- `type FieldSpec struct`
+- `method (FieldSpec) AppliesTo(category ResourceCategory) bool`
+- `method (FieldSpec) Supports(operator RuleOperator) bool`
+- `method (FieldSpec) ValidateValue(value string) error`
+- `func FieldSpecs() []FieldSpec`
+- `func FieldSpecFor(key string) (FieldSpec, bool)`
+- `func AllowedFieldKeys() []string`
+
+### `platform/modules/m01/domain/collection_template.go`
+
+- `type CollectionTemplate struct`
+- `func ValidateCollectionTemplate(t CollectionTemplate) error`
+- `func ValidateCollectionTemplateCode(code string) error`
+- `func NormalizeCollectionTemplate(t *CollectionTemplate)`
+
+### `platform/modules/m01/domain/collection_template_test.go`
+
+- `func newTemplate() domain.CollectionTemplate`
+- `func TestBuiltinCollectionTemplatesByCategory(t *testing.T)`
+- `func TestBuiltinCollectionTemplatesAreValidRecipes(t *testing.T)`
+- `func TestBuiltinHostTemplatesAreOrthogonal(t *testing.T)`
+- `func TestValidateCollectionTemplate(t *testing.T)`
+- `func TestNormalizeCollectionTemplate(t *testing.T)`
+- `func TestValidateSelectorRejectsUnknownField(t *testing.T)`
+- `func TestValidateSelectorRejectsFieldOutsideCategory(t *testing.T)`
+- `func TestValidateSelectorRejectsBooleanArbitraryValue(t *testing.T)`
+- `func TestValidateSelectorRejectsContainsOnBoolean(t *testing.T)`
+- `func TestValidateSelectorValueArity(t *testing.T)`
+- `func TestValidateSelectorAcceptsSupportedShapes(t *testing.T)`
+- `func TestValidateSelectorRejectsUnknownLogic(t *testing.T)`
+- `func TestValidateSelectorAcceptsRegisteredCustomFields(t *testing.T)`
+- `func TestFieldDictionaryCoversCapabilities(t *testing.T)`
+
+### `platform/modules/m01/domain/entities.go`
+
+- `type SyncState struct`
+- `type MappingOverride struct`
+- `type ExporterTemplate struct`
+- `type Job struct`
+- `type JobGroup struct`
+- `type Rule struct`
+- `type MetricAnchor struct`
+- `type Metric struct`
+- `type BusinessMetric struct`
+- `type Installation struct`
+- `type ProbeModule struct`
+
+### `platform/modules/m01/domain/enums.go`
+
+- `type JobType = string`
+- `method (JobType) Valid() bool`
+- `type ResourceCategory = string`
+- `method (ResourceCategory) Valid() bool`
+- `type AuthType = string`
+- `method (AuthType) Valid() bool`
+- `type Scheme = string`
+- `method (Scheme) Valid() bool`
+- `type InstanceSelectionMode = string`
+- `method (InstanceSelectionMode) Valid() bool`
+- `type DraftStatus = string`
+- `method (DraftStatus) Valid() bool`
+- `type JobGroupStatus = string`
+- `method (JobGroupStatus) Valid() bool`
+- `type SyncStatus = string`
+- `method (SyncStatus) Valid() bool`
+- `type ExporterSource = string`
+- `method (ExporterSource) Valid() bool`
+- `type RuleContentMode = string`
+- `method (RuleContentMode) Valid() bool`
+- `type RuleScope = string`
+- `type RuleType = string`
+- `method (RuleType) Valid() bool`
+- `type MetricType = string`
+- `method (MetricType) Valid() bool`
+- `type BusinessMetricStatus = string`
+- `method (BusinessMetricStatus) Valid() bool`
+- `type RegisterSource = string`
+- `method (RegisterSource) Valid() bool`
+- `type InstallationStatus = string`
+- `method (InstallationStatus) Valid() bool`
+
+### `platform/modules/m01/domain/errors.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `method (*ValidationError) ErrorKind() apierror.Kind`
+- `func NewValidationError(field, message string) *ValidationError`
+- `func NewValidationErrorf(field, format string, args ...any) *ValidationError`
+- `type NotFoundError struct`
+- `method (*NotFoundError) Error() string`
+- `method (*NotFoundError) ErrorKind() apierror.Kind`
+- `type ConflictError struct`
+- `method (*ConflictError) Error() string`
+- `method (*ConflictError) ErrorKind() apierror.Kind`
+- `type ForbiddenError struct`
+- `method (*ForbiddenError) Error() string`
+- `method (*ForbiddenError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m01/domain/id.go`
+
+- `func NewID() (string, error)`
+
+### `platform/modules/m01/domain/job.go`
+
+- `func ValidateJobName(name string) error`
+- `func TargetFieldForCategory(category ResourceCategory) (string, error)`
+- `type JobParams struct`
+- `func ResolveJobParams(input JobParams, template *CollectionTemplate, exporter *ExporterTemplate, category ResourceCategory) …`
+- `func ComputeTemplateOverrides(input, effective JobParams, template *CollectionTemplate) []MappingOverride`
+- `func ResolvePort(ref ResourceRef, templatePort, exporterPort int) int`
+- `func ResourceAddress(ref ResourceRef, mappingPort, exporterPort int) string`
+- `func HostFromURL(raw string) string`
+- `func ResolvePortWithSource(ref ResourceRef, mappingPort, exporterPort int) (int, string)`
+
+### `platform/modules/m01/domain/label_template.go`
+
+- `type LabelTemplateRef struct`
+
+### `platform/modules/m01/domain/params.go`
+
+- `func ValidDuration(s string) bool`
+- `func ParseDurationSeconds(s string) (int64, bool)`
+- `func ValidateScrapeTiming(interval, timeout string) error`
+- `func ValidateMetricsPath(path string) error`
+- `func ValidatePort(port int) error`
+
+### `platform/modules/m01/domain/params_test.go`
+
+- `func TestValidDuration(t *testing.T)`
+- `func TestParseDurationSeconds(t *testing.T)`
+- `func TestValidateScrapeTiming(t *testing.T)`
+- `func TestValidateMetricsPathAndPort(t *testing.T)`
+- `func TestCollectionTemplateCodeHelpers(t *testing.T)`
+
+### `platform/modules/m01/domain/port_source_test.go`
+
+- `func TestResolvePortWithSource(t *testing.T)`
+
+### `platform/modules/m01/domain/resource.go`
+
+- `type ResourceRef struct`
+- `method (ResourceRef) Selectable() bool`
+- `type DomainRef struct`
+- `method (DomainRef) AuthorizedFor(tenantID string) bool`
+- `method (DomainRef) Eligible() bool`
+- `type CandidateFilterOp = string`
+- `type CandidateFilter struct`
+- `type CandidateQuery struct`
+- `type CandidatePage struct`
+- `type DomainHit struct`
+
+### `platform/modules/m01/domain/rule.go`
+
+- `type RuleGroup struct`
+- `type RuleEntry struct`
+- `type RuleFile struct`
+- `type JobRefIssue struct`
+- `func ParseRules(content string) (*RuleFile, error)`
+- `method (*RuleFile) GroupNames() []string`
+- `method (*RuleFile) RuleCount() int`
+- `method (*RuleFile) JobRefIssues(jobNames []string) []JobRefIssue`
+- `func ruleJobRefIssues(group string, rule RuleEntry, jobs map[string]struct{}) []JobRefIssue`
+- `func jobExists(jobs map[string]struct{}, op, ref string) (bool, bool)`
+
+### `platform/modules/m01/domain/selector.go`
+
+- `type Selector struct`
+- `type ScopeFilter struct`
+- `type RuleLogic = string`
+- `method (RuleLogic) Valid() bool`
+- `type RuleOperator = string`
+- `method (RuleOperator) Valid() bool`
+- `method (Selector) Empty() bool`
+- `method (Selector) Normalize() Selector`
+- `func ValidateSelector(selector Selector, category ResourceCategory) error`
+- `func ValidateSelectorWith(selector Selector, category ResourceCategory, isCustomField func(key string) bool) error`
+- `func validateScopeFilter(category ResourceCategory, filter ScopeFilter, isCustomField func(string) bool) error`
+- `func validateCustomFilter(filter ScopeFilter) error`
+- `func prefixSelectorField(index int, field string) string`
+- `func itoa(value int) string`
+
+### `platform/modules/m01/dto/business_metric.go`
+
+- `type BusinessMetricRequest struct`
+- `method (BusinessMetricRequest) ToDomain() *domain.BusinessMetric`
+- `type BusinessMetricResponse struct`
+- `func FromBusinessMetric(item *domain.BusinessMetric) BusinessMetricResponse`
+
+### `platform/modules/m01/dto/candidate_query.go`
+
+- `type CandidateFilterRequest struct`
+- `type CandidateQueryRequest struct`
+- `type CandidateIDsRequest struct`
+- `type DomainHitResponse struct`
+- `type CandidateQueryResponse struct`
+- `type CandidateIDsResponse struct`
+- `type CandidateFilterFieldResponse struct`
+- `type CandidateFilterOptionResponse struct`
+- `type CandidateFilterSchemaResponse struct`
+
+### `platform/modules/m01/dto/collection_template.go`
+
+- `type SelectorFilterDTO struct`
+- `method (SelectorFilterDTO) ToDomain() domain.ScopeFilter`
+- `func FromScopeFilter(filter domain.ScopeFilter) SelectorFilterDTO`
+- `type SelectorDTO struct`
+- `method (SelectorDTO) ToDomain() domain.Selector`
+- `func FromSelector(selector domain.Selector) SelectorDTO`
+- `type CollectionTemplateResponse struct`
+- `func FromCollectionTemplate(t *domain.CollectionTemplate, exporterName, labelName string, jobCount int64) CollectionTemplate…`
+- `type CollectionTemplateRequest struct`
+- `method (CollectionTemplateRequest) ToDomain(code string) domain.CollectionTemplate`
+- `type CandidateFieldResponse struct`
+- `func FromFieldSpec(spec domain.FieldSpec) CandidateFieldResponse`
+- `func NewCustomFieldResponse(key, label, kind, category string) CandidateFieldResponse`
+- `type TemplateImpactResponse struct`
+
+### `platform/modules/m01/dto/exporter_template.go`
+
+- `type ExporterTemplateRequest struct`
+- `method (ExporterTemplateRequest) ToDomain() *domain.ExporterTemplate`
+- `type ExporterTemplateResponse struct`
+- `func FromExporterTemplate(item *domain.ExporterTemplate) ExporterTemplateResponse`
+- `func FromExporterTemplates(items []*domain.ExporterTemplate) []ExporterTemplateResponse`
+
+### `platform/modules/m01/dto/job.go`
+
+- `type JobRequest struct`
+- `method (JobRequest) ToDomain() *domain.Job`
+- `type SyncResponse struct`
+- `type JobResponse struct`
+- `func FromJob(job *domain.Job, exporterName, domainName, labelName, groupName string) JobResponse`
+
+### `platform/modules/m01/dto/job_group.go`
+
+- `type JobGroupRequest struct`
+- `type JobGroupStatusRequest struct`
+- `type JobGroupSyncResponse struct`
+- `type JobGroupChildResponse struct`
+- `type JobGroupResponse struct`
+- `type AdoptJobGroupRequest struct`
+
+### `platform/modules/m01/dto/job_instances.go`
+
+- `type CandidateResponse struct`
+- `func FromCandidate(ref domain.ResourceRef, templateCode, targetAddress string, selectable bool, disabledReason string) Candi…`
+- `type InstallationResponse struct`
+- `func FromInstallation(item *domain.Installation) *InstallationResponse`
+- `type JobInstanceResponse struct`
+- `type InstallationRequest struct`
+- `type PreviewTarget struct`
+- `type PreviewSkip struct`
+- `type PreviewResponse struct`
+
+### `platform/modules/m01/dto/metric.go`
+
+- `type MetricRequest struct`
+- `method (MetricRequest) ToDomain() *domain.Metric`
+- `type MetricResponse struct`
+- `func FromMetric(item *domain.Metric) MetricResponse`
+
+### `platform/modules/m01/dto/probe_module.go`
+
+- `type ProbeModuleRequest struct`
+- `type ProbeModuleResponse struct`
+- `func FromProbeModule(item *domain.ProbeModule, referencedJobCount int64) ProbeModuleResponse`
+
+### `platform/modules/m01/dto/rule.go`
+
+- `type RuleRequest struct`
+- `method (RuleRequest) ToDomain() *domain.Rule`
+- `type RuleResponse struct`
+- `func FromRule(rule *domain.Rule) RuleResponse`
+- `type RuleValidateRequest struct`
+- `type RulePromQL struct`
+- `type RuleValidateResponse struct`
+
+### `platform/modules/m01/dto/time.go`
+
+- `func formatTime(t time.Time) string`
+
+### `platform/modules/m01/handler/actor.go`
+
+- `func requestContext(c *gin.Context) context.Context`
+
+### `platform/modules/m01/handler/admin_gate_test.go`
+
+- `func TestCollectionTemplateWritesRespectBuiltinGuard(t *testing.T)`
+- `func TestMetricLibraryWritesRequireAdmin(t *testing.T)`
+- `func TestMetricLibraryUserEntryValidation(t *testing.T)`
+
+### `platform/modules/m01/handler/business_metric.go`
+
+- `type BusinessMetricHandler struct`
+- `func NewBusinessMetricHandler(svc *service.BusinessMetricService) *BusinessMetricHandler`
+- `method (*BusinessMetricHandler) List(c *gin.Context)`
+- `method (*BusinessMetricHandler) Create(c *gin.Context)`
+- `method (*BusinessMetricHandler) Get(c *gin.Context)`
+- `method (*BusinessMetricHandler) Update(c *gin.Context)`
+- `method (*BusinessMetricHandler) Delete(c *gin.Context)`
+
+### `platform/modules/m01/handler/candidate_query.go`
+
+- `method (*JobHandler) QueryCandidates(c *gin.Context)`
+- `method (*JobHandler) QueryCandidateIDs(c *gin.Context)`
+- `method (*JobHandler) CandidateFilterSchema(c *gin.Context)`
+- `func candidateQuery(c *gin.Context, req dto.CandidateQueryRequest, page, pageSize int) domain.CandidateQuery`
+- `func candidateTenantScope(c *gin.Context) []string`
+
+### `platform/modules/m01/handler/candidate_query_test.go`
+
+- `func TestCandidateQueryWithComposableFilters(t *testing.T)`
+- `func TestCandidateQueryRejectsInvalidFilters(t *testing.T)`
+
+### `platform/modules/m01/handler/catalog_test.go`
+
+- `func TestMetricLibraryCRUD(t *testing.T)`
+- `func TestMetricLibraryListFilters(t *testing.T)`
+- `func TestBusinessMetricLifecycle(t *testing.T)`
+- `func TestProbeModulesReadOnly(t *testing.T)`
+
+### `platform/modules/m01/handler/collection_template.go`
+
+- `type CollectionTemplateHandler struct`
+- `func NewCollectionTemplateHandler(svc *service.CollectionTemplateService, fields references.CustomFieldReader) *CollectionTe…`
+- `method (*CollectionTemplateHandler) List(c *gin.Context)`
+- `method (*CollectionTemplateHandler) Get(c *gin.Context)`
+- `method (*CollectionTemplateHandler) Create(c *gin.Context)`
+- `method (*CollectionTemplateHandler) Update(c *gin.Context)`
+- `method (*CollectionTemplateHandler) Delete(c *gin.Context)`
+- `method (*CollectionTemplateHandler) Impact(c *gin.Context)`
+- `func formatTemplateTime(t time.Time) string`
+- `method (*CollectionTemplateHandler) CandidateFields(c *gin.Context)`
+
+### `platform/modules/m01/handler/errors.go`
+
+- `func respondError(c *gin.Context, err error)`
+
+### `platform/modules/m01/handler/exporter_template.go`
+
+- `type ExporterTemplateHandler struct`
+- `func NewExporterTemplateHandler(svc *service.ExporterTemplateService) *ExporterTemplateHandler`
+- `method (*ExporterTemplateHandler) List(c *gin.Context)`
+- `method (*ExporterTemplateHandler) Create(c *gin.Context)`
+- `method (*ExporterTemplateHandler) Get(c *gin.Context)`
+- `method (*ExporterTemplateHandler) Update(c *gin.Context)`
+- `method (*ExporterTemplateHandler) Delete(c *gin.Context)`
+
+### `platform/modules/m01/handler/job.go`
+
+- `type JobHandler struct`
+- `func NewJobHandler(svc *service.JobService) *JobHandler`
+- `method (*JobHandler) List(c *gin.Context)`
+- `method (*JobHandler) Create(c *gin.Context)`
+- `method (*JobHandler) Get(c *gin.Context)`
+- `method (*JobHandler) Update(c *gin.Context)`
+- `method (*JobHandler) Delete(c *gin.Context)`
+- `method (*JobHandler) Candidates(c *gin.Context)`
+- `method (*JobHandler) Instances(c *gin.Context)`
+- `method (*JobHandler) ConfirmInstallation(c *gin.Context)`
+- `method (*JobHandler) DeleteInstallation(c *gin.Context)`
+- `method (*JobHandler) Preview(c *gin.Context)`
+
+### `platform/modules/m01/handler/job_group.go`
+
+- `type JobGroupHandler struct`
+- `func NewJobGroupHandler(svc *service.JobGroupService) *JobGroupHandler`
+- `method (*JobGroupHandler) List(c *gin.Context)`
+- `method (*JobGroupHandler) Create(c *gin.Context)`
+- `method (*JobGroupHandler) Adopt(c *gin.Context)`
+- `method (*JobGroupHandler) Get(c *gin.Context)`
+- `method (*JobGroupHandler) Update(c *gin.Context)`
+- `method (*JobGroupHandler) SetStatus(c *gin.Context)`
+- `method (*JobGroupHandler) Delete(c *gin.Context)`
+- `func jobGroupID(c *gin.Context) (string, bool)`
+- `func jobGroupInput(req dto.JobGroupRequest, createdBy string) service.JobGroupInput`
+- `func fromJobGroupView(view *service.JobGroupView) dto.JobGroupResponse`
+
+### `platform/modules/m01/handler/job_group_test.go`
+
+- `func TestJobGroupLifecycle(t *testing.T)`
+- `func TestJobGroupSetEnabled(t *testing.T)`
+
+### `platform/modules/m01/handler/job_test.go`
+
+- `func TestJobCRUDCandidatesPreview(t *testing.T)`
+- `func TestJobValidatesOfflineAndDomain(t *testing.T)`
+- `func TestBlackboxJobDerivesTargetField(t *testing.T)`
+- `func TestJobRejectsInvalidPayloads(t *testing.T)`
+- `func TestJobListFilters(t *testing.T)`
+
+### `platform/modules/m01/handler/json.go`
+
+- `func bindJSON(c *gin.Context, out any) error`
+
+### `platform/modules/m01/handler/metric.go`
+
+- `type MetricHandler struct`
+- `func NewMetricHandler(svc *service.MetricService) *MetricHandler`
+- `method (*MetricHandler) List(c *gin.Context)`
+- `method (*MetricHandler) Create(c *gin.Context)`
+- `method (*MetricHandler) Get(c *gin.Context)`
+- `method (*MetricHandler) Update(c *gin.Context)`
+- `method (*MetricHandler) Delete(c *gin.Context)`
+
+### `platform/modules/m01/handler/pagination.go`
+
+- `func parsePagination(c *gin.Context) (int, int)`
+- `func boolQuery(c *gin.Context, key string) *bool`
+
+### `platform/modules/m01/handler/probe_module.go`
+
+- `type ProbeModuleHandler struct`
+- `func NewProbeModuleHandler(svc *service.ProbeModuleService) *ProbeModuleHandler`
+- `method (*ProbeModuleHandler) List(c *gin.Context)`
+- `method (*ProbeModuleHandler) Get(c *gin.Context)`
+
+### `platform/modules/m01/handler/routes.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, exporters *ExporterTemplateHandler, templates *CollectionTemplateHandler, job…`
+
+### `platform/modules/m01/handler/routes_test.go`
+
+- `func testAdmin() *models.User`
+- `func testRegularUser() *models.User`
+- `func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB)`
+- `func seedHandlerTemplates(t *testing.T, gormDB *gorm.DB)`
+- `func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func doJSON(t *testing.T, router *gin.Engine, method, path, body string) (int, map[string]any)`
+- `func TestExporterTemplateCRUDAndValidation(t *testing.T)`
+- `func TestCollectionTemplateCRUDAndGuards(t *testing.T)`
+
+### `platform/modules/m01/handler/rule.go`
+
+- `type RuleHandler struct`
+- `func NewRuleHandler(svc *service.RuleService) *RuleHandler`
+- `method (*RuleHandler) List(c *gin.Context)`
+- `method (*RuleHandler) Create(c *gin.Context)`
+- `method (*RuleHandler) Get(c *gin.Context)`
+- `method (*RuleHandler) Update(c *gin.Context)`
+- `method (*RuleHandler) Delete(c *gin.Context)`
+- `method (*RuleHandler) Validate(c *gin.Context)`
+
+### `platform/modules/m01/handler/rule_test.go`
+
+- `func ruleBody(content string, extra map[string]any) string`
+- `func TestRuleCRUDAndValidate(t *testing.T)`
+- `func TestRuleJobRefGateAndEscapeHatch(t *testing.T)`
+- `func TestRuleRejectsInvalidContent(t *testing.T)`
+
+### `platform/modules/m01/jobref/jobref.go`
 
 - `type Severity = string`
 - `type Issue struct`
@@ -4579,7 +1801,7 @@
 - `func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issue`
 - `func jobExists(jobs map[string]struct{}, op, ref string) (hit bool, determinable bool)`
 
-### `platform/strategy/rule/jobref/jobref_test.go`
+### `platform/modules/m01/jobref/jobref_test.go`
 
 - `func TestValidateMatchesExistingJobs(t *testing.T)`
 - `func TestValidateLiteralMissingIsWarning(t *testing.T)`
@@ -4591,265 +1813,3938 @@
 - `func TestValidateDedupesRepeatedMatcher(t *testing.T)`
 - `func TestValidateInvalidRegexSkipped(t *testing.T)`
 
-### `platform/strategy/rule/list.go`
+### `platform/modules/m01/module.go`
 
-- `func ListMonitoringRules(db *gorm.DB) gin.HandlerFunc`
+- `type Repositories struct`
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+- `method (*Module) Repositories() Repositories`
+- `method (*Module) CollectionTemplateService() *service.CollectionTemplateService`
+- `method (*Module) JobGroupService() *service.JobGroupService`
+- `method (*Module) ReconcileNow(ctx context.Context) error`
+- `method (*Module) LabelTemplateResolver() service.LabelTemplateResolver`
+- `method (*Module) LabelTemplateUsageChecker() *references.LabelTemplateUsageChecker`
+- `method (*Module) SyncResultSink() *references.SyncSink`
+- `method (*Module) Bootstrap(ctx context.Context) error`
+- `method (*Module) StartBackground(ctx context.Context)`
 
-### `platform/strategy/rule/monitoring_rule_test.go`
+### `platform/modules/m01/module_test.go`
 
+- `func TestNewModuleRequiresDatabase(t *testing.T)`
+- `func TestModuleWiring(t *testing.T)`
+
+### `platform/modules/m01/references/candidate_query_test.go`
+
+- `func newCandidateDB(t *testing.T) *gorm.DB`
+- `func TestQueryCandidatesMatchesCanonicalOSTypes(t *testing.T)`
+- `func linuxSelector() domain.Selector`
+- `func windowsSelector() domain.Selector`
+
+### `platform/modules/m01/references/candidate_scope_test.go`
+
+- `func newCapabilityDB(t *testing.T) *gorm.DB`
+- `func hostSelector(field string, values ...string) domain.Selector`
+- `func candidateIDs(t *testing.T, reader *references.GORMResourceReader, selector domain.Selector) []string`
+- `func TestSameHostMatchesOSAndNPUSelectors(t *testing.T)`
+- `func TestSelectorDrivesCandidatesWithoutRegistry(t *testing.T)`
+- `func TestCustomFieldSelectorDrivesCandidates(t *testing.T)`
+- `func TestUnknownSelectorFieldIsRejected(t *testing.T)`
+- `func TestCategoryMismatchIsRejected(t *testing.T)`
+- `func TestCategoryIsRequired(t *testing.T)`
+- `func TestCountBySelectorTracksScope(t *testing.T)`
+
+### `platform/modules/m01/references/domain.go`
+
+- `type DomainReader interface`
+- `type GORMDomainReader struct`
+- `func NewDomainReader(db *gorm.DB) *GORMDomainReader`
+- `method (*GORMDomainReader) Get(ctx context.Context, id string) (domain.DomainRef, bool, error)`
+- `func parseTenantList(raw string) []string`
+
+### `platform/modules/m01/references/field_dictionary.go`
+
+- `type CustomField struct`
+- `type CustomFieldReader interface`
+- `type GORMCustomFieldReader struct`
+- `func NewCustomFieldReader(db *gorm.DB) *GORMCustomFieldReader`
+- `method (*GORMCustomFieldReader) ListCustomFields(ctx context.Context) ([]CustomField, error)`
+
+### `platform/modules/m01/references/label_template.go`
+
+- `type GORMLabelTemplateReader struct`
+- `func NewLabelTemplateReader(db *gorm.DB) *GORMLabelTemplateReader`
+- `method (*GORMLabelTemplateReader) Resolve(ctx context.Context, id string) (domain.LabelTemplateRef, bool, error)`
+- `type LabelTemplateUsageChecker struct`
+- `func NewLabelTemplateUsageChecker(db *gorm.DB) *LabelTemplateUsageChecker`
+- `method (*LabelTemplateUsageChecker) CountReferences(ctx context.Context, templateID string) (int64, error)`
+
+### `platform/modules/m01/references/label_template_test.go`
+
+- `func openReferencesDB(t *testing.T) *gorm.DB`
+- `func TestLabelTemplateReader(t *testing.T)`
+- `func TestLabelTemplateUsageChecker(t *testing.T)`
+
+### `platform/modules/m01/references/resource.go`
+
+- `type ResourceReader interface`
+- `type GORMResourceReader struct`
+- `func NewResourceReader(db *gorm.DB) *GORMResourceReader`
+- `type resourceRow struct`
+- `func formatResourceTime(t *time.Time) string`
+- `method (resourceRow) toDomain() domain.ResourceRef`
+- `func ValidateCandidateFilter(filter domain.CandidateFilter) error`
+- `method (*GORMResourceReader) ListCandidates(ctx context.Context, query domain.CandidateQuery) ([]domain.ResourceRef, int64, er…`
+- `method (*GORMResourceReader) QueryCandidates(ctx context.Context, query domain.CandidateQuery) (domain.CandidatePage, error)`
+- `method (*GORMResourceReader) GetMany(ctx context.Context, resourceIDs []string) (map[string]domain.ResourceRef, error)`
+- `method (*GORMResourceReader) resolveSelector(ctx context.Context, query domain.CandidateQuery) (domain.ResourceCategory, domai…`
+- `method (*GORMResourceReader) customFields(ctx context.Context, category domain.ResourceCategory) (map[string]struct{}, error)`
+- `method (*GORMResourceReader) selectorPredicate(ctx context.Context, filters []domain.ScopeFilter, logic domain.RuleLogic) (str…`
+- `func scopeFilterClause(filter domain.ScopeFilter) (string, []any, error)`
+- `func customFieldClause(filter domain.ScopeFilter) (string, []any, error)`
+- `func containsAnyClause(column string, keywords []string) (string, []any, error)`
+- `method (*GORMResourceReader) ValidateSelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector)…`
+- `method (*GORMResourceReader) CountBySelector(ctx context.Context, category domain.ResourceCategory, selector domain.Selector) …`
+- `func likeKeywordPattern(keyword string) string`
+- `func normalizePage(page, pageSize int) (int, int)`
+
+### `platform/modules/m01/references/sync_sink.go`
+
+- `type SyncSink struct`
+- `func NewSyncSink(db *gorm.DB) *SyncSink`
+- `method (*SyncSink) RecordDomainSync(ctx context.Context, domainID, version string, generatedAt time.Time, outcomes map[string]…`
+- `method (*SyncSink) RecordRuleSync(ctx context.Context, version string, generatedAt time.Time, outcomes map[string]string) error`
+- `method (*SyncSink) updatedAfter(rowTime, generatedAt time.Time) bool`
+- `func statusFor(errMsg string) string`
+- `type syncJobRecord struct`
+- `method (syncJobRecord) TableName() string`
+- `type syncRuleRecord struct`
+- `method (syncRuleRecord) TableName() string`
+
+### `platform/modules/m01/references/sync_sink_test.go`
+
+- `func TestSyncSinkRecordsDomainOutcomes(t *testing.T)`
+- `func TestSyncSinkRecordsRuleOutcomes(t *testing.T)`
+- `type syncCountingLogger struct`
+- `method (*syncCountingLogger) LogMode(logger.LogLevel) logger.Interface`
+- `method (*syncCountingLogger) Info(context.Context, string, ...any)`
+- `method (*syncCountingLogger) Warn(context.Context, string, ...any)`
+- `method (*syncCountingLogger) Error(context.Context, string, ...any)`
+- `method (*syncCountingLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error)`
+- `method (*syncCountingLogger) updateCount() int`
+- `func TestSyncSinkBatchesUpdatesPerMessage(t *testing.T)`
+- `func TestUpdatedAfterComparesUTC(t *testing.T)`
+
+### `platform/modules/m01/repository/business_metric.go`
+
+- `type BusinessMetricFilter struct`
+- `type BusinessMetricRepository interface`
+- `type GORMBusinessMetricRepository struct`
+- `func NewBusinessMetricRepository(db *gorm.DB) *GORMBusinessMetricRepository`
+- `method (*GORMBusinessMetricRepository) Create(ctx context.Context, metric *domain.BusinessMetric) error`
+- `method (*GORMBusinessMetricRepository) Get(ctx context.Context, id string) (*domain.BusinessMetric, error)`
+- `method (*GORMBusinessMetricRepository) GetByName(ctx context.Context, name string) (*domain.BusinessMetric, bool, error)`
+- `method (*GORMBusinessMetricRepository) List(ctx context.Context, filter BusinessMetricFilter) ([]*domain.BusinessMetric, int64…`
+- `method (*GORMBusinessMetricRepository) Update(ctx context.Context, metric *domain.BusinessMetric) error`
+- `method (*GORMBusinessMetricRepository) SoftDelete(ctx context.Context, id string) error`
+
+### `platform/modules/m01/repository/collection_template.go`
+
+- `type collectionTemplateRecord struct`
+- `method (collectionTemplateRecord) TableName() string`
+- `method (collectionTemplateRecord) toDomain() *domain.CollectionTemplate`
+- `func collectionTemplateFromDomain(t *domain.CollectionTemplate) collectionTemplateRecord`
+- `type TemplateFilter struct`
+- `type TemplateReferenceCounts struct`
+- `method (TemplateReferenceCounts) Total() int64`
+- `type CollectionTemplateRepository interface`
+- `type GORMCollectionTemplateRepository struct`
+- `func NewCollectionTemplateRepository(db *gorm.DB) *GORMCollectionTemplateRepository`
+- `method (*GORMCollectionTemplateRepository) Create(ctx context.Context, template *domain.CollectionTemplate) error`
+- `method (*GORMCollectionTemplateRepository) Get(ctx context.Context, code string) (*domain.CollectionTemplate, error)`
+- `method (*GORMCollectionTemplateRepository) Find(ctx context.Context, code string) (*domain.CollectionTemplate, bool, error)`
+- `method (*GORMCollectionTemplateRepository) List(ctx context.Context, filter TemplateFilter) ([]*domain.CollectionTemplate, int…`
+- `method (*GORMCollectionTemplateRepository) Update(ctx context.Context, template *domain.CollectionTemplate) error`
+- `method (*GORMCollectionTemplateRepository) SoftDelete(ctx context.Context, code string) error`
+- `method (*GORMCollectionTemplateRepository) CountReferences(ctx context.Context, code string) (TemplateReferenceCounts, error)`
+- `method (*GORMCollectionTemplateRepository) anchoredMetrics(q *gorm.DB, code string) *gorm.DB`
+- `method (*GORMCollectionTemplateRepository) CountByExporterTemplate(ctx context.Context, exporterID string) (int64, error)`
+- `method (*GORMCollectionTemplateRepository) CountByLabelTemplate(ctx context.Context, labelTemplateID string) (int64, error)`
+
+### `platform/modules/m01/repository/errors.go`
+
+- `func mapWriteError(err error, entity, field, value string) error`
+- `func isNotFound(err error) bool`
+- `func notFound(entity, id string) error`
+- `func nilIfEmpty(value string) *string`
+- `func derefString(value *string) string`
+
+### `platform/modules/m01/repository/exporter_template.go`
+
+- `type ExporterTemplateFilter struct`
+- `type ExporterTemplateRepository interface`
+- `type GORMExporterTemplateRepository struct`
+- `func NewExporterTemplateRepository(db *gorm.DB) *GORMExporterTemplateRepository`
+- `method (*GORMExporterTemplateRepository) Create(ctx context.Context, template *domain.ExporterTemplate) error`
+- `method (*GORMExporterTemplateRepository) Get(ctx context.Context, id string) (*domain.ExporterTemplate, error)`
+- `method (*GORMExporterTemplateRepository) GetByName(ctx context.Context, name string) (*domain.ExporterTemplate, error)`
+- `method (*GORMExporterTemplateRepository) List(ctx context.Context, filter ExporterTemplateFilter) ([]*domain.ExporterTemplate,…`
+- `method (*GORMExporterTemplateRepository) Update(ctx context.Context, template *domain.ExporterTemplate) error`
+- `method (*GORMExporterTemplateRepository) SoftDelete(ctx context.Context, id string) error`
+
+### `platform/modules/m01/repository/installation.go`
+
+- `type InstallationRepository interface`
+- `type GORMInstallationRepository struct`
+- `func NewInstallationRepository(db *gorm.DB) *GORMInstallationRepository`
+- `method (*GORMInstallationRepository) Upsert(ctx context.Context, installation *domain.Installation) error`
+- `method (*GORMInstallationRepository) Get(ctx context.Context, resourceID, jobID string) (*domain.Installation, error)`
+- `method (*GORMInstallationRepository) ListByJob(ctx context.Context, jobID string) ([]*domain.Installation, error)`
+- `method (*GORMInstallationRepository) Delete(ctx context.Context, resourceID, jobID string) error`
+- `method (*GORMInstallationRepository) find(ctx context.Context, resourceID, jobID string) (installationRecord, bool, error)`
+
+### `platform/modules/m01/repository/job.go`
+
+- `type JobFilter struct`
+- `type JobRepository interface`
+- `type GORMJobRepository struct`
+- `func NewJobRepository(db *gorm.DB) *GORMJobRepository`
+- `method (*GORMJobRepository) Create(ctx context.Context, job *domain.Job) error`
+- `method (*GORMJobRepository) Get(ctx context.Context, id string) (*domain.Job, error)`
+- `method (*GORMJobRepository) List(ctx context.Context, filter JobFilter) ([]*domain.Job, int64, error)`
+- `method (*GORMJobRepository) Update(ctx context.Context, job *domain.Job) error`
+- `method (*GORMJobRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMJobRepository) CountByLabelTemplate(ctx context.Context, labelTemplateID string) (int64, error)`
+- `method (*GORMJobRepository) CountByNetworkDomain(ctx context.Context, domainID string) (int64, error)`
+- `method (*GORMJobRepository) ListAll(ctx context.Context) ([]*domain.Job, error)`
+- `method (*GORMJobRepository) ListActiveNames(ctx context.Context) ([]string, error)`
+- `method (*GORMJobRepository) CountByProbeModule(ctx context.Context, name string) (int64, error)`
+
+### `platform/modules/m01/repository/job_group.go`
+
+- `type JobGroupFilter struct`
+- `type JobGroupRepository interface`
+- `type GORMJobGroupRepository struct`
+- `func NewJobGroupRepository(db *gorm.DB) *GORMJobGroupRepository`
+- `method (*GORMJobGroupRepository) Create(ctx context.Context, group *domain.JobGroup) error`
+- `method (*GORMJobGroupRepository) Get(ctx context.Context, id string) (*domain.JobGroup, error)`
+- `method (*GORMJobGroupRepository) List(ctx context.Context, filter JobGroupFilter) ([]*domain.JobGroup, int64, error)`
+- `method (*GORMJobGroupRepository) Update(ctx context.Context, group *domain.JobGroup) error`
+- `method (*GORMJobGroupRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMJobGroupRepository) CountByName(ctx context.Context, name string) (int64, error)`
+- `type jobGroupRecord struct`
+- `method (jobGroupRecord) TableName() string`
+- `method (jobGroupRecord) toDomain() *domain.JobGroup`
+- `func jobGroupFromDomain(g *domain.JobGroup) jobGroupRecord`
+- `type GroupPlan struct`
+- `method (*GORMJobGroupRepository) Apply(ctx context.Context, plan GroupPlan) error`
+- `method (*GORMJobGroupRepository) ListJobsByGroup(ctx context.Context, groupID string) ([]*domain.Job, error)`
+- `method (*GORMJobGroupRepository) ListJobsByGroups(ctx context.Context, groupIDs []string) (map[string][]*domain.Job, error)`
+
+### `platform/modules/m01/repository/metric.go`
+
+- `type MetricFilter struct`
+- `type MetricRepository interface`
+- `type GORMMetricRepository struct`
+- `func NewMetricRepository(db *gorm.DB) *GORMMetricRepository`
+- `method (*GORMMetricRepository) Create(ctx context.Context, metric *domain.Metric) error`
+- `method (*GORMMetricRepository) Get(ctx context.Context, id string) (*domain.Metric, error)`
+- `method (*GORMMetricRepository) GetBuiltinByName(ctx context.Context, name string) (*domain.Metric, bool, error)`
+- `method (*GORMMetricRepository) List(ctx context.Context, filter MetricFilter) ([]*domain.Metric, int64, error)`
+- `method (*GORMMetricRepository) whereTemplateIn(q *gorm.DB, monitorTypes []string) *gorm.DB`
+- `method (*GORMMetricRepository) whereCategoryIn(q *gorm.DB, category string) *gorm.DB`
+- `method (*GORMMetricRepository) HasAnchorConflict(ctx context.Context, metricName string, monitorTypes []string, excludeID stri…`
+- `method (*GORMMetricRepository) Update(ctx context.Context, metric *domain.Metric) error`
+- `method (*GORMMetricRepository) SoftDelete(ctx context.Context, id string) error`
+
+### `platform/modules/m01/repository/models.go`
+
+- `type exporterTemplateRecord struct`
+- `method (exporterTemplateRecord) TableName() string`
+- `method (exporterTemplateRecord) toDomain() *domain.ExporterTemplate`
+- `func exporterTemplateFromDomain(e *domain.ExporterTemplate) exporterTemplateRecord`
+- `type jobRecord struct`
+- `method (jobRecord) TableName() string`
+- `method (jobRecord) toDomain() *domain.Job`
+- `func jobFromDomain(j *domain.Job) jobRecord`
+- `type ruleRecord struct`
+- `method (ruleRecord) TableName() string`
+- `method (ruleRecord) toDomain() *domain.Rule`
+- `func ruleFromDomain(r *domain.Rule) ruleRecord`
+- `type metricRecord struct`
+- `method (metricRecord) TableName() string`
+- `method (metricRecord) toDomain() *domain.Metric`
+- `func metricFromDomain(m *domain.Metric) metricRecord`
+- `type businessMetricRecord struct`
+- `method (businessMetricRecord) TableName() string`
+- `method (businessMetricRecord) toDomain() *domain.BusinessMetric`
+- `func businessMetricFromDomain(m *domain.BusinessMetric) businessMetricRecord`
+- `type installationRecord struct`
+- `method (installationRecord) TableName() string`
+- `method (installationRecord) toDomain() *domain.Installation`
+- `func installationFromDomain(i *domain.Installation) installationRecord`
+- `type probeModuleRecord struct`
+- `method (probeModuleRecord) TableName() string`
+- `method (probeModuleRecord) toDomain() *domain.ProbeModule`
+- `func probeModuleFromDomain(m *domain.ProbeModule) probeModuleRecord`
+- `func nonNilStrings(in []string) []string`
+- `func nonNilOverrides(in []domain.MappingOverride) []domain.MappingOverride`
+- `func nonNilAnchors(in []domain.MetricAnchor) []domain.MetricAnchor`
+- `func nonNilMap(in map[string]string) map[string]string`
+- `func nonNilSelector(selector domain.Selector) domain.Selector`
+
+### `platform/modules/m01/repository/probe_module.go`
+
+- `type ProbeModuleFilter struct`
+- `type ProbeModuleRepository interface`
+- `type GORMProbeModuleRepository struct`
+- `func NewProbeModuleRepository(db *gorm.DB) *GORMProbeModuleRepository`
+- `method (*GORMProbeModuleRepository) Create(ctx context.Context, module *domain.ProbeModule) error`
+- `method (*GORMProbeModuleRepository) Get(ctx context.Context, id string) (*domain.ProbeModule, error)`
+- `method (*GORMProbeModuleRepository) GetByName(ctx context.Context, name string) (*domain.ProbeModule, error)`
+- `method (*GORMProbeModuleRepository) List(ctx context.Context, filter ProbeModuleFilter) ([]*domain.ProbeModule, int64, error)`
+- `method (*GORMProbeModuleRepository) Update(ctx context.Context, module *domain.ProbeModule) error`
+- `method (*GORMProbeModuleRepository) SoftDelete(ctx context.Context, id string) error`
+
+### `platform/modules/m01/repository/query.go`
+
+- `func normalizePage(page, pageSize int) (int, int)`
+- `func paginate(q *gorm.DB, page, pageSize int) *gorm.DB`
+- `func keywordFilter(q *gorm.DB, column, keyword string) *gorm.DB`
+
+### `platform/modules/m01/repository/repository_test.go`
+
+- `func assertNotFound(t *testing.T, err error)`
 - `func openTestDB(t *testing.T) *gorm.DB`
-- `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func rulesFixture() string`
-- `func rulesFixtureGroup(group string) string`
-- `func TestValidateRuleYamlSyntax(t *testing.T)`
-- `func TestCreateMonitoringRule(t *testing.T)`
-- `func TestCreateMonitoringRuleDefaultEnabled(t *testing.T)`
-- `func jsonString(s string) string`
-- `func TestListUpdateDeleteMonitoringRule(t *testing.T)`
-- `func TestValidateYAMLEndpoint(t *testing.T)`
-- `func TestValidateYamlGroupNameConflict(t *testing.T)`
-- `func TestValidateYamlJobRef(t *testing.T)`
-- `func TestValidateYamlJobRefAllExisting(t *testing.T)`
-- `func TestCreateMonitoringRuleJobRefGate(t *testing.T)`
-- `func TestUpdateMonitoringRuleJobRefGate(t *testing.T)`
-- `func TestEffectiveJobNamesScope(t *testing.T)`
-- `func fixtureForJobRef(jobName string) string`
-- `func TestExtractGroupNames(t *testing.T)`
-- `func TestCreateMonitoringRuleGroupNameConflict(t *testing.T)`
-- `func TestCreateMonitoringRuleMonitorType(t *testing.T)`
-- `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
-- `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
+- `func newExporter(name string) *domain.ExporterTemplate`
+- `func newJob(name string) *domain.Job`
+- `func TestExporterTemplateRepository(t *testing.T)`
+- `func newCollectionTemplate(code, exporterID string) *domain.CollectionTemplate`
+- `func TestCollectionTemplateRepository(t *testing.T)`
+- `func TestJobRepository(t *testing.T)`
+- `func TestRuleRepository(t *testing.T)`
+- `func TestMetricRepository(t *testing.T)`
+- `func TestMetricRepositoryTemplateAnchorFilters(t *testing.T)`
+- `func TestMetricRepositoryAnchorConflict(t *testing.T)`
+- `func TestBusinessMetricRepository(t *testing.T)`
+- `func TestInstallationRepository(t *testing.T)`
+- `func TestProbeModuleRepository(t *testing.T)`
+- `func TestJobNameUniquePerDomain(t *testing.T)`
+- `func TestJobGroupIDRoundTrip(t *testing.T)`
+- `func TestJobGroupRepository(t *testing.T)`
 
-### `platform/strategy/rule/promtool_check.go`
+### `platform/modules/m01/repository/rule.go`
 
-- `type promQLCheckStatus = string`
-- `type promQLCheckResult struct`
-- `func checkPromQLSyntax(content string) promQLCheckResult`
+- `type RuleFilter struct`
+- `type RuleRepository interface`
+- `type GORMRuleRepository struct`
+- `func NewRuleRepository(db *gorm.DB) *GORMRuleRepository`
+- `method (*GORMRuleRepository) Create(ctx context.Context, rule *domain.Rule) error`
+- `method (*GORMRuleRepository) Get(ctx context.Context, id string) (*domain.Rule, error)`
+- `method (*GORMRuleRepository) List(ctx context.Context, filter RuleFilter) ([]*domain.Rule, int64, error)`
+- `method (*GORMRuleRepository) Update(ctx context.Context, rule *domain.Rule) error`
+- `method (*GORMRuleRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMRuleRepository) ListEnabledReady(ctx context.Context) ([]*domain.Rule, error)`
+
+### `platform/modules/m01/seed/seed.go`
+
+- `type templateSeed struct`
+- `func DefaultTemplates() []templateSeed`
+- `func Run(db *gorm.DB) error`
+- `func seedCollectionTemplates(ctx context.Context, exporters *repository.GORMExporterTemplateRepository, templates *repositor…`
+- `func seedExporters(ctx context.Context, repo *repository.GORMExporterTemplateRepository) error`
+- `func seedMetrics(ctx context.Context, repo *repository.GORMMetricRepository) error`
+- `func seedProbeModules(ctx context.Context, repo *repository.GORMProbeModuleRepository) error`
+- `func isNotFound(err error) bool`
+
+### `platform/modules/m01/seed/seed_test.go`
+
+- `func openSeedDB(t *testing.T) *gorm.DB`
+- `func countRows(t *testing.T, db *gorm.DB, table string) int64`
+- `func TestRunSeedsBuiltinsIdempotently(t *testing.T)`
+- `func TestRunRejectsNilDB(t *testing.T)`
+- `func TestRunDoesNotClobberUserEditedTemplate(t *testing.T)`
+- `func TestDefaultTemplatesBindExporterNames(t *testing.T)`
+
+### `platform/modules/m01/service/actor.go`
+
+- `type Actor struct`
+- `type actorContextKey struct`
+- `func WithActor(ctx context.Context, actor Actor) context.Context`
+- `func ActorFrom(ctx context.Context) (Actor, bool)`
+
+### `platform/modules/m01/service/business_metric.go`
+
+- `type BusinessMetricService struct`
+- `func NewBusinessMetricService(repo repository.BusinessMetricRepository) *BusinessMetricService`
+- `method (*BusinessMetricService) List(ctx context.Context, filter repository.BusinessMetricFilter) ([]*domain.BusinessMetric, i…`
+- `method (*BusinessMetricService) Get(ctx context.Context, id string) (*domain.BusinessMetric, error)`
+- `method (*BusinessMetricService) Create(ctx context.Context, metric *domain.BusinessMetric) (*domain.BusinessMetric, error)`
+- `method (*BusinessMetricService) Update(ctx context.Context, id string, input *domain.BusinessMetric) (*domain.BusinessMetric, …`
+- `method (*BusinessMetricService) Delete(ctx context.Context, id string) error`
+- `func normalizeBusinessMetric(metric *domain.BusinessMetric)`
+- `func validateBusinessMetric(metric *domain.BusinessMetric) error`
+- `func validateBusinessStatus(from, to domain.BusinessMetricStatus) error`
+
+### `platform/modules/m01/service/collection_template.go`
+
+- `type CollectionTemplateView struct`
+- `type CollectionTemplateService struct`
+- `func NewCollectionTemplateService( repo repository.CollectionTemplateRepository, exporters repository.ExporterTemplateReposi…`
+- `method (*CollectionTemplateService) List(ctx context.Context, filter repository.TemplateFilter) ([]CollectionTemplateView, int…`
+- `method (*CollectionTemplateService) Get(ctx context.Context, code string) (*CollectionTemplateView, error)`
+- `method (*CollectionTemplateService) Catalog(ctx context.Context, code string) (*domain.CollectionTemplate, *domain.ExporterTem…`
+- `method (*CollectionTemplateService) Create(ctx context.Context, template *domain.CollectionTemplate) (*CollectionTemplateView,…`
+- `method (*CollectionTemplateService) Update(ctx context.Context, code string, template *domain.CollectionTemplate) (*Collection…`
+- `method (*CollectionTemplateService) Delete(ctx context.Context, code string) error`
+- `method (*CollectionTemplateService) Impact(ctx context.Context, code string) (repository.TemplateReferenceCounts, domain.Colle…`
+- `method (*CollectionTemplateService) EnsureBuiltins(ctx context.Context) error`
+- `method (*CollectionTemplateService) view(ctx context.Context, template *domain.CollectionTemplate) (*CollectionTemplateView, e…`
+- `method (*CollectionTemplateService) validate(ctx context.Context, template *domain.CollectionTemplate) error`
+- `method (*CollectionTemplateService) exporterName(ctx context.Context, id string) (string, error)`
+- `method (*CollectionTemplateService) labelName(ctx context.Context, id string) (string, error)`
+- `func requireAdminForBuiltin(ctx context.Context, builtin bool) error`
+
+### `platform/modules/m01/service/collection_template_test.go`
+
+- `func newUserTemplate(code, exporterID string) *domain.CollectionTemplate`
+- `func TestCreateCollectionTemplateIsImmediatelyUsable(t *testing.T)`
+- `func TestCreateCollectionTemplateValidation(t *testing.T)`
+- `func TestUpdateCollectionTemplate(t *testing.T)`
+- `func TestBuiltinCollectionTemplateWritesRequirePlatformAdmin(t *testing.T)`
+- `func TestDeleteCollectionTemplateGuards(t *testing.T)`
+- `func TestEnsureBuiltinsIsCreateOnly(t *testing.T)`
+- `func TestCatalogRejectsUnboundTemplate(t *testing.T)`
+
+### `platform/modules/m01/service/exporter_template.go`
+
+- `type ExporterTemplateService struct`
+- `func NewExporterTemplateService(repo repository.ExporterTemplateRepository, templates repository.CollectionTemplateRepositor…`
+- `method (*ExporterTemplateService) List(ctx context.Context, filter repository.ExporterTemplateFilter) ([]*domain.ExporterTempl…`
+- `method (*ExporterTemplateService) Get(ctx context.Context, id string) (*domain.ExporterTemplate, error)`
+- `method (*ExporterTemplateService) Create(ctx context.Context, input *domain.ExporterTemplate) (*domain.ExporterTemplate, error)`
+- `method (*ExporterTemplateService) Update(ctx context.Context, id string, input *domain.ExporterTemplate) (*domain.ExporterTemp…`
+- `method (*ExporterTemplateService) Delete(ctx context.Context, id string) error`
+- `func normalizeExporter(template *domain.ExporterTemplate)`
+- `func validateExporter(template *domain.ExporterTemplate) error`
+- `func validateOptionalURL(field, raw string) error`
+
+### `platform/modules/m01/service/job.go`
+
+- `type ResourceReader interface`
+- `type DomainReader interface`
+- `type JobView struct`
+- `type CandidateView struct`
+- `type JobInstanceView struct`
+- `type PreviewTarget struct`
+- `type PreviewSkip struct`
+- `type JobService struct`
+- `type SelectorValidator interface`
+- `method (*JobService) SetSelectorValidator(validator SelectorValidator)`
+- `func NewJobService( jobs repository.JobRepository, exporters repository.ExporterTemplateRepository, templates *CollectionTem…`
+- `method (*JobService) SetJobGroupResolver(groups repository.JobGroupRepository)`
+- `method (*JobService) List(ctx context.Context, filter repository.JobFilter) ([]JobView, int64, error)`
+- `method (*JobService) Get(ctx context.Context, id string) (*JobView, error)`
+- `method (*JobService) Create(ctx context.Context, input *domain.Job, enabled *bool) (*JobView, error)`
+- `method (*JobService) Update(ctx context.Context, id string, input *domain.Job, enabled *bool, syncMappingDefaults bool) (*JobV…`
+- `method (*JobService) Delete(ctx context.Context, id string) error`
+- `type CandidateFilterField struct`
+- `type CandidateFilterOption struct`
+- `func CandidateFilterSchema() []CandidateFilterField`
+- `type CandidateQueryResult struct`
+- `method (*JobService) QueryCandidates(ctx context.Context, query domain.CandidateQuery) (CandidateQueryResult, error)`
+- `func normalizeCandidateFilters(query *domain.CandidateQuery) error`
+- `func validateCandidateFilterValues(filter domain.CandidateFilter) error`
+- `func intersectStrings(left, right []string) []string`
+- `method (*JobService) ListCandidates(ctx context.Context, query domain.CandidateQuery) ([]CandidateView, int64, error)`
+- `method (*JobService) ListInstances(ctx context.Context, jobID string) ([]JobInstanceView, error)`
+- `method (*JobService) ConfirmInstallation(ctx context.Context, jobID, resourceID string, actualPort int, confirmedBy, notes str…`
+- `method (*JobService) DeleteInstallation(ctx context.Context, jobID, resourceID string) error`
+- `method (*JobService) Preview(ctx context.Context, jobID string) (string, []PreviewTarget, []PreviewSkip, error)`
+- `method (*JobService) prepare(ctx context.Context, job *domain.Job, existing *domain.Job) error`
+- `func normalizeJob(job *domain.Job)`
+- `method (*JobService) resolveCatalog(ctx context.Context, job *domain.Job) (*domain.CollectionTemplate, *domain.ExporterTemplat…`
+- `method (*JobService) requireDomain(ctx context.Context, domainID string) (domain.DomainRef, error)`
+- `method (*JobService) validateLabelTemplate(ctx context.Context, job *domain.Job) error`
+- `method (*JobService) validateInstances(ctx context.Context, job *domain.Job, existing *domain.Job) error`
+- `method (*JobService) applyCredentials(job *domain.Job, existing *domain.Job) error`
+- `method (*JobService) catalogForCandidate(ctx context.Context, templateCode string) (*domain.CollectionTemplate, *domain.Export…`
+- `method (*JobService) catalogForJob(ctx context.Context, job *domain.Job) (*domain.CollectionTemplate, *domain.ExporterTemplate…`
+- `method (*JobService) view(ctx context.Context, job *domain.Job) (*JobView, error)`
+- `func targetAddressForJob(ref domain.ResourceRef, job *domain.Job, template *domain.CollectionTemplate, exporter *domain.Expo…`
+- `func targetAddress(ref domain.ResourceRef, template *domain.CollectionTemplate, exporter *domain.ExporterTemplate) string`
+- `func applyMappingDefaults(input, existing *domain.Job)`
+- `func sealCredential(raw string) string`
+- `func uniqueStrings(values []string) []string`
+- `func contains(values []string, target string) bool`
+- `func enforceGroupChildEditScope(input, existing *domain.Job) error`
+
+### `platform/modules/m01/service/job_group.go`
+
+- `type JobGroupSyncSummary struct`
+- `type JobGroupChildView struct`
+- `type JobGroupView struct`
+- `type JobGroupInput struct`
+- `type JobGroupService struct`
+- `func NewJobGroupService( groups repository.JobGroupRepository, jobs *JobService, resources ResourceReader, domains DomainRea…`
+- `method (*JobGroupService) Create(ctx context.Context, input JobGroupInput) (*JobGroupView, error)`
+- `method (*JobGroupService) Update(ctx context.Context, id string, input JobGroupInput) (*JobGroupView, error)`
+- `method (*JobGroupService) SetEnabled(ctx context.Context, id string, enabled bool) (*JobGroupView, error)`
+- `method (*JobGroupService) Delete(ctx context.Context, id string) error`
+- `method (*JobGroupService) List(ctx context.Context, filter repository.JobGroupFilter) ([]*JobGroupView, int64, error)`
+- `method (*JobGroupService) Get(ctx context.Context, id string) (*JobGroupView, error)`
+- `method (*JobGroupService) buildPlan( ctx context.Context, existing *domain.JobGroup, existingChildren []*domain.Job, input Job…`
+- `method (*JobGroupService) view(ctx context.Context, group *domain.JobGroup) (*JobGroupView, error)`
+- `func DeriveGroupSyncSummary(group *domain.JobGroup, children []*domain.Job) JobGroupSyncSummary`
+- `method (*JobGroupService) Adopt(ctx context.Context, jobID string, input JobGroupInput) (*JobGroupView, error)`
+
+### `platform/modules/m01/service/job_group_test.go`
+
+- `type groupResourceReader struct`
+- `method (groupResourceReader) ListCandidates(context.Context, domain.CandidateQuery) ([]domain.ResourceRef, int64, error)`
+- `method (groupResourceReader) QueryCandidates(_ context.Context, _ domain.CandidateQuery) (domain.CandidatePage, error)`
+- `method (groupResourceReader) GetMany(_ context.Context, ids []string) (map[string]domain.ResourceRef, error)`
+- `type groupDomainReader struct`
+- `method (groupDomainReader) Get(_ context.Context, id string) (domain.DomainRef, bool, error)`
+- `func eligibleDomain(id, name string) domain.DomainRef`
+- `func hostRef(id, domainID string) domain.ResourceRef`
+- `func newGroupTestStack(t *testing.T) (*gorm.DB, *JobGroupService, *JobService)`
+- `func hostGroupInput(ids ...string) JobGroupInput`
+- `func TestCreateJobGroupFansOutOneChildPerDomain(t *testing.T)`
+- `func TestUpdateJobGroupReconcilesChildren(t *testing.T)`
+- `func TestDeleteJobGroupCascadesToChildren(t *testing.T)`
+- `func TestCreateJobGroupDisabledDisablesChildren(t *testing.T)`
+- `func TestDeriveGroupSyncSummary(t *testing.T)`
+- `func TestGroupChildJobRestrictedEdit(t *testing.T)`
+
+### `platform/modules/m01/service/job_scope_test.go`
+
+- `func TestJobTenantScopeEnforced(t *testing.T)`
+
+### `platform/modules/m01/service/metric.go`
+
+- `type MetricService struct`
+- `func NewMetricService(repo repository.MetricRepository) *MetricService`
+- `method (*MetricService) List(ctx context.Context, filter repository.MetricFilter) ([]*domain.Metric, int64, error)`
+- `method (*MetricService) Get(ctx context.Context, id string) (*domain.Metric, error)`
+- `method (*MetricService) Create(ctx context.Context, metric *domain.Metric) (*domain.Metric, error)`
+- `method (*MetricService) Update(ctx context.Context, id string, input *domain.Metric) (*domain.Metric, error)`
+- `method (*MetricService) Delete(ctx context.Context, id string) error`
+- `method (*MetricService) ensureNoAnchorConflict(ctx context.Context, metric *domain.Metric, excludeID string) error`
+- `func normalizeMetric(metric *domain.Metric)`
+- `func normalizeMetricLabels(labels []string) []string`
+- `func normalizeMetricAnchors(anchors []domain.MetricAnchor) []domain.MetricAnchor`
+- `func validateMetric(metric *domain.Metric) error`
+
+### `platform/modules/m01/service/ports.go`
+
+- `type LabelTemplateResolver interface`
+- `type NoopLabelTemplateResolver struct`
+- `method (NoopLabelTemplateResolver) Resolve(_ context.Context, id string) (domain.LabelTemplateRef, bool, error)`
+
+### `platform/modules/m01/service/probe_module.go`
+
+- `type ProbeModuleService struct`
+- `func NewProbeModuleService(repo repository.ProbeModuleRepository, jobs repository.JobRepository) *ProbeModuleService`
+- `method (*ProbeModuleService) List(ctx context.Context, filter repository.ProbeModuleFilter) ([]*domain.ProbeModule, int64, err…`
+- `method (*ProbeModuleService) Get(ctx context.Context, id string) (*domain.ProbeModule, error)`
+- `method (*ProbeModuleService) ReferenceCount(ctx context.Context, name string) (int64, error)`
+
+### `platform/modules/m01/service/promtool.go`
+
+- `type PromQLChecker interface`
+- `type PromtoolChecker struct`
+- `func NewPromtoolChecker() *PromtoolChecker`
+- `method (*PromtoolChecker) Check(ctx context.Context, ruleContent string) (string, string)`
+
+### `platform/modules/m01/service/reconcile.go`
+
+- `type ReconcileService struct`
+- `func NewReconcileService(jobs repository.JobRepository, resources ResourceReader, domains DomainReader, interval time.Durati…`
+- `method (*ReconcileService) Run(ctx context.Context)`
+- `method (*ReconcileService) ReconcileOnce(ctx context.Context) (int, error)`
+- `method (*ReconcileService) reconcileAndLog(ctx context.Context)`
+
+### `platform/modules/m01/service/reconcile_test.go`
+
+- `func TestReconcileReclaimsMissingInstances(t *testing.T)`
+- `func TestReconcileDisablesGroupChildrenWhenDomainUnavailable(t *testing.T)`
+
+### `platform/modules/m01/service/rule.go`
+
+- `type RuleValidation struct`
+- `type RuleService struct`
+- `func NewRuleService( rules repository.RuleRepository, jobs repository.JobRepository, exporters repository.ExporterTemplateRe…`
+- `method (*RuleService) List(ctx context.Context, filter repository.RuleFilter) ([]*domain.Rule, int64, error)`
+- `method (*RuleService) Get(ctx context.Context, id string) (*domain.Rule, error)`
+- `method (*RuleService) Create(ctx context.Context, input *domain.Rule, ack bool, ackReason string) (*domain.Rule, error)`
+- `method (*RuleService) Update(ctx context.Context, id string, input *domain.Rule, ack bool, ackReason string) (*domain.Rule, er…`
+- `method (*RuleService) Delete(ctx context.Context, id string) error`
+- `method (*RuleService) Validate(ctx context.Context, id, content string) (*RuleValidation, error)`
+- `method (*RuleService) prepare(ctx context.Context, rule *domain.Rule, existing *domain.Rule, ack bool) error`
+- `method (*RuleService) evaluate(ctx context.Context, content, excludeID string) (*RuleValidation, error)`
+- `func normalizeRule(rule *domain.Rule)`
+
+### `platform/modules/m01/service/service_test.go`
+
+- `func TestNormalizeExporterDefaults(t *testing.T)`
+- `func TestValidateExporter(t *testing.T)`
+- `func TestNoopLabelTemplateResolver(t *testing.T)`
+- `func newServiceDB(t *testing.T, _ string) *gorm.DB`
+- `func seedNodeTemplate(t *testing.T, gormDB *gorm.DB) (*domain.ExporterTemplate, *domain.CollectionTemplate)`
+- `func newTemplateService(gormDB *gorm.DB) *CollectionTemplateService`
+
+### `platform/modules/m05/domain/health.go`
+
+- `type UpHealthIndex struct`
+- `func NewUpHealthIndex(isOne, isZero map[string]bool) *UpHealthIndex`
+- `type UpHealthQuerier interface`
+- `type HealthCounts struct`
+- `func ClassifyUpHealth(dispatched []string, idx *UpHealthIndex) *HealthCounts`
+
+### `platform/modules/m05/domain/health_test.go`
+
+- `func TestClassifyUpHealth(t *testing.T)`
+
+### `platform/modules/m05/domain/panel.go`
+
+- `type Panel struct`
+- `type CreatePanelInput struct`
+- `type UpdatePanelInput struct`
+
+### `platform/modules/m05/dto/summary.go`
+
+- `type Summary struct`
+- `type CategorySummary struct`
+- `type SubtypeSummary struct`
+- `type AppSummary struct`
+- `type PlatformAppSummary struct`
+- `type PlatformAppCell struct`
+- `type CloudSummary struct`
+- `type ProbeTargetItem struct`
+- `type CollectionHealth struct`
+
+### `platform/modules/m05/handler/panel_handler.go`
+
+- `type PanelHandler struct`
+- `func NewPanelHandler(svc *service.PanelService) *PanelHandler`
+- `type panelRequest struct`
+- `type panelDTO struct`
+- `func toPanelDTO(panel domain.Panel) panelDTO`
+- `method (*PanelHandler) List(c *gin.Context)`
+- `method (*PanelHandler) Get(c *gin.Context)`
+- `method (*PanelHandler) Create(c *gin.Context)`
+- `method (*PanelHandler) Update(c *gin.Context)`
+- `func parsePanelID(raw string) (uint, error)`
+- `func decodeStrictJSON(c *gin.Context, target any) error`
+
+### `platform/modules/m05/handler/panel_handler_test.go`
+
+- `func TestParsePanelID(t *testing.T)`
+- `func TestDecodeStrictJSON(t *testing.T)`
+
+### `platform/modules/m05/handler/routes.go`
+
+- `type Handlers struct`
+- `func RegisterRoutes(platform *gin.RouterGroup, h Handlers)`
+
+### `platform/modules/m05/handler/summary_handler.go`
+
+- `type SummaryHandler struct`
+- `func NewSummaryHandler(svc *service.SummaryService) *SummaryHandler`
+- `method (*SummaryHandler) Get(c *gin.Context)`
+
+### `platform/modules/m05/module.go`
+
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+
+### `platform/modules/m05/module_test.go`
+
+- `func newTestDB(t *testing.T) *gorm.DB`
+- `func seedUsersAndSessions(t *testing.T, gormDB *gorm.DB) (adminToken, viewerToken string)`
+- `func newTestRouter(t *testing.T, gormDB *gorm.DB, opts Options) *gin.Engine`
+- `func doJSON(t *testing.T, router http.Handler, method, path, token, body string) (int, map[string]any)`
+- `func doSummary(t *testing.T, router http.Handler, token string) (int, dto.Summary)`
+- `func seedReferenceData(t *testing.T, gormDB *gorm.DB)`
+- `func insertResource(t *testing.T, gormDB *gorm.DB, id, category, domainID, appCode, bizCode, platformCode, subtype string)`
+- `func insertJob(t *testing.T, gormDB *gorm.DB, id, jobType, domainID, selectedJSON string, enabled bool, draftStatus string)`
+- `func nullIfEmpty(value string) any`
+- `func TestRoutesRequireAuthenticationAndAdmin(t *testing.T)`
+- `func TestSummaryEmptyDatabase(t *testing.T)`
+- `func TestSummaryAggregatesCoversResourcesJobsAndDictionaries(t *testing.T)`
+- `func TestSummaryCollectionHealthInjected(t *testing.T)`
+- `type fixedQuerier struct`
+- `method (fixedQuerier) UpHealth(context.Context) (*domain.UpHealthIndex, error)`
+- `func TestPanelCRUD(t *testing.T)`
+
+### `platform/modules/m05/repository/panel_repository.go`
+
+- `type PanelRepository interface`
+- `type panelRecord struct`
+- `method (panelRecord) TableName() string`
+- `method (panelRecord) toDomain() domain.Panel`
+- `type GORMPanelRepository struct`
+- `func NewGORMPanelRepository(db *gorm.DB) *GORMPanelRepository`
+- `method (*GORMPanelRepository) List(ctx context.Context, page, pageSize int) ([]domain.Panel, int64, error)`
+- `method (*GORMPanelRepository) Get(ctx context.Context, id uint) (domain.Panel, bool, error)`
+- `method (*GORMPanelRepository) Create(ctx context.Context, input domain.CreatePanelInput) (domain.Panel, error)`
+- `method (*GORMPanelRepository) Update(ctx context.Context, id uint, input domain.UpdatePanelInput) (domain.Panel, bool, error)`
+- `method (*GORMPanelRepository) ExistsByName(ctx context.Context, name string, exceptID uint) (bool, error)`
+- `func isUniqueViolation(err error) bool`
+
+### `platform/modules/m05/repository/prom_up_health.go`
+
+- `type PromUpHealthQuerier struct`
+- `func NewPromUpHealthQuerier(baseURL *url.URL, client *http.Client) *PromUpHealthQuerier`
+- `method (*PromUpHealthQuerier) UpHealth(ctx context.Context) (*domain.UpHealthIndex, error)`
+
+### `platform/modules/m05/repository/prom_up_health_test.go`
+
+- `func TestPromUpHealthQuerierClassifiesSamples(t *testing.T)`
+- `func TestPromUpHealthQuerierDegrades(t *testing.T)`
+
+### `platform/modules/m05/repository/summary_repository.go`
+
+- `type ResourceRow struct`
+- `type JobRow struct`
+- `type DomainRow struct`
+- `type AppPlatformRelRow struct`
+- `type ProbeEndpoint struct`
+- `type JobCounts struct`
+- `type SummaryRepository interface`
+- `type GORMSummaryRepository struct`
+- `func NewGORMSummaryRepository(db *gorm.DB) *GORMSummaryRepository`
+- `method (*GORMSummaryRepository) Resources(ctx context.Context) ([]ResourceRow, error)`
+- `type subtypeSource struct`
+- `method (*GORMSummaryRepository) ResourceSubtypes(ctx context.Context, category string) (map[string]string, error)`
+- `method (*GORMSummaryRepository) ReadyJobs(ctx context.Context) ([]JobRow, error)`
+- `method (*GORMSummaryRepository) ScrapeJobCounts(ctx context.Context) (JobCounts, error)`
+- `method (*GORMSummaryRepository) MonitoredDomainCount(ctx context.Context) (int64, error)`
+- `method (*GORMSummaryRepository) Domains(ctx context.Context) ([]DomainRow, error)`
+- `method (*GORMSummaryRepository) AppNames(ctx context.Context) (map[string]string, error)`
+- `method (*GORMSummaryRepository) BizNames(ctx context.Context) (map[string]string, error)`
+- `method (*GORMSummaryRepository) PlatformNames(ctx context.Context) (map[string]string, error)`
+- `method (*GORMSummaryRepository) CloudNames(ctx context.Context) (map[string]string, error)`
+- `method (*GORMSummaryRepository) nameMap(ctx context.Context, query, what string) (map[string]string, error)`
+- `method (*GORMSummaryRepository) AppPlatformRels(ctx context.Context) ([]AppPlatformRelRow, error)`
+- `method (*GORMSummaryRepository) InterfaceServices(ctx context.Context, resourceIDs []string) (map[string]ProbeEndpoint, error)`
+- `method (*GORMSummaryRepository) Applications(ctx context.Context, resourceIDs []string) (map[string]ProbeEndpoint, error)`
+
+### `platform/modules/m05/service/panel_service.go`
+
+- `type PanelPage struct`
+- `type PanelService struct`
+- `func NewPanelService(repo repository.PanelRepository) *PanelService`
+- `method (*PanelService) List(ctx context.Context, page, pageSize int) (PanelPage, error)`
+- `method (*PanelService) Get(ctx context.Context, id uint) (domain.Panel, error)`
+- `method (*PanelService) Create(ctx context.Context, input domain.CreatePanelInput) (domain.Panel, error)`
+- `method (*PanelService) Update(ctx context.Context, id uint, input domain.UpdatePanelInput) (domain.Panel, error)`
+- `func normalizePanelInput(name, rawURL string) (string, string, error)`
+- `func errPanelNotFound() error`
+- `func errPanelNameConflict() error`
+
+### `platform/modules/m05/service/summary_service.go`
+
+- `type SummaryService struct`
+- `func NewSummaryService(repo repository.SummaryRepository, health domain.UpHealthQuerier) *SummaryService`
+- `type readyJob struct`
+- `type summaryInput struct`
+- `method (*SummaryService) Build(ctx context.Context) (*dto.Summary, error)`
+- `method (*SummaryService) load(ctx context.Context) (*summaryInput, error)`
+- `func decodeSelectedInstanceIDs(row repository.JobRow) ([]string, error)`
+- `func probeResourceIDs(jobs []readyJob) []string`
+- `type categoryAgg struct`
+- `type subtypeAgg struct`
+- `type appAgg struct`
+- `type cloudAgg struct`
+- `func assembleSummary(in *summaryInput) (*dto.Summary, []string)`
+- `func buildCategorySummary(cats map[string]*categoryAgg) []dto.CategorySummary`
+- `func buildAppSummary(apps map[string]*appAgg, appNames, bizNames map[string]string) []dto.AppSummary`
+- `func accumulateHostCell(cells map[string]map[string]int, platformCode, appCode string)`
+- `func buildPlatformAppSummary( hostCells map[string]map[string]int, platformNames map[string]string, appNames map[string]stri…`
+- `func platformAppRow( platformCode string, row map[string]int, platformNames map[string]string, appNames map[string]string, )…`
+- `func resolvePlatformName(code string, platformNames map[string]string) string`
+- `func resolveAppName(code string, appNames map[string]string) string`
+- `func accumulateCloudCell(aggs map[string]*cloudAgg, cloudCode string, monitored bool)`
+- `func buildCloudSummary(aggs map[string]*cloudAgg, cloudNames map[string]string) []dto.CloudSummary`
+- `func cloudSummaryRow(code string, agg *cloudAgg, cloudNames map[string]string) dto.CloudSummary`
+- `func resolveCloudName(code string, cloudNames map[string]string) string`
+- `func buildProbeTargets(in *summaryInput, live map[string]repository.ResourceRow) []dto.ProbeTargetItem`
+- `func appPlatformDisplayNames(rels []repository.AppPlatformRelRow, platformNames map[string]string) map[string][]string`
+- `func probeAppName(appCode string, appNames map[string]string) string`
+- `func probePlatformNames(res repository.ResourceRow, appPlatformNames map[string][]string, platformNames map[string]string) s…`
+
+### `platform/modules/m05/service/summary_service_test.go`
+
+- `type fakeSummaryRepo struct`
+- `method (*fakeSummaryRepo) Resources(context.Context) ([]repository.ResourceRow, error)`
+- `method (*fakeSummaryRepo) ResourceSubtypes(_ context.Context, category string) (map[string]string, error)`
+- `method (*fakeSummaryRepo) ReadyJobs(context.Context) ([]repository.JobRow, error)`
+- `method (*fakeSummaryRepo) ScrapeJobCounts(context.Context) (repository.JobCounts, error)`
+- `method (*fakeSummaryRepo) MonitoredDomainCount(context.Context) (int64, error)`
+- `method (*fakeSummaryRepo) Domains(context.Context) ([]repository.DomainRow, error)`
+- `method (*fakeSummaryRepo) AppNames(context.Context) (map[string]string, error)`
+- `method (*fakeSummaryRepo) BizNames(context.Context) (map[string]string, error)`
+- `method (*fakeSummaryRepo) PlatformNames(context.Context) (map[string]string, error)`
+- `method (*fakeSummaryRepo) CloudNames(context.Context) (map[string]string, error)`
+- `method (*fakeSummaryRepo) AppPlatformRels(context.Context) ([]repository.AppPlatformRelRow, error)`
+- `method (*fakeSummaryRepo) InterfaceServices(context.Context, []string) (map[string]repository.ProbeEndpoint, error)`
+- `method (*fakeSummaryRepo) Applications(context.Context, []string) (map[string]repository.ProbeEndpoint, error)`
+- `type fakeUpHealthQuerier struct`
+- `method (fakeUpHealthQuerier) UpHealth(context.Context) (*domain.UpHealthIndex, error)`
+- `func emptySummaryRepo() *fakeSummaryRepo`
+- `func TestBuildSummaryEmptyDatabase(t *testing.T)`
+- `func richerSummaryRepo() *fakeSummaryRepo`
+- `func TestBuildSummaryAggregates(t *testing.T)`
+- `type appRow struct`
+- `func TestBuildSummaryPlatformTopNAndOther(t *testing.T)`
+- `func sumCells(cells []dto.PlatformAppCell) int`
+- `func TestBuildSummaryCollectionHealth(t *testing.T)`
+- `func TestBuildSummaryMonitoredIntersectionWithLiveResources(t *testing.T)`
+- `func TestBuildSummaryRejectsBrokenSelectedIDs(t *testing.T)`
+- `func TestBuildSummaryRepositoryError(t *testing.T)`
+- `func TestBuildSummaryBizMajorityTieBreak(t *testing.T)`
+- `func TestBuildSummaryProbeTargetsSkipUnusableRows(t *testing.T)`
+
+### `platform/modules/m06/domain/cloud_dict.go`
+
+- `type CloudDict struct`
+- `type CreateCloudDictInput struct`
+- `method (*CreateCloudDictInput) Normalize() error`
+- `type CloudDictNotFoundError struct`
+- `method (*CloudDictNotFoundError) Error() string`
+- `method (*CloudDictNotFoundError) ErrorKind() apierror.Kind`
+- `type CloudDictExistsError struct`
+- `method (*CloudDictExistsError) Error() string`
+- `method (*CloudDictExistsError) ErrorKind() apierror.Kind`
+- `type CloudDictInUseError struct`
+- `method (*CloudDictInUseError) Error() string`
+- `method (*CloudDictInUseError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m06/domain/ids.go`
+
+- `func ReadDeployCode() string`
+- `func GenerateDomainID(deployCode, domainCode string) (string, error)`
+- `func RandomDomainCode() (string, error)`
+
+### `platform/modules/m06/domain/login_log.go`
+
+- `type LoginLog struct`
+- `type InvalidTimeRangeError struct`
+- `method (*InvalidTimeRangeError) Error() string`
+- `method (*InvalidTimeRangeError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m06/domain/network_domain.go`
+
+- `type DomainType = string`
+- `type DomainStatus = string`
+- `type NetworkDomain struct`
+- `type CreateNetworkDomainInput struct`
+- `type UpdateNetworkDomainInput struct`
+- `method (UpdateNetworkDomainInput) HasChanges() bool`
+- `type ResourceSummary struct`
+- `type Impact struct`
+- `func ParseDomainStatus(raw string) (DomainStatus, error)`
+- `func ParseDomainType(raw string) (*DomainType, error)`
+- `type NetworkDomainNotFoundError struct`
+- `method (*NetworkDomainNotFoundError) Error() string`
+- `method (*NetworkDomainNotFoundError) ErrorKind() apierror.Kind`
+- `type DomainInUseError struct`
+- `method (*DomainInUseError) Error() string`
+- `method (*DomainInUseError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m06/domain/network_domain_test.go`
+
+- `func TestGenerateDomainID(t *testing.T)`
+- `func TestRandomDomainCode(t *testing.T)`
+- `func TestParseDomainType(t *testing.T)`
+- `func TestParseDomainStatus(t *testing.T)`
+- `func TestDomainInUseError(t *testing.T)`
+- `func TestNetworkDomainNotFoundError(t *testing.T)`
+
+### `platform/modules/m06/domain/tenant.go`
+
+- `type TenantStatus = string`
+- `method (TenantStatus) Valid() bool`
+- `func ParseTenantStatus(raw string) (TenantStatus, error)`
+- `type Tenant struct`
+- `type UpdateTenantInput struct`
+- `method (UpdateTenantInput) HasChanges() bool`
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `method (*ValidationError) ErrorKind() apierror.Kind`
+- `type TenantNotFoundError struct`
+- `method (*TenantNotFoundError) Error() string`
+- `method (*TenantNotFoundError) ErrorKind() apierror.Kind`
+- `type ForbiddenError struct`
+- `method (*ForbiddenError) Error() string`
+- `method (*ForbiddenError) ErrorKind() apierror.Kind`
+- `type ConflictError struct`
+- `method (*ConflictError) Error() string`
+- `method (*ConflictError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m06/domain/user.go`
+
+- `type UserStatus = string`
+- `type UserRole = string`
+- `type User struct`
+- `type CreateUserInput struct`
+- `type UpdateUserInput struct`
+- `method (UpdateUserInput) HasChanges() bool`
+- `func ParseUserStatus(raw string) (UserStatus, error)`
+- `func ParseUserRole(raw string) (UserRole, error)`
+- `type UserNotFoundError struct`
+- `method (*UserNotFoundError) Error() string`
+- `method (*UserNotFoundError) ErrorKind() apierror.Kind`
+- `type UsernameTakenError struct`
+- `method (*UsernameTakenError) Error() string`
+- `method (*UsernameTakenError) ErrorKind() apierror.Kind`
+- `type LastAdminError struct`
+- `method (*LastAdminError) Error() string`
+- `method (*LastAdminError) ErrorKind() apierror.Kind`
+- `func NewUserID() (string, error)`
+
+### `platform/modules/m06/domain/user_test.go`
+
+- `func TestNewUserID(t *testing.T)`
+- `func TestParseUserStatus(t *testing.T)`
+- `func TestParseUserRole(t *testing.T)`
+- `func TestUserErrors(t *testing.T)`
+
+### `platform/modules/m06/dto/cloud_dict.go`
+
+- `type CloudDictResponse struct`
+- `func FromCloudDict(item *domain.CloudDict) CloudDictResponse`
+- `type CreateCloudDictRequest struct`
+- `method (CreateCloudDictRequest) ToDomain() domain.CreateCloudDictInput`
+- `type UpdateCloudDictRequest struct`
+
+### `platform/modules/m06/dto/login_log.go`
+
+- `type ListLoginLogsResponse struct`
+- `type LoginLogResponse struct`
+- `func FromLoginLog(log *domain.LoginLog) LoginLogResponse`
+
+### `platform/modules/m06/dto/network_domain.go`
+
+- `type NetworkDomainResponse struct`
+- `type CreateNetworkDomainRequest struct`
+- `method (CreateNetworkDomainRequest) ToDomain() (domain.CreateNetworkDomainInput, error)`
+- `type UpdateNetworkDomainRequest struct`
+- `method (UpdateNetworkDomainRequest) ToDomain() domain.UpdateNetworkDomainInput`
+- `type UpdateNetworkDomainStatusRequest struct`
+- `type UpdateNetworkDomainStatusResponse struct`
+- `type DeleteNetworkDomainResponse struct`
+- `type ImpactResponse struct`
+- `type SampleResource struct`
+- `func FromNetworkDomain(item *domain.NetworkDomain) NetworkDomainResponse`
+- `func FromImpact(impact *domain.Impact) ImpactResponse`
+
+### `platform/modules/m06/dto/tenant.go`
+
+- `type ListTenantsResponse struct`
+- `type TenantResponse struct`
+- `type UpdateTenantRequest struct`
+- `method (UpdateTenantRequest) ToDomain() domain.UpdateTenantInput`
+- `func FromDomain(t *domain.Tenant) TenantResponse`
+
+### `platform/modules/m06/dto/user.go`
+
+- `type ListUsersResponse struct`
+- `type UserResponse struct`
+- `type CreateUserRequest struct`
+- `method (CreateUserRequest) ToDomain() domain.CreateUserInput`
+- `type UpdateUserRequest struct`
+- `method (UpdateUserRequest) ToDomain() domain.UpdateUserInput`
+- `type UpdateUserStatusRequest struct`
+- `type ResetPasswordRequest struct`
+- `type DeleteUserResponse struct`
+- `type ResetPasswordResponse struct`
+- `func FromUser(user *domain.User) UserResponse`
+
+### `platform/modules/m06/handler/cloud_dict_handler.go`
+
+- `type CloudDictHandler struct`
+- `func NewCloudDictHandler(svc *service.CloudDictService) *CloudDictHandler`
+- `method (*CloudDictHandler) Create(c *gin.Context)`
+- `method (*CloudDictHandler) Update(c *gin.Context)`
+
+### `platform/modules/m06/handler/cloud_dict_handler_test.go`
+
+- `func newCloudDictTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func TestCloudDictCreateAndDisable(t *testing.T)`
+- `func TestCloudDictCreateValidation(t *testing.T)`
+- `func TestCloudDictDisableGuards(t *testing.T)`
+- `func TestCloudDictRequiresAdmin(t *testing.T)`
+
+### `platform/modules/m06/handler/login_log_handler.go`
+
+- `type LoginLogHandler struct`
+- `func NewLoginLogHandler(svc *service.LoginLogService) *LoginLogHandler`
+- `method (*LoginLogHandler) List(c *gin.Context)`
+- `func parseRFC3339Query(c *gin.Context, key string) (*time.Time, error)`
+
+### `platform/modules/m06/handler/network_domain_handler.go`
+
+- `type NetworkDomainHandler struct`
+- `func NewNetworkDomainHandler(svc *service.NetworkDomainService) *NetworkDomainHandler`
+- `method (*NetworkDomainHandler) Impact(c *gin.Context)`
+- `method (*NetworkDomainHandler) Create(c *gin.Context)`
+- `method (*NetworkDomainHandler) Update(c *gin.Context)`
+- `method (*NetworkDomainHandler) UpdateStatus(c *gin.Context)`
+- `method (*NetworkDomainHandler) Delete(c *gin.Context)`
+- `func decodeStrictJSON(c *gin.Context, target any) error`
+
+### `platform/modules/m06/handler/network_domain_handler_test.go`
+
+- `type fakeMonitoring struct`
+- `method (*fakeMonitoring) Available() bool`
+- `method (*fakeMonitoring) Impact(context.Context, string) (references.MonitoringImpact, error)`
+- `method (*fakeMonitoring) RetireDomain(_ context.Context, domainID string) error`
+- `func newNetworkDomainTestRouter(t *testing.T, user *models.User, monitoring references.MonitoringRetirer) (*gin.Engine, *gor…`
+- `func TestNetworkDomainCreateAndList(t *testing.T)`
+- `func TestNetworkDomainUpdate(t *testing.T)`
+- `func TestNetworkDomainStatus(t *testing.T)`
+- `func TestNetworkDomainDelete(t *testing.T)`
+- `func TestNetworkDomainReadsAllowUsersButMutationsRequireAdmin(t *testing.T)`
+- `func TestNetworkDomainErrorEnvelope(t *testing.T)`
+
+### `platform/modules/m06/handler/routes.go`
+
+- `type Handlers struct`
+- `func RegisterRoutes(platform *gin.RouterGroup, h Handlers)`
+
+### `platform/modules/m06/handler/storage_handler.go`
+
+- `type StorageHandler struct`
+- `func NewStorageHandler(svc *storage.Service) *StorageHandler`
+- `method (*StorageHandler) GetOverview(c *gin.Context)`
+- `method (*StorageHandler) UpdateRetention(c *gin.Context)`
+
+### `platform/modules/m06/handler/storage_handler_test.go`
+
+- `func newStorageTestRouter(t *testing.T, user *models.User, envFile string, promURL *url.URL) *gin.Engine`
+- `func mockStorageProm(t *testing.T) *url.URL`
+- `func TestStorageOverviewAndRetentionUpdate(t *testing.T)`
+- `func TestStorageUnconfiguredEnvReturnsActionable503(t *testing.T)`
+- `func TestStorageRequiresAdmin(t *testing.T)`
+
+### `platform/modules/m06/handler/tenant_handler.go`
+
+- `type TenantHandler struct`
+- `func NewTenantHandler(svc *service.TenantService) *TenantHandler`
+- `method (*TenantHandler) List(c *gin.Context)`
+- `method (*TenantHandler) Get(c *gin.Context)`
+- `method (*TenantHandler) Update(c *gin.Context)`
+- `method (*TenantHandler) Create(c *gin.Context)`
+- `method (*TenantHandler) ChangeStatus(c *gin.Context)`
+- `func parsePagination(c *gin.Context) (int, int)`
+
+### `platform/modules/m06/handler/tenant_handler_test.go`
+
+- `func newTenantTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func adminUser() *models.User`
+- `func doRequest(t *testing.T, router *gin.Engine, method, path, body string) (int, map[string]any)`
+- `func TestTenantListAndGet(t *testing.T)`
+- `func TestTenantUpdateOnlyMutableFields(t *testing.T)`
+- `func TestTenantLifecycleEndpointsForbidden(t *testing.T)`
+- `func TestTenantAdminGateRejectsUsers(t *testing.T)`
+
+### `platform/modules/m06/handler/user_handler.go`
+
+- `type UserHandler struct`
+- `func NewUserHandler(svc *service.UserService) *UserHandler`
+- `method (*UserHandler) List(c *gin.Context)`
+- `method (*UserHandler) Create(c *gin.Context)`
+- `method (*UserHandler) Update(c *gin.Context)`
+- `method (*UserHandler) UpdateStatus(c *gin.Context)`
+- `method (*UserHandler) ResetPassword(c *gin.Context)`
+- `method (*UserHandler) Delete(c *gin.Context)`
+
+### `platform/modules/m06/handler/user_handler_test.go`
+
+- `func newUserTestRouter(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
+- `func TestUserCreateListGet(t *testing.T)`
+- `func TestUserUpdateAndRoleGuards(t *testing.T)`
+- `func TestUserStatusAndLastAdminGuard(t *testing.T)`
+- `func TestUserResetPasswordAndDelete(t *testing.T)`
+- `func TestLoginLogsFiltersAndShape(t *testing.T)`
+- `func TestUserAndLoginLogAdminGate(t *testing.T)`
+
+### `platform/modules/m06/module.go`
+
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+
+### `platform/modules/m06/references/m07.go`
+
+- `type M07Reader interface`
+- `type GORMM07Reader struct`
+- `func NewGORMM07Reader(db *gorm.DB) *GORMM07Reader`
+- `method (*GORMM07Reader) CountByDomain(ctx context.Context, domainID string) (int64, error)`
+- `method (*GORMM07Reader) SamplesByDomain(ctx context.Context, domainID string, limit int) ([]domain.ResourceSummary, error)`
+
+### `platform/modules/m06/references/monitoring.go`
+
+- `type MonitoringImpact struct`
+- `type MonitoringRetirer interface`
+- `type NoopMonitoring struct`
+- `method (NoopMonitoring) Available() bool`
+- `method (NoopMonitoring) Impact(context.Context, string) (MonitoringImpact, error)`
+- `method (NoopMonitoring) RetireDomain(context.Context, string) error`
+
+### `platform/modules/m06/references/scrape_jobs.go`
+
+- `type ScrapeJobCounter interface`
+- `type NoopScrapeJobCounter struct`
+- `method (NoopScrapeJobCounter) CountByDomain(context.Context, string) (int64, error)`
+- `type GORMScrapeJobCounter struct`
+- `func NewGORMScrapeJobCounter(db *gorm.DB) *GORMScrapeJobCounter`
+- `method (*GORMScrapeJobCounter) CountByDomain(ctx context.Context, domainID string) (int64, error)`
+
+### `platform/modules/m06/references/scrape_jobs_test.go`
+
+- `func TestGORMScrapeJobCounter(t *testing.T)`
+
+### `platform/modules/m06/repository/cloud_dict_repository.go`
+
+- `type CloudDictRepository interface`
+- `type GORMCloudDictRepository struct`
+- `func NewGORMCloudDictRepository(db *gorm.DB) *GORMCloudDictRepository`
+- `func cloudDictFromModel(row *models.CloudDict) *domain.CloudDict`
+- `method (*GORMCloudDictRepository) Get(ctx context.Context, code string) (*domain.CloudDict, bool, error)`
+- `method (*GORMCloudDictRepository) Create(ctx context.Context, entry domain.CloudDict) (*domain.CloudDict, error)`
+- `method (*GORMCloudDictRepository) Disable(ctx context.Context, code string) (*domain.CloudDict, error)`
+- `method (*GORMCloudDictRepository) CountNetworkDomains(ctx context.Context, code string) (int64, error)`
+
+### `platform/modules/m06/repository/dictionary_repository.go`
+
+- `type DictionaryRepository interface`
+- `type GORMDictionaryRepository struct`
+- `func NewGORMDictionaryRepository(db *gorm.DB) *GORMDictionaryRepository`
+- `method (*GORMDictionaryRepository) CloudEnabled(ctx context.Context, code string) (bool, error)`
+- `method (*GORMDictionaryRepository) TenantActive(ctx context.Context, id string) (bool, error)`
+
+### `platform/modules/m06/repository/login_log_repository.go`
+
+- `type ListLoginLogsFilter struct`
+- `type LoginLogRepository interface`
+- `type GORMLoginLogRepository struct`
+- `func NewGORMLoginLogRepository(db *gorm.DB) *GORMLoginLogRepository`
+- `method (*GORMLoginLogRepository) List(ctx context.Context, filter ListLoginLogsFilter) ([]*domain.LoginLog, int64, error)`
+
+### `platform/modules/m06/repository/network_domain_repository.go`
+
+- `type networkDomainRecord struct`
+- `method (networkDomainRecord) TableName() string`
+- `type ListNetworkDomainsFilter struct`
+- `type NetworkDomainRepository interface`
+- `type GORMNetworkDomainRepository struct`
+- `func NewGORMNetworkDomainRepository(db *gorm.DB) *GORMNetworkDomainRepository`
+- `method (*GORMNetworkDomainRepository) List(ctx context.Context, filter ListNetworkDomainsFilter) ([]*domain.NetworkDomain, int…`
+- `method (*GORMNetworkDomainRepository) Get(ctx context.Context, id string) (*domain.NetworkDomain, error)`
+- `method (*GORMNetworkDomainRepository) NameExists(ctx context.Context, name, excludeID string) (bool, error)`
+- `method (*GORMNetworkDomainRepository) IDExistsIncludingDeleted(ctx context.Context, id string) (bool, error)`
+- `method (*GORMNetworkDomainRepository) Create(ctx context.Context, item *domain.NetworkDomain) error`
+- `func isUniqueViolation(err error) bool`
+- `method (*GORMNetworkDomainRepository) Update(ctx context.Context, id string, input domain.UpdateNetworkDomainInput) (*domain.N…`
+- `method (*GORMNetworkDomainRepository) UpdateStatus(ctx context.Context, id string, status domain.DomainStatus) error`
+- `method (*GORMNetworkDomainRepository) Delete(ctx context.Context, id string) error`
+- `func syncTenantCaches(ctx context.Context, tx *gorm.DB, tenantIDs ...string) error`
+- `func toDomainDomain(row *networkDomainRecord) *domain.NetworkDomain`
+- `func fromDomainDomain(item *domain.NetworkDomain) *networkDomainRecord`
+
+### `platform/modules/m06/repository/tenant_repository.go`
+
+- `type ListTenantsFilter struct`
+- `type TenantRepository interface`
+- `type GORMRepository struct`
+- `func NewGORMRepository(db *gorm.DB) *GORMRepository`
+- `method (*GORMRepository) List(ctx context.Context, filter ListTenantsFilter) ([]*domain.Tenant, int64, error)`
+- `method (*GORMRepository) Get(ctx context.Context, id string) (*domain.Tenant, error)`
+- `method (*GORMRepository) Update(ctx context.Context, id string, input domain.UpdateTenantInput) (*domain.Tenant, error)`
+- `func toDomain(row *models.Tenant) *domain.Tenant`
+
+### `platform/modules/m06/repository/user_repository.go`
+
+- `type ListUsersFilter struct`
+- `type UserRepository interface`
+- `type GORMUserRepository struct`
+- `func NewGORMUserRepository(db *gorm.DB) *GORMUserRepository`
+- `method (*GORMUserRepository) List(ctx context.Context, filter ListUsersFilter) ([]*domain.User, int64, error)`
+- `method (*GORMUserRepository) Get(ctx context.Context, id string) (*domain.User, error)`
+- `method (*GORMUserRepository) Create(ctx context.Context, user *domain.User, passwordHash string) error`
+- `method (*GORMUserRepository) UpdateProfile(ctx context.Context, id string, input domain.UpdateUserInput) (*domain.User, error)`
+- `method (*GORMUserRepository) UpdateStatus(ctx context.Context, id string, status domain.UserStatus) (*domain.User, error)`
+- `method (*GORMUserRepository) UpdatePassword(ctx context.Context, id, passwordHash string) error`
+- `method (*GORMUserRepository) Delete(ctx context.Context, id string) error`
+- `method (*GORMUserRepository) CountActiveAdmins(ctx context.Context, excludeUserID string) (int64, error)`
+- `func deleteSessionsByUserID(tx *gorm.DB, userID string) error`
+- `func toDomainUser(row *models.User) *domain.User`
+
+### `platform/modules/m06/service/cloud_dict_service.go`
+
+- `type CloudDictService struct`
+- `func NewCloudDictService(repo repository.CloudDictRepository) *CloudDictService`
+- `method (*CloudDictService) Create(ctx context.Context, input domain.CreateCloudDictInput) (*domain.CloudDict, error)`
+- `method (*CloudDictService) Disable(ctx context.Context, code string) (*domain.CloudDict, error)`
+
+### `platform/modules/m06/service/login_log_service.go`
+
+- `type LoginLogService struct`
+- `func NewLoginLogService(logs repository.LoginLogRepository) *LoginLogService`
+- `method (*LoginLogService) List(ctx context.Context, filter repository.ListLoginLogsFilter) ([]*domain.LoginLog, int64, error)`
+
+### `platform/modules/m06/service/network_domain_service.go`
+
+- `type NetworkDomainService struct`
+- `func NewNetworkDomainService( domains repository.NetworkDomainRepository, dictionary repository.DictionaryRepository, m07 re…`
+- `method (*NetworkDomainService) List(ctx context.Context, filter repository.ListNetworkDomainsFilter) ([]*domain.NetworkDomain,…`
+- `method (*NetworkDomainService) Get(ctx context.Context, id string) (*domain.NetworkDomain, error)`
+- `method (*NetworkDomainService) Create(ctx context.Context, input domain.CreateNetworkDomainInput) (*domain.NetworkDomain, erro…`
+- `method (*NetworkDomainService) Update(ctx context.Context, id string, input domain.UpdateNetworkDomainInput) (*domain.NetworkD…`
+- `method (*NetworkDomainService) UpdateStatus(ctx context.Context, id string, rawStatus string) (*domain.Impact, error)`
+- `method (*NetworkDomainService) Impact(ctx context.Context, id string) (*domain.Impact, error)`
+- `method (*NetworkDomainService) Delete(ctx context.Context, id string) (*domain.Impact, error)`
+- `method (*NetworkDomainService) computeImpact(ctx context.Context, id string) (*domain.Impact, error)`
+- `method (*NetworkDomainService) normalizeTenantIDs(ctx context.Context, raw []string) ([]string, error)`
+- `func stringValue(value *domain.DomainType) string`
+
+### `platform/modules/m06/service/network_domain_service_test.go`
+
+- `type stubDomainRepo struct`
+- `method (*stubDomainRepo) Get(context.Context, string) (*domain.NetworkDomain, error)`
+- `method (*stubDomainRepo) Delete(context.Context, string) error`
+- `method (*stubDomainRepo) UpdateStatus(context.Context, string, domain.DomainStatus) error`
+- `type stubM07Reader struct`
+- `method (*stubM07Reader) CountByDomain(context.Context, string) (int64, error)`
+- `method (*stubM07Reader) SamplesByDomain(context.Context, string, int) ([]domain.ResourceSummary, error)`
+- `type stubScrapeJobCounter struct`
+- `method (*stubScrapeJobCounter) CountByDomain(context.Context, string) (int64, error)`
+- `func TestImpactIncludesScrapeJobCount(t *testing.T)`
+- `func TestDeleteRejectedByScrapeJobs(t *testing.T)`
+
+### `platform/modules/m06/service/tenant_service.go`
+
+- `type TenantService struct`
+- `func NewTenantService(repo repository.TenantRepository) *TenantService`
+- `method (*TenantService) List(ctx context.Context, filter repository.ListTenantsFilter) ([]*domain.Tenant, int64, error)`
+- `method (*TenantService) Get(ctx context.Context, id string) (*domain.Tenant, error)`
+- `method (*TenantService) Update(ctx context.Context, id string, input domain.UpdateTenantInput) (*domain.Tenant, error)`
+- `method (*TenantService) Create(context.Context) error`
+- `method (*TenantService) ChangeStatus(context.Context, string) error`
+
+### `platform/modules/m06/service/user_service.go`
+
+- `type UserService struct`
+- `func NewUserService(users repository.UserRepository) *UserService`
+- `method (*UserService) List(ctx context.Context, filter repository.ListUsersFilter) ([]*domain.User, int64, error)`
+- `method (*UserService) Get(ctx context.Context, id string) (*domain.User, error)`
+- `method (*UserService) Create(ctx context.Context, input domain.CreateUserInput) (*domain.User, error)`
+- `method (*UserService) Update(ctx context.Context, id string, input domain.UpdateUserInput) (*domain.User, error)`
+- `method (*UserService) UpdateStatus(ctx context.Context, id, rawStatus string) (*domain.User, error)`
+- `method (*UserService) ResetPassword(ctx context.Context, id, newPassword string) error`
+- `method (*UserService) Delete(ctx context.Context, id string) error`
+- `func normalizeRole(raw string) (domain.UserRole, error)`
+- `func validatePassword(password string) error`
+
+### `platform/modules/m06/storage/diskusage_unix.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
+### `platform/modules/m06/storage/diskusage_windows.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
+### `platform/modules/m06/storage/retention.go`
+
+- `type RetentionValues struct`
+- `func ValidateRetentionTime(s string) error`
+- `func ValidateRetentionSize(s string) error`
+- `func parsePromDuration(s string) (time.Duration, error)`
+- `func parsePromBytes(s string) (int64, error)`
+- `func valuesEqual(a, b RetentionValues) bool`
+- `func durationEqual(a, b string) bool`
+- `func bytesEqual(a, b string) bool`
+- `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
+- `func writeRetentionPolicy(path string, vals RetentionValues) error`
+
+### `platform/modules/m06/storage/service.go`
+
+- `type Options struct`
+- `type RetentionState struct`
+- `type DiskInfo struct`
+- `type LogRotationInfo struct`
+- `type Overview struct`
+- `type Service struct`
+- `func NewService(opts Options) *Service`
+- `method (*Service) Overview(ctx context.Context) (*Overview, error)`
+- `method (*Service) UpdateRetention(ctx context.Context, timeValue, sizeValue string) (*Overview, error)`
+- `func readDesired(envFile string) (RetentionValues, bool, error)`
+- `method (*Service) fetchRuntimeFlags(ctx context.Context) (RetentionValues, string, bool)`
+- `method (*Service) diskEntries(tsdbPath string, runtimeOK bool) []DiskInfo`
+- `func newDiskInfo(label, dirPath string) DiskInfo`
+
+### `platform/modules/m06/storage/service_test.go`
+
+- `func mockPromFlags(t *testing.T, retentionTime, retentionSize, tsdbPath string) *url.URL`
+- `func TestValidateRetention(t *testing.T)`
+- `func TestWriteRetentionPolicyAtomic(t *testing.T)`
+- `func TestOverviewRuntimeDefaultAndDisk(t *testing.T)`
+- `func TestOverviewPendingRestartNormalization(t *testing.T)`
+- `func TestOverviewDegradesWhenPrometheusDown(t *testing.T)`
+- `func TestOverviewLogRootDiskRow(t *testing.T)`
+- `func TestUpdateRetentionWritesAndReportsPending(t *testing.T)`
+- `func TestUpdateRetentionRejectsInvalidAndUnconfigured(t *testing.T)`
+
+### `platform/modules/m06/storage/system.go`
+
+- `func detectLogRotation() LogRotationInfo`
+- `func readConf(path string) (content string, ok bool)`
+
+### `platform/modules/m07/dictionary/declaration.go`
+
+- `type DeclaredEntry struct`
+- `type DeclarationWriter interface`
+- `method (*GORMRepository) EnsureDeclarations(ctx context.Context, biz, app, platform []DeclaredEntry) error`
+- `method (*GORMRepository) EnsureDeclaredBusinessDomains(ctx context.Context, entries []DeclaredEntry) error`
+- `method (*GORMRepository) EnsureDeclaredApplications(ctx context.Context, entries []DeclaredEntry) error`
+- `method (*GORMRepository) EnsureDeclaredPlatforms(ctx context.Context, entries []DeclaredEntry) error`
+- `func isNotFound(err error) bool`
+
+### `platform/modules/m07/dictionary/declaration_test.go`
+
+- `func TestEnsureDeclarations(t *testing.T)`
+
+### `platform/modules/m07/dictionary/models.go`
+
+- `type businessDomainRecord struct`
+- `method (businessDomainRecord) TableName() string`
+- `type applicationDictRecord struct`
+- `method (applicationDictRecord) TableName() string`
+- `type platformDictRecord struct`
+- `method (platformDictRecord) TableName() string`
+- `type cloudDictRecord struct`
+- `method (cloudDictRecord) TableName() string`
+- `type networkDomainRecord struct`
+- `method (networkDomainRecord) TableName() string`
+- `type appPlatformRelRecord struct`
+- `method (appPlatformRelRecord) TableName() string`
+- `type dictionaryAuditLogRecord struct`
+- `method (dictionaryAuditLogRecord) TableName() string`
+
+### `platform/modules/m07/dictionary/repository.go`
+
+- `type BusinessDomain struct`
+- `type Application struct`
+- `type Platform struct`
+- `type DictionaryAuditLog struct`
+- `type Cloud struct`
+- `type AppPlatformRel struct`
+- `type OSOption struct`
+- `type Repository interface`
+- `type GORMRepository struct`
+- `func NewGORMRepository(db *gorm.DB) *GORMRepository`
+- `method (*GORMRepository) BusinessDomainEnabled(ctx context.Context, code string) (bool, error)`
+- `method (*GORMRepository) ApplicationEnabled(ctx context.Context, code string) (bool, error)`
+- `method (*GORMRepository) PlatformEnabled(ctx context.Context, code string) (bool, error)`
+- `method (*GORMRepository) NetworkDomainUsable(ctx context.Context, id string) (bool, error)`
+- `method (*GORMRepository) PlatformBelongsToApp(ctx context.Context, appCode, platformCode string) (bool, error)`
+- `method (*GORMRepository) PrimaryPlatformOfApp(ctx context.Context, appCode string) (string, bool, error)`
+- `method (*GORMRepository) ListBusinessDomains(ctx context.Context) ([]BusinessDomain, error)`
+- `method (*GORMRepository) ListApplications(ctx context.Context) ([]Application, error)`
+- `method (*GORMRepository) ListPlatforms(ctx context.Context) ([]Platform, error)`
+- `method (*GORMRepository) CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error)`
+- `method (*GORMRepository) UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*Bu…`
+- `method (*GORMRepository) CreateApplication(ctx context.Context, appCode, appName, description string, platformCodes []string) …`
+- `method (*GORMRepository) UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Applic…`
+- `method (*GORMRepository) CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error)`
+- `method (*GORMRepository) UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *…`
+- `method (*GORMRepository) ensureAbsent(ctx context.Context, model any, column, value string) error`
+- `func optionalString(value string) *string`
+- `func derefString(value *string) string`
+- `method (*GORMRepository) ListClouds(ctx context.Context) ([]Cloud, error)`
+- `method (*GORMRepository) ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error)`
+- `method (*GORMRepository) CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatform…`
+- `func createAppPlatformRelTx(tx *gorm.DB, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, error)`
+- `method (*GORMRepository) SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error)`
+- `method (*GORMRepository) DeleteAppPlatformRel(ctx context.Context, relID string) error`
+- `method (*GORMRepository) ListOSOptions(ctx context.Context) ([]OSOption, error)`
+- `func dictionaryStatus(enabled bool, mergedInto *string, revokedAt *time.Time) string`
+- `method (*GORMRepository) businessDomainReferenceCounts(ctx context.Context) (map[string]int64, error)`
+- `method (*GORMRepository) applicationReferenceCounts(ctx context.Context) (map[string]int64, error)`
+- `method (*GORMRepository) platformReferenceCounts(ctx context.Context) (map[string]int64, error)`
+- `method (*GORMRepository) CountBusinessDomainReferences(ctx context.Context, code string) (int64, error)`
+- `method (*GORMRepository) CountApplicationReferences(ctx context.Context, code string) (int64, error)`
+- `method (*GORMRepository) CountPlatformReferences(ctx context.Context, code string) (int64, error)`
+- `method (*GORMRepository) cloudReferenceCounts(ctx context.Context) (map[string]int64, error)`
+- `method (*GORMRepository) CountCloudReferences(ctx context.Context, cloudCode string) (int64, error)`
+- `method (*GORMRepository) RevokeBusinessDomain(ctx context.Context, code, operator string) (*BusinessDomain, error)`
+- `method (*GORMRepository) RevokeApplication(ctx context.Context, appCode, operator string) (*Application, error)`
+- `method (*GORMRepository) RevokePlatform(ctx context.Context, platformCode, operator string) (*Platform, error)`
+- `method (*GORMRepository) RevokeCloud(ctx context.Context, cloudCode, operator string) (*Cloud, error)`
+- `method (*GORMRepository) MergeBusinessDomain(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*GORMRepository) MergeApplication(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*GORMRepository) MergePlatform(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*GORMRepository) MergeCloud(ctx context.Context, source, target, operator string) (int64, error)`
+- `func migrateAppPlatformRelsTx(tx *gorm.DB, fromApp, toApp string) error`
+- `func migratePlatformRelsTx(tx *gorm.DB, fromPlatform, toPlatform string) error`
+- `func ensurePrimaryAppPlatformTx(tx *gorm.DB, appCode string) error`
+- `func insertDictionaryAuditTx(tx *gorm.DB, entry DictionaryAuditLog) error`
+- `method (*GORMRepository) ListDictionaryAuditLogs(ctx context.Context, dictionaryType, code string, limit int) ([]DictionaryAud…`
+- `func loadBusinessDomainTx(tx *gorm.DB, code string) (*businessDomainRecord, error)`
+- `func loadApplicationTx(tx *gorm.DB, appCode string) (*applicationDictRecord, error)`
+- `func loadPlatformTx(tx *gorm.DB, platformCode string) (*platformDictRecord, error)`
+- `func loadCloudTx(tx *gorm.DB, cloudCode string) (*cloudDictRecord, error)`
+- `func ensureMergeable(revokedAt *time.Time, mergedInto *string) error`
+- `func countBusinessDomainReferencesTx(tx *gorm.DB, code string) (int64, error)`
+- `func countApplicationReferencesTx(tx *gorm.DB, code string) (int64, error)`
+- `func countPlatformReferencesTx(tx *gorm.DB, code string) (int64, error)`
+- `func countCloudReferencesTx(tx *gorm.DB, cloudCode string) (int64, error)`
+
+### `platform/modules/m07/dictionary/service.go`
+
+- `type Resolver interface`
+- `type Service struct`
+- `func NewService(repo Repository) *Service`
+- `method (*Service) ValidateResource(ctx context.Context, resource *domain.Resource) error`
+- `method (*Service) ValidateResourceUpdate(ctx context.Context, before, after *domain.Resource) error`
+- `method (*Service) validateResource(ctx context.Context, before, after *domain.Resource) error`
+- `method (*Service) PrimaryPlatformOfApp(ctx context.Context, appCode string) (string, bool, error)`
+- `method (*Service) PlatformBelongsToApp(ctx context.Context, appCode, platformCode string) (bool, error)`
+- `method (*Service) ValidateReferenceTarget(ctx context.Context, field, code string) error`
+- `method (*Service) ListBusinessDomains(ctx context.Context) ([]BusinessDomain, error)`
+- `method (*Service) CreateBusinessDomain(ctx context.Context, code, name, description string) (*BusinessDomain, error)`
+- `method (*Service) UpdateBusinessDomain(ctx context.Context, code string, name, description *string, enabled *bool) (*BusinessD…`
+- `method (*Service) ListApplications(ctx context.Context) ([]Application, error)`
+- `method (*Service) CreateApplication(ctx context.Context, appCode, appName, description string, platformCodes []string) (*Appli…`
+- `func normalizePlatformCodes(raw []string) ([]string, error)`
+- `method (*Service) UpdateApplication(ctx context.Context, appCode string, appName, description, status *string) (*Application, …`
+- `method (*Service) ListPlatforms(ctx context.Context) ([]Platform, error)`
+- `method (*Service) CreatePlatform(ctx context.Context, platformCode, platformName, description string) (*Platform, error)`
+- `method (*Service) UpdatePlatform(ctx context.Context, platformCode string, platformName, description *string, enabled *bool) (…`
+- `method (*Service) ListClouds(ctx context.Context) ([]Cloud, error)`
+- `method (*Service) RevokeBusinessDomain(ctx context.Context, code, operator string) (*BusinessDomain, error)`
+- `method (*Service) RevokeApplication(ctx context.Context, appCode, operator string) (*Application, error)`
+- `method (*Service) RevokePlatform(ctx context.Context, platformCode, operator string) (*Platform, error)`
+- `method (*Service) MergeBusinessDomain(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*Service) MergeApplication(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*Service) MergePlatform(ctx context.Context, source, target, operator string) (int64, error)`
+- `method (*Service) RevokeCloud(ctx context.Context, cloudCode, operator string) (*Cloud, error)`
+- `method (*Service) MergeCloud(ctx context.Context, source, target, operator string) (int64, error)`
+- `func validateMergeCodes(source, target, field string) (string, string, error)`
+- `method (*Service) ListDictionaryAuditLogs(ctx context.Context, dictionaryType, code string, limit int) ([]DictionaryAuditLog, …`
+- `method (*Service) ListAppPlatformRels(ctx context.Context, appCode, platformCode string) ([]AppPlatformRel, error)`
+- `method (*Service) CreateAppPlatformRel(ctx context.Context, appCode, platformCode string, isPrimary bool) (*AppPlatformRel, er…`
+- `method (*Service) SetPrimaryAppPlatformRel(ctx context.Context, relID string, isPrimary bool) (*AppPlatformRel, error)`
+- `method (*Service) DeleteAppPlatformRel(ctx context.Context, relID string) error`
+- `method (*Service) ListOSOptions(ctx context.Context) ([]OSOption, error)`
+- `method (*Service) EnsureDeclarations(ctx context.Context, biz, app, platform []DeclaredEntry) error`
+
+### `platform/modules/m07/dictionary/service_test.go`
+
+- `func openDictionaryTestDB(t *testing.T) *gorm.DB`
+- `func testResource() *domain.Resource`
+- `func TestServiceValidateResource(t *testing.T)`
+- `func TestServicePrimaryPlatform(t *testing.T)`
+- `func TestServiceAppPlatformRelCRUD(t *testing.T)`
+- `func TestCreateApplicationRequiresPlatforms(t *testing.T)`
+- `func TestServiceList(t *testing.T)`
+- `func TestValidateResourceUpdateIgnoresUnchangedDisabledRefs(t *testing.T)`
+- `func TestDictionaryRevokeLifecycle(t *testing.T)`
+- `func assertResourceTouchRecorded(t *testing.T, db *gorm.DB, resourceID string)`
+- `func TestDictionaryMergeBusinessDomain(t *testing.T)`
+- `func TestDictionaryMergeApplicationMigratesRelations(t *testing.T)`
+- `func TestDictionaryMergePlatformMigratesOwnership(t *testing.T)`
+- `func TestDictionaryCloudLifecycle(t *testing.T)`
+- `func TestDictionaryCloudMergeMigratesNetworkDomainLabels(t *testing.T)`
+- `func boolPtr(v bool) *bool`
+
+### `platform/modules/m07/domain/attributes.go`
+
+- `type Attributes interface`
+- `type HostAttributes struct`
+- `method (HostAttributes) Category() Category`
+- `method (HostAttributes) Validate() error`
+- `type DatabaseAttributes struct`
+- `method (DatabaseAttributes) Category() Category`
+- `method (DatabaseAttributes) Validate() error`
+- `type MiddlewareAttributes struct`
+- `method (MiddlewareAttributes) Category() Category`
+- `method (MiddlewareAttributes) Validate() error`
+- `type ApplicationAttributes struct`
+- `method (ApplicationAttributes) Category() Category`
+- `method (ApplicationAttributes) Validate() error`
+- `type GenericTargetAttributes struct`
+- `method (GenericTargetAttributes) Category() Category`
+- `method (GenericTargetAttributes) Validate() error`
+- `type InterfaceServiceAttributes struct`
+- `method (InterfaceServiceAttributes) Category() Category`
+- `method (InterfaceServiceAttributes) Validate() error`
+- `func validateIPv4(field, raw string) error`
+- `func validatePort(field string, port int, required bool) error`
+- `func validateURL(field, raw string, schemes ...string) error`
+- `func isOneOf(value string, allowed ...string) bool`
+- `func ValidateCategoryAttributes(category Category, attrs Attributes) error`
+
+### `platform/modules/m07/domain/builtin_fields.go`
+
+- `type FieldValueType = string`
+- `type BuiltinField struct`
+- `func CategoryLabel(c Category) string`
+- `func BuiltinFields(c Category) []BuiltinField`
+- `func ownershipFields(withPlatform bool) []BuiltinField`
+- `func runtimeFields() []BuiltinField`
+- `func hostBuiltinFields() []BuiltinField`
+- `func databaseBuiltinFields() []BuiltinField`
+- `func middlewareBuiltinFields() []BuiltinField`
+- `func applicationBuiltinFields() []BuiltinField`
+- `func interfaceServiceBuiltinFields() []BuiltinField`
+- `func genericTargetBuiltinFields() []BuiltinField`
+
+### `platform/modules/m07/domain/capability.go`
+
+- `type AttributeValueType = string`
+- `method (AttributeValueType) Valid() bool`
+- `type AttributeStatus = string`
+- `method (AttributeStatus) Valid() bool`
+- `type AttributeGroup = string`
+- `func ValidAttributeGroups() []AttributeGroup`
+- `method (AttributeGroup) Valid() bool`
+- `func AttributeGroupLabel(g AttributeGroup) string`
+- `type AttributeDefinition struct`
+- `method (AttributeDefinition) Validate() error`
+- `method (AttributeDefinition) EffectiveStatus() AttributeStatus`
+- `method (AttributeDefinition) ValidateValue(raw string) (string, error)`
+- `type ResourceAttribute struct`
+- `method (*ResourceAttribute) Validate() error`
+- `method (ResourceAttribute) String() string`
+
+### `platform/modules/m07/domain/category.go`
+
+- `type Category = string`
+- `func AllCategories() []Category`
+- `method (Category) Valid() bool`
+- `func ParseCategory(raw string) (Category, error)`
+- `func CategoryHint() string`
+- `method (Category) IsComposed() bool`
+- `method (Category) IsStatic() bool`
+
+### `platform/modules/m07/domain/dedup.go`
+
+- `func DedupKey(r *Resource) (string, error)`
+
+### `platform/modules/m07/domain/domain_test.go`
+
+- `func validResource(category Category, attrs Attributes) *Resource`
+- `func TestDedupKey(t *testing.T)`
+- `func TestResourceValidate(t *testing.T)`
+- `func TestParseCategory(t *testing.T)`
+- `func TestNewResourceID(t *testing.T)`
+- `func mustID(t *testing.T) string`
+
+### `platform/modules/m07/domain/errors.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `method (*ValidationError) ErrorKind() apierror.Kind`
+- `func newValidationError(field, format string, args ...any) *ValidationError`
+- `type NotFoundError struct`
+- `method (*NotFoundError) Error() string`
+- `method (*NotFoundError) ErrorKind() apierror.Kind`
+- `type ConflictError struct`
+- `method (*ConflictError) Error() string`
+- `method (*ConflictError) ErrorKind() apierror.Kind`
+- `type UnsupportedCategoryError struct`
+- `method (*UnsupportedCategoryError) Error() string`
+- `method (*UnsupportedCategoryError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m07/domain/id.go`
+
+- `func NewResourceID() (string, error)`
+
+### `platform/modules/m07/domain/import.go`
+
+- `type ImportMode = string`
+- `type ImportStatus = string`
+- `type ImportErrorDetail struct`
+- `type ImportRecord struct`
+
+### `platform/modules/m07/domain/label.go`
+
+- `type LabelSource = string`
+- `type Label struct`
+- `func ValidateLabelKey(key string) error`
+- `func ValidateLabelValue(value string) error`
+- `method (*Label) Validate() error`
+- `func IsWritableCategory(category Category) bool`
+- `type ForbiddenError struct`
+- `method (*ForbiddenError) Error() string`
+- `method (*ForbiddenError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m07/domain/label_template.go`
+
+- `type LabelSourceType = string`
+- `method (LabelSourceType) Valid() bool`
+- `type LabelMapping struct`
+- `type LabelTemplate struct`
+- `method (*LabelTemplate) Normalize()`
+- `method (*LabelTemplate) Validate() error`
+- `type LabelTemplateNotFoundError struct`
+- `method (*LabelTemplateNotFoundError) Error() string`
+- `method (*LabelTemplateNotFoundError) ErrorKind() apierror.Kind`
+- `type LabelTemplateConflictError struct`
+- `method (*LabelTemplateConflictError) Error() string`
+- `method (*LabelTemplateConflictError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m07/domain/label_template_test.go`
+
+- `func validTemplate() *LabelTemplate`
+- `func TestLabelTemplateValidate(t *testing.T)`
+- `func TestLabelTemplateNormalize(t *testing.T)`
+
+### `platform/modules/m07/domain/resource.go`
+
+- `type Resource struct`
+- `method (*Resource) Validate() error`
+- `method (*Resource) validateOwnership() error`
+- `method (*Resource) EnsureDedupKey() error`
+- `method (*Resource) Normalize()`
+
+### `platform/modules/m07/domain/status.go`
+
+- `type Status = string`
+- `method (Status) Valid() bool`
+- `type SourceType = string`
+- `method (SourceType) Valid() bool`
+- `type Environment = string`
+- `method (Environment) Valid() bool`
+
+### `platform/modules/m07/dto/attribute.go`
+
+- `type AttributeDefinitionRequest struct`
+- `method (AttributeDefinitionRequest) ToDomain() *domain.AttributeDefinition`
+- `type AttributeDefinitionResponse struct`
+- `func FromAttributeDefinition(def *domain.AttributeDefinition) AttributeDefinitionResponse`
+- `type RemoveDefinitionResponse struct`
+- `type AttributeValuePayload struct`
+- `type ReplaceAttributesRequest struct`
+- `type ResourceAttributeResponse struct`
+- `func FromResourceAttribute(attr *domain.ResourceAttribute) ResourceAttributeResponse`
+- `func formatAttributeTime(t time.Time) string`
+
+### `platform/modules/m07/dto/attributes.go`
+
+- `type HostAttributes struct`
+- `method (HostAttributes) ToDomain() domain.HostAttributes`
+- `type DatabaseAttributes struct`
+- `method (DatabaseAttributes) ToDomain() domain.DatabaseAttributes`
+- `type MiddlewareAttributes struct`
+- `method (MiddlewareAttributes) ToDomain() domain.MiddlewareAttributes`
+- `type ApplicationAttributes struct`
+- `method (ApplicationAttributes) ToDomain() domain.ApplicationAttributes`
+- `type GenericTargetAttributes struct`
+- `method (GenericTargetAttributes) ToDomain() domain.GenericTargetAttributes`
+- `type InterfaceServiceAttributes struct`
+- `method (InterfaceServiceAttributes) ToDomain() domain.InterfaceServiceAttributes`
+
+### `platform/modules/m07/dto/ci_model.go`
+
+- `type CIModelResponse struct`
+- `type BuiltinFieldResponse struct`
+- `type AttributeGroupOption struct`
+- `type CIModelListResponse struct`
+- `func FromBuiltinField(field domain.BuiltinField) BuiltinFieldResponse`
+- `func AvailableAttributeGroups() []AttributeGroupOption`
+- `func FromCIModel(category domain.Category, label string, builtin []domain.BuiltinField, custom []*domain.AttributeDefinition…`
+
+### `platform/modules/m07/dto/dictionary.go`
+
+- `type BusinessDomain struct`
+- `type Application struct`
+- `type Platform struct`
+- `type DictionaryAuditLog struct`
+- `type Cloud struct`
+- `type OSOption struct`
+- `type AppPlatformRel struct`
+- `func FromAppPlatformRel(item *dictionary.AppPlatformRel) AppPlatformRel`
+- `func FromBusinessDomains(items []dictionary.BusinessDomain) []BusinessDomain`
+- `func FromBusinessDomain(item *dictionary.BusinessDomain) BusinessDomain`
+- `func fromBusinessDomain(item dictionary.BusinessDomain) BusinessDomain`
+- `func FromApplications(items []dictionary.Application) []Application`
+- `func FromApplication(item *dictionary.Application) Application`
+- `func fromApplication(item dictionary.Application) Application`
+- `func FromPlatforms(items []dictionary.Platform) []Platform`
+- `func FromPlatform(item *dictionary.Platform) Platform`
+- `func fromPlatform(item dictionary.Platform) Platform`
+- `func FromDictionaryAuditLogs(items []dictionary.DictionaryAuditLog) []DictionaryAuditLog`
+- `func FromClouds(items []dictionary.Cloud) []Cloud`
+- `func FromCloud(item *dictionary.Cloud) Cloud`
+- `func fromCloud(item dictionary.Cloud) Cloud`
+- `func FromOSOptions(items []dictionary.OSOption) []OSOption`
+- `func FromAppPlatformRels(items []dictionary.AppPlatformRel) []AppPlatformRel`
+
+### `platform/modules/m07/dto/import.go`
+
+- `type ImportError struct`
+- `type ImportRecord struct`
+- `func FromImportRecord(record *domain.ImportRecord) ImportRecord`
+- `func FromImportRecords(records []*domain.ImportRecord) []ImportRecord`
+
+### `platform/modules/m07/dto/label.go`
+
+- `type Label struct`
+- `type CreateLabelRequest struct`
+- `type UpdateLabelRequest struct`
+- `func FromLabels(items []domain.Label) []Label`
+- `func FromLabel(item *domain.Label) Label`
+
+### `platform/modules/m07/dto/label_template.go`
+
+- `type LabelTemplateRequest struct`
+- `method (LabelTemplateRequest) ToDomain() *domain.LabelTemplate`
+- `type LabelTemplateResponse struct`
+- `func FromLabelTemplate(item *domain.LabelTemplate) LabelTemplateResponse`
+- `func FromLabelTemplates(items []*domain.LabelTemplate) []LabelTemplateResponse`
+
+### `platform/modules/m07/dto/references.go`
+
+- `type JobReference struct`
+- `type ReferencesResponse struct`
+
+### `platform/modules/m07/dto/resource.go`
+
+- `type CreateResourceRequest struct`
+- `type UpdateResourceRequest struct`
+- `method (CreateResourceRequest) ToDomain() (*domain.Resource, error)`
+- `method (UpdateResourceRequest) ToDomain() (*domain.Resource, error)`
+- `func DecodeAttributes(category domain.Category, raw json.RawMessage) (domain.Attributes, error)`
+- `type ListResponse struct`
+- `type BulkReassignRequest struct`
+- `type BulkReassignFailure struct`
+- `type BulkReassignResponse struct`
+- `type BulkScrapePortRequest struct`
+- `type BulkScrapePortResponse struct`
+- `type BulkReassignFailureResponse struct`
+- `type ResourceResponse struct`
+- `func FromDomain(r *domain.Resource) ResourceResponse`
+- `func attributesToDTO(attrs domain.Attributes) any`
+
+### `platform/modules/m07/dto/resource_test.go`
+
+- `func TestCreateResourceRequestToDomain(t *testing.T)`
+- `func TestDecodeAttributesRejectsUnknownCategory(t *testing.T)`
+- `func TestFromDomainMapsAttributes(t *testing.T)`
+
+### `platform/modules/m07/handler/attribute_handler.go`
+
+- `type AttributeHandler struct`
+- `func NewAttributeHandler(svc *service.AttributeService, ciModel *service.CIModelService) *AttributeHandler`
+- `method (*AttributeHandler) ListDefinitions(c *gin.Context)`
+- `method (*AttributeHandler) ListModels(c *gin.Context)`
+- `method (*AttributeHandler) GetModel(c *gin.Context)`
+- `method (*AttributeHandler) CreateDefinition(c *gin.Context)`
+- `method (*AttributeHandler) UpdateDefinition(c *gin.Context)`
+- `method (*AttributeHandler) RemoveDefinition(c *gin.Context)`
+- `method (*AttributeHandler) ListResourceAttributes(c *gin.Context)`
+- `method (*AttributeHandler) ReplaceResourceAttributes(c *gin.Context)`
+
+### `platform/modules/m07/handler/attribute_test.go`
+
+- `func TestAttributeDefinitionAndResourceValues(t *testing.T)`
+- `func TestCIModelBuiltinAndCustomFields(t *testing.T)`
+- `func ciModelOf(t *testing.T, list []any, category string) map[string]any`
+
+### `platform/modules/m07/handler/dictionary_handler.go`
+
+- `type DictionaryHandler struct`
+- `func NewDictionaryHandler(svc *dictionary.Service) *DictionaryHandler`
+- `method (*DictionaryHandler) ListBusinessDomains(c *gin.Context)`
+- `type createBusinessDomainRequest struct`
+- `method (*DictionaryHandler) CreateBusinessDomain(c *gin.Context)`
+- `type updateBusinessDomainRequest struct`
+- `method (*DictionaryHandler) UpdateBusinessDomain(c *gin.Context)`
+- `method (*DictionaryHandler) ListApplications(c *gin.Context)`
+- `type createApplicationRequest struct`
+- `method (*DictionaryHandler) CreateApplication(c *gin.Context)`
+- `type updateApplicationRequest struct`
+- `method (*DictionaryHandler) UpdateApplication(c *gin.Context)`
+- `method (*DictionaryHandler) ListPlatforms(c *gin.Context)`
+- `type createPlatformRequest struct`
+- `method (*DictionaryHandler) CreatePlatform(c *gin.Context)`
+- `type updatePlatformRequest struct`
+- `method (*DictionaryHandler) UpdatePlatform(c *gin.Context)`
+- `method (*DictionaryHandler) ListClouds(c *gin.Context)`
+- `method (*DictionaryHandler) ListOSOptions(c *gin.Context)`
+- `method (*DictionaryHandler) ListAppPlatformRels(c *gin.Context)`
+- `type createAppPlatformRelRequest struct`
+- `method (*DictionaryHandler) CreateAppPlatformRel(c *gin.Context)`
+- `type updateAppPlatformRelRequest struct`
+- `method (*DictionaryHandler) UpdateAppPlatformRel(c *gin.Context)`
+- `method (*DictionaryHandler) DeleteAppPlatformRel(c *gin.Context)`
+- `method (*DictionaryHandler) RevokeBusinessDomain(c *gin.Context)`
+- `method (*DictionaryHandler) RevokeApplication(c *gin.Context)`
+- `method (*DictionaryHandler) RevokePlatform(c *gin.Context)`
+- `type mergeDictionaryRequest struct`
+- `method (*DictionaryHandler) MergeBusinessDomain(c *gin.Context)`
+- `method (*DictionaryHandler) MergeApplication(c *gin.Context)`
+- `method (*DictionaryHandler) MergePlatform(c *gin.Context)`
+- `method (*DictionaryHandler) RevokeCloud(c *gin.Context)`
+- `method (*DictionaryHandler) MergeCloud(c *gin.Context)`
+- `method (*DictionaryHandler) ListDictionaryAuditLogs(c *gin.Context)`
+- `func dictionaryOperator(c *gin.Context) string`
+- `func respondDictionaryError(c *gin.Context, err error)`
+
+### `platform/modules/m07/handler/errors.go`
+
+- `func respondError(c *gin.Context, err error)`
+
+### `platform/modules/m07/handler/golden_test.go`
+
+- `func normalizeResourcePayload(t *testing.T, data map[string]any) map[string]any`
+- `func TestV3GoldenResource(t *testing.T)`
+- `func TestV3GoldenList(t *testing.T)`
+- `func TestV3GoldenError(t *testing.T)`
+
+### `platform/modules/m07/handler/import_handler.go`
+
+- `type ImportHandler struct`
+- `func NewImportHandler(svc *service.ImportService) *ImportHandler`
+- `method (*ImportHandler) Import(c *gin.Context)`
+- `method (*ImportHandler) List(c *gin.Context)`
+- `method (*ImportHandler) Get(c *gin.Context)`
+- `method (*ImportHandler) DownloadTemplate(c *gin.Context)`
+- `func buildTemplateWorkbook(columns []string) ([]byte, error)`
+
+### `platform/modules/m07/handler/label_handler.go`
+
+- `type LabelHandler struct`
+- `func NewLabelHandler(svc *service.LabelService) *LabelHandler`
+- `method (*LabelHandler) List(c *gin.Context)`
+- `method (*LabelHandler) Create(c *gin.Context)`
+- `method (*LabelHandler) Update(c *gin.Context)`
+- `method (*LabelHandler) Delete(c *gin.Context)`
+
+### `platform/modules/m07/handler/label_template_handler.go`
+
+- `type LabelTemplateHandler struct`
+- `func NewLabelTemplateHandler(svc *service.LabelTemplateService) *LabelTemplateHandler`
+- `method (*LabelTemplateHandler) List(c *gin.Context)`
+- `method (*LabelTemplateHandler) Create(c *gin.Context)`
+- `method (*LabelTemplateHandler) Get(c *gin.Context)`
+- `method (*LabelTemplateHandler) Update(c *gin.Context)`
+- `method (*LabelTemplateHandler) Delete(c *gin.Context)`
+- `func boolQuery(c *gin.Context, key string) *bool`
+
+### `platform/modules/m07/handler/label_template_test.go`
+
+- `func TestLabelTemplateCRUD(t *testing.T)`
+
+### `platform/modules/m07/handler/resource_handler.go`
+
+- `type ResourceHandler struct`
+- `func NewResourceHandler(svc *service.ResourceService, refs references.Reader) *ResourceHandler`
+- `method (*ResourceHandler) List(c *gin.Context)`
+- `method (*ResourceHandler) Get(c *gin.Context)`
+- `method (*ResourceHandler) Create(c *gin.Context)`
+- `method (*ResourceHandler) Update(c *gin.Context)`
+- `method (*ResourceHandler) Delete(c *gin.Context)`
+- `method (*ResourceHandler) References(c *gin.Context)`
+- `method (*ResourceHandler) BulkReassign(c *gin.Context)`
+- `method (*ResourceHandler) BulkSetScrapePort(c *gin.Context)`
+- `func parsePagination(c *gin.Context) (int, int)`
+
+### `platform/modules/m07/handler/routes.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dictionaries *DictionaryHandler, labels *LabelHan…`
+
+### `platform/modules/m07/handler/routes_test.go`
+
+- `func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB)`
+- `func doJSON(t *testing.T, router *gin.Engine, method, path, body string) (int, map[string]any)`
+- `func TestV3ResourceAndLabelRoutes(t *testing.T)`
+- `func TestV3ImportRoute(t *testing.T)`
+- `func buildImportXLSX(t *testing.T) []byte`
+- `func TestV3ResourceValidation(t *testing.T)`
+- `func TestV3DictionaryWriteLifecycle(t *testing.T)`
+- `func TestV3CloudDictReadView(t *testing.T)`
+- `func TestV3ImportTemplateXLSX(t *testing.T)`
+- `func TestV3DictionaryLifecycleRoutes(t *testing.T)`
+- `func TestV3CloudLifecycleRoutes(t *testing.T)`
+- `func TestV3BulkReassignRoute(t *testing.T)`
+
+### `platform/modules/m07/importer/capability_test.go`
+
+- `func TestParseExcelAcceptsLegacyHostHeader(t *testing.T)`
+- `func TestParseExcelCarriesCapabilityColumns(t *testing.T)`
+- `func TestParseExcelRejectsIllegalBoolean(t *testing.T)`
+- `func TestParseExcelRejectsMalformedAttributes(t *testing.T)`
+
+### `platform/modules/m07/importer/declare.go`
+
+- `type DeclareEntry struct`
+- `type DeclareSheets struct`
+- `method (*DeclareSheets) Empty() bool`
+- `func ParseDeclareSheets(fileBytes []byte) (*DeclareSheets, error)`
+- `func parseDeclareSheet(f *excelize.File, sheet, codeHeader, nameHeader string) ([]DeclareEntry, error)`
+- `func ValidateDeclarations(sheets *DeclareSheets) error`
+- `func validateDeclareEntries(sheet string, entries []DeclareEntry) error`
+- `func sheetExists(f *excelize.File, name string) bool`
+- `func cellAt(cells []string, idx int) string`
+
+### `platform/modules/m07/importer/excel.go`
+
+- `type Row struct`
+- `func ParseExcel(fileBytes []byte, category domain.Category) ([]Row, error)`
+- `func validateHeader(header, expected []string) error`
+- `func applyCells(row *Row, header, cells []string)`
+- `func parseBoolCell(raw string) (bool, error)`
+- `func parsePort(raw string) (int, string)`
+- `func trimCells(cells []string) []string`
+- `func allEmpty(cells []string) bool`
+
+### `platform/modules/m07/importer/importer_test.go`
+
+- `func setRows(t *testing.T, f *excelize.File, sheet string, rows [][]any)`
+- `func buildXLSX(t *testing.T, sheet string, rows [][]any) []byte`
+- `func TestParseExcelAndValidateRows(t *testing.T)`
+- `func TestValidateRowsRequiresNetworkDomain(t *testing.T)`
+- `func TestParseDeclareSheets(t *testing.T)`
+
+### `platform/modules/m07/importer/row.go`
+
+- `type ImportRowError struct`
+- `method (*ImportRowError) Error() string`
+- `method (Row) ToDomain() (*domain.Resource, error)`
+- `method (Row) AttributePairs() (map[string]string, error)`
+- `method (Row) attributes() (domain.Attributes, error)`
+- `func MapStatus(raw string) (domain.Status, error)`
+- `func parseOptionalTime(raw string) (*time.Time, error)`
+- `func fieldFromError(err error) string`
+
+### `platform/modules/m07/importer/template.go`
+
+- `func ColumnsFor(category domain.Category) ([]string, bool)`
+
+### `platform/modules/m07/importer/validate.go`
+
+- `type ValidatedRow struct`
+- `func ValidateRows(rows []Row) ([]ValidatedRow, []domain.ImportErrorDetail)`
+- `func rowErrorDetail(row Row, err error) domain.ImportErrorDetail`
+
+### `platform/modules/m07/module.go`
+
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+
+### `platform/modules/m07/references/change_notifier.go`
+
+- `type ResourceChangeNotifier interface`
+- `type NoopChangeNotifier struct`
+- `method (NoopChangeNotifier) ResourceChanged(context.Context, ...string)`
+- `method (NoopChangeNotifier) AllResourcesChanged(context.Context)`
+
+### `platform/modules/m07/references/label_template_usage.go`
+
+- `type LabelTemplateUsageChecker interface`
+- `type NoopLabelTemplateUsageChecker struct`
+- `method (NoopLabelTemplateUsageChecker) CountReferences(context.Context, string) (int64, error)`
+
+### `platform/modules/m07/references/reader.go`
+
+- `type JobReference struct`
+- `type Reader interface`
+- `type GORMReader struct`
+- `func NewGORMReader(db *gorm.DB) *GORMReader`
+- `type scrapeJobRecord struct`
+- `method (scrapeJobRecord) TableName() string`
+- `method (*GORMReader) ListByResource(ctx context.Context, resourceID string) ([]JobReference, error)`
+- `func contains(values []string, target string) bool`
+
+### `platform/modules/m07/references/reader_test.go`
+
+- `func TestGORMReaderListByResource(t *testing.T)`
+
+### `platform/modules/m07/repository/attribute_repository.go`
+
+- `type attributeDefinitionRecord struct`
+- `method (attributeDefinitionRecord) TableName() string`
+- `method (attributeDefinitionRecord) toDomain() *domain.AttributeDefinition`
+- `func attributeDefinitionFromDomain(def *domain.AttributeDefinition) attributeDefinitionRecord`
+- `type resourceAttributeRecord struct`
+- `method (resourceAttributeRecord) TableName() string`
+- `method (resourceAttributeRecord) toDomain() *domain.ResourceAttribute`
+- `type AttributeDefinitionRepository interface`
+- `type GORMAttributeDefinitionRepository struct`
+- `func NewAttributeDefinitionRepository(db *gorm.DB) *GORMAttributeDefinitionRepository`
+- `method (*GORMAttributeDefinitionRepository) List(ctx context.Context, category domain.Category, statuses ...domain.AttributeSt…`
+- `method (*GORMAttributeDefinitionRepository) Get(ctx context.Context, id string) (*domain.AttributeDefinition, error)`
+- `method (*GORMAttributeDefinitionRepository) FindByKey(ctx context.Context, category domain.Category, key string) (*domain.Attr…`
+- `method (*GORMAttributeDefinitionRepository) Create(ctx context.Context, def *domain.AttributeDefinition) error`
+- `method (*GORMAttributeDefinitionRepository) Update(ctx context.Context, def *domain.AttributeDefinition) error`
+- `method (*GORMAttributeDefinitionRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMAttributeDefinitionRepository) CountResourceValues(ctx context.Context, key string) (int64, error)`
+- `type ResourceAttributeRepository interface`
+- `type GORMResourceAttributeRepository struct`
+- `func NewResourceAttributeRepository(db *gorm.DB) *GORMResourceAttributeRepository`
+- `method (*GORMResourceAttributeRepository) ListByResource(ctx context.Context, resourceID string) ([]*domain.ResourceAttribute,…`
+- `method (*GORMResourceAttributeRepository) Replace(ctx context.Context, resourceID string, attrs []*domain.ResourceAttribute) e…`
+- `func mapAttributeWriteError(err error) error`
+- `func nonNilStrings(values []string) []string`
+
+### `platform/modules/m07/repository/concurrency_test.go`
+
+- `func TestConcurrentCreateSameDedupKey(t *testing.T)`
+- `func TestCreateRollsBackWhenExtensionFails(t *testing.T)`
+
+### `platform/modules/m07/repository/import_repository.go`
+
+- `type importRecordRecord struct`
+- `method (importRecordRecord) TableName() string`
+- `type ImportRepository interface`
+- `type GORMImportRepository struct`
+- `func NewGORMImportRepository(db *gorm.DB) *GORMImportRepository`
+- `method (*GORMImportRepository) Create(ctx context.Context, record *domain.ImportRecord) error`
+- `method (*GORMImportRepository) List(ctx context.Context, category, status string) ([]*domain.ImportRecord, error)`
+- `method (*GORMImportRepository) Get(ctx context.Context, importID string) (*domain.ImportRecord, error)`
+- `func toDomainImportRecord(rec *importRecordRecord) *domain.ImportRecord`
+
+### `platform/modules/m07/repository/label_repository.go`
+
+- `type resourceLabelRecord struct`
+- `method (resourceLabelRecord) TableName() string`
+- `type LabelRepository interface`
+- `type GORMLabelRepository struct`
+- `func NewGORMLabelRepository(db *gorm.DB) *GORMLabelRepository`
+- `method (*GORMLabelRepository) List(ctx context.Context, resourceID string) ([]domain.Label, error)`
+- `method (*GORMLabelRepository) Create(ctx context.Context, label *domain.Label) error`
+- `method (*GORMLabelRepository) Update(ctx context.Context, resourceID, labelID, value string) (*domain.Label, error)`
+- `method (*GORMLabelRepository) Delete(ctx context.Context, resourceID, labelID string) error`
+- `func toDomainLabel(rec *resourceLabelRecord) domain.Label`
+
+### `platform/modules/m07/repository/label_repository_test.go`
+
+- `func TestLabelRepositoryCRUD(t *testing.T)`
+
+### `platform/modules/m07/repository/label_template_repository.go`
+
+- `type LabelTemplateFilter struct`
+- `type LabelTemplateRepository interface`
+- `type labelTemplateRecord struct`
+- `method (labelTemplateRecord) TableName() string`
+- `method (labelTemplateRecord) toDomain() *domain.LabelTemplate`
+- `func labelTemplateFromDomain(t *domain.LabelTemplate) labelTemplateRecord`
+- `type GORMLabelTemplateRepository struct`
+- `func NewLabelTemplateRepository(db *gorm.DB) *GORMLabelTemplateRepository`
+- `method (*GORMLabelTemplateRepository) Create(ctx context.Context, template *domain.LabelTemplate) error`
+- `method (*GORMLabelTemplateRepository) Get(ctx context.Context, id string) (*domain.LabelTemplate, error)`
+- `method (*GORMLabelTemplateRepository) List(ctx context.Context, filter LabelTemplateFilter) ([]*domain.LabelTemplate, int64, e…`
+- `method (*GORMLabelTemplateRepository) Update(ctx context.Context, template *domain.LabelTemplate) error`
+- `method (*GORMLabelTemplateRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMLabelTemplateRepository) ClearDefault(ctx context.Context, category domain.Category, excludeID string) error`
+- `func labelTemplateWriteError(err error, name, category string) error`
+
+### `platform/modules/m07/repository/mapping.go`
+
+- `func stringPtr(value string) *string`
+- `func derefString(value *string) string`
+- `func toResourceRecord(r *domain.Resource) *resourceRecord`
+- `func toExtensionRecord(category domain.Category, resourceID string, attrs domain.Attributes) (any, error)`
+- `func fromResourceRecord(base *resourceRecord, ext any) (*domain.Resource, error)`
+
+### `platform/modules/m07/repository/models.go`
+
+- `type resourceRecord struct`
+- `method (resourceRecord) TableName() string`
+- `type hostRecord struct`
+- `method (hostRecord) TableName() string`
+- `type databaseRecord struct`
+- `method (databaseRecord) TableName() string`
+- `type middlewareRecord struct`
+- `method (middlewareRecord) TableName() string`
+- `type applicationRecord struct`
+- `method (applicationRecord) TableName() string`
+- `type genericTargetRecord struct`
+- `method (genericTargetRecord) TableName() string`
+- `type interfaceServiceRecord struct`
+- `method (interfaceServiceRecord) TableName() string`
+
+### `platform/modules/m07/repository/repository.go`
+
+- `type ListFilter struct`
+- `type ResourceRepository interface`
+- `type BulkReassignInput struct`
+- `type GORMRepository struct`
+- `func NewGORMRepository(db *gorm.DB) *GORMRepository`
+
+### `platform/modules/m07/repository/resource_repository.go`
+
+- `method (*GORMRepository) Create(ctx context.Context, resource *domain.Resource) error`
+- `method (*GORMRepository) Get(ctx context.Context, resourceID string) (*domain.Resource, error)`
+- `method (*GORMRepository) GetMany(ctx context.Context, resourceIDs []string) ([]*domain.Resource, error)`
+- `func normalizeResourceIDs(resourceIDs []string) []string`
+- `method (*GORMRepository) List(ctx context.Context, filter ListFilter) ([]*domain.Resource, int64, error)`
+- `method (*GORMRepository) Update(ctx context.Context, resource *domain.Resource) error`
+- `method (*GORMRepository) BulkSetScrapePort(ctx context.Context, resourceIDs []string, scrapePort int) (int64, error)`
+- `method (*GORMRepository) SoftDelete(ctx context.Context, resourceID string) error`
+- `method (*GORMRepository) BulkReassign(ctx context.Context, input BulkReassignInput) (int64, error)`
+- `method (*GORMRepository) FindByDedupKey(ctx context.Context, tenantID string, category domain.Category, dedupKey string) (*dom…`
+- `method (*GORMRepository) findBase(ctx context.Context, resourceID string) (*resourceRecord, error)`
+- `method (*GORMRepository) loadExtension(ctx context.Context, category domain.Category, resourceID string) (any, error)`
+- `func loadOne(ctx context.Context, db *gorm.DB, dest any, resourceID string) (any, error)`
+- `method (*GORMRepository) loadExtensions(ctx context.Context, category domain.Category, ids []string) (map[string]any, error)`
+- `method (*GORMRepository) keywordSubquery(ctx context.Context, category domain.Category, keyword string) *gorm.DB`
+- `func normalizePage(page, pageSize int) (int, int)`
+- `func nullable(value string) any`
+- `func mapWriteError(err error, dedupKey string) error`
+
+### `platform/modules/m07/repository/resource_repository_test.go`
+
+- `func openRepositoryTestDB(t *testing.T) *gorm.DB`
+- `func newHost(id, ip, hostname string) *domain.Resource`
+- `func TestRepositoryCreateGetListUpdateDelete(t *testing.T)`
+- `func TestRepositoryDedupConflict(t *testing.T)`
+- `func TestRepositoryDedupIsTenantScoped(t *testing.T)`
+- `func TestRepositoryApplicationAttributes(t *testing.T)`
+
+### `platform/modules/m07/service/attribute_service.go`
+
+- `type AttributeService struct`
+- `func NewAttributeService( defs repository.AttributeDefinitionRepository, attrs repository.ResourceAttributeRepository, resou…`
+- `type RemoveResult struct`
+- `method (*AttributeService) ListDefinitions(ctx context.Context, category domain.Category, statuses ...domain.AttributeStatus) …`
+- `method (*AttributeService) CreateDefinition(ctx context.Context, def *domain.AttributeDefinition) (*domain.AttributeDefinition…`
+- `func applyAttributeDefaults(def *domain.AttributeDefinition)`
+- `method (*AttributeService) UpdateDefinition(ctx context.Context, id string, patch *domain.AttributeDefinition, _ *bool) (*doma…`
+- `method (*AttributeService) RemoveDefinition(ctx context.Context, id string) (*RemoveResult, error)`
+- `method (*AttributeService) ListResourceAttributes(ctx context.Context, resourceID string) ([]*domain.ResourceAttribute, error)`
+- `type AttributeValue struct`
+- `method (*AttributeService) ReplaceResourceAttributes(ctx context.Context, resourceID string, values []AttributeValue) ([]*doma…`
+
+### `platform/modules/m07/service/attribute_service_test.go`
+
+- `func newAttributeService(t *testing.T) (*AttributeService, *gorm.DB)`
+- `func TestCreateAttributeDefinitionNeedsNoSchemaChange(t *testing.T)`
+- `func TestAttributeDefinitionValidatesTypeAndOptions(t *testing.T)`
+- `func TestReplaceResourceAttributesValidatesValues(t *testing.T)`
+- `func TestDeleteAttributeDefinitionBlockedWhileUsed(t *testing.T)`
+- `func TestAttributeDefinitionGroupAndOrder(t *testing.T)`
+
+### `platform/modules/m07/service/ci_model_service.go`
+
+- `type CIModel struct`
+- `type CIModelService struct`
+- `func NewCIModelService(defs repository.AttributeDefinitionRepository) *CIModelService`
+- `method (*CIModelService) List(ctx context.Context) ([]*CIModel, error)`
+- `method (*CIModelService) Get(ctx context.Context, category domain.Category) (*CIModel, error)`
+
+### `platform/modules/m07/service/import_capability_test.go`
+
+- `func buildCapabilityXLSX(t *testing.T, ip, attributes string) []byte`
+- `func newCapabilityImportService(t *testing.T) (*ImportService, *gorm.DB, *repository.GORMRepository)`
+- `func TestImportPersistsCapabilityFlagsAndAttributes(t *testing.T)`
+- `func TestImportRejectsUnregisteredAttributeKey(t *testing.T)`
+- `func TestImportRejectsRemovedAttributeKey(t *testing.T)`
+
+### `platform/modules/m07/service/import_service.go`
+
+- `type ImportService struct`
+- `func NewImportService(resources repository.ResourceRepository, imports repository.ImportRepository, dict DictionaryResolver,…`
+- `method (*ImportService) SetChangeNotifier(notifier references.ResourceChangeNotifier)`
+- `method (*ImportService) SetAttributeWriter(defs repository.AttributeDefinitionRepository, store repository.ResourceAttributeRe…`
+- `method (*ImportService) Import(ctx context.Context, category domain.Category, mode domain.ImportMode, fileBytes []byte, operat…`
+- `method (*ImportService) List(ctx context.Context, category, status string) ([]*domain.ImportRecord, error)`
+- `method (*ImportService) Get(ctx context.Context, importID string) (*domain.ImportRecord, error)`
+- `method (*ImportService) resolvePlatform(ctx context.Context, resource *domain.Resource) error`
+- `func importDetail(rowNumber int, resource *domain.Resource, field string, err error) domain.ImportErrorDetail`
+- `func toDeclared(entries []importer.DeclareEntry) []dictionary.DeclaredEntry`
+- `func newImportNo() string`
+- `method (*ImportService) validateImportAttributes(ctx context.Context, category domain.Category, pairs map[string]string) ([]*d…`
+- `method (*ImportService) mergeImportAttributes(ctx context.Context, resourceID string, incoming []*domain.ResourceAttribute) er…`
+- `func formatAttributePairs(pairs map[string]string) string`
+
+### `platform/modules/m07/service/import_service_test.go`
+
+- `type fakeImportRepository struct`
+- `method (*fakeImportRepository) Create(_ context.Context, record *domain.ImportRecord) error`
+- `method (*fakeImportRepository) List(_ context.Context, _, _ string) ([]*domain.ImportRecord, error)`
+- `method (*fakeImportRepository) Get(_ context.Context, importID string) (*domain.ImportRecord, error)`
+- `func buildHostXLSX(t *testing.T, ip, status string) []byte`
+- `func TestImportServiceCreateOnlyAndDuplicate(t *testing.T)`
+- `func TestImportServiceUpsert(t *testing.T)`
+- `func TestImportNotifiesAllDomains(t *testing.T)`
+
+### `platform/modules/m07/service/label_service.go`
+
+- `type LabelService struct`
+- `func NewLabelService(labels repository.LabelRepository, resources repository.ResourceRepository) *LabelService`
+- `method (*LabelService) SetChangeNotifier(notifier references.ResourceChangeNotifier)`
+- `method (*LabelService) List(ctx context.Context, resourceID string) ([]domain.Label, error)`
+- `method (*LabelService) Add(ctx context.Context, resourceID, key, value string) (*domain.Label, error)`
+- `method (*LabelService) Update(ctx context.Context, resourceID, labelID, value string) (*domain.Label, error)`
+- `method (*LabelService) Delete(ctx context.Context, resourceID, labelID string) error`
+- `method (*LabelService) notify(ctx context.Context, domainID string)`
+- `method (*LabelService) writableResource(ctx context.Context, resourceID string) (*domain.Resource, error)`
+
+### `platform/modules/m07/service/label_service_test.go`
+
+- `type fakeLabelRepository struct`
+- `func newFakeLabelRepository() *fakeLabelRepository`
+- `method (*fakeLabelRepository) List(_ context.Context, resourceID string) ([]domain.Label, error)`
+- `method (*fakeLabelRepository) Create(_ context.Context, label *domain.Label) error`
+- `method (*fakeLabelRepository) Update(_ context.Context, resourceID, labelID, value string) (*domain.Label, error)`
+- `method (*fakeLabelRepository) Delete(_ context.Context, resourceID, labelID string) error`
+- `func TestLabelServicePolicy(t *testing.T)`
+
+### `platform/modules/m07/service/label_template_service.go`
+
+- `type LabelTemplateService struct`
+- `func NewLabelTemplateService(repo repository.LabelTemplateRepository, usage references.LabelTemplateUsageChecker) *LabelTemp…`
+- `method (*LabelTemplateService) SetChangeNotifier(notifier references.ResourceChangeNotifier)`
+- `method (*LabelTemplateService) notifyAll(ctx context.Context)`
+- `method (*LabelTemplateService) List(ctx context.Context, filter repository.LabelTemplateFilter) ([]*domain.LabelTemplate, int6…`
+- `method (*LabelTemplateService) Get(ctx context.Context, id string) (*domain.LabelTemplate, error)`
+- `method (*LabelTemplateService) Create(ctx context.Context, template *domain.LabelTemplate) (*domain.LabelTemplate, error)`
+- `method (*LabelTemplateService) Update(ctx context.Context, id string, input *domain.LabelTemplate) (*domain.LabelTemplate, err…`
+- `method (*LabelTemplateService) Delete(ctx context.Context, id string) error`
+
+### `platform/modules/m07/service/label_template_service_test.go`
+
+- `type fixedUsageChecker struct`
+- `method (fixedUsageChecker) CountReferences(context.Context, string) (int64, error)`
+- `func newLabelTemplateService(t *testing.T, usage fixedUsageChecker) (*LabelTemplateService, *gorm.DB)`
+- `func TestLabelTemplateDeleteGuardsReferences(t *testing.T)`
+- `func TestLabelTemplateDeleteUnreferenced(t *testing.T)`
+- `func TestLabelTemplateDefaultIsExclusive(t *testing.T)`
+- `func TestLabelTemplateWritesNotifyAllDomains(t *testing.T)`
+
+### `platform/modules/m07/service/platform_resolver.go`
+
+- `func resolvePlatformFor(ctx context.Context, resolver DictionaryResolver, resource *domain.Resource) error`
+
+### `platform/modules/m07/service/resource_service.go`
+
+- `type DictionaryResolver interface`
+- `type ResourceService struct`
+- `func NewResourceService(repo repository.ResourceRepository, dict DictionaryResolver) *ResourceService`
+- `method (*ResourceService) SetChangeNotifier(notifier references.ResourceChangeNotifier)`
+- `method (*ResourceService) List(ctx context.Context, filter repository.ListFilter) ([]*domain.Resource, int64, error)`
+- `method (*ResourceService) Get(ctx context.Context, resourceID string) (*domain.Resource, error)`
+- `method (*ResourceService) Create(ctx context.Context, resource *domain.Resource) (*domain.Resource, error)`
+- `method (*ResourceService) Update(ctx context.Context, resourceID string, input *domain.Resource) (*domain.Resource, error)`
+- `method (*ResourceService) Delete(ctx context.Context, resourceID string) error`
+- `type BulkReassignFailure struct`
+- `type BulkReassignError struct`
+- `method (*BulkReassignError) Error() string`
+- `type BulkReassignResult struct`
+- `method (*ResourceService) BulkSetScrapePort(ctx context.Context, resourceIDs []string, scrapePort int) (int64, error)`
+- `method (*ResourceService) BulkReassign(ctx context.Context, resourceIDs []string, field, targetCode string) (*BulkReassignResu…`
+- `func normalizeBulkReassignIDs(resourceIDs []string) []string`
+- `method (*ResourceService) notifyDomains(ctx context.Context, domainIDs ...string)`
+- `method (*ResourceService) notifyAll(ctx context.Context)`
+- `method (*ResourceService) resolvePlatform(ctx context.Context, resource *domain.Resource) error`
+
+### `platform/modules/m07/service/resource_service_test.go`
+
+- `type fakeRepository struct`
+- `func newFakeRepository() *fakeRepository`
+- `method (*fakeRepository) Create(_ context.Context, resource *domain.Resource) error`
+- `method (*fakeRepository) Get(_ context.Context, resourceID string) (*domain.Resource, error)`
+- `method (*fakeRepository) List(_ context.Context, _ repository.ListFilter) ([]*domain.Resource, int64, error)`
+- `method (*fakeRepository) Update(_ context.Context, resource *domain.Resource) error`
+- `method (*fakeRepository) SoftDelete(_ context.Context, resourceID string) error`
+- `method (*fakeRepository) FindByDedupKey(_ context.Context, _ string, category domain.Category, dedupKey string) (*domain.Resou…`
+- `method (*fakeRepository) GetMany(_ context.Context, resourceIDs []string) ([]*domain.Resource, error)`
+- `method (*fakeRepository) BulkReassign(_ context.Context, input repository.BulkReassignInput) (int64, error)`
+- `method (*fakeRepository) BulkSetScrapePort(_ context.Context, resourceIDs []string, scrapePort int) (int64, error)`
+- `type fakeDictionary struct`
+- `method (*fakeDictionary) ValidateResource(_ context.Context, _ *domain.Resource) error`
+- `method (*fakeDictionary) ValidateResourceUpdate(_ context.Context, _, _ *domain.Resource) error`
+- `method (*fakeDictionary) PrimaryPlatformOfApp(_ context.Context, _ string) (string, bool, error)`
+- `method (*fakeDictionary) PlatformBelongsToApp(_ context.Context, appCode, platformCode string) (bool, error)`
+- `method (*fakeDictionary) ValidateReferenceTarget(_ context.Context, _, _ string) error`
+- `func applicationResource() *domain.Resource`
+- `func TestCreateDefaultsAndPlatformFallback(t *testing.T)`
+- `func TestCreateConflict(t *testing.T)`
+- `func TestUpdatePreservesImmutableFields(t *testing.T)`
+- `func TestDeleteNotFound(t *testing.T)`
+- `func TestComposedResourceAlwaysDerivesPrimaryPlatform(t *testing.T)`
+- `func TestStaticResourceKeepsExplicitPlatform(t *testing.T)`
+- `func staticHostResource() *domain.Resource`
+- `func TestBulkReassignBizCode(t *testing.T)`
+- `func TestBulkReassignRejectsComposedPlatformChange(t *testing.T)`
+- `func TestBulkReassignAppCodeDerivesComposedPlatform(t *testing.T)`
+- `func TestBulkReassignRejectsUnassociatedStaticPlatform(t *testing.T)`
+- `func TestBulkReassignRejectsUnassociatedPlatform(t *testing.T)`
+- `func TestBulkReassignValidation(t *testing.T)`
+- `type recordedChangeNotifier struct`
+- `method (*recordedChangeNotifier) ResourceChanged(_ context.Context, domainIDs ...string)`
+- `method (*recordedChangeNotifier) AllResourcesChanged(context.Context)`
+- `func TestResourceWritesNotifyConfigSync(t *testing.T)`
+
+### `platform/modules/m08/apply/apply.go`
+
+- `type Reloader interface`
+- `type Request struct`
+- `type Result struct`
+- `type Applier struct`
+- `func New(dir string, reloader Reloader, logs repository.ReloadLogRepository) *Applier`
+- `method (*Applier) SetClock(now func() time.Time)`
+- `method (*Applier) Apply(ctx context.Context, req Request) (Result, error)`
+- `method (*Applier) record(ctx context.Context, req Request, result Result, started time.Time)`
+- `func sameContent(path, content string) bool`
+- `func writeAtomic(path, content string) error`
+
+### `platform/modules/m08/apply/apply_test.go`
+
+- `type fakeReloader struct`
+- `method (*fakeReloader) Reload(context.Context) error`
+- `method (*fakeReloader) Verify(context.Context) error`
+- `type fakeLogs struct`
+- `method (*fakeLogs) Insert(_ context.Context, entry *domain.ReloadLog) error`
+- `method (*fakeLogs) List(context.Context, repository.ReloadLogFilter) ([]*domain.ReloadLog, int64, error)`
+- `func TestApplySucceedsAndWritesAtomically(t *testing.T)`
+- `func TestApplySkipsWriteWhenUnchangedButStillReloads(t *testing.T)`
+- `func TestApplyRollsBackOnReloadFailure(t *testing.T)`
+- `func TestApplyUnconfiguredTargetIsRetryable(t *testing.T)`
+- `func TestApplyVerifyFailureTriggersRollback(t *testing.T)`
+- `func TestApplyRecordsDurationAndFinishedAt(t *testing.T)`
+
+### `platform/modules/m08/apply/http.go`
+
+- `type HTTPReloader struct`
+- `func NewHTTPReloader(base *url.URL) *HTTPReloader`
+- `method (*HTTPReloader) Reload(ctx context.Context) error`
+- `method (*HTTPReloader) Verify(ctx context.Context) error`
+- `method (*HTTPReloader) post(ctx context.Context, path string) error`
+
+### `platform/modules/m08/bridge_url.go`
+
+- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
+
+### `platform/modules/m08/configgen/configgen.go`
+
+- `type Input struct`
+- `type Output struct`
+- `func Generate(input Input) (*Output, error)`
+- `func NewVersion(now time.Time, suffix string) string`
+- `type globalConfig struct`
+- `type alertmanagerConfig struct`
+- `type routeConfig struct`
+- `type inhibitRule struct`
+- `type receiverConfig struct`
+- `type webhookConfig struct`
+- `func toRoute(node domain.RouteNode) *routeConfig`
+- `func groupBy(values []string) []string`
+- `func renderMatchers(matchers []domain.Matcher) []string`
+- `func buildInhibitRules(rules []*domain.InhibitionRule) []inhibitRule`
+- `func buildReceivers(base string, referenced map[string]bool, channels map[string]*domain.Channel) []receiverConfig`
+- `func orDefault(value, fallback string) string`
+
+### `platform/modules/m08/configgen/configgen_test.go`
+
+- `func baseTree() []domain.RouteNode`
+- `func TestGenerateMaterialisesOnlyReferencedChannels(t *testing.T)`
+- `func TestGenerateRendersInhibitRules(t *testing.T)`
+- `func TestGenerateRejectsUnknownReceiver(t *testing.T)`
+- `func TestGenerateRequiresBridgeBaseAndSingleRoot(t *testing.T)`
+- `func TestGenerateRendersNegativeMatchers(t *testing.T)`
+- `func TestGenerateSkipsDisabledBranches(t *testing.T)`
+
+### `platform/modules/m08/domain/actor.go`
+
+- `type Actor struct`
+
+### `platform/modules/m08/domain/channel.go`
+
+- `type Channel struct`
+- `method (Channel) ReceiverName() string`
+- `func ValidateChannel(c *Channel, allowPrivate bool) []ValidationIssue`
+- `func ValidateWebhookURL(raw string, allowPrivate bool) error`
+
+### `platform/modules/m08/domain/config.go`
+
+- `type Snapshot struct`
+- `type ReloadLog struct`
+- `type Silence struct`
+
+### `platform/modules/m08/domain/enums.go`
+
+- `type ChannelType = string`
+- `func IsIM(t ChannelType) bool`
+- `func IsValidChannelType(t ChannelType) bool`
+- `type EventStatus = string`
+- `func OpenEventStatuses() []string`
+- `func IsOpenStatus(s EventStatus) bool`
+- `func IsValidEventStatus(s EventStatus) bool`
+- `type ReloadTrigger = string`
+- `type ReloadStatus = string`
+- `type PendingSection = string`
+- `type AuditAction = string`
+- `type AuditResult = string`
+
+### `platform/modules/m08/domain/errors.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `method (*ValidationError) ErrorKind() apierror.Kind`
+- `func NewValidationError(field, message string) *ValidationError`
+- `type ValidationIssue struct`
+- `type ValidationCause = string`
+- `type ConfigValidationError struct`
+- `method (*ConfigValidationError) Error() string`
+- `method (*ConfigValidationError) ErrorKind() apierror.Kind`
+- `type NotFoundError struct`
+- `method (*NotFoundError) Error() string`
+- `method (*NotFoundError) ErrorKind() apierror.Kind`
+- `type ConflictError struct`
+- `method (*ConflictError) Error() string`
+- `method (*ConflictError) ErrorKind() apierror.Kind`
+- `type ForbiddenError struct`
+- `method (*ForbiddenError) Error() string`
+- `method (*ForbiddenError) ErrorKind() apierror.Kind`
+- `type UnavailableError struct`
+- `method (*UnavailableError) Error() string`
+- `method (*UnavailableError) ErrorKind() apierror.Kind`
+- `type UpstreamError struct`
+- `method (*UpstreamError) Error() string`
+- `method (*UpstreamError) Unwrap() error`
+- `method (*UpstreamError) ErrorKind() apierror.Kind`
+
+### `platform/modules/m08/domain/event.go`
+
+- `type Event struct`
+- `func OccurrenceKey(fingerprint string, startsAt time.Time) string`
+- `func ClosedStatus(open EventStatus) EventStatus`
+- `func InferredClosedStatus(open EventStatus) EventStatus`
+- `func NormalizeStatus(raw string) EventStatus`
+- `func DurationSeconds(start time.Time, end *time.Time) *int64`
+
+### `platform/modules/m08/domain/id.go`
+
+- `func NewID() (string, error)`
+
+### `platform/modules/m08/domain/inhibition.go`
+
+- `type InhibitionRule struct`
+- `func ValidateInhibition(r *InhibitionRule) []ValidationIssue`
+
+### `platform/modules/m08/domain/matcher.go`
+
+- `type Matcher struct`
+- `method (Matcher) IsEqualMatch() bool`
+- `method (Matcher) Validate(field string) []ValidationIssue`
+- `func ValidateMatchers(field string, matchers []Matcher) []ValidationIssue`
+
+### `platform/modules/m08/domain/route.go`
+
+- `type RouteNode struct`
+- `func ValidateRouteTree(nodes []RouteNode, allowedReceivers map[string]bool) []ValidationIssue`
+- `func walkRoute(node *RouteNode, path string, depth int, allowed map[string]bool, issues *[]ValidationIssue)`
+- `func CollectReceivers(nodes []RouteNode) map[string]bool`
+
+### `platform/modules/m08/domain/route_test.go`
+
+- `func TestValidateRouteTree(t *testing.T)`
+- `func TestCollectReceiversSkipsDisabled(t *testing.T)`
+- `func TestValidateWebhookURL(t *testing.T)`
+- `func TestClosedStatusMapping(t *testing.T)`
+- `func TestOccurrenceKeyDedupAcrossPrecision(t *testing.T)`
+
+### `platform/modules/m08/domain/template.go`
+
+- `type Template struct`
+- `func TemplateFuncMap() template.FuncMap`
+- `func titleCase(s string) string`
+- `func isTitleSeparator(r rune) bool`
+- `func ValidateTemplate(t *Template) []ValidationIssue`
+
+### `platform/modules/m08/dto/config.go`
+
+- `type ReloadSummary struct`
+- `type SnapshotResponse struct`
+- `type SnapshotListItem struct`
+- `type ReloadLogResponse struct`
+- `type RouteTreeResponse struct`
+- `type SaveRouteRequest struct`
+- `type SaveResult struct`
+
+### `platform/modules/m08/dto/doc.go`
+
+- `func MaskURL(raw string) string`
+
+### `platform/modules/m08/dto/event.go`
+
+- `type EventResponse struct`
+- `type EventInstance struct`
+- `func FromEvent(event *domain.Event, inst EventInstance, now time.Time) EventResponse`
+- `type EventListResponse struct`
+- `func idString(id int64) string`
+- `func timePtr(t time.Time) *time.Time`
+
+### `platform/modules/m08/dto/inhibition.go`
+
+- `type InhibitionRequest struct`
+- `method (InhibitionRequest) ToDomain() *domain.InhibitionRule`
+- `type InhibitionResponse struct`
+- `func FromInhibition(rule *domain.InhibitionRule) InhibitionResponse`
+- `type CreateSilenceRequest struct`
+- `type LabelOption struct`
+- `type AuditResponse struct`
+
+### `platform/modules/m08/dto/notify.go`
+
+- `type ChannelRequest struct`
+- `method (ChannelRequest) ToDomain() *domain.Channel`
+- `type ChannelResponse struct`
+- `func FromChannel(channel *domain.Channel, referencedByRoutes int) ChannelResponse`
+- `type TemplateRequest struct`
+- `method (TemplateRequest) ToDomain() *domain.Template`
+- `type TemplateResponse struct`
+- `func FromTemplate(t *domain.Template, boundChannels int64) TemplateResponse`
+
+### `platform/modules/m08/dto/url.go`
+
+- `func parseURL(raw string) (*url.URL, error)`
+- `func firstSegment(path string) string`
+
+### `platform/modules/m08/handler/bridge.go`
+
+- `type BridgeHandler struct`
+- `func NewBridgeHandler(notify *service.BridgeService, events *service.EventService) *BridgeHandler`
+- `method (*BridgeHandler) Notify(c *gin.Context)`
+- `method (*BridgeHandler) AlertsWebhook(c *gin.Context)`
+
+### `platform/modules/m08/handler/config.go`
+
+- `type ConfigHandler struct`
+- `func NewConfigHandler(svc *service.ConfigService) *ConfigHandler`
+- `method (*ConfigHandler) Current(c *gin.Context)`
+- `method (*ConfigHandler) ListVersions(c *gin.Context)`
+- `method (*ConfigHandler) GetVersion(c *gin.Context)`
+- `method (*ConfigHandler) ReloadLogs(c *gin.Context)`
+- `method (*ConfigHandler) Reload(c *gin.Context)`
+- `type RouteHandler struct`
+- `func NewRouteHandler(svc *service.ConfigService) *RouteHandler`
+- `method (*RouteHandler) Get(c *gin.Context)`
+- `method (*RouteHandler) Save(c *gin.Context)`
+- `func saveResult(outcome *service.SaveOutcome) dto.SaveResult`
+- `func timeOrNil(t time.Time) *time.Time`
+
+### `platform/modules/m08/handler/event.go`
+
+- `type EventHandler struct`
+- `func NewEventHandler(svc *service.EventService) *EventHandler`
+- `method (*EventHandler) List(c *gin.Context)`
+- `method (*EventHandler) Current(c *gin.Context)`
+- `method (*EventHandler) Stats(c *gin.Context)`
+- `func eventsToDTO(views []service.EventView) []dto.EventResponse`
+- `type AlertsHandler struct`
+- `func NewAlertsHandler(client *service.AMClient) *AlertsHandler`
+- `method (*AlertsHandler) List(c *gin.Context)`
+- `func notifyStatus(alert service.AMAlert) string`
+
+### `platform/modules/m08/handler/helpers.go`
+
+- `func bindJSON(c *gin.Context, dest any) error`
+- `func parsePagination(c *gin.Context) (int, int)`
+- `func boolQuery(c *gin.Context, key string) *bool`
+- `func respondError(c *gin.Context, err error)`
+- `func actorOf(c *gin.Context) domain.Actor`
+- `func operatorOf(c *gin.Context) string`
+- `func parsePathID(c *gin.Context, name string) (int64, bool)`
+
+### `platform/modules/m08/handler/inhibition.go`
+
+- `type InhibitionHandler struct`
+- `func NewInhibitionHandler(svc *service.InhibitionService) *InhibitionHandler`
+- `method (*InhibitionHandler) List(c *gin.Context)`
+- `method (*InhibitionHandler) Create(c *gin.Context)`
+- `method (*InhibitionHandler) Update(c *gin.Context)`
+- `method (*InhibitionHandler) SetStatus(c *gin.Context)`
+- `method (*InhibitionHandler) Delete(c *gin.Context)`
+- `func baseChecksumOf(c *gin.Context) string`
+
+### `platform/modules/m08/handler/notify.go`
+
+- `type ChannelHandler struct`
+- `func NewChannelHandler(svc *service.ChannelService) *ChannelHandler`
+- `method (*ChannelHandler) List(c *gin.Context)`
+- `method (*ChannelHandler) Create(c *gin.Context)`
+- `method (*ChannelHandler) Update(c *gin.Context)`
+- `method (*ChannelHandler) Delete(c *gin.Context)`
+- `type TemplateHandler struct`
+- `func NewTemplateHandler(svc *service.TemplateService) *TemplateHandler`
+- `method (*TemplateHandler) List(c *gin.Context)`
+- `method (*TemplateHandler) Get(c *gin.Context)`
+- `method (*TemplateHandler) Create(c *gin.Context)`
+- `method (*TemplateHandler) Update(c *gin.Context)`
+- `method (*TemplateHandler) Delete(c *gin.Context)`
+- `func errRequired(field string) error`
+
+### `platform/modules/m08/handler/routes.go`
+
+- `type Handlers struct`
+- `func RegisterRoutes(platform *gin.RouterGroup, h Handlers)`
+- `func RegisterWebhookRoutes(platform *gin.RouterGroup, h Handlers)`
+
+### `platform/modules/m08/handler/silence.go`
+
+- `type SilenceHandler struct`
+- `func NewSilenceHandler(svc *service.SilenceService) *SilenceHandler`
+- `method (*SilenceHandler) List(c *gin.Context)`
+- `method (*SilenceHandler) LabelOptions(c *gin.Context)`
+- `method (*SilenceHandler) Create(c *gin.Context)`
+- `method (*SilenceHandler) Delete(c *gin.Context)`
+- `method (*SilenceHandler) Audits(c *gin.Context)`
+- `func parseRFC3339(value, field string) (time.Time, error)`
+- `func parseOptionalTime(value string) (*time.Time, error)`
+
+### `platform/modules/m08/module.go`
+
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+- `method (*Module) RegisterWebhookRoutes(platform *gin.RouterGroup) error`
+- `method (*Module) StartBackground(ctx context.Context)`
+- `method (*Module) Config() *service.ConfigService`
+
+### `platform/modules/m08/references/domain.go`
+
+- `type DomainAuthorizer interface`
+- `type GORMDomainAuthorizer struct`
+- `func NewDomainAuthorizer(db *gorm.DB) *GORMDomainAuthorizer`
+- `method (*GORMDomainAuthorizer) AuthorizedDomains(ctx context.Context, actor domain.Actor) ([]string, error)`
+
+### `platform/modules/m08/references/resource.go`
+
+- `type ResourceInfo struct`
+- `type ResourceNamer interface`
+- `type M01ResourceNamer struct`
+- `func NewResourceNamer(db *gorm.DB) *M01ResourceNamer`
+- `method (*M01ResourceNamer) GetMany(ctx context.Context, resourceIDs []string) (map[string]ResourceInfo, error)`
+
+### `platform/modules/m08/repository/channel.go`
+
+- `type ChannelFilter struct`
+- `type ChannelRepository interface`
+- `type GORMChannelRepository struct`
+- `func NewChannelRepository(db *gorm.DB) *GORMChannelRepository`
+- `method (*GORMChannelRepository) Create(ctx context.Context, channel *domain.Channel) error`
+- `method (*GORMChannelRepository) Get(ctx context.Context, id string) (*domain.Channel, error)`
+- `method (*GORMChannelRepository) List(ctx context.Context, filter ChannelFilter) ([]*domain.Channel, int64, error)`
+- `method (*GORMChannelRepository) Update(ctx context.Context, channel *domain.Channel) error`
+- `method (*GORMChannelRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMChannelRepository) ListAll(ctx context.Context) ([]*domain.Channel, error)`
+- `method (*GORMChannelRepository) CountByTemplate(ctx context.Context, templateID string) (int64, error)`
+
+### `platform/modules/m08/repository/common.go`
+
+- `func mapWriteError(err error, entity, field, value string) error`
+- `func isNotFound(err error) bool`
+- `func notFound(entity, id string) error`
+- `func paginate(q *gorm.DB, page, pageSize int) *gorm.DB`
+- `func keywordLike(q *gorm.DB, keyword string, columns ...string) *gorm.DB`
+- `func normalizePage(page, pageSize int) (int, int)`
+
+### `platform/modules/m08/repository/event.go`
+
+- `type EventFilter struct`
+- `type Stats struct`
+- `type EventRepository interface`
+- `type GORMEventRepository struct`
+- `func NewEventRepository(db *gorm.DB) *GORMEventRepository`
+- `method (*GORMEventRepository) FindByOccurrenceKey(ctx context.Context, key string) (*domain.Event, bool, error)`
+- `method (*GORMEventRepository) Insert(ctx context.Context, event *domain.Event) error`
+- `method (*GORMEventRepository) Update(ctx context.Context, event *domain.Event) error`
+- `method (*GORMEventRepository) ListOpen(ctx context.Context, networkDomain string) ([]*domain.Event, error)`
+- `method (*GORMEventRepository) List(ctx context.Context, filter EventFilter) ([]*domain.Event, int64, error)`
+- `method (*GORMEventRepository) Stats(ctx context.Context, dayStart, dayEnd time.Time, networkDomain string) (Stats, error)`
+- `method (*GORMEventRepository) DistinctValues(ctx context.Context, column string) ([]string, error)`
+- `method (*GORMEventRepository) PurgeExpired(ctx context.Context, before time.Time) (int64, error)`
+
+### `platform/modules/m08/repository/inhibition.go`
+
+- `type InhibitionFilter struct`
+- `type InhibitionRepository interface`
+- `type GORMInhibitionRepository struct`
+- `func NewInhibitionRepository(db *gorm.DB) *GORMInhibitionRepository`
+- `method (*GORMInhibitionRepository) Create(ctx context.Context, rule *domain.InhibitionRule) error`
+- `method (*GORMInhibitionRepository) Get(ctx context.Context, id string) (*domain.InhibitionRule, error)`
+- `method (*GORMInhibitionRepository) List(ctx context.Context, filter InhibitionFilter) ([]*domain.InhibitionRule, int64, error)`
+- `method (*GORMInhibitionRepository) Update(ctx context.Context, rule *domain.InhibitionRule) error`
+- `method (*GORMInhibitionRepository) SoftDelete(ctx context.Context, id string) error`
+- `method (*GORMInhibitionRepository) ListEnabled(ctx context.Context) ([]*domain.InhibitionRule, error)`
+- `type AuditFilter struct`
+- `type AuditRepository interface`
+- `type AuditEntry struct`
+- `type GORMAuditRepository struct`
+- `func NewAuditRepository(db *gorm.DB) *GORMAuditRepository`
+- `method (*GORMAuditRepository) Insert(ctx context.Context, entry *AuditEntry) error`
+- `method (*GORMAuditRepository) List(ctx context.Context, filter AuditFilter) ([]*AuditEntry, int64, error)`
+
+### `platform/modules/m08/repository/models.go`
+
+- `type channelRecord struct`
+- `method (channelRecord) TableName() string`
+- `func channelFromDomain(c *domain.Channel) *channelRecord`
+- `method (*channelRecord) toDomain() *domain.Channel`
+- `type templateRecord struct`
+- `method (templateRecord) TableName() string`
+- `func templateFromDomain(t *domain.Template) *templateRecord`
+- `method (*templateRecord) toDomain() *domain.Template`
+- `type snapshotRecord struct`
+- `method (snapshotRecord) TableName() string`
+- `type reloadLogRecord struct`
+- `method (reloadLogRecord) TableName() string`
+- `type eventRecord struct`
+- `method (eventRecord) TableName() string`
+- `func eventFromDomain(e *domain.Event) *eventRecord`
+- `func nonNilStringMap(m map[string]string) map[string]string`
+- `method (*eventRecord) toDomain() *domain.Event`
+- `type inhibitionRecord struct`
+- `method (inhibitionRecord) TableName() string`
+- `func inhibitionFromDomain(r *domain.InhibitionRule) *inhibitionRecord`
+- `method (*inhibitionRecord) toDomain() *domain.InhibitionRule`
+- `type auditRecord struct`
+- `method (auditRecord) TableName() string`
+
+### `platform/modules/m08/repository/reload.go`
+
+- `type ReloadLogFilter struct`
+- `type ReloadLogRepository interface`
+- `type GORMReloadLogRepository struct`
+- `func NewReloadLogRepository(db *gorm.DB) *GORMReloadLogRepository`
+- `method (*GORMReloadLogRepository) Insert(ctx context.Context, log *domain.ReloadLog) error`
+- `method (*GORMReloadLogRepository) List(ctx context.Context, filter ReloadLogFilter) ([]*domain.ReloadLog, int64, error)`
+- `func idString(id int64) string`
+
+### `platform/modules/m08/repository/snapshot.go`
+
+- `type SnapshotRepository interface`
+- `type GORMSnapshotRepository struct`
+- `func NewSnapshotRepository(db *gorm.DB) *GORMSnapshotRepository`
+- `method (*GORMSnapshotRepository) CreateCurrent(ctx context.Context, snapshot *domain.Snapshot, keep int) error`
+- `method (*GORMSnapshotRepository) Current(ctx context.Context) (*domain.Snapshot, error)`
+- `method (*GORMSnapshotRepository) Get(ctx context.Context, id int64) (*domain.Snapshot, error)`
+- `method (*GORMSnapshotRepository) List(ctx context.Context, page, pageSize int) ([]*domain.Snapshot, int64, error)`
+- `func snapshotToDomain(rec *snapshotRecord) *domain.Snapshot`
+
+### `platform/modules/m08/repository/template.go`
+
+- `type TemplateFilter struct`
+- `type TemplateRepository interface`
+- `type GORMTemplateRepository struct`
+- `func NewTemplateRepository(db *gorm.DB) *GORMTemplateRepository`
+- `method (*GORMTemplateRepository) Create(ctx context.Context, template *domain.Template) error`
+- `method (*GORMTemplateRepository) Get(ctx context.Context, id string) (*domain.Template, error)`
+- `method (*GORMTemplateRepository) List(ctx context.Context, filter TemplateFilter) ([]*domain.Template, int64, error)`
+- `method (*GORMTemplateRepository) Update(ctx context.Context, template *domain.Template) error`
+- `method (*GORMTemplateRepository) ListAll(ctx context.Context) ([]*domain.Template, error)`
+- `method (*GORMTemplateRepository) SoftDelete(ctx context.Context, id string) error`
+
+### `platform/modules/m08/service/am.go`
+
+- `type AMAlert struct`
+- `method (AMAlert) FingerprintKey() string`
+- `method (AMAlert) toWebhookAlert() WebhookAlert`
+- `type AMClient struct`
+- `func NewAMClient(base *url.URL) *AMClient`
+- `method (*AMClient) ActiveAlerts(ctx context.Context) ([]AMAlert, error)`
+- `method (*AMClient) ListSilences(ctx context.Context) ([]domain.Silence, error)`
+- `method (*AMClient) CreateSilence(ctx context.Context, silence domain.Silence) (string, error)`
+- `method (*AMClient) DeleteSilence(ctx context.Context, id string) error`
+- `func toAMMatchers(matchers []domain.Matcher) []map[string]any`
+- `method (*AMClient) getJSON(ctx context.Context, path string, dest any) error`
+- `method (*AMClient) postJSON(ctx context.Context, path string, body any, dest any) error`
+- `method (*AMClient) resolve(path string) (*url.URL, error)`
+- `method (*AMClient) do(req *http.Request, dest any) error`
+
+### `platform/modules/m08/service/am_test.go`
+
+- `func TestActiveAlertsKeepsQueryInURL(t *testing.T)`
+
+### `platform/modules/m08/service/bridge.go`
+
+- `type BridgeService struct`
+- `func NewBridgeService(channels repository.ChannelRepository, templates repository.TemplateRepository) *BridgeService`
+- `method (*BridgeService) Notify(ctx context.Context, channelID string, payload WebhookPayload, raw []byte) error`
+- `type renderAlert struct`
+- `type renderView struct`
+- `method (*BridgeService) render(ctx context.Context, channel *domain.Channel, payload WebhookPayload) (string, error)`
+- `method (*BridgeService) templateFor(ctx context.Context, channel *domain.Channel) (*domain.Template, error)`
+- `func imRequest(channel *domain.Channel, content string) ([]byte, string, error)`
+- `func signDingtalk(target, secret string, now time.Time) (string, error)`
+- `method (*BridgeService) post(ctx context.Context, channel *domain.Channel, body []byte, contentType string) error`
+- `method (*BridgeService) postURL(ctx context.Context, target string, body []byte, contentType string) error`
+
+### `platform/modules/m08/service/channel.go`
+
+- `type ChannelService struct`
+- `func NewChannelService(channels repository.ChannelRepository, templates repository.TemplateRepository, snapshots repository.…`
+- `method (*ChannelService) List(ctx context.Context, filter repository.ChannelFilter) ([]*domain.Channel, int64, map[string]int,…`
+- `method (*ChannelService) Get(ctx context.Context, id string) (*domain.Channel, int, error)`
+- `method (*ChannelService) Create(ctx context.Context, channel *domain.Channel) (*domain.Channel, error)`
+- `method (*ChannelService) Update(ctx context.Context, id string, patch *domain.Channel) (*domain.Channel, error)`
+- `method (*ChannelService) Delete(ctx context.Context, id string) error`
+- `method (*ChannelService) RouteReferences(ctx context.Context) (map[string]int, error)`
+- `func receiverChannelID(receiver string) (string, bool)`
+- `method (*ChannelService) resolveTemplate(ctx context.Context, channel *domain.Channel) error`
+
+### `platform/modules/m08/service/channel_test.go`
+
+- `func newChannelService(t *testing.T) (*ChannelService, *repository.GORMTemplateRepository)`
+- `func TestChannelRejectsPrivateWebhookByDefault(t *testing.T)`
+- `func TestChannelUpdateKeepsSecretUnlessSigningDisabled(t *testing.T)`
+
+### `platform/modules/m08/service/config.go`
+
+- `type SaveOutcome struct`
+- `type ConfigService struct`
+- `type ConfigOptions struct`
+- `func NewConfigService( snapshots repository.SnapshotRepository, channels repository.ChannelRepository, inhibitions repositor…`
+- `method (*ConfigService) SetClock(now func() time.Time)`
+- `method (*ConfigService) Current(ctx context.Context) (*domain.Snapshot, error)`
+- `method (*ConfigService) ListVersions(ctx context.Context, page, pageSize int) ([]*domain.Snapshot, int64, error)`
+- `method (*ConfigService) GetVersion(ctx context.Context, id int64) (*domain.Snapshot, error)`
+- `method (*ConfigService) ReloadLogs(ctx context.Context, page, pageSize int) ([]*domain.ReloadLog, int64, error)`
+- `method (*ConfigService) LatestReload(ctx context.Context) (*domain.ReloadLog, bool, error)`
+- `method (*ConfigService) EnabledRules(ctx context.Context) ([]*domain.InhibitionRule, error)`
+- `method (*ConfigService) SaveRoutes(ctx context.Context, baseChecksum string, tree []domain.RouteNode, operator string) (*SaveO…`
+- `method (*ConfigService) SaveAfterInhibitionChange(ctx context.Context, baseChecksum, operator string) (*SaveOutcome, error)`
+- `method (*ConfigService) ReloadCurrent(ctx context.Context, operator string) (apply.Result, error)`
+- `method (*ConfigService) save( ctx context.Context, baseChecksum string, tree []domain.RouteNode, trigger domain.ReloadTrigger,…`
+- `func generateDefault(base string, tree []domain.RouteNode) (*configgen.Output, error)`
+- `func generatedVersion(now time.Time, trigger domain.ReloadTrigger) string`
+
+### `platform/modules/m08/service/config_test.go`
+
+- `func newTestDB(t *testing.T) *gorm.DB`
+- `type stubChecker struct`
+- `method (*stubChecker) Check(context.Context, string) error`
+- `type stubReloader struct`
+- `method (*stubReloader) Reload(context.Context) error`
+- `method (*stubReloader) Verify(context.Context) error`
+- `func newConfigService(t *testing.T, checker ConfigChecker) (*ConfigService, *stubReloader, *gorm.DB)`
+- `func TestSeedCreatesCurrentSnapshot(t *testing.T)`
+- `func TestSaveRoutesAppliesAndPersists(t *testing.T)`
+- `func TestSaveRoutesRejectsStaleChecksum(t *testing.T)`
+- `func TestSaveRoutesValidationFailureKeepsCurrent(t *testing.T)`
+- `func TestReloadCurrentDoesNotCreateVersion(t *testing.T)`
+
+### `platform/modules/m08/service/event.go`
+
+- `type WebhookPayload struct`
+- `type WebhookAlert struct`
+- `type IngestResult struct`
+- `type EventView struct`
+- `type EventInstance struct`
+- `type EventService struct`
+- `type EventOptions struct`
+- `func NewEventService(events repository.EventRepository, opts EventOptions) *EventService`
+- `method (*EventService) SetClock(now func() time.Time)`
+- `method (*EventService) Ingest(ctx context.Context, payload WebhookPayload) (IngestResult, error)`
+- `type ingestOutcome = int`
+- `method (*EventService) ingestOne(ctx context.Context, alert WebhookAlert) (ingestOutcome, error)`
+- `method (*EventService) Reconcile(ctx context.Context, alerts []AMAlert) (int, int, error)`
+- `method (*EventService) List(ctx context.Context, filter repository.EventFilter) ([]EventView, int64, error)`
+- `method (*EventService) Current(ctx context.Context, networkDomain string) ([]EventView, error)`
+- `method (*EventService) Stats(ctx context.Context, networkDomain string) (repository.Stats, error)`
+- `method (*EventService) PurgeExpired(ctx context.Context) (int64, error)`
+- `method (*EventService) RunRetention(ctx context.Context)`
+- `method (*EventService) enrich(ctx context.Context, events []*domain.Event) ([]EventView, error)`
+- `func buildEvent(alert WebhookAlert, fingerprint, key string, startsAt time.Time, status domain.EventStatus, now time.Time) *…`
+- `func applyAlertUpdate(event *domain.Event, alert WebhookAlert, status domain.EventStatus, now time.Time)`
+- `func alertFingerprint(alert WebhookAlert) string`
+- `func labelOf(labels map[string]string, key string) string`
+- `func orFallback(value, fallback string) string`
+- `method (IngestResult) String() string`
+
+### `platform/modules/m08/service/event_test.go`
+
+- `func newEventService(t *testing.T) *EventService`
+- `func firingPayload() WebhookPayload`
+- `func TestIngestIsIdempotentPerOccurrence(t *testing.T)`
+- `func TestIngestResolveClosesEventAndUpdatesStats(t *testing.T)`
+- `func TestReconcileClosesMissingEvents(t *testing.T)`
+- `func TestReconcileInsertsMissingEvents(t *testing.T)`
+- `func TestRetentionKeepsOpenRows(t *testing.T)`
+
+### `platform/modules/m08/service/inhibition.go`
+
+- `type InhibitionService struct`
+- `func NewInhibitionService(rules repository.InhibitionRepository, config *ConfigService) *InhibitionService`
+- `method (*InhibitionService) List(ctx context.Context, filter repository.InhibitionFilter) ([]*domain.InhibitionRule, int64, er…`
+- `method (*InhibitionService) Create(ctx context.Context, rule *domain.InhibitionRule, baseChecksum, operator string) (*domain.I…`
+- `method (*InhibitionService) Update(ctx context.Context, id string, patch *domain.InhibitionRule, baseChecksum, operator string…`
+- `method (*InhibitionService) SetEnabled(ctx context.Context, id string, enabled bool, baseChecksum, operator string) (*domain.I…`
+- `method (*InhibitionService) Delete(ctx context.Context, id, baseChecksum, operator string) (*SaveOutcome, error)`
+
+### `platform/modules/m08/service/reconcile.go`
+
+- `type AlertsSource interface`
+- `type ReconcileService struct`
+- `func NewReconcileService(events *EventService, source AlertsSource, interval time.Duration) *ReconcileService`
+- `method (*ReconcileService) RunOnce(ctx context.Context) (int, int, error)`
+- `method (*ReconcileService) Run(ctx context.Context)`
+
+### `platform/modules/m08/service/seed.go`
+
+- `type SeedOptions struct`
+- `func Seed(ctx context.Context, snapshots repository.SnapshotRepository, templates repository.TemplateRepository, rules repos…`
+- `method (*ConfigService) saveInitial(ctx context.Context, tree []domain.RouteNode) (*SaveOutcome, error)`
+- `func seedBuiltinInhibition(ctx context.Context, rules repository.InhibitionRepository) error`
+- `func seedBuiltinTemplates(ctx context.Context, templates repository.TemplateRepository) error`
+
+### `platform/modules/m08/service/silence.go`
+
+- `type SilenceClient interface`
+- `type SilenceInput struct`
+- `type LabelOption struct`
+- `type SilenceService struct`
+- `func NewSilenceService(client SilenceClient, authz references.DomainAuthorizer, audits repository.AuditRepository, events re…`
+- `method (*SilenceService) List(ctx context.Context, actor domain.Actor) ([]domain.Silence, error)`
+- `method (*SilenceService) Create(ctx context.Context, actor domain.Actor, input SilenceInput) (domain.Silence, error)`
+- `method (*SilenceService) Delete(ctx context.Context, actor domain.Actor, id string) error`
+- `method (*SilenceService) Audits(ctx context.Context, filter repository.AuditFilter) ([]*repository.AuditEntry, int64, error)`
+- `method (*SilenceService) LabelOptions(ctx context.Context) ([]LabelOption, error)`
+- `method (*SilenceService) findMatchers(ctx context.Context, id string) ([]domain.Matcher, bool, error)`
+- `method (*SilenceService) authorizedSet(ctx context.Context, actor domain.Actor) (map[string]bool, error)`
+- `func silenceInScope(silence domain.Silence, allowed map[string]bool) bool`
+- `method (*SilenceService) audit(ctx context.Context, actor domain.Actor, action domain.AuditAction, result domain.AuditResult, …`
+
+### `platform/modules/m08/service/template.go`
+
+- `type TemplateService struct`
+- `func NewTemplateService(templates repository.TemplateRepository, channels repository.ChannelRepository) *TemplateService`
+- `method (*TemplateService) List(ctx context.Context, filter repository.TemplateFilter) ([]*domain.Template, int64, map[string]i…`
+- `method (*TemplateService) Get(ctx context.Context, id string) (*domain.Template, int64, error)`
+- `method (*TemplateService) Create(ctx context.Context, template *domain.Template) (*domain.Template, error)`
+- `method (*TemplateService) Update(ctx context.Context, id string, patch *domain.Template) (*domain.Template, error)`
+- `method (*TemplateService) Delete(ctx context.Context, id string) error`
+
+### `platform/modules/m08/service/validate.go`
+
+- `type ConfigChecker interface`
+- `type AmtoolChecker struct`
+- `func NewAmtoolChecker() *AmtoolChecker`
+- `func NewAmtoolCheckerWith(lookPath func(string) (string, error), run func(ctx context.Context, bin, configPath string) (stri…`
+- `method (*AmtoolChecker) Check(ctx context.Context, content string) error`
+- `func parseAmtoolIssues(output string) []domain.ValidationIssue`
+- `func extractLineNumber(line string) int`
+
+### `platform/modules/m08/service/validate_test.go`
+
+- `func TestAmtoolCheckerMissingToolIsRetryable(t *testing.T)`
+- `func TestAmtoolCheckerSuccess(t *testing.T)`
+- `func TestAmtoolCheckerParsesLineIssues(t *testing.T)`
+- `func TestAmtoolCheckerCrashIsPlatformFault(t *testing.T)`
+
+### `platform/modules/m09/configcenter/generator/generator.go`
+
+- `type ConfigArtifacts struct`
+- `type TargetDiagnostics struct`
+- `method (TargetDiagnostics) anyOfflineOnly() bool`
+- `type TargetGroup struct`
+- `func buildExternalLabels(domainID, replica string) map[string]string`
+- `method (*ConfigArtifacts) Checksum() string`
+- `func normalizeJobFilename(jobName string) string`
+
+### `platform/modules/m09/configcenter/generator/render.go`
+
+- `type cfgGlobal struct`
+- `type cfgAlerting struct`
+- `type cfgAlertmanager struct`
+- `type cfgStaticConfig struct`
+- `type cfgFile struct`
+- `type scrapeConf struct`
+- `type basicAuthConf struct`
+- `type authorizationConf struct`
+- `type tlsConf struct`
+- `type fileSDConf struct`
+- `type relabelConf struct`
+- `type JobBuild struct`
+- `func AssembleWithModules(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertman…`
+- `func assemble(domainID, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr st…`
+- `func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error)`
+- `func orDefault(v, d string) string`
+- `type ruleGroupsFile struct`
+- `func renderRules(rules []models.MonitoringRule) string`
+- `func renderBlackboxModuleDefinitions(defs []models.BlackboxModule, jobs []JobBuild) (string, error)`
+
+### `platform/modules/m09/configcenter/generator/targets.go`
+
+- `type SkippedInstance struct`
+- `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
+- `func EnsureTargetsFilename(name string) error`
+
+### `platform/modules/m09/configcenter/generator/validate.go`
+
+- `type ToolCheckStatus = int`
+- `func ValidateTargetGroups(groups []TargetGroup) error`
+- `func validateTargetAddress(addr string) error`
+- `func validTargetHost(host string) bool`
+- `func validateLabelName(name string) error`
+- `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.Va…`
+- `func emptyTargetsMessage(name string, diag *TargetDiagnostics) string`
+- `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (ToolCheckStatus, string)`
+- `func toolCheckStatus(err error) ToolCheckStatus`
+- `func runPromtoolCheck(ca *ConfigArtifacts) error`
+- `type toolNotExecutableError struct`
+- `method (*toolNotExecutableError) Error() string`
+- `method (*toolNotExecutableError) Unwrap() error`
 - `func isToolNotExecutable(err error) bool`
-- `func promQLCheckMessage(r promQLCheckResult) string`
+- `func toolCheckError(tool, out string, err error) error`
+- `func runBlackboxCheck(blackboxYAML string) error`
+- `func runAmmtoolCheck(alertmanagerYAML string) error`
 
-### `platform/strategy/rule/promtool_check_test.go`
+### `platform/modules/m09/configcenter/generator/validate_toolcheck_test.go`
 
-- `func stubPromtool(t *testing.T, script string)`
-- `func TestCheckPromQLSyntaxPassed(t *testing.T)`
-- `func TestCheckPromQLSyntaxFailedIsHardFailure(t *testing.T)`
-- `func TestCheckPromQLSyntaxUnavailableWhenToolMissing(t *testing.T)`
-- `func TestCheckPromQLSyntaxUnavailableWhenNotExecutable(t *testing.T)`
-- `func TestValidateRuleYAMLHandlerPromQLGate(t *testing.T)`
+- `func TestToolCheckErrorKeepsToolOutput(t *testing.T)`
+- `func TestToolCheckErrorEmptyOutputFallsBackToExecError(t *testing.T)`
+- `func TestToolCheckStatusAttribution(t *testing.T)`
+- `func stubToolChecker(t *testing.T, st ToolCheckStatus, msg string)`
+- `func TestValidateArtifactsPendingWhenToolNotExecutable(t *testing.T)`
+- `func TestValidateArtifactsFailedWhenToolCheckUserConfig(t *testing.T)`
+- `func fakeToolsInPATH(t *testing.T, tools map[string][]byte)`
+- `func TestRunToolChecksClassifiesPlatformMismatchAsUnavailable(t *testing.T)`
+- `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
+- `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
 
-### `platform/strategy/rule/routes.go`
+### `platform/modules/m09/configgen/configgen.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Target struct`
+- `type Job struct`
+- `type Source struct`
+- `type Artifacts struct`
+- `type Metadata struct`
+- `func Generate(src Source, version string, generatedAt time.Time) (*Artifacts, error)`
+- `func toScrapeJob(domainID string, job Job) models.ScrapeJob`
+- `func groupTargets(targets []Target) []generator.TargetGroup`
+- `func labelKey(labels map[string]string) (string, map[string]string)`
+- `func defaultIfEmpty(value, fallback string) string`
+- `type ValidationResult struct`
+- `func Validate(artifacts *Artifacts, platformJobs []string) ValidationResult`
+- `func GenerateCenterRules(rules []models.MonitoringRule, version string, generatedAt time.Time, alertmanagerAddr string) (*Ar…`
 
-### `platform/strategy/rule/update.go`
+### `platform/modules/m09/configgen/configgen_test.go`
 
-- `type UpdateMonitoringRuleRequest struct`
-- `func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteMonitoringRule(db *gorm.DB) gin.HandlerFunc`
-- `type ValidateRuleYAMLRequest struct`
-- `func ruleIDFromContext(raw string) uint`
-- `func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc`
+- `func TestGenerateRendersDeterministicArtifacts(t *testing.T)`
+- `func TestGenerateEmptyDomainIsValid(t *testing.T)`
+- `func TestGenerateGroupsTargetsByLabels(t *testing.T)`
+- `func TestGenerateRequiresDomainAndVersion(t *testing.T)`
+- `func TestGenerateCenterRules(t *testing.T)`
+- `func TestGenerateRendersEnabledBlackboxModules(t *testing.T)`
 
-### `platform/strategy/rule/validate.go`
+### `platform/modules/m09/configgen/validate_jobref_test.go`
 
-- `type ruleFile struct`
-- `func validateRuleYAML(content string) error`
-- `type groupNamesFile struct`
-- `func extractGroupNames(content string) ([]string, error)`
-- `func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) error`
-- `func validateGroupNamesForCheck(db *gorm.DB, content string, excludeID uint) error`
-- `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
-- `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
-- `func EffectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
-- `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
-- `func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue`
-- `func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error`
+- `func TestValidateCenterRulesUsesPlatformJobs(t *testing.T)`
 
-### `platform/strategy/scrapejob/batch.go`
+### `platform/modules/m09/domain/access.go`
 
-- `type BatchSubmitReadyRequest struct`
-- `func BatchSubmitReady(db *gorm.DB, ids []uint) ([]models.ScrapeJob, error)`
-- `func BatchUpdateDraftStatusHandler(db *gorm.DB) gin.HandlerFunc`
-- `func BatchDeleteScrapeJobs(_ *gorm.DB, _ []uint) ([]uint, error)`
+- `type RegistrationStatus = string`
+- `type Access struct`
+- `type Token struct`
+- `method (*Access) IsMonitored() bool`
+- `method (*Access) Monitor(now time.Time) (Token, error)`
+- `method (*Access) Unmonitor() error`
+- `method (*Access) ResetToken(now time.Time) (Token, error)`
+- `method (*Access) Retire()`
+- `method (*Access) revokeToken()`
+- `func GenerateToken() (Token, error)`
+- `func HashToken(plain string) string`
+- `func TokenMatches(plain, storedHash string) bool`
+- `func maskSecret(secret string) string`
+- `func ValidateMonitorable(domainID, status, domainType string) error`
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `method (*ValidationError) ErrorKind() apierror.Kind`
+- `type NotFoundError struct`
+- `method (*NotFoundError) Error() string`
+- `method (*NotFoundError) ErrorKind() apierror.Kind`
+- `type AgentNotFoundError struct`
+- `method (*AgentNotFoundError) Error() string`
+- `method (*AgentNotFoundError) ErrorKind() apierror.Kind`
+- `type ConflictError struct`
+- `method (*ConflictError) Error() string`
+- `method (*ConflictError) ErrorKind() apierror.Kind`
+- `func timePtr(t time.Time) *time.Time`
 
-### `platform/strategy/scrapejob/batch_test.go`
+### `platform/modules/m09/domain/access_test.go`
 
-- `func newBatchTestDB(t *testing.T) *gorm.DB`
-- `func seedBatchDomain(t *testing.T, db *gorm.DB)`
-- `func seedBatchJob(t *testing.T, db *gorm.DB, name, draftStatus string) *models.ScrapeJob`
-- `func TestBatchSubmitReady(t *testing.T)`
-- `func TestBatchSubmitReady_RejectReadyJob(t *testing.T)`
-- `func TestBatchSubmitReady_ValidateBeforeReady(t *testing.T)`
-- `func TestBatchSubmitReady_ResolvesEmptyScrapeParams(t *testing.T)`
-- `func TestBatchSubmitReady_MissingID(t *testing.T)`
+- `func TestGenerateToken(t *testing.T)`
+- `func TestTokenMatchesRejectsEmpty(t *testing.T)`
+- `func TestMonitorTransitions(t *testing.T)`
+- `func TestUnmonitor(t *testing.T)`
+- `func TestResetToken(t *testing.T)`
+- `func TestRetire(t *testing.T)`
+- `func TestValidateMonitorable(t *testing.T)`
 
-### `platform/strategy/scrapejob/create.go`
+### `platform/modules/m09/domain/edgeproto.go`
 
-- `type CreateScrapeJobRequest struct`
-- `func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc`
-- `func validateBasicJobRequest(job *models.ScrapeJob) error`
+- `type Component struct`
+- `type TargetSnapshot struct`
+- `type HeartbeatRequest struct`
+- `type HeartbeatResponse struct`
+- `func ValidateProtocol(raw string) error`
+- `func SyncStatus(reportedVersion, currentVersion, applyError string) (status, cause string)`
+- `func EffectiveAgentStatus(stored string, lastHeartbeat *time.Time, now time.Time, threshold time.Duration) string`
 
-### `platform/strategy/scrapejob/delete.go`
+### `platform/modules/m09/dto/config_artifact.go`
 
-- `func DeleteScrapeJob(db *gorm.DB) gin.HandlerFunc`
+- `type ConfigArtifactResponse struct`
+- `type ListConfigArtifactsResponse struct`
+- `type ConfigArtifactFileResponse struct`
+- `type ConfigArtifactPreviewResponse struct`
+- `func FromConfigArtifact(item *service.ArtifactView) ConfigArtifactResponse`
+- `func FromConfigArtifactPreview(preview *service.ArtifactPreview) ConfigArtifactPreviewResponse`
 
-### `platform/strategy/scrapejob/installation.go`
+### `platform/modules/m09/dto/config_snapshot.go`
 
-- `type jobInstanceItem struct`
-- `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
-- `func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip, domainID string, found bool)`
-- `func ListJobInstances(db *gorm.DB) gin.HandlerFunc`
-- `type confirmRequest struct`
-- `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
-- `func CancelInstallation(db *gorm.DB) gin.HandlerFunc`
+- `type ConfigSnapshotResponse struct`
+- `type ListConfigSnapshotsResponse struct`
+- `func FromConfigSnapshot(item *repository.ConfigSnapshot) ConfigSnapshotResponse`
 
-### `platform/strategy/scrapejob/installation_test.go`
+### `platform/modules/m09/dto/config_trigger.go`
 
-- `func TestListInstancesPortSourceInstanceAndMapping(t *testing.T)`
-- `func TestListInstancesPortSourceTemplate(t *testing.T)`
-- `func TestListInstancesPortSourceUnresolvedHostNeverBusiness(t *testing.T)`
-- `func TestListInstancesPortSourceBusinessMiddlewareNotBlocked(t *testing.T)`
+- `type ConfigTriggerRequest struct`
+- `type ConfigTriggerDomainResult struct`
+- `type ConfigTriggerCenterResult struct`
+- `type ConfigTriggerResponse struct`
+- `func FromTriggerResult(result *service.TriggerResult) ConfigTriggerResponse`
 
-### `platform/strategy/scrapejob/list.go`
+### `platform/modules/m09/dto/edge_agent.go`
 
-- `func ListScrapeJobs(db *gorm.DB) gin.HandlerFunc`
-- `func listJobsByLabelTemplate(c *gin.Context, db *gorm.DB, labelTemplateID string)`
+- `type EdgeAgentResponse struct`
+- `type ListEdgeAgentsResponse struct`
+- `type EdgeAgentCommandResponse struct`
+- `func FromEdgeAgent(view *repository.EdgeAgentView) EdgeAgentResponse`
 
-### `platform/strategy/scrapejob/preview.go`
+### `platform/modules/m09/dto/onboarding.go`
 
-- `type previewTarget struct`
-- `func PreviewTargets(db *gorm.DB) gin.HandlerFunc`
-- `func applicationTargetAddress(a *models.Application) string`
-- `func resolveInstanceAddress(db *gorm.DB, resourceID string) string`
-- `func resolveBlackboxTarget(db *gorm.DB, job *models.ScrapeJob, resourceID string) string`
-- `func loadResourceForCategory(db *gorm.DB, category models.ResourceCategory, resourceID string) any`
-- `func resolveInstanceScrapePort(db *gorm.DB, job *models.ScrapeJob, resourceID string) (int, string)`
-- `func mappingDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
-- `func templateDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
+- `type OnboardingResponse struct`
+- `type ListOnboardingResponse struct`
+- `type InstallGuideResponse struct`
+- `type MonitorResponse struct`
+- `type ResetTokenResponse struct`
+- `type UnmonitorResponse struct`
+- `func FromOnboarding(item *repository.DomainOnboarding) OnboardingResponse`
+- `func FromMonitorResult(result *service.MonitorResult) MonitorResponse`
+- `func FromResetToken(result *service.ResetTokenResult) ResetTokenResponse`
 
-### `platform/strategy/scrapejob/preview_test.go`
+### `platform/modules/m09/dto/package.go`
 
-- `type previewEnvelope struct`
-- `func postPreviewTargets(t *testing.T, r *gin.Engine, jobID string) (previewEnvelope, int)`
-- `func seedStandardJob(t *testing.T, db *gorm.DB, name string, resourceType models.ResourceType, monitorType, exporterTemplate…`
-- `func jobIDString(job *models.ScrapeJob) string`
-- `func seedDefaultHostMapping(t *testing.T, db *gorm.DB, monitorType string, defaultPort int)`
-- `func seedPortExporter(t *testing.T, db *gorm.DB, name string, defaultPort int) string`
-- `func setHostScrapePort(t *testing.T, db *gorm.DB, resourceID string, port int)`
-- `func TestPreviewTargetsPortSourceInstanceAndMapping(t *testing.T)`
-- `func TestPreviewTargetsPortJSONContractKeys(t *testing.T)`
-- `func TestPreviewTargetsPortSourceTemplate(t *testing.T)`
-- `func TestPreviewTargetsPortSourceUnresolved(t *testing.T)`
-- `func TestPreviewTargetsPortSourceBusinessNotBlocked(t *testing.T)`
-- `func TestPreviewTargetsApplicationPortBypassesChain(t *testing.T)`
-- `func TestPreviewTargetsBlackboxNoPortChain(t *testing.T)`
-- `func TestPreviewTargetsBlackboxNonInterfaceService(t *testing.T)`
+- `type PackageComponentResponse struct`
+- `type EdgePackageResponse struct`
+- `type ListEdgePackagesResponse struct`
+- `func FromEdgePackage(item *service.EdgePackage) EdgePackageResponse`
 
-### `platform/strategy/scrapejob/routes.go`
+### `platform/modules/m09/dto/query.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type TargetResponse struct`
+- `type ListTargetsResponse struct`
+- `type CoverageItemResponse struct`
+- `type CoverageSummaryResponse struct`
+- `type CoverageResponse struct`
+- `func FromCoverageReport(report service.CoverageReport, counts service.CoverageCounts) CoverageResponse`
+- `func FromEdgeTarget(row *repository.EdgeTargetRow) TargetResponse`
 
-### `platform/strategy/scrapejob/scrape_job_test.go`
+### `platform/modules/m09/handler/agent_handler.go`
 
-- `func openTestDB(t *testing.T) *gorm.DB`
-- `func newGin() *gin.Engine`
-- `func mountRoutes(t *testing.T, db *gorm.DB) *gin.Engine`
-- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
-- `func seedEnabledDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedFrozenDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedExporter(t *testing.T, db *gorm.DB, name string) string`
-- `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types []string) string`
-- `func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string)`
-- `func seedInterfaceService(t *testing.T, db *gorm.DB, resourceID, domainID, apiName, apiURL, status string)`
-- `func seedApplication(t *testing.T, db *gorm.DB, resourceID, domainID, serviceName, healthCheckURL, status string)`
-- `func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string)`
-- `func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T)`
-- `func TestCreateScrapeJobStandardRequiresResourceType(t *testing.T)`
-- `func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T)`
-- `func TestCreateScrapeJobTemplateFallback(t *testing.T)`
-- `func TestUpdateScrapeJobClearFieldReInherits(t *testing.T)`
-- `func TestCreateScrapeJobApplicationRequiresMetricsPath(t *testing.T)`
-- `func TestApplicationAddressDisplayUsesEndpointPort(t *testing.T)`
-- `func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T)`
-- `func TestCreateScrapeJobAuthValidation(t *testing.T)`
-- `func TestCreateScrapeJobBlackbox(t *testing.T)`
-- `func TestCreateScrapeJobBlackboxTargetFieldDerived(t *testing.T)`
-- `func TestCreateScrapeJobBlackboxRejectsWrongCategoryInstance(t *testing.T)`
-- `func TestCreateScrapeJobBlackboxRejectsUnsupportedCategory(t *testing.T)`
-- `func TestCreateScrapeJobBlackboxCrossDomainRejected(t *testing.T)`
-- `func TestListScrapeJobsFiltersAndLabelTemplateReverseLookup(t *testing.T)`
-- `func TestUpdateScrapeJobJobTypeSwitch(t *testing.T)`
-- `func TestUpdateAndDeleteScrapeJob(t *testing.T)`
-- `func TestDeleteScrapeJobClearsTargetSnapshots(t *testing.T)`
-- `func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T)`
-- `func TestScrapeJobMappingOverridesRoundTrip(t *testing.T)`
-- `func TestUpdateDeletePendingJobRejected(t *testing.T)`
-- `func TestInstanceCandidatesHostOfflineGrey(t *testing.T)`
-- `func TestInstanceCandidatesDatabaseSubtypeFilter(t *testing.T)`
-- `func TestInstanceCandidatesInterfaceServiceByCategory(t *testing.T)`
-- `func TestInstanceCandidatesCategoryAndMonitorTypePrecedence(t *testing.T)`
-- `func TestConfirmAndCancelInstallation(t *testing.T)`
-- `func TestConfirmInstallationNotInSetRejected(t *testing.T)`
-- `func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T)`
-- `type instancesEnvelope struct`
-- `func listInstances(t *testing.T, r *gin.Engine, jobID string) instancesEnvelope`
-- `func newInstanceListJob(t *testing.T, db *gorm.DB, selected []string) *models.ScrapeJob`
-- `func TestListInstancesSkipsSoftDeletedResources(t *testing.T)`
-- `func TestListInstancesKeepsValidInstancesWhenOthersDeleted(t *testing.T)`
-- `func TestListInstancesAllSelectedDeleted(t *testing.T)`
-- `func TestListInstancesMissingCountZeroWhenAllValid(t *testing.T)`
-- `func TestPreviewTargetsStandardAndBlackbox(t *testing.T)`
-- `func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T)`
-- `func TestCreateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
-- `func TestCreateScrapeJobApplicationHTTPAllowsEmptyExporter(t *testing.T)`
-- `func TestCreateScrapeJobRejectsTemplateMonitorTypeMismatch(t *testing.T)`
-- `func TestCreateScrapeJobAcceptsMatchingTemplateAndInheritedMapping(t *testing.T)`
-- `func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T)`
-- `func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
-- `func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T)`
-- `func TestUpdateScrapeJobReclaimsSoftDeletedInstanceRefs(t *testing.T)`
-- `func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T)`
-- `func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T)`
-- `func TestCreateScrapeJobDurationValidation(t *testing.T)`
+- `type AgentHandler struct`
+- `func NewAgentHandler(svc *service.EdgeService) *AgentHandler`
+- `method (*AgentHandler) List(c *gin.Context)`
+- `method (*AgentHandler) Get(c *gin.Context)`
+- `method (*AgentHandler) Restart(c *gin.Context)`
+- `method (*AgentHandler) FlushBacklog(c *gin.Context)`
+- `func parseAgentID(c *gin.Context) (int64, bool)`
 
-### `platform/strategy/scrapejob/selection.go`
+### `platform/modules/m09/handler/artifact_handler.go`
 
-- `type InstanceCandidate struct`
-- `func ListInstanceCandidates(db *gorm.DB) gin.HandlerFunc`
-- `func validResourceCategory(cat models.ResourceCategory) bool`
-- `func candidateSecondColumn(res any, fallback, targetField string) string`
-- `func queryInstanceCandidates(db *gorm.DB, deriv models.MonitorTypeDerivation, domainID, keyword string, p common.PageParams,…`
-- `func queryHostCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int64, []Ins…`
-- `func queryDatabaseCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int64, […`
-- `func queryMiddlewareCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int64,…`
-- `func queryApplicationCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int64…`
-- `func queryGenericTargetCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (int…`
-- `func queryInterfaceServiceCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p common.PageParams, targetField string) (…`
+- `type ArtifactHandler struct`
+- `func NewArtifactHandler(onboard *service.OnboardingService, artifacts *service.ArtifactService) *ArtifactHandler`
+- `method (*ArtifactHandler) List(c *gin.Context)`
+- `method (*ArtifactHandler) Get(c *gin.Context)`
+- `method (*ArtifactHandler) Preview(c *gin.Context)`
+- `method (*ArtifactHandler) Export(c *gin.Context)`
+- `method (*ArtifactHandler) RecoveryBundle(c *gin.Context)`
+- `method (*ArtifactHandler) artifactForRequest(c *gin.Context) (*service.ArtifactView, bool)`
+- `method (*ArtifactHandler) authorizeDomain(c *gin.Context, view *service.ArtifactView) bool`
+- `func parseArtifactID(c *gin.Context) (int64, bool)`
+- `func parseArtifactLimit(c *gin.Context) (int, error)`
+- `func writeArtifactDownload(c *gin.Context, export *service.ArtifactExport)`
 
-### `platform/strategy/scrapejob/update.go`
+### `platform/modules/m09/handler/artifact_handler_test.go`
 
-- `type UpdateScrapeJobRequest struct`
-- `func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc`
-- `func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest)`
-- `func parseJobID(c *gin.Context) (uint, bool)`
+- `func newArtifactTestStack(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func TestConfigArtifactListAndExportEndpoints(t *testing.T)`
+- `func TestConfigArtifactViewerCanListButNotReadContent(t *testing.T)`
+- `func TestConfigArtifactInvalidFilter(t *testing.T)`
 
-### `platform/strategy/scrapejob/validate.go`
+### `platform/modules/m09/handler/config_trigger_handler.go`
 
-- `func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error`
-- `func validateBlackboxSelectedInstances(db *gorm.DB, job *models.ScrapeJob) error`
-- `func resourceModelForCategory(cat models.ResourceCategory) interface{}`
-- `func reclaimMissingInstanceIDs(db *gorm.DB, job *models.ScrapeJob)`
-- `func validateNetworkDomain(db *gorm.DB, domainID string) error`
-- `func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error`
-- `func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string`
-- `func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error)`
-- `func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob)`
-- `func normalizeScrapePath(job *models.ScrapeJob)`
-- `func validateExporterForMonitorType(db *gorm.DB, job *models.ScrapeJob) error`
-- `func exporterTemplateSupportsType(tmpl *models.ExporterTemplate, monitorType string) bool`
-- `func supportedMonitorTypesByCollector(db *gorm.DB) ([]string, error)`
-- `func exporterExists(db *gorm.DB, exporterTemplateID string) error`
+- `type ConfigTriggerHandler struct`
+- `func NewConfigTriggerHandler(svc *service.ConfigTriggerService) *ConfigTriggerHandler`
+- `method (*ConfigTriggerHandler) Trigger(c *gin.Context)`
+
+### `platform/modules/m09/handler/config_trigger_handler_test.go`
+
+- `func newConfigTriggerRouter(t *testing.T, user *models.User) *gin.Engine`
+- `func doTriggerJSON(t *testing.T, router *gin.Engine, body string) (int, map[string]any)`
+- `func TestConfigTriggerEndpointWaitsAndReturnsResult(t *testing.T)`
+- `func TestConfigTriggerEndpointRejectsInvalidInput(t *testing.T)`
+- `func TestConfigTriggerEndpointHonorsDomainAuthorization(t *testing.T)`
+- `func TestConfigTriggerEndpointAsyncIsAccepted(t *testing.T)`
+
+### `platform/modules/m09/handler/edge_auth.go`
+
+- `type TokenValidator interface`
+- `type rejectAllValidator struct`
+- `method (rejectAllValidator) Validate(context.Context, string) (string, bool)`
+- `func EdgeTokenMiddleware(v TokenValidator) gin.HandlerFunc`
+- `func bearerToken(c *gin.Context) string`
+- `func NetworkDomainFromContext(c *gin.Context) string`
+
+### `platform/modules/m09/handler/edge_auth_test.go`
+
+- `type fakeValidator struct`
+- `method (fakeValidator) Validate(_ context.Context, token string) (string, bool)`
+- `func newEdgeTestRouter(mw gin.HandlerFunc) *gin.Engine`
+- `func TestEdgeTokenMiddleware_NoToken(t *testing.T)`
+- `func TestEdgeTokenMiddleware_InvalidToken(t *testing.T)`
+- `func TestEdgeTokenMiddleware_ValidTokenSetsContext(t *testing.T)`
+- `func TestEdgeTokenMiddleware_DefaultRejectsAll(t *testing.T)`
+- `func TestBearerToken_TrimsAndRequiresPrefix(t *testing.T)`
+
+### `platform/modules/m09/handler/edge_handler.go`
+
+- `type EdgeHandler struct`
+- `func NewEdgeHandler(svc *service.EdgeService, sync *service.ConfigSyncService) *EdgeHandler`
+- `method (*EdgeHandler) Heartbeat(c *gin.Context)`
+- `method (*EdgeHandler) Config(c *gin.Context)`
+
+### `platform/modules/m09/handler/edge_handler_test.go`
+
+- `func newEdgeRouter(t *testing.T, user *models.User) (*gin.Engine, *service.OnboardingService)`
+- `func doEdgeJSON(t *testing.T, router *gin.Engine, method, path, body string, token string) (int, map[string]any)`
+- `func TestEdgeHeartbeatRequiresValidToken(t *testing.T)`
+- `func TestEdgeHeartbeatAndAgentCommands(t *testing.T)`
+- `func TestEdgeAgentCommandsRequireAdmin(t *testing.T)`
+- `func adminActor() service.Actor`
+- `func itoa(id int64) string`
+
+### `platform/modules/m09/handler/errors.go`
+
+- `func respondError(c *gin.Context, err error)`
+
+### `platform/modules/m09/handler/json.go`
+
+- `func decodeStrictJSON(c *gin.Context, target any) error`
+
+### `platform/modules/m09/handler/onboarding_handler.go`
+
+- `type OnboardingHandler struct`
+- `func NewOnboardingHandler(svc *service.OnboardingService) *OnboardingHandler`
+- `method (*OnboardingHandler) List(c *gin.Context)`
+- `method (*OnboardingHandler) Get(c *gin.Context)`
+- `method (*OnboardingHandler) Monitor(c *gin.Context)`
+- `method (*OnboardingHandler) ResetToken(c *gin.Context)`
+- `method (*OnboardingHandler) Unmonitor(c *gin.Context)`
+- `func actorOf(c *gin.Context) service.Actor`
+- `func validRegistrationStatus(value string) bool`
+- `func parsePagination(c *gin.Context) (int, int)`
+- `func centerEndpoint(c *gin.Context) string`
+
+### `platform/modules/m09/handler/onboarding_handler_test.go`
+
+- `func newOnboardingRouter(t *testing.T, user *models.User) *gin.Engine`
+- `func newOnboardingRouterWithDB(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB)`
+- `func doJSON(t *testing.T, router *gin.Engine, method, path string) (int, map[string]any)`
+- `func adminUser() *models.User`
+- `func viewerUser() *models.User`
+- `func TestOnboardingMonitorResetUnmonitor(t *testing.T)`
+- `func TestOnboardingListEnvelopeAndValidation(t *testing.T)`
+- `func TestOnboardingAdminViewExposesAdministrativeFields(t *testing.T)`
+- `func TestOnboardingAdminViewRequiresAdmin(t *testing.T)`
+- `func TestOnboardingNonEdgeScopeAndAdminGate(t *testing.T)`
+
+### `platform/modules/m09/handler/package_handler.go`
+
+- `type PackageHandler struct`
+- `func NewPackageHandler(svc *service.PackageService) *PackageHandler`
+- `method (*PackageHandler) List(c *gin.Context)`
+- `method (*PackageHandler) Latest(c *gin.Context)`
+- `method (*PackageHandler) Download(c *gin.Context)`
+
+### `platform/modules/m09/handler/package_handler_test.go`
+
+- `func newPackageRouter(t *testing.T, dir string) *gin.Engine`
+- `func writePackage(t *testing.T, dir string) (string, string)`
+- `func TestEdgePackagesEmptyDirectory(t *testing.T)`
+- `func TestEdgePackagesListLatestAndDownload(t *testing.T)`
+
+### `platform/modules/m09/handler/query_handler.go`
+
+- `type QueryHandler struct`
+- `func NewQueryHandler(svc *service.QueryService) *QueryHandler`
+- `method (*QueryHandler) Query(c *gin.Context)`
+- `method (*QueryHandler) QueryRange(c *gin.Context)`
+- `method (*QueryHandler) Labels(c *gin.Context)`
+- `method (*QueryHandler) LabelValues(c *gin.Context)`
+- `method (*QueryHandler) Series(c *gin.Context)`
+- `method (*QueryHandler) Alerts(c *gin.Context)`
+- `method (*QueryHandler) Targets(c *gin.Context)`
+- `method (*QueryHandler) Coverage(c *gin.Context)`
+- `func parseCoveragePagination(c *gin.Context) (int, int)`
+- `func validCoverageState(state string) bool`
+- `func validResourceCategory(category string) bool`
+- `method (*QueryHandler) proxy(c *gin.Context, path string)`
+- `func mergedParams(c *gin.Context) url.Values`
+- `func RegisterQueryRoutes(apiV1 *gin.RouterGroup, h *QueryHandler)`
+
+### `platform/modules/m09/handler/query_handler_test.go`
+
+- `func newQueryRouter(t *testing.T, user *models.User, promURL string) *gin.Engine`
+- `func parseTestURL(t *testing.T, raw string) *url.URL`
+- `func TestQueryTargetsAndCoverageRoutes(t *testing.T)`
+- `func TestQueryGuardReturnsBadRequest(t *testing.T)`
+- `func TestQueryProxyMetaEnvelopeAndBadGateway(t *testing.T)`
+
+### `platform/modules/m09/handler/routes.go`
+
+- `type Handlers struct`
+- `func RegisterPlatformRoutes(platform *gin.RouterGroup, h Handlers)`
+- `func RegisterEdgeRoutes(edge *gin.RouterGroup, h Handlers)`
+
+### `platform/modules/m09/handler/snapshot_handler.go`
+
+- `type SnapshotHandler struct`
+- `func NewSnapshotHandler(onboard *service.OnboardingService, sync *service.ConfigSyncService) *SnapshotHandler`
+- `method (*SnapshotHandler) List(c *gin.Context)`
+- `method (*SnapshotHandler) Get(c *gin.Context)`
+- `method (*SnapshotHandler) Content(c *gin.Context)`
+- `func parseSnapshotID(c *gin.Context) (int64, bool)`
+
+### `platform/modules/m09/handler/snapshot_handler_test.go`
+
+- `type stubSource struct`
+- `method (stubSource) BuildSource(_ context.Context, domainID string) (configgen.Source, error)`
+- `method (stubSource) Fingerprint(_ context.Context, _ string) (time.Time, error)`
+- `method (stubSource) EdgeDomainIDs(_ context.Context) ([]string, error)`
+- `type stubValidator struct`
+- `method (stubValidator) Validate(_ context.Context, _ *configgen.Artifacts, _ []string) configgen.ValidationResult`
+- `func newSnapshotTestStack(t *testing.T, user *models.User) (*gin.Engine, *service.ConfigSyncService)`
+- `func TestConfigSnapshotReadEndpoints(t *testing.T)`
+- `func TestConfigSnapshotContentRequiresAdminAndScope(t *testing.T)`
+- `func TestNoConfirmationOrRollbackRoutes(t *testing.T)`
+- `func TestEdgeConfigPullETagAndMissing(t *testing.T)`
+
+### `platform/modules/m09/module.go`
+
+- `type Options struct`
+- `type Module struct`
+- `func NewModule(db *gorm.DB, opts Options) (*Module, error)`
+- `method (*Module) Name() string`
+- `method (*Module) RegisterRoutes(platform *gin.RouterGroup) error`
+- `method (*Module) RegisterEdgeRoutes(edge *gin.RouterGroup) error`
+- `method (*Module) MonitoringRetirer() references.MonitoringRetirer`
+- `method (*Module) ConfigSync() *service.ConfigSyncService`
+- `method (*Module) NotifyConfigSync(ctx context.Context, domainIDs []string)`
+- `method (*Module) NotifyAllConfigSync(ctx context.Context)`
+- `method (*Module) RegisterQueryRoutes(apiV1 *gin.RouterGroup) error`
+- `method (*Module) StartBackground(ctx context.Context)`
+
+### `platform/modules/m09/references/center_rules.go`
+
+- `type CenterRule struct`
+- `type CenterRuleSource interface`
+- `type GORMCenterRuleSource struct`
+- `func NewCenterRuleSource(db *gorm.DB) *GORMCenterRuleSource`
+- `type centerRuleRow struct`
+- `method (*GORMCenterRuleSource) ListEnabledReady(ctx context.Context) ([]CenterRule, error)`
+- `method (*GORMCenterRuleSource) EffectiveJobNames(ctx context.Context) ([]string, error)`
+- `method (*GORMCenterRuleSource) Fingerprint(ctx context.Context) (time.Time, error)`
+
+### `platform/modules/m09/references/label_templates.go`
+
+- `type labelMapping struct`
+- `type labelTemplate struct`
+- `type labelTemplateRow struct`
+- `method (labelTemplateRow) TableName() string`
+- `type labelTemplateSet struct`
+- `method (*GORMSourceReader) loadLabelTemplates(ctx context.Context) (labelTemplateSet, error)`
+- `method (labelTemplateSet) resolve(explicitID, category string) (labelTemplate, bool)`
+- `func expandTemplateLabels(tpl labelTemplate, ref domain.ResourceRef, instance, jobName string) map[string]string`
+- `func resourceFieldView(ref domain.ResourceRef) map[string]string`
+- `func builtinField(sourceField, instance, jobName string) string`
+- `func applyLabelTransform(value, transform string) string`
+- `func systemTargetLabels(ref domain.ResourceRef) map[string]string`
+- `func mergeTargetLabels(system, template map[string]string) map[string]string`
+- `func positiveIntString(value int) string`
+
+### `platform/modules/m09/references/label_templates_test.go`
+
+- `func insertLabelTemplate(t *testing.T, gormDB *gorm.DB, id, category string, isDefault bool, mappings string)`
+- `func ensureAppDict(t *testing.T, gormDB *gorm.DB, appCode string)`
+- `func jobLabels(t *testing.T, source configgen.Source, jobName string) map[string]string`
+- `func TestSourceReaderExpandsExplicitLabelTemplate(t *testing.T)`
+- `func TestSourceReaderFallsBackToCategoryDefaultTemplate(t *testing.T)`
+- `func TestSourceReaderExplicitTemplateWinsOverDefault(t *testing.T)`
+- `func TestSourceReaderFallsBackToDefaultWhenExplicitUnusable(t *testing.T)`
+- `func TestSourceReaderExpandsTemplateForBlackboxJob(t *testing.T)`
+- `func TestSourceReaderWithoutTemplateOnlySystemLabels(t *testing.T)`
+- `func TestSourceReaderProtectsSystemLabels(t *testing.T)`
+- `func TestSourceReaderPlatformFallsBackToPrimaryAppPlatform(t *testing.T)`
+- `func TestSourceReaderFingerprintAdvancesOnLabelTemplateChange(t *testing.T)`
+
+### `platform/modules/m09/references/source_reader.go`
+
+- `type SourceReader interface`
+- `type GORMSourceReader struct`
+- `func NewGORMSourceReader(db *gorm.DB) *GORMSourceReader`
+- `method (*GORMSourceReader) cachedPorts(ctx context.Context) (map[string]int, map[string]int, error)`
+- `type jobSourceRow struct`
+- `type portRow struct`
+- `type exporterPortRow struct`
+- `method (*GORMSourceReader) BuildSource(ctx context.Context, domainID string) (configgen.Source, error)`
+- `method (*GORMSourceReader) loadProbeModules(ctx context.Context) ([]models.BlackboxModule, error)`
+- `method (*GORMSourceReader) Fingerprint(ctx context.Context, domainID string) (time.Time, error)`
+- `method (*GORMSourceReader) EdgeDomainIDs(ctx context.Context) ([]string, error)`
+- `method (*GORMSourceReader) loadPorts(ctx context.Context) (map[string]int, map[string]int, error)`
+- `method (*GORMSourceReader) loadPrimaryPlatforms(ctx context.Context, refs map[string]domain.ResourceRef) (map[string]string, e…`
+
+### `platform/modules/m09/references/source_reader_test.go`
+
+- `func newSourceTestDB(t *testing.T) *gorm.DB`
+- `func TestSourceReaderBuildsJobsFromM01(t *testing.T)`
+- `func TestSourceReaderFingerprintAndDomains(t *testing.T)`
+- `func TestSourceReaderFingerprintAdvancesOnResourceSoftDelete(t *testing.T)`
+- `func TestSourceReaderFingerprintAdvancesOnProbeModuleSoftDelete(t *testing.T)`
+- `type countingLogger struct`
+- `method (*countingLogger) LogMode(logger.LogLevel) logger.Interface`
+- `method (*countingLogger) Info(context.Context, string, ...any)`
+- `method (*countingLogger) Warn(context.Context, string, ...any)`
+- `method (*countingLogger) Error(context.Context, string, ...any)`
+- `method (*countingLogger) Trace(_ context.Context, _ time.Time, fc func() (string, int64), _ error)`
+- `method (*countingLogger) count(marker string) int`
+- `func TestSourceReaderFansOutWithoutQueryAmplification(t *testing.T)`
+- `func TestSourceReaderExcludesResourceMovedToAnotherDomain(t *testing.T)`
+
+### `platform/modules/m09/references/sync_sink.go`
+
+- `type SyncResultSink interface`
+
+### `platform/modules/m09/repository/artifact_repository.go`
+
+- `type ArtifactType = string`
+- `type Artifact struct`
+- `type ArtifactFilter struct`
+- `type artifactRecord struct`
+- `method (artifactRecord) TableName() string`
+- `func toArtifact(rec *artifactRecord) Artifact`
+- `method (*GORMRepository) ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]Artifact, error)`
+- `method (*GORMRepository) GetArtifact(ctx context.Context, id int64) (*Artifact, error)`
+- `method (*GORMRepository) CurrentArtifact(ctx context.Context, typ ArtifactType, onlyPassed bool) (*Artifact, error)`
+
+### `platform/modules/m09/repository/center_snapshot_repository.go`
+
+- `type CenterConfigSnapshot struct`
+- `type CenterSnapshotRepository interface`
+- `type centerSnapshotRecord struct`
+- `method (centerSnapshotRecord) TableName() string`
+- `type GORMCenterSnapshotRepository struct`
+- `func NewCenterSnapshotRepository(db *gorm.DB) *GORMCenterSnapshotRepository`
+- `method (*GORMCenterSnapshotRepository) Insert(ctx context.Context, rec CenterConfigSnapshot) (int64, error)`
+- `method (*GORMCenterSnapshotRepository) InsertAndActivate(ctx context.Context, rec CenterConfigSnapshot) (int64, error)`
+- `method (*GORMCenterSnapshotRepository) CurrentPassed(ctx context.Context) (*CenterConfigSnapshot, error)`
+- `func activateCenterSnapshot(tx *gorm.DB, id int64) error`
+- `method (*GORMCenterSnapshotRepository) List(ctx context.Context, limit int) ([]CenterConfigSnapshot, error)`
+- `method (*GORMCenterSnapshotRepository) Prune(ctx context.Context, keepDays int, loc *time.Location) ([]string, error)`
+- `func centerSnapshotFromDomain(rec CenterConfigSnapshot) centerSnapshotRecord`
+- `func centerSnapshotToDomain(row *centerSnapshotRecord) *CenterConfigSnapshot`
+
+### `platform/modules/m09/repository/center_snapshot_repository_test.go`
+
+- `func newCenterRepoTestDB(t *testing.T) *gorm.DB`
+- `func insertCenterSnapshot(t *testing.T, repo *repository.GORMCenterSnapshotRepository, version string, created time.Time, st…`
+- `func TestCenterSnapshotPruneKeepsOneSuccessPerDay(t *testing.T)`
+- `func TestCenterSnapshotPruneKeepsCurrentOutsideWindow(t *testing.T)`
+
+### `platform/modules/m09/repository/edge_repository.go`
+
+- `type edgeAgentRecord struct`
+- `method (edgeAgentRecord) TableName() string`
+- `type heartbeatRecord struct`
+- `method (heartbeatRecord) TableName() string`
+- `type targetSnapshotRecord struct`
+- `method (targetSnapshotRecord) TableName() string`
+- `type AgentHeartbeatInput struct`
+- `type AgentRuntime struct`
+- `type HeartbeatRecord struct`
+- `type EdgeAgentFilter struct`
+- `type EdgeAgentView struct`
+- `type EdgeRepository interface`
+- `method (*GORMRepository) FindMonitoredDomainByTokenHash(ctx context.Context, hash string) (string, error)`
+- `method (*GORMRepository) CurrentConfigMeta(ctx context.Context, domainID string) (string, string, error)`
+- `method (*GORMRepository) UpsertAgentHeartbeat(ctx context.Context, in AgentHeartbeatInput) (AgentRuntime, error)`
+- `method (*GORMRepository) InsertHeartbeat(ctx context.Context, rec HeartbeatRecord) error`
+- `method (*GORMRepository) ReplaceTargetSnapshots(ctx context.Context, domainID string, agentID int64, targets []domain.TargetSn…`
+- `method (*GORMRepository) TouchAccessHeartbeat(ctx context.Context, domainID string, at time.Time) error`
+- `method (*GORMRepository) ListAgents(ctx context.Context, filter EdgeAgentFilter, allowed []string) ([]EdgeAgentView, int64, er…`
+- `method (*GORMRepository) GetAgent(ctx context.Context, id int64, allowed []string) (*EdgeAgentView, error)`
+- `method (*GORMRepository) IncrementRestartSeq(ctx context.Context, id int64, requestedBy string, at time.Time) error`
+- `method (*GORMRepository) IncrementFlushSeq(ctx context.Context, id int64, requestedBy string, at time.Time) error`
+- `method (*GORMRepository) MarkAgentsOffline(ctx context.Context, cutoff, now time.Time) (int64, error)`
+- `method (*GORMRepository) DeleteHeartbeatsBefore(ctx context.Context, cutoff time.Time) (int64, error)`
+- `func applyAgentAllowed(query *gorm.DB, allowed []string) *gorm.DB`
+- `func toEdgeAgentView(row *edgeAgentRecord) EdgeAgentView`
+- `func marshalComponents(components []domain.Component) (string, error)`
+- `func decodeComponents(raw string) []domain.Component`
+- `func collectorComponent(components []domain.Component) (status, version string)`
+- `func parseRFC3339(raw string) *time.Time`
+
+### `platform/modules/m09/repository/models.go`
+
+- `type accessRecord struct`
+- `method (accessRecord) TableName() string`
+- `type domainOnboardingRow struct`
+
+### `platform/modules/m09/repository/onboarding_repository.go`
+
+- `type ListFilter struct`
+- `type DomainOnboarding struct`
+- `type OnboardingRepository interface`
+- `type TenantReader interface`
+- `type GORMRepository struct`
+- `func NewGORMRepository(db *gorm.DB) *GORMRepository`
+- `method (*GORMRepository) List(ctx context.Context, filter ListFilter) ([]DomainOnboarding, int64, error)`
+- `method (*GORMRepository) Get(ctx context.Context, domainID string, allowed []string) (*DomainOnboarding, error)`
+- `method (*GORMRepository) FindAccess(ctx context.Context, domainID string) (*domain.Access, error)`
+- `method (*GORMRepository) UpsertAccess(ctx context.Context, item *domain.Access) error`
+- `method (*GORMRepository) RetireDomainState(ctx context.Context, domainID string) error`
+- `method (*GORMRepository) AgentImpact(ctx context.Context, domainID string) (int64, int64, error)`
+- `method (*GORMRepository) AllowedDomainIDs(ctx context.Context, tenantID string) ([]string, error)`
+- `method (*GORMRepository) base(ctx context.Context) *gorm.DB`
+- `method (*GORMRepository) applyConditions(query *gorm.DB, filter ListFilter) *gorm.DB`
+- `func applyAllowed(query *gorm.DB, allowed []string) *gorm.DB`
+- `func toDomainOnboarding(row *domainOnboardingRow) DomainOnboarding`
+- `func parseStringList(raw string) []string`
+- `func toDomainAccess(row *accessRecord) *domain.Access`
+
+### `platform/modules/m09/repository/query_repository.go`
+
+- `type EdgeTargetRow struct`
+- `type TargetFilter struct`
+- `type QueryRepository interface`
+- `type CoverageFilter struct`
+- `type CoverageResourceRow struct`
+- `type CoverageTargetRow struct`
+- `method (*GORMRepository) ListCoverageResources(ctx context.Context, filter CoverageFilter) ([]CoverageResourceRow, error)`
+- `method (*GORMRepository) ListCoverageTargets(ctx context.Context, filter CoverageFilter) ([]CoverageTargetRow, error)`
+- `func applyCoverageDomain(q *gorm.DB, filter CoverageFilter, column string) *gorm.DB`
+- `method (*GORMRepository) ListEdgeTargets(ctx context.Context, filter TargetFilter) ([]EdgeTargetRow, int64, error)`
+- `method (*GORMRepository) TargetHealthCounts(ctx context.Context, allowed []string, freshAfter time.Time) (int64, int64, error)`
+- `method (*GORMRepository) UnmonitoredResourceCount(ctx context.Context, allowed []string) (int64, error)`
+
+### `platform/modules/m09/repository/snapshot_prune.go`
+
+- `type snapshotPruneCandidate struct`
+- `func planDailySnapshotPrune( rows []snapshotPruneCandidate, keepDays int, loc *time.Location, now time.Time, ) (removeIDs []…`
+
+### `platform/modules/m09/repository/snapshot_repository.go`
+
+- `type configSnapshotRecord struct`
+- `method (configSnapshotRecord) TableName() string`
+- `type ConfigSnapshot struct`
+- `type SnapshotRepository interface`
+- `method (*GORMRepository) InsertSnapshot(ctx context.Context, rec ConfigSnapshot) (int64, error)`
+- `method (*GORMRepository) InsertAndActivate(ctx context.Context, rec ConfigSnapshot) (int64, error)`
+- `method (*GORMRepository) SetLastConfigVersion(ctx context.Context, domainID, version string) error`
+- `method (*GORMRepository) CurrentPassed(ctx context.Context, domainID string) (*ConfigSnapshot, error)`
+- `method (*GORMRepository) GetSnapshot(ctx context.Context, domainID string, id int64) (*ConfigSnapshot, error)`
+- `method (*GORMRepository) ListSnapshots(ctx context.Context, domainID string, limit int) ([]ConfigSnapshot, error)`
+- `func isAlertmanagerSnapshot(version string) bool`
+- `method (*GORMRepository) PruneSnapshots(ctx context.Context, domainID string, keepDays int, loc *time.Location) ([]string, err…`
+- `func toSnapshotRecord(rec ConfigSnapshot, current bool) configSnapshotRecord`
+- `func toConfigSnapshot(row *configSnapshotRecord) *ConfigSnapshot`
+
+### `platform/modules/m09/repository/snapshot_repository_test.go`
+
+- `func newRepoTestDB(t *testing.T) *gorm.DB`
+- `func insertSnapshot(t *testing.T, repo *repository.GORMRepository, version string, created time.Time, current bool) int64`
+- `func insertSnapshotWithStatus(t *testing.T, repo *repository.GORMRepository, version string, created time.Time, status strin…`
+- `func listVersions(t *testing.T, repo *repository.GORMRepository) []string`
+- `func TestPruneSnapshotsKeepsOneSuccessPerDay(t *testing.T)`
+- `func TestPruneSnapshotsKeepsCurrentOutsideRetentionWindow(t *testing.T)`
+
+### `platform/modules/m09/service/artifact_service.go`
+
+- `type ArtifactView struct`
+- `type ArtifactFile struct`
+- `type ArtifactPreview struct`
+- `type ArtifactExport struct`
+- `type ArtifactService struct`
+- `type ArtifactRepository interface`
+- `func NewArtifactService(repo ArtifactRepository, store *storage.ContentStore) *ArtifactService`
+- `method (*ArtifactService) List(ctx context.Context, filter repository.ArtifactFilter) ([]ArtifactView, error)`
+- `method (*ArtifactService) Get(ctx context.Context, id int64) (*ArtifactView, error)`
+- `method (*ArtifactService) Preview(ctx context.Context, id int64) (*ArtifactPreview, error)`
+- `method (*ArtifactService) Export(ctx context.Context, id int64) (*ArtifactExport, error)`
+- `method (*ArtifactService) ExportRaw(ctx context.Context, id int64) (*ArtifactExport, error)`
+- `method (*ArtifactService) RecoveryBundle(ctx context.Context) (*ArtifactExport, error)`
+- `method (*ArtifactService) files(row *repository.Artifact) ([]ArtifactFile, error)`
+- `method (*ArtifactService) toView(row *repository.Artifact) ArtifactView`
+- `type bundleManifest struct`
+- `type bundleFile struct`
+
+### `platform/modules/m09/service/artifact_service_test.go`
+
+- `func newArtifactStack(t *testing.T) (*service.ArtifactService, *gorm.DB, *storage.ContentStore)`
+- `func insertArtifactRow(t *testing.T, gormDB *gorm.DB, scope, scopeKey, version, checksum, content string, current bool)`
+- `func TestArtifactServiceUnifiedHistoryPreviewAndExport(t *testing.T)`
+- `func TestArtifactServiceReturnsNilForMissingAndRequiresCenterForBundle(t *testing.T)`
+
+### `platform/modules/m09/service/center_rules_service.go`
+
+- `type CenterRulesService struct`
+- `func NewCenterRulesService( repo repository.CenterSnapshotRepository, source references.CenterRuleSource, sink references.Sy…`
+- `method (*CenterRulesService) SetAlertmanagerAddr(addr string)`
+- `method (*CenterRulesService) SetValidator(validator Validator)`
+- `method (*CenterRulesService) SetRetention(days int, loc *time.Location)`
+- `method (*CenterRulesService) Sync(ctx context.Context) (*repository.CenterConfigSnapshot, error)`
+- `method (*CenterRulesService) prune(ctx context.Context)`
+- `method (*CenterRulesService) RunWatcher(ctx context.Context, interval time.Duration)`
+- `func centerSyncSettled(snapshot *repository.CenterConfigSnapshot) bool`
+- `method (*CenterRulesService) publish(ctx context.Context, rulesYML string) error`
+- `method (*CenterRulesService) reload(ctx context.Context) error`
+- `method (*CenterRulesService) recordOutcomes(ctx context.Context, rules []references.CenterRule, record repository.CenterConfig…`
+
+### `platform/modules/m09/service/center_rules_service_test.go`
+
+- `type capturingValidator struct`
+- `method (*capturingValidator) Validate(_ context.Context, _ *configgen.Artifacts, platformJobs []string) configgen.ValidationRe…`
+- `type fakeCenterSource struct`
+- `method (*fakeCenterSource) EffectiveJobNames(context.Context) ([]string, error)`
+- `method (*fakeCenterSource) ListEnabledReady(context.Context) ([]references.CenterRule, error)`
+- `method (*fakeCenterSource) Calls() int`
+- `method (*fakeCenterSource) Fingerprint(context.Context) (time.Time, error)`
+- `type recordingRuleSink struct`
+- `method (*recordingRuleSink) RecordDomainSync(context.Context, string, string, time.Time, map[string]string) error`
+- `method (*recordingRuleSink) RecordRuleSync(_ context.Context, version string, _ time.Time, outcomes map[string]string) error`
+- `func TestCenterRulesSyncPublishesAndWritesBack(t *testing.T)`
+- `func TestCenterRulesReloadFailureKeepsCurrent(t *testing.T)`
+- `func TestCenterRulesSyncBackfillsCurrentPayloadWithPersistedVersion(t *testing.T)`
+- `func TestCenterRulesSyncDoesNotPersistFailedAttempts(t *testing.T)`
+- `func TestCenterRulesSyncPassAfterFailureCreatesOnlySuccessSnapshot(t *testing.T)`
+- `func TestCenterRulesSyncCollapsesSameDayHistory(t *testing.T)`
+- `func TestCenterRulesSyncPassesEffectiveJobNames(t *testing.T)`
+- `func TestCenterRulesSyncConcurrentCallsShareOneSnapshot(t *testing.T)`
+- `func TestCenterRulesWatcherRetriesPlatformFaultWithoutNewRows(t *testing.T)`
+- `func TestCenterRulesWatcherDoesNotSpinOnZeroFingerprint(t *testing.T)`
+
+### `platform/modules/m09/service/center_rules_watcher_test.go`
+
+- `func TestCenterSyncSettled(t *testing.T)`
+
+### `platform/modules/m09/service/config_sync_service.go`
+
+- `type Validator interface`
+- `type defaultValidator struct`
+- `method (defaultValidator) Validate(_ context.Context, artifacts *configgen.Artifacts, platformJobs []string) configgen.Validat…`
+- `type ConfigSyncService struct`
+- `func NewConfigSyncService( repo repository.SnapshotRepository, sources references.SourceReader, store *storage.ContentStore,…`
+- `method (*ConfigSyncService) SetSyncSink(sink references.SyncResultSink)`
+- `method (*ConfigSyncService) SetRetention(days int, loc *time.Location)`
+- `method (*ConfigSyncService) EdgeDomainIDs(ctx context.Context) ([]string, error)`
+- `method (*ConfigSyncService) SyncDomain(ctx context.Context, domainID string) (*repository.ConfigSnapshot, error)`
+- `method (*ConfigSyncService) prune(ctx context.Context, domainID string)`
+- `method (*ConfigSyncService) recordSyncResult(ctx context.Context, source configgen.Source, record repository.ConfigSnapshot, g…`
+- `method (*ConfigSyncService) CurrentContent(ctx context.Context, domainID string) (string, []byte, error)`
+- `method (*ConfigSyncService) CurrentConfigZip(ctx context.Context, domainID string) (string, []byte, error)`
+- `method (*ConfigSyncService) ListSnapshots(ctx context.Context, domainID string, limit int) ([]repository.ConfigSnapshot, error)`
+- `method (*ConfigSyncService) GetSnapshot(ctx context.Context, domainID string, id int64) (*repository.ConfigSnapshot, error)`
+- `method (*ConfigSyncService) SnapshotContent(ctx context.Context, domainID string, id int64) (*repository.ConfigSnapshot, []byt…`
+- `method (*ConfigSyncService) RunWatcher(ctx context.Context, interval time.Duration)`
+- `method (*ConfigSyncService) watchOnce(ctx context.Context, last map[string]time.Time)`
+- `method (*ConfigSyncService) domainLock(domainID string) *sync.Mutex`
+- `func newSnapshotVersion(now time.Time) string`
+- `func mustJSON(value any) string`
+
+### `platform/modules/m09/service/config_sync_service_test.go`
+
+- `func itoa(v int64) string`
+- `type fakeSource struct`
+- `method (*fakeSource) BuildSource(_ context.Context, domainID string) (configgen.Source, error)`
+- `method (*fakeSource) BuildCalls() int`
+- `method (*fakeSource) Fingerprint(_ context.Context, _ string) (time.Time, error)`
+- `method (*fakeSource) EdgeDomainIDs(_ context.Context) ([]string, error)`
+- `type fakeValidator struct`
+- `method (fakeValidator) Validate(_ context.Context, _ *configgen.Artifacts, _ []string) configgen.ValidationResult`
+- `func passed() fakeValidator`
+- `func failed(cause string) fakeValidator`
+- `func TestSyncDomainPublishesPassedSnapshot(t *testing.T)`
+- `func TestSyncDomainFailureKeepsCurrent(t *testing.T)`
+- `func TestSyncDomainSkipsUnchangedChecksum(t *testing.T)`
+- `func TestSyncDomainCollapsesSameDayHistory(t *testing.T)`
+- `func TestSnapshotContentReadsStoredPayload(t *testing.T)`
+- `func TestRunWatcherInitialPassPublishesSnapshot(t *testing.T)`
+- `type recordingSink struct`
+- `method (*recordingSink) RecordDomainSync(_ context.Context, domainID, version string, generatedAt time.Time, outcomes map[stri…`
+- `method (*recordingSink) RecordRuleSync(_ context.Context, _ string, _ time.Time, _ map[string]string) error`
+- `func TestSyncDomainWritesBackJobOutcomes(t *testing.T)`
+- `func TestSyncDomainFailureWritesBackFailure(t *testing.T)`
+- `func TestRunWatcherSyncsDomainsConcurrentlyWithBound(t *testing.T)`
+
+### `platform/modules/m09/service/config_trigger_service.go`
+
+- `type TriggerScope = string`
+- `type TriggerRequest struct`
+- `type DomainTriggerResult struct`
+- `type CenterTriggerResult struct`
+- `type TriggerResult struct`
+- `type ConfigTriggerService struct`
+- `func NewConfigTriggerService( domains *ConfigSyncService, center *CenterRulesService, onboarding *OnboardingService, ) *Conf…`
+- `method (*ConfigTriggerService) Trigger(ctx context.Context, actor Actor, req TriggerRequest) (*TriggerResult, error)`
+- `method (*ConfigTriggerService) NotifyDomains(_ context.Context, domainIDs []string)`
+- `method (*ConfigTriggerService) NotifyAllDomains(ctx context.Context)`
+- `method (*ConfigTriggerService) Run(ctx context.Context)`
+- `method (*ConfigTriggerService) resolveScope( ctx context.Context, actor Actor, scope TriggerScope, rawIDs []string, ) ([]strin…`
+- `method (*ConfigTriggerService) enqueue(domainIDs []string, center bool)`
+- `method (*ConfigTriggerService) drain(ctx context.Context)`
+- `method (*ConfigTriggerService) runNow( ctx context.Context, domainIDs []string, includeCenter bool, ) *TriggerResult`
+- `func normalizeTriggerScope(raw TriggerScope) (TriggerScope, error)`
+- `func normalizeDomainIDs(raw []string) []string`
+- `func domainTriggerResult(id string, snapshot *repository.ConfigSnapshot, err error) DomainTriggerResult`
+- `func centerTriggerResult(snapshot *repository.CenterConfigSnapshot, err error) *CenterTriggerResult`
+
+### `platform/modules/m09/service/config_trigger_service_test.go`
+
+- `func newTriggerStack(t *testing.T) (*service.ConfigTriggerService, *service.ConfigSyncService, *repository.GORMCenterSnapsho…`
+- `func TestConfigTriggerDomainWaitSyncsOnlyRequestedDomain(t *testing.T)`
+- `func TestConfigTriggerCenterWaitSyncsRules(t *testing.T)`
+- `func TestConfigTriggerRejectsInvalidScopeAndEmptyDomains(t *testing.T)`
+- `func TestConfigTriggerEnforcesDomainAuthorization(t *testing.T)`
+- `func TestConfigTriggerAsyncCoalescesRapidRequests(t *testing.T)`
+- `func TestConfigTriggerNotifyDomainsEnqueues(t *testing.T)`
+- `func TestConfigTriggerNotifyAllDomainsEnqueues(t *testing.T)`
+
+### `platform/modules/m09/service/edge_service.go`
+
+- `type EdgeService struct`
+- `func NewEdgeService(repo repository.EdgeRepository, tenants repository.TenantReader) *EdgeService`
+- `method (*EdgeService) HandleHeartbeat(ctx context.Context, domainID string, req domain.HeartbeatRequest) (*domain.HeartbeatRes…`
+- `method (*EdgeService) ListAgents(ctx context.Context, actor Actor, filter repository.EdgeAgentFilter) ([]repository.EdgeAgentV…`
+- `method (*EdgeService) GetAgent(ctx context.Context, actor Actor, id int64) (*repository.EdgeAgentView, error)`
+- `method (*EdgeService) RestartAgent(ctx context.Context, actor Actor, id int64, requestedBy string) (*repository.EdgeAgentView,…`
+- `method (*EdgeService) FlushBacklogAgent(ctx context.Context, actor Actor, id int64, requestedBy string) (*repository.EdgeAgent…`
+- `method (*EdgeService) DetectOffline(ctx context.Context) (int64, error)`
+- `method (*EdgeService) CleanupHeartbeats(ctx context.Context) (int64, error)`
+- `method (*EdgeService) RunMaintenance(ctx context.Context, interval time.Duration)`
+- `method (*EdgeService) requireCommandable(ctx context.Context, actor Actor, id int64) (*repository.EdgeAgentView, error)`
+- `method (*EdgeService) allowed(ctx context.Context, actor Actor) ([]string, error)`
+
+### `platform/modules/m09/service/edge_service_test.go`
+
+- `func TestHeartbeatAutoRegistersAndUpdates(t *testing.T)`
+- `func TestHeartbeatTargetsReplaceAndKeep(t *testing.T)`
+- `func TestHeartbeatValidation(t *testing.T)`
+- `func TestTokenValidator(t *testing.T)`
+- `func TestAgentCommandsOfflineAndCleanup(t *testing.T)`
+- `func TestHeartbeatReportsConfigChanged(t *testing.T)`
+- `func TestAgentScopeNonAdmin(t *testing.T)`
+
+### `platform/modules/m09/service/onboarding_service.go`
+
+- `type Actor struct`
+- `type Endpoint struct`
+- `type InstallGuide struct`
+- `type MonitorResult struct`
+- `type ResetTokenResult struct`
+- `type OnboardingService struct`
+- `func NewOnboardingService(repo repository.OnboardingRepository, tenants repository.TenantReader) *OnboardingService`
+- `method (*OnboardingService) List(ctx context.Context, actor Actor, filter repository.ListFilter) ([]repository.DomainOnboardin…`
+- `method (*OnboardingService) Get(ctx context.Context, actor Actor, domainID string) (*repository.DomainOnboarding, error)`
+- `method (*OnboardingService) Monitor(ctx context.Context, actor Actor, domainID string, ep Endpoint) (*MonitorResult, error)`
+- `method (*OnboardingService) ResetToken(ctx context.Context, actor Actor, domainID string) (*ResetTokenResult, error)`
+- `method (*OnboardingService) Unmonitor(ctx context.Context, actor Actor, domainID string) error`
+- `method (*OnboardingService) Available() bool`
+- `method (*OnboardingService) Impact(ctx context.Context, domainID string) (references.MonitoringImpact, error)`
+- `method (*OnboardingService) RetireDomain(ctx context.Context, domainID string) error`
+- `method (*OnboardingService) AllowedDomainIDs(ctx context.Context, actor Actor) ([]string, error)`
+- `method (*OnboardingService) resolveAllowed(ctx context.Context, actor Actor) ([]string, error)`
+- `func defaultInstallGuide() InstallGuide`
+
+### `platform/modules/m09/service/onboarding_service_test.go`
+
+- `func kindOf(err error) apierror.Kind`
+- `func newTestStack(t *testing.T) (*gorm.DB, *service.OnboardingService, *repository.GORMRepository)`
+- `func createDomain(t *testing.T, gormDB *gorm.DB, id string, status models.DomainStatus)`
+- `func admin() service.Actor`
+- `func TestMonitorIssuesTokenOnce(t *testing.T)`
+- `func TestMonitorRejectsDuplicateAndDisabled(t *testing.T)`
+- `func TestResetTokenRevokesOld(t *testing.T)`
+- `func TestUnmonitorIsIdempotent(t *testing.T)`
+- `func TestListScopesNonAdminAndAggregatesAgents(t *testing.T)`
+- `func TestListAdminViewIncludesDisabledWithAdminFields(t *testing.T)`
+- `func TestMonitoringRetirerCascades(t *testing.T)`
+
+### `platform/modules/m09/service/package_service.go`
+
+- `type PackageComponent struct`
+- `type EdgePackage struct`
+- `type PackageService struct`
+- `func NewPackageService(dir string) *PackageService`
+- `method (*PackageService) List(_ context.Context) ([]EdgePackage, error)`
+- `method (*PackageService) Latest(_ context.Context) (*EdgePackage, error)`
+- `method (*PackageService) Open(_ context.Context, file string) (*EdgePackage, *os.File, error)`
+- `method (*PackageService) toPackage(artifact packageArtifact) EdgePackage`
+
+### `platform/modules/m09/service/packages_local.go`
+
+- `type packageComponent struct`
+- `type packageArtifact struct`
+- `func loadPackageManifest(dir string) (packageArtifact, error)`
+- `func listPackages(dir string) ([]packageArtifact, error)`
+- `func latestPackage(dir string) (packageArtifact, error)`
+- `func openPackageFile(dir string, art packageArtifact) (*os.File, error)`
+
+### `platform/modules/m09/service/promql.go`
+
+- `func DomainMatcher(domains []string) string`
+- `func InjectDomain(expr, matcher string) string`
+- `func InjectMatcher(matchers []string, matcher string) []string`
+- `func isIdentStart(ch byte) bool`
+- `func isIdentPart(ch byte) bool`
+
+### `platform/modules/m09/service/promql_test.go`
+
+- `func TestInjectDomain(t *testing.T)`
+- `func TestInjectDomainDoesNotTouchLabelNames(t *testing.T)`
+- `func TestInjectMatcher(t *testing.T)`
+- `func TestDomainMatcher(t *testing.T)`
+
+### `platform/modules/m09/service/query_guard.go`
+
+- `type GuardError struct`
+- `method (*GuardError) Error() string`
+- `func newGuardError(format string, args ...any) *GuardError`
+- `func GuardQuery(path string, params url.Values) error`
+- `func ValidateQueryLength(expr string) error`
+- `func ValidateRangeWindow(startRaw, endRaw string) error`
+- `func ValidateRangeParams(startRaw, endRaw, stepRaw string) error`
+- `func parseQueryTime(raw string) (time.Time, bool)`
+- `func parseQueryStep(raw string) (time.Duration, bool)`
+- `func parsePrometheusDuration(raw string) (time.Duration, bool)`
+- `func suggestQueryStep(span time.Duration) time.Duration`
+- `func formatGuardDuration(d time.Duration) string`
+
+### `platform/modules/m09/service/query_guard_test.go`
+
+- `func TestValidateQueryLength(t *testing.T)`
+- `func TestValidateRangeParams(t *testing.T)`
+- `func TestValidateRangeWindow(t *testing.T)`
+- `func TestGuardQuery(t *testing.T)`
+- `func TestParseQueryStep(t *testing.T)`
+- `func TestSuggestQueryStep(t *testing.T)`
+- `func TestFormatGuardDuration(t *testing.T)`
+
+### `platform/modules/m09/service/query_service.go`
+
+- `type QueryMeta struct`
+- `type CoverageCounts struct`
+- `type CoverageItem struct`
+- `type CoverageSummary struct`
+- `type CoverageReport struct`
+- `type UpstreamError struct`
+- `method (*UpstreamError) Error() string`
+- `method (*UpstreamError) Unwrap() error`
+- `type QueryService struct`
+- `func NewQueryService(promURL *url.URL, tenants repository.TenantReader, repo repository.QueryRepository) *QueryService`
+- `method (*QueryService) AllowedDomains(ctx context.Context, actor Actor) ([]string, error)`
+- `method (*QueryService) Targets(ctx context.Context, actor Actor, filter repository.TargetFilter) ([]repository.EdgeTargetRow, …`
+- `method (*QueryService) Coverage(ctx context.Context, actor Actor) (CoverageCounts, error)`
+- `method (*QueryService) CoverageReport(ctx context.Context, actor Actor, filter repository.CoverageFilter, state string, page, …`
+- `func buildCoverageItem(resource repository.CoverageResourceRow, targets []repository.CoverageTargetRow, freshAfter time.Time…`
+- `func healthPtr(value string) *string`
+- `func summarizeCoverage(items []CoverageItem) CoverageSummary`
+- `method (*QueryService) Proxy(ctx context.Context, actor Actor, path string, params url.Values) (int, []byte, QueryMeta, error)`
+- `func filterAlerts(body []byte, allowed []string) []byte`
+- `func cloneValues(values url.Values) url.Values`
+
+### `platform/modules/m09/service/query_service_test.go`
+
+- `func TestQueryTargetsAndCoverage(t *testing.T)`
+- `func TestQueryProxyInjectsDomainMatcher(t *testing.T)`
+- `func TestQueryProxyFiltersAlerts(t *testing.T)`
+- `func TestQueryProxyGuardRejectsBeforeUpstream(t *testing.T)`
+- `func TestQueryProxyCoversAllAuthorizedDomains(t *testing.T)`
+- `func TestQueryProxyTimeoutMarksUpstreamError(t *testing.T)`
+- `func TestQueryProxyUnreachableIsUpstreamError(t *testing.T)`
+
+### `platform/modules/m09/service/snapshot_retention.go`
+
+- `func snapshotRetentionDays() int`
+- `func snapshotDayLocation() *time.Location`
+- `func normalizeSnapshotRetention(days int) int`
+
+### `platform/modules/m09/service/token_validator.go`
+
+- `type TokenValidator struct`
+- `func NewTokenValidator(repo repository.EdgeRepository) *TokenValidator`
+- `method (*TokenValidator) Validate(ctx context.Context, token string) (string, bool)`
+
+### `platform/modules/m09/storage/content_store.go`
+
+- `type ContentStore struct`
+- `func NewContentStore(root string) *ContentStore`
+- `type Payload struct`
+- `method (*ContentStore) WriteArtifacts(domainID, version string, artifacts *configgen.Artifacts) (string, error)`
+- `method (*ContentStore) Read(domainID, version string) ([]byte, error)`
+- `method (*ContentStore) ReadPayload(domainID, version string) (*Payload, error)`
+- `method (*ContentStore) Exists(domainID, version string) bool`
+- `method (*ContentStore) WriteRaw(domainID, version string, payload []byte) (string, error)`
+- `method (*ContentStore) BuildZip(domainID, version string) ([]byte, error)`
+- `method (*ContentStore) Delete(domainID, version string) error`
+- `method (*ContentStore) path(domainID, version string) (string, error)`
+- `func safeSegment(value string) (string, error)`
+
+### `platform/testutil/testdb/testdb.go`
+
+- `type testDB struct`
+- `func MigrateDriver() string`
+- `func DSN(t *testing.T) string`
+- `func Open(t *testing.T) *gorm.DB`
+- `func stateFor(t *testing.T) *testDB`
+- `func requireBaseDSN(t *testing.T) string`
+- `func newPostgresSchema(t *testing.T) (dsn, schema string)`
+- `func currentUser() string`
+- `func setupPostgres(t *testing.T, baseDSN string) (dsn, schema string)`
+- `func withSearchPath(dsn, schema string) string`
+- `func quoteIdent(s string) string`
+- `func randomSuffix() string`
+
+### `platform/testutil/testdb/testdb_test.go`
+
+- `type widget struct`
+- `func exerciseCRUD(t *testing.T, db *gorm.DB)`
+- `func TestOpenAppliesMigrationsAndIsStable(t *testing.T)`
+- `func TestOpenIsolatesSchemasAndCleansUp(t *testing.T)`
+- `func schemaFromDSN(t *testing.T, dsn string) string`
 
 ## ui-custom/web/src/（React 前端）
 
@@ -4865,12 +5760,15 @@
 
 - `interface UsersListParams`
 - `interface LoginLogsListParams`
+- `interface TenantsListParams`
 - `const userApi`
 - `const loginLogApi`
 - `const tenantAdminApi`
 
 ### `ui-custom/web/src/api/alertmanager.ts`
 
+- `function flattenWireRouteTree`
+- `function nestEditRouteTree`
 - `function readValidateErrors`
 - `interface AlertmanagerListParams`
 - `interface EffectiveAlertmanagerYaml`
@@ -4879,17 +5777,28 @@
 - `interface AlertStatusQuery`
 - `const ALERT_HISTORY_STEP_SECONDS`
 - `interface AlertHistoryQuery`
+- `interface AlertEventQuery`
 - `const alertStatusApi`
 - `const notifyChannelsApi`
 - `const notifyTemplatesApi`
 - `const alertmanagerRoutesApi`
 
-### `ui-custom/web/src/api/ciExporterMappings.ts`
+### `ui-custom/web/src/api/attributes.ts`
 
-- `interface CITypeExporterMappingListParams`
-- `interface CITypeExporterMappingInput`
-- `interface CITypeExporterMappingUpdateInput`
-- `const ciExporterMappingApi`
+- `const ciModelApi`
+- `const attributeDefinitionApi`
+- `const resourceAttributeApi`
+
+### `ui-custom/web/src/api/auth.ts`
+
+- `const LOGOUT_ENDPOINT`
+- `function logout`
+
+### `ui-custom/web/src/api/blackboxModules.ts`
+
+- `interface BlackboxModule`
+- `interface BlackboxModuleInput`
+- `const blackboxModuleApi`
 
 ### `ui-custom/web/src/api/client.ts`
 
@@ -4905,12 +5814,21 @@
 - `function request`
 - `const apiClient`
 
+### `ui-custom/web/src/api/collectionTemplates.ts`
+
+- `interface CollectionTemplateListParams`
+- `const collectionTemplateApi`
+- `const candidateFieldApi`
+
 ### `ui-custom/web/src/api/configCenter.ts`
 
 - `interface ConfigListParams`
 - `const networkDomainMonitorApi`
-- `const configDraftApi`
-- `const deploymentApi`
+- `const configSnapshotApi`
+- `interface ConfigArtifactListParams`
+- `const CONFIG_SYNC_TRIGGER_PATH`
+- `const configSyncTriggerApi`
+- `const configArtifactApi`
 
 ### `ui-custom/web/src/api/coverage.ts`
 
@@ -4919,7 +5837,6 @@
 
 ### `ui-custom/web/src/api/dashboard.ts`
 
-- `interface RecentDeployment`
 - `interface SubtypeSummary`
 - `interface CategorySummary`
 - `interface AppSummary`
@@ -4931,19 +5848,26 @@
 - `interface DashboardSummary`
 - `const dashboardApi`
 
+### `ui-custom/web/src/api/dashboardPanels.ts`
+
+- `interface DashboardPanel`
+- `interface DashboardPanelList`
+- `interface DashboardPanelCreateInput`
+- `interface DashboardPanelListParams`
+- `const dashboardPanelApi`
+
 ### `ui-custom/web/src/api/domain.ts`
 
 - `interface ListParams`
 - `interface NetworkDomainCreateInput`
 - `interface NetworkDomainUpdateInput`
-- `const zoneTypeApi`
 - `const networkDomainApi`
-- `function fetchManagementDomain`
 - `function resolveNetworkDomainImpact`
 - `const tenantApi`
 
 ### `ui-custom/web/src/api/edgeAgents.ts`
 
+- `interface EdgeAgentsListParams`
 - `const edgeAgentsApi`
 
 ### `ui-custom/web/src/api/edgePackages.ts`
@@ -4957,20 +5881,21 @@
 - `interface ExporterTemplateUpdateInput`
 - `const exporterTemplateApi`
 
-### `ui-custom/web/src/api/health.ts`
+### `ui-custom/web/src/api/inhibitions.ts`
 
-- `interface HealthResponse`
-- `interface StatusResponse`
-- `function getHealth`
-- `function getHealthDb`
-- `function getStatus`
+- `const inhibitionsApi`
+
+### `ui-custom/web/src/api/jobGroups.ts`
+
+- `interface CandidateFilterPayload`
+- `interface CandidateQueryPayload`
+- `interface CandidateIdsPayload`
+- `type JobGroupSaveInput`
+- `const jobGroupApi`
 
 ### `ui-custom/web/src/api/labelTemplates.ts`
 
 - `interface LabelTemplateListParams`
-- `interface TemplateInstanceListParams`
-- `interface TemplateInstancePage`
-- `interface MappingRemoveResult`
 - `const labelTemplateApi`
 
 ### `ui-custom/web/src/api/metricLibrary.ts`
@@ -4986,21 +5911,24 @@
 - `interface MonitoringRuleInput`
 - `type PromQLCheckStatus`
 - `interface PromQLCheckResult`
+- `interface JobRefIssue`
 - `interface YamlValidationResult`
 - `interface RuleLabelInfo`
 - `interface RuleInspectResult`
-- `type JobRefSeverity`
-- `interface JobRefIssue`
 - `const monitoringRuleApi`
 
 ### `ui-custom/web/src/api/query.ts`
 
+- `interface QueryRequestOptions`
 - `interface PromQueryParams`
+- `interface PromQueryRangeParams`
+- `interface PromLabelValuesParams`
 - `const queryApi`
 
 ### `ui-custom/web/src/api/resources.ts`
 
 - `interface ResourceListParams`
+- `interface V3ResourceResponse`
 - `interface ResourceLabelsResponse`
 - `interface ResourceReferenceJob`
 - `interface ResourceReferenceResponse`
@@ -5008,10 +5936,18 @@
 - `interface ResourceLabelUpdateInput`
 - `interface BusinessDomainsResponse`
 - `interface ImportListParams`
+- `function v3ResourceToListItem`
+- `function buildV3Attributes`
+- `interface V3ResourceWritePayload`
+- `function toV3ResourcePayload`
 - `const resourceApi`
 - `interface BusinessDomainCreateInput`
 - `interface BusinessDomainUpdateInput`
 - `const businessDomainApi`
+- `interface DictionaryMergeInput`
+- `interface DictionaryMergeResult`
+- `interface DictionaryAuditLogsResponse`
+- `const dictionaryAuditApi`
 - `interface ApplicationDictsResponse`
 - `interface ApplicationDictCreateInput`
 - `interface ApplicationDictUpdateInput`
@@ -5026,6 +5962,7 @@
 - `interface AppPlatformRelUpdateInput`
 - `const appPlatformRelApi`
 - `interface CloudDictsResponse`
+- `interface CloudDictCreateInput`
 - `const cloudDictApi`
 - `const osOptionApi`
 - `const importApi`
@@ -5045,6 +5982,26 @@
 
 - `const storageLogApi`
 
+### `ui-custom/web/src/api/strategyV3.ts`
+
+- `type ListParams`
+- `interface ExporterTemplateInputV3`
+- `const exporterTemplateApiV3`
+- `interface JobInputV3`
+- `interface ScrapeJobListParamsV3`
+- `interface CandidateParamsV3`
+- `interface InstallationInputV3`
+- `const scrapeJobApiV3`
+- `interface RuleInputV3`
+- `interface RuleValidationRequestV3`
+- `const ruleApiV3`
+- `interface MetricInputV3`
+- `const metricApiV3`
+- `interface BusinessMetricInputV3`
+- `const businessMetricApiV3`
+- `interface ProbeModuleInputV3`
+- `const probeModuleApiV3`
+
 ### `ui-custom/web/src/api/targets.ts`
 
 - `interface TargetsListParams`
@@ -5057,10 +6014,6 @@
 ### `ui-custom/web/src/components/EllipsisText.tsx`
 
 - `function EllipsisText`
-
-### `ui-custom/web/src/components/FieldLabel.tsx`
-
-- `function FieldLabel`
 
 ### `ui-custom/web/src/components/FilterBar.tsx`
 
@@ -5105,6 +6058,7 @@
 - `const MIN_COLUMN_WIDTH`
 - `const MAX_COLUMN_WIDTH`
 - `const DEFAULT_COLUMN_WIDTH`
+- `const ROW_SELECTION_COLUMN_WIDTH`
 - `const TABLE_PAGINATION`
 
 ### `ui-custom/web/src/layouts/MainLayout.tsx`
@@ -5127,6 +6081,14 @@
 
 - `function CloudDictPage`
 
+### `ui-custom/web/src/pages/admin/dashboard-panels/DashboardPanelFormModal.tsx`
+
+- `function DashboardPanelFormModal`
+
+### `ui-custom/web/src/pages/admin/dashboard-panels/DashboardPanelsPage.tsx`
+
+- `function DashboardPanelsPage`
+
 ### `ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx`
 
 - `function DeleteDomainModal`
@@ -5142,10 +6104,6 @@
 ### `ui-custom/web/src/pages/admin/domains/DomainsPage.tsx`
 
 - `function DomainsPage`
-
-### `ui-custom/web/src/pages/admin/domains/domainRules.ts`
-
-- `function isVacantDomain`
 
 ### `ui-custom/web/src/pages/admin/domains/useDomains.ts`
 
@@ -5210,10 +6168,6 @@
 
 - `function AlertStatusPage`
 
-### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
-
-- `function AlertsPage`
-
 ### `ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx`
 
 - `interface CreateSilenceDrawerProps`
@@ -5222,6 +6176,14 @@
 ### `ui-custom/web/src/pages/alerts/HistoryAlertsPage.tsx`
 
 - `function HistoryAlertsPage`
+
+### `ui-custom/web/src/pages/alerts/InhibitionEditorDrawer.tsx`
+
+- `function InhibitionEditorDrawer`
+
+### `ui-custom/web/src/pages/alerts/InhibitionsPage.tsx`
+
+- `function InhibitionsPage`
 
 ### `ui-custom/web/src/pages/alerts/NotifyChannelDrawer.tsx`
 
@@ -5259,19 +6221,8 @@
 ### `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`
 
 - `const CURRENT_USER`
-- `const CONFIG_PREVIEW_PATH`
 - `const ROUTES_PATH`
 - `const DEFAULT_RECEIVER_LABEL`
-- `const configStatusLabel`
-- `const configStatusColor`
-- `function isConfigApplied`
-- `const CONFIG_STATUS_APPLIED_LABEL`
-- `const CONFIG_STATUS_PENDING_LABEL`
-- `const CONFIG_STATUS_DISCARDED_LABEL`
-- `const CONFIG_STATUS_PENDING_TIP`
-- `const CONFIG_STATUS_DISCARDED_TIP`
-- `interface ConfigStatusView`
-- `function configStatusView`
 - `const silenceStatusLabel`
 - `const silenceStatusColor`
 - `type ValidateSection`
@@ -5293,6 +6244,8 @@
 - `const alertHistoryStateLabel`
 - `function alertMatchKey`
 - `const alertHistoryStateColor`
+- `const alertEventStatusLabel`
+- `const alertEventStatusColor`
 - `const ALERT_CONFIG_PATH`
 - `const NOTIFY_CHANNELS_PATH`
 - `const NOTIFY_TEMPLATES_PATH`
@@ -5301,6 +6254,11 @@
 - `const NOTIFY_CHANNEL_TYPE_OPTIONS`
 - `const TEMPLATE_CHANNEL_TYPE_OPTIONS`
 - `const NOTIFY_TEMPLATE_BUILTIN_TIP`
+
+### `ui-custom/web/src/pages/alerts/historyAlertExport.ts`
+
+- `function alertEventsToCSV`
+- `function downloadAlertEvents`
 
 ### `ui-custom/web/src/pages/alerts/routeLabels.ts`
 
@@ -5346,6 +6304,7 @@
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
+- `interface LastReload`
 - `interface UseAlertConfigResult`
 - `function useAlertConfig`
 
@@ -5353,7 +6312,16 @@
 
 - `interface AlertViewState`
 - `interface DomainOption`
-- `function useAmAlerts`
+- `type OpenAlertStatus`
+- `type CurrentAlertStatusFilter`
+- `interface CurrentAlertsQuery`
+- `interface CurrentAlertsResult`
+- `const CURRENT_ALERTS_PAGE_SIZE`
+- `function currentAlertParams`
+- `function useCurrentAlerts`
+- `interface OpenAlertStats`
+- `interface OpenAlertStatsState`
+- `function useOpenAlertStats`
 - `function usePromAlerts`
 - `function useNetworkDomains`
 
@@ -5365,6 +6333,7 @@
 - `function useHistoryAlerts`
 - `function useNetworkDomains`
 - `function defaultTimeRange`
+- `function historyAlertParams`
 
 ### `ui-custom/web/src/pages/alerts/useNotifyChannels.ts`
 
@@ -5395,10 +6364,6 @@
 - `interface SilenceQuery`
 - `function useSilences`
 
-### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
-
-- `function CollectionPage`
-
 ### `ui-custom/web/src/pages/config-center/configCenterConstants.ts`
 
 - `const CURRENT_USER`
@@ -5409,13 +6374,10 @@
 - `const channelTip`
 - `const channelColor`
 - `const agentTypeLabel`
-- `const domainTypeLabel`
 - `const DOMAIN_FIELD_TIP`
-- `const domainTypeColor`
 - `function deriveRegistrationStatus`
 - `const registrationStatusLabel`
 - `const registrationStatusColor`
-- `const zoneTypeColor`
 - `const monitoredStatusLabel`
 - `const monitoredStatusColor`
 - `const draftStatusLabel`
@@ -5431,20 +6393,10 @@
 - `const affectedFileColor`
 - `const deploymentStatusLabel`
 - `const deploymentStatusColor`
-- `function deriveRemoteWriteUrl`
 - `function highestRisk`
 - `function formatRelativeTime`
 - `function formatLocalTime`
-
-### `ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx`
-
-- `function DeploymentsPage`
-
-### `ui-custom/web/src/pages/config-center/deployments/useDeployments.ts`
-
-- `interface UseDeploymentsResult`
-- `function useDeployments`
-- `function fetchAllDomains`
+- `function formatLocalDate`
 
 ### `ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.tsx`
 
@@ -5460,7 +6412,6 @@
 
 ### `ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx`
 
-- `interface OnboardInput`
 - `function OnboardDomainDrawer`
 
 ### `ui-custom/web/src/pages/config-center/domains/PlainTokenModal.tsx`
@@ -5499,11 +6450,6 @@
 - `const componentStatusColor`
 - `const HIGH_RISK_COMPONENT_STATUS`
 - `function formatBacklogBytes`
-- `const SAMPLE_LAG_WARN_SECONDS`
-- `const SAMPLE_LAG_DANGER_SECONDS`
-- `const SAMPLE_LAG_TOOLTIP`
-- `function formatSampleLag`
-- `function sampleLagSeverity`
 - `const BACKLOG_AGE_TOOLTIP`
 - `function formatBacklogAge`
 - `function formatBacklogGrowth`
@@ -5523,44 +6469,63 @@
 
 - `function ConfigPreviewPage`
 
-### `ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts`
+### `ui-custom/web/src/pages/config-center/preview/SnapshotDetailDrawer.tsx`
 
-- `const PREVIEW_TABS`
-- `function previewTabsFor`
-- `function affectedFileSet`
-- `function previewFileText`
-- `interface ArtifactSource`
-- `function fileTextByKey`
-- `function targetsText`
-- `type DiffRowType`
-- `interface DiffRow`
-- `function computeDiff`
+- `function SnapshotDetailDrawer`
+
+### `ui-custom/web/src/pages/config-center/preview/snapshotHelpers.ts`
+
+- `const ARTIFACT_TYPE_LABEL`
+- `const ARTIFACT_TYPE_COLOR`
+- `const SNAPSHOT_STATUS_LABEL`
+- `const SNAPSHOT_STATUS_COLOR`
+- `const SNAPSHOT_CAUSE_LABEL`
+- `const SNAPSHOT_GENERATOR_LABEL`
+- `const SNAPSHOT_RETENTION_TIP`
+- `function validationDetailsText`
+- `function sortSnapshotsNewestFirst`
 
 ### `ui-custom/web/src/pages/config-center/preview/triggerConfigDraft.ts`
 
 - `const CONFIG_PREVIEW_PATH`
 - `interface TriggerDraftOptions`
 - `function triggerConfigDrafts`
-- `function triggerAlertmanagerConfigDrafts`
 - `function triggerConfigDraftsForAllDomains`
 
-### `ui-custom/web/src/pages/config-center/preview/useConfigDrafts.ts`
+### `ui-custom/web/src/pages/config-center/preview/useConfigArtifacts.ts`
 
-- `type DraftStatusFilter`
-- `const ALL_DOMAINS_ID`
-- `const POLL_INTERVAL_MS`
-- `interface UseConfigDraftsResult`
-- `function useConfigDrafts`
+- `interface ArtifactLoadFailure`
+- `interface UseConfigArtifactsOptions`
+- `interface UseConfigArtifactsResult`
+- `function useConfigArtifacts`
+
+### `ui-custom/web/src/pages/config-center/preview/useConfigSnapshots.ts`
+
+- `interface SnapshotDomainFailure`
+- `interface UseConfigSnapshotsOptions`
+- `interface UseConfigSnapshotsResult`
 - `function fetchMonitoredDomains`
+- `function useConfigSnapshots`
 
-### `ui-custom/web/src/pages/config/ConfigPage.tsx`
+### `ui-custom/web/src/pages/dashboard/DashboardFrame.tsx`
 
-- `function ConfigPage`
+- `function DashboardFrame`
+
+### `ui-custom/web/src/pages/dashboard/DashboardPanelPage.tsx`
+
+- `function DashboardPanelPage`
+
+### `ui-custom/web/src/pages/dashboard/kioskEvents.ts`
+
+- `function attachKioskEventGuards`
+
+### `ui-custom/web/src/pages/dashboard/kioskUrl.ts`
+
+- `function buildKioskURL`
 
 ### `ui-custom/web/src/pages/home/AlertStatusCard.tsx`
 
 - `interface AlertCounts`
-- `const LATEST_ALERT_LIMIT`
 - `const LATEST_ALERT_TITLE`
 - `function AlertStatStrip`
 - `function AlertRow`
@@ -5615,11 +6580,6 @@
 - `const DONUT_GEOMETRY`
 - `const DONUT_CIRCUMFERENCE`
 
-### `ui-custom/web/src/pages/home/homeLayout.ts`
-
-- `const ALERT_PAGE_SIZE`
-- `function computeAlertPageSize`
-
 ### `ui-custom/web/src/pages/home/homePanelVisibility.ts`
 
 - `const RESOURCE_PANELS_COLLAPSED_KEY`
@@ -5666,13 +6626,9 @@
 ### `ui-custom/web/src/pages/label-templates/labelTemplateConstants.ts`
 
 - `const RESOURCE_TYPE_MAP`
-- `const INSTANCE_LEVEL_CUSTOM_CATEGORIES`
-- `const INSTANCE_STATUS_MAP`
-- `const INSTANCE_STATUS_OPTIONS`
 - `const SOURCE_TYPE_LABEL`
 - `const SOURCE_TYPE_COLOR`
 - `const MAPPING_SOURCE_TYPE_OPTIONS`
-- `const DICT_TRANSLATABLE_FIELDS`
 - `const TRANSFORM_OPTIONS`
 - `const TRANSFORM_LABELS`
 - `const PROTECTED_PROMETHEUS_LABELS`
@@ -5693,20 +6649,87 @@
 
 - `function TargetStatusPage`
 
+### `ui-custom/web/src/pages/query/TimeSeriesChart.tsx`
+
+- `interface TimeSeriesChartProps`
+- `function TimeSeriesChart`
+
+### `ui-custom/web/src/pages/query/chartOption.ts`
+
+- `const SERIES_COLORS`
+- `function formatChartValue`
+- `function buildChartOption`
+
+### `ui-custom/web/src/pages/query/queryRange.ts`
+
+- `const QUICK_RANGES`
+- `type QuickRangeValue`
+- `const DEFAULT_QUERY`
+- `const DEFAULT_RANGE_SECONDS`
+- `const MIN_STEP_SECONDS`
+- `const MAX_QUERY_POINTS`
+- `const MAX_QUERY_LENGTH`
+- `const TARGET_QUERY_POINTS`
+- `const QUERY_PRESETS`
+- `type QueryPresetValue`
+- `interface ChartSeries`
+- `interface SeriesStats`
+- `interface QueryState`
+- `function niceStep`
+- `function computeStep`
+- `function resolveQuickRange`
+- `function matchQuickRange`
+- `function toGrid`
+- `function summarizeSeries`
+- `function formatLabels`
+- `function promqlString`
+- `function parseBareMetric`
+- `function buildSelector`
+- `function parseQueryState`
+- `function buildQuerySearch`
+- `function isAbortError`
+- `function queryLengthBytes`
+
 ### `ui-custom/web/src/pages/resources/ApplicationDictPage.tsx`
 
 - `function ApplicationDictPage`
 - `function ApplicationDictDrawer`
 
+### `ui-custom/web/src/pages/resources/BulkReassignModal.tsx`
+
+- `interface BulkReassignModalProps`
+- `function BulkReassignModal`
+
+### `ui-custom/web/src/pages/resources/BusinessDomainDrawer.tsx`
+
+- `interface BusinessDomainDrawerProps`
+- `function BusinessDomainDrawer`
+
 ### `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`
 
 - `function BusinessDomainPage`
-- `function BusinessDomainDrawer`
+
+### `ui-custom/web/src/pages/resources/CIModelPage.tsx`
+
+- `function CIModelPage`
+
+### `ui-custom/web/src/pages/resources/DeleteResourceConfirm.tsx`
+
+- `function DeleteResourceConfirm`
 
 ### `ui-custom/web/src/pages/resources/DictLifecycleNotice.tsx`
 
 - `const DICT_LIFECYCLE_NOTICE`
+- `interface DictLifecycleNoticeProps`
 - `function DictLifecycleNotice`
+
+### `ui-custom/web/src/pages/resources/DictionaryLifecycleActions.tsx`
+
+- `function DictionaryStatusBadge`
+- `function DictionaryRevokeButton`
+- `interface DictionaryMergeOption`
+- `function DictionaryMergeButton`
+- `function DictionaryAuditDrawer`
 
 ### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 
@@ -5719,19 +6742,46 @@
 ### `ui-custom/web/src/pages/resources/PlatformManagementPage.tsx`
 
 - `function PlatformManagementPage`
+- `function PlatformAppsDrawer`
 - `function PlatformDictDrawer`
+
+### `ui-custom/web/src/pages/resources/ResourceAttributesDrawer.tsx`
+
+- `function ResourceAttributesDrawer`
+
+### `ui-custom/web/src/pages/resources/ResourceCategoryTabs.tsx`
+
+- `interface ResourceCategoryTabsProps`
+- `function ResourceCategoryTabs`
 
 ### `ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx`
 
 - `function ResourceDetailDrawer`
 
+### `ui-custom/web/src/pages/resources/ResourceFilterBar.tsx`
+
+- `interface ResourceFilterBarProps`
+- `function ResourceFilterBar`
+
 ### `ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx`
 
 - `function ResourceFormDrawer`
 
-### `ui-custom/web/src/pages/resources/ResourcePage.tsx`
+### `ui-custom/web/src/pages/resources/ResourceLabelsTab.tsx`
 
-- `function ResourcePage`
+- `interface ResourceLabelsTabProps`
+- `function ResourceLabelsTab`
+
+### `ui-custom/web/src/pages/resources/ResourceListAlerts.tsx`
+
+- `interface ResourceListAlertsProps`
+- `function ResourceListAlerts`
+
+### `ui-custom/web/src/pages/resources/ResourceTable.tsx`
+
+- `interface ResourceColumnFilters`
+- `interface ResourceTableProps`
+- `function ResourceTable`
 
 ### `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
 
@@ -5740,6 +6790,20 @@
 ### `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`
 
 - `function TemplateDownloadModal`
+
+### `ui-custom/web/src/pages/resources/dictionaryLifecycle.ts`
+
+- `const DICTIONARY_STATUS_LABEL`
+- `const DICTIONARY_ACTIVE_STATUSES`
+- `const DICTIONARY_STATUS_BADGE`
+- `function dictionaryStatusOf`
+- `function isDictionaryTerminal`
+- `const DICT_LIFECYCLE_RULES`
+- `function dictionaryNameSuffix`
+
+### `ui-custom/web/src/pages/resources/dictionaryRules.ts`
+
+- `const BIZ_CODE_PATTERN`
 
 ### `ui-custom/web/src/pages/resources/resourceColumnPrefs.ts`
 
@@ -5759,17 +6823,90 @@
 - `function resetVisibleColumnKeys`
 - `function isDefaultVisibleColumnKeys`
 
+### `ui-custom/web/src/pages/resources/resourceColumns.tsx`
+
+- `interface ResourceColumnContext`
+- `function buildResourceColumns`
+
+### `ui-custom/web/src/pages/resources/resourceExport.ts`
+
+- `function resourcesToCSV`
+- `function downloadResources`
+
+### `ui-custom/web/src/pages/resources/resourceFieldSchema.ts`
+
+- `const FIELD_GROUP_ORDER`
+- `const FIELD_GROUP_LABEL`
+- `interface BuiltinFieldMeta`
+- `const BUILTIN_FIELD_SCHEMA`
+- `function builtinFieldKeys`
+- `function groupBuiltinFields`
+
+### `ui-custom/web/src/pages/resources/resourceFilterOptions.ts`
+
+- `const STATUS_FILTER_OPTIONS`
+- `const MONITOR_STATE_FILTER_OPTIONS`
+
+### `ui-custom/web/src/pages/resources/resourceFormFields.tsx`
+
+- `const optionalPortRules`
+- `interface ResourceFormFieldsContext`
+- `function renderResourceSharedFields`
+- `function renderResourceTypeFields`
+- `function renderResourceExtensionAttributes`
+
+### `ui-custom/web/src/pages/resources/resourceFormMappers.ts`
+
+- `const ENV_VALUES`
+- `function buildCreateInput`
+- `function buildUpdateInput`
+- `function buildTypeFields`
+- `function recordToFormValues`
+
+### `ui-custom/web/src/pages/resources/resourceMeta.ts`
+
+- `const RESOURCE_TYPES`
+- `const RESOURCE_TYPE_MAP`
+- `const SUBTYPE_FIELD`
+- `const STATUS_MAP`
+- `function statusColor`
+- `const SOURCE_TYPE_MAP`
+- `function resourceDisplayName`
+
+### `ui-custom/web/src/pages/resources/useResourceColumnPrefs.ts`
+
+- `interface UseResourceColumnPrefsResult`
+- `function useResourceColumnPrefs`
+
 ### `ui-custom/web/src/pages/resources/useResourceCoverage.ts`
 
 - `interface UseResourceCoverageResult`
 - `function useResourceCoverage`
 
+### `ui-custom/web/src/pages/resources/useResourceDelete.tsx`
+
+- `function useResourceDelete`
+
+### `ui-custom/web/src/pages/resources/useResourceDictionaries.ts`
+
+- `interface UseResourceDictionariesResult`
+- `function useResourceDictionaries`
+
+### `ui-custom/web/src/pages/resources/useResourceLabels.ts`
+
+- `interface UseResourceLabelsResult`
+- `function useResourceLabels`
+
 ### `ui-custom/web/src/pages/resources/useResources.ts`
 
-- `interface ResourceListItem`
 - `interface ResourceFilters`
 - `interface UseResourcesResult`
 - `function useResources`
+
+### `ui-custom/web/src/pages/strategy/CollectionTemplateDrawer.tsx`
+
+- `interface CollectionTemplateDrawerProps`
+- `function CollectionTemplateDrawer`
 
 ### `ui-custom/web/src/pages/strategy/CollectorListPage.tsx`
 
@@ -5791,17 +6928,31 @@
 
 - `function InstanceSelector`
 
+### `ui-custom/web/src/pages/strategy/JobGroupDetailDrawer.tsx`
+
+- `interface JobGroupDetailDrawerProps`
+- `function JobGroupDetailDrawer`
+
+### `ui-custom/web/src/pages/strategy/JobGroupWizardDrawer.tsx`
+
+- `interface JobGroupWizardDrawerProps`
+- `function JobGroupWizardDrawer`
+
+### `ui-custom/web/src/pages/strategy/JobParamsFields.tsx`
+
+- `interface ScrapeParamFieldsProps`
+- `function ScrapeParamFields`
+- `function AuthTlsFields`
+- `function JobParamsFields`
+
 ### `ui-custom/web/src/pages/strategy/LabelTemplatePreview.tsx`
 
 - `function LabelTemplatePreview`
 
-### `ui-custom/web/src/pages/strategy/LabelTemplateSelectDrawer.tsx`
+### `ui-custom/web/src/pages/strategy/MetricLibraryDrawer.tsx`
 
-- `function LabelTemplateSelectDrawer`
-
-### `ui-custom/web/src/pages/strategy/MappingDrawer.tsx`
-
-- `function MappingDrawer`
+- `interface MetricLibraryDrawerProps`
+- `function MetricLibraryDrawer`
 
 ### `ui-custom/web/src/pages/strategy/MetricLibraryPage.tsx`
 
@@ -5828,14 +6979,24 @@
 
 - `function ScrapeJobListPage`
 
-### `ui-custom/web/src/pages/strategy/jobStatus.ts`
+### `ui-custom/web/src/pages/strategy/SelectorEditor.tsx`
 
-- `interface JobStatusView`
-- `function aggregateJobStatus`
+- `interface SelectorEditorProps`
+- `function SelectorEditor`
+
+### `ui-custom/web/src/pages/strategy/SyncStatusTag.tsx`
+
+- `function SyncStatusTag`
 
 ### `ui-custom/web/src/pages/strategy/rulesYaml.ts`
 
 - `function validateYamlClient`
+
+### `ui-custom/web/src/pages/strategy/selectorUtils.ts`
+
+- `function operatorsForField`
+- `function fixedValuesForField`
+- `function summarizeSelector`
 
 ### `ui-custom/web/src/pages/strategy/strategyConstants.ts`
 
@@ -5856,8 +7017,12 @@
 - `const DOWN_TOOLTIP`
 - `const STALE_TOOLTIP`
 - `const COLLECTION_STATUS_TOOLTIP`
-- `const EFFECTIVE_STATUS_TOOLTIP`
-- `const CHANGE_PROGRESS_TOOLTIP`
+
+### `ui-custom/web/src/pages/strategy/syncStatus.ts`
+
+- `interface SyncStatusView`
+- `function syncStatusView`
+- `function aggregateJobSyncStatus`
 
 ### `ui-custom/web/src/pages/strategy/upStatus.ts`
 
@@ -5868,6 +7033,14 @@
 - `function statusFromUp`
 - `function probeQueryForJob`
 - `function probeStatusOfTarget`
+
+### `ui-custom/web/src/pages/strategy/useCollectionTemplateCatalog.ts`
+
+- `interface CollectionTemplateCatalog`
+- `function useCollectionTemplateCatalog`
+- `interface CandidateFieldCatalog`
+- `function useCandidateFields`
+- `function resetCollectionCatalogCache`
 
 ### `ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`
 
@@ -5887,6 +7060,11 @@
 - `interface ScrapeJobFilters`
 - `interface UseScrapeJobsResult`
 - `function useScrapeJobs`
+
+### `ui-custom/web/src/pages/strategy/useSyncPolling.ts`
+
+- `interface SyncPollingOptions`
+- `function useSyncPolling`
 
 ### `ui-custom/web/src/productNamePreference.ts`
 
@@ -5943,12 +7121,10 @@
 - `interface UserUpdateInput`
 - `interface ResetPasswordInput`
 - `interface TenantEditInput`
-- `interface ItemsResult`
 
 ### `ui-custom/web/src/types/alertmanager.ts`
 
 - `interface PaginatedItems`
-- `type AlertmanagerConfigStatus`
 - `type SilenceStatus`
 - `interface AlertmanagerConfigVersion`
 - `interface AlertmanagerConfigVersionListItem`
@@ -5971,6 +7147,11 @@
 - `type AlertHistoryState`
 - `interface AlertHistoryItem`
 - `interface AlertHistoryData`
+- `type AlertEventStatus`
+- `interface AlertEventItem`
+- `interface AlertEventData`
+- `interface AlertEventCurrentData`
+- `interface AlertEventStats`
 - `type NotifyChannelType`
 - `interface NotifyChannel`
 - `interface NotifyTemplate`
@@ -5987,19 +7168,55 @@
 - `interface RouteTreeData`
 - `interface SaveRoutesPayload`
 - `interface SaveRoutesResult`
+- `interface InhibitionRule`
+- `interface InhibitionListData`
+- `interface SaveInhibitionsPayload`
 
 ### `ui-custom/web/src/types/api.ts`
 
 - `type ApiStatus`
+- `interface ApiMeta`
 - `interface ApiResponse`
 - `interface ApiErrorResponse`
 - `type ApiError`
 - `interface Paginated`
 
+### `ui-custom/web/src/types/attribute.ts`
+
+- `type AttributeValueType`
+- `type AttributeStatus`
+- `type AttributeGroup`
+- `type BuiltinFieldValueType`
+- `interface AttributeDefinition`
+- `interface AttributeDefinitionInput`
+- `interface BuiltinField`
+- `interface AttributeGroupOption`
+- `interface CIModel`
+- `interface RemoveDefinitionResult`
+- `interface ResourceAttributeValue`
+- `const ATTRIBUTE_TYPE_LABEL`
+- `const ATTRIBUTE_STATUS_LABEL`
+
 ### `ui-custom/web/src/types/auth.ts`
 
 - `interface AuthUser`
 - `interface LoginResult`
+
+### `ui-custom/web/src/types/collectionTemplate.ts`
+
+- `type SelectorOperator`
+- `type SelectorLogic`
+- `type CandidateFieldKind`
+- `interface SelectorFilter`
+- `interface Selector`
+- `interface CandidateField`
+- `interface CollectionTemplate`
+- `interface CollectionTemplateInput`
+- `interface CollectionTemplateImpact`
+- `const OPERATOR_LABEL`
+- `const OPERATOR_OPTIONS`
+- `const EMPTY_SELECTOR`
+- `function normalizeSelector`
 
 ### `ui-custom/web/src/types/config-center.ts`
 
@@ -6011,37 +7228,36 @@
 - `type DomainEnabledStatus`
 - `interface NetworkDomain`
 - `type RegistrationStatus`
+- `interface OnboardingDomain`
+- `interface InstallGuide`
+- `interface MonitorDomainResult`
+- `interface UnmonitorDomainResult`
 - `interface MonitorDomainInput`
 - `interface ResetTokenResult`
 - `type DraftStatus`
 - `type DraftValidationStatus`
-- `type DraftValidationCause`
-- `type ValidationSource`
-- `interface ValidationDetail`
 - `type Risk`
 - `type ChangeTarget`
 - `type ChangeType`
 - `type AffectedFile`
-- `interface ConfigChangeItem`
-- `interface ConfigDraftMetadata`
-- `interface ConfigDraft`
-- `interface ConfigVersion`
 - `type DeploymentStatus`
-- `interface DiscardImpact`
-- `interface ConfigDeployment`
-- `interface VersionRef`
-- `interface RollbackDiffItem`
-- `interface RollbackPreview`
+- `type SnapshotValidationStatus`
+- `type SnapshotValidationCause`
+- `interface ConfigSnapshot`
+- `interface ConfigSnapshotListResponse`
+- `type ConfigArtifactType`
+- `interface ConfigArtifact`
+- `interface ConfigArtifactListResponse`
+- `interface ConfigArtifactFile`
+- `interface ConfigArtifactPreview`
+- `interface ConfigSnapshotHistoryRow`
+- `type ConfigSyncTriggerScope`
+- `interface ConfigSyncTriggerRequest`
+- `interface ConfigSyncTriggerDomainResult`
+- `interface ConfigSyncTriggerCenterResult`
+- `interface ConfigSyncTriggerResponse`
 - `interface EdgePackageComponent`
 - `interface EdgePackage`
-
-### `ui-custom/web/src/types/config.ts`
-
-- `type DraftStatus`
-- `type DeploymentStatus`
-- `interface ConfigDraft`
-- `interface ConfigVersion`
-- `interface ConfigDeployment`
 
 ### `ui-custom/web/src/types/domain.ts`
 
@@ -6049,10 +7265,11 @@
 - `type DomainStatus`
 - `type ChannelType`
 - `type AgentType`
-- `interface ZoneType`
+- `type RegistrationStatus`
+- `interface OnboardingNetworkDomain`
 - `interface NetworkDomain`
 - `interface NetworkDomainImpact`
-- `interface CascadeImpact`
+- `type CascadeImpact`
 - `interface NetworkDomainDeleteResult`
 - `interface NetworkDomainStatusResult`
 - `type TenantStatus`
@@ -6071,6 +7288,18 @@
 - `interface EdgeAgentsSummary`
 - `interface EdgeAgentsResponse`
 
+### `ui-custom/web/src/types/jobGroup.ts`
+
+- `interface CandidateFilterField`
+- `interface FilterCondition`
+- `interface DomainHit`
+- `interface CandidateQueryResult`
+- `interface CandidateIdsResult`
+- `interface JobGroupChild`
+- `interface JobGroupSync`
+- `interface JobGroup`
+- `interface JobGroupInput`
+
 ### `ui-custom/web/src/types/label.ts`
 
 - `type LabelSourceType`
@@ -6081,8 +7310,7 @@
 - `interface MappingInput`
 - `interface LabelTemplateCreateInput`
 - `interface LabelTemplateUpdateInput`
-- `interface TemplateInstanceItem`
-- `interface LabelTemplateListItem`
+- `type LabelTemplateListItem`
 
 ### `ui-custom/web/src/types/query.ts`
 
@@ -6111,6 +7339,7 @@
 - `interface GenericTarget`
 - `interface InterfaceService`
 - `type Resource`
+- `interface ResourceListItem`
 - `type ResourceStatus`
 - `interface ResourceCreateBaseShape`
 - `interface HostResourceFields`
@@ -6122,10 +7351,16 @@
 - `type ResourceCreateInput`
 - `interface ResourceUpdateBaseShape`
 - `type ResourceUpdateInput`
+- `type BulkReassignField`
+- `interface BulkReassignInput`
+- `interface BulkReassignResult`
+- `interface BulkReassignFailure`
+- `type DictionaryStatus`
 - `interface BusinessDomain`
 - `interface ApplicationDict`
 - `interface AppPlatformRel`
 - `interface PlatformDict`
+- `interface DictionaryAuditLog`
 - `interface CloudDict`
 - `interface OSOption`
 - `type ResourceLabelSource`
@@ -6151,7 +7386,7 @@
 - `type ChangeStatus`
 - `type InstanceSelectionMode`
 - `interface ScrapeJob`
-- `interface CITypeExporterMapping`
+- `type CITypeExporterMapping`
 - `type ExporterSource`
 - `interface ExporterTemplate`
 - `type RuleContentMode`
@@ -6169,6 +7404,30 @@
 - `interface ExporterInstallationRecord`
 - `interface ScrapeJobInstanceItem`
 - `interface ScrapeJobMappingOverride`
+
+### `ui-custom/web/src/types/strategyV3.ts`
+
+- `type SyncStatus`
+- `interface SyncState`
+- `type JobType`
+- `type JobDraftStatus`
+- `type JobAuthType`
+- `type ResourceCategory`
+- `interface MappingOverride`
+- `interface ExporterTemplateV3`
+- `interface ScrapeJobV3`
+- `interface InstanceCandidateV3`
+- `interface InstallationV3`
+- `interface JobInstanceV3`
+- `interface PreviewTargetsV3`
+- `type RuleContentMode`
+- `interface MonitoringRuleV3`
+- `interface JobRefIssueV3`
+- `interface RuleValidationV3`
+- `interface MetricAnchorV3`
+- `interface MetricV3`
+- `interface BusinessMetricV3`
+- `interface ProbeModuleV3`
 
 ### `ui-custom/web/src/utils/shortChecksum.ts`
 
