@@ -60,7 +60,7 @@ metric-center-bundle-linux-amd64-20260904-112307/
 
 ## 5. 验证
 ```bash
-curl -s http://<ip>:8080/api/v1/health        # 期望 {"status":"success",...}
+curl -s http://<ip>:8080/api/v3/platform/health        # 期望 {"status":"success",...}
 curl -s http://<ip>:9090/-/ready              # Prometheus 就绪
 curl -s http://<ip>:9093/-/ready              # Alertmanager 就绪（M08）
 curl -s http://<ip>:9115/-/healthy            # blackbox_exporter 就绪（WITH_BLACKBOX=1）

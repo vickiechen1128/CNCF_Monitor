@@ -227,13 +227,7 @@ fi
 echo ">>> Running backend tests"
 make test-platform || true
 
-# 8. 安装 Kimi hooks（AI 协作，可选）
-if [ -f "install-hooks.sh" ]; then
-    echo ">>> Installing Kimi hooks"
-    bash install-hooks.sh
-fi
-
-# 9. 启用项目级 git hooks（pre-commit 校验 PRD 合规）
+# 7. 启用项目级 git hooks（pre-commit 校验 PRD 合规）
 echo ">>> Installing project git hooks (pre-commit: PRD hygiene)"
 make install-git-hooks
 

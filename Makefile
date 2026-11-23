@@ -119,7 +119,7 @@ export GOROOT := $(GO_DIR)
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
         db-init run-metric-center run-prometheus dev-ui test-platform migrate migrate-status migrate-down clean repo-map \
-        check-repo-map sync-skills check-skills install-git-hooks \
+        check-repo-map install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
 all: build-all
@@ -134,6 +134,7 @@ help:
 	@echo "  make build-ui           构建 Custom UI"
 	@echo "  make build-all          编译后端 + Prometheus + 前端"
 	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz（默认全量含 alertmanager/amtool/blackbox_exporter；WITH_ALERTMANAGER=0 / WITH_BLACKBOX=0 可裁剪）"
+	@echo "  make dev-all            一键启动四服务（控制面/Prometheus/Alertmanager/前端），DSN 读 .env.local 或环境变量"
 	@echo "  make run-metric-center  编译、迁移并启动 MetricCenter 控制面（默认连本地 PostgreSQL，DSN 见 METRIC_CENTER_DB_DSN）"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
@@ -144,8 +145,6 @@ help:
 	@echo "  make migrate-down       回滚一个 v3 migration（仅开发）"
 	@echo "  make repo-map           生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md（可选）"
 	@echo "  make check-repo-map     手动校验符号地图新鲜度（可选，不再作为提交/合并门禁）"
-	@echo "  make sync-skills        同步 .kimi/skills -> .agents/skills（跨工具共享镜像）"
-	@echo "  make check-skills       校验 .agents/skills 与 .kimi/skills 是否一致"
 	@echo "  make install-git-hooks  启用项目级 git hooks（pre-commit: PRD 合规校验）"
 	@echo "  make check-prd-hygiene  检查 PRD 去历史化与章节冻结"
 	@echo "  make check-prototype-notes  检查原型用户可见文案是否泄漏评审标记"
@@ -490,6 +489,12 @@ dev-ui:
 		exec "node_modules/.bin/vite"; \
 	fi
 
+# 本地一键启动四服务（控制面 / Prometheus / Alertmanager / 前端）。
+# 数据库连接优先取 METRIC_CENTER_DB_DSN（或仓库根 .env.local，见 .env.local.example），
+# 未配置时回落本地 trust 认证默认库；日志写入 .dev-logs/，Ctrl-C 统一停止。
+dev-all:
+	@bash scripts/dev-all.sh
+
 # -----------------------------------------------------------------------------
 # 测试与清理
 # -----------------------------------------------------------------------------
@@ -563,16 +568,6 @@ repo-map: ensure-go
 check-repo-map: ensure-go
 	@echo ">>> Checking repo map freshness"
 	@bash "$(PROJECT_ROOT)/scripts/check-repo-map.sh"
-
-# 同步 Skill 单一源到跨工具共享镜像（OpenCode / Trae / Kimi Code CLI 自动发现）
-sync-skills:
-	@echo ">>> Syncing .kimi/skills -> .agents/skills"
-	@bash "$(PROJECT_ROOT)/scripts/sync-skills.sh"
-
-# 校验共享镜像是否与单一源一致（CI 使用同一命令）
-check-skills:
-	@echo ">>> Checking skills mirror"
-	@bash "$(PROJECT_ROOT)/scripts/sync-skills.sh" check
 
 # 启用项目级 git hooks（core.hooksPath=scripts/git-hooks）
 install-git-hooks:

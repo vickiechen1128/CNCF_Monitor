@@ -53,6 +53,10 @@ Thumbs.db
 # 日志
 *.log
 
+# 本地开发配置与一键启动日志（.env.local 可能含数据库密码，禁止入库）
+.env.local
+.dev-logs/
+
 # SQLite 运行时数据库
 metric_center.db
 *.db
@@ -65,6 +69,10 @@ _gcc_make.zip
 
 # WorkBuddy 项目本地元数据（记忆/自动化等，不纳入版本控制）
 .workbuddy/
+
+# 本地 harness 状态（Kimi 已退役；Trae 草稿/截图等不纳入版本控制）
+.kimi/
+.trae/
 
 # Python 缓存（scripts/ 下的检查脚本运行时产生）
 __pycache__/

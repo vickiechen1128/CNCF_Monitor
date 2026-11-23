@@ -75,7 +75,7 @@ if [[ "$COMMIT_COUNT" -eq 0 && -z "$CHANGED_FILES" ]]; then
   exit 1
 fi
 
-# 安全扫描只关注实际代码目录，避免 docs/.kimi/ 等干扰
+# 安全扫描只关注实际代码目录，避免 docs/ 等干扰
 SCAN_PREFIXES=("platform/" "ui-custom/web/" "deploy/" "patches/prometheus/")
 
 in_scan_scope() {

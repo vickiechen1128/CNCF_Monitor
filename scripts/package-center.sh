@@ -845,7 +845,7 @@ cat <<NOTE
    进程/账户核对：
      ps -ef | grep -E 'metric-center|prometheus|alertmanager|blackbox'
 2) 健康检查：
-     curl -s http://127.0.0.1:$MC_PORT_FINAL/api/v1/health
+     curl -s http://127.0.0.1:$MC_PORT_FINAL/api/v3/platform/health
 3) 查看日志（数据库连接信息与错误在 metric-center.log）：
      tail -f $LOG_DIR/*.log
 4) 停止：
@@ -1007,7 +1007,7 @@ EOF
 
     cat >> "$readme" <<EOF
 - **MetricCenter API**: http://<服务器IP>:8080/api
-- **Health**: http://<服务器IP>:8080/api/v1/health
+- **Health**: http://<服务器IP>:8080/api/v3/platform/health
 
 > 说明：前端产物由 \`metric-center\` 通过 \`--web.static-dir\` 直接托管，UI 与 API 共用 8080 端口（部署拓扑方案 A2）。构建时**不注入** \`VITE_API_BASE_URL\`，页面内的 API 请求走相对路径，会自适应当前访问的 IP / 域名——同一份产物可部署到任意机器而无需重新打包，也不存在跨域问题。
 EOF

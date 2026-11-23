@@ -325,7 +325,7 @@ cd F:/code-program/CNCF_Monitor-worktree/ui-custom/web
 make dev-ui               # 等价于 pnpm install && pnpm dev，默认 http://localhost:5173
 ```
 
-- 前端通过代理访问控制面 `http://localhost:8080/api/v1/status`，**需先启动 MetricCenter 控制面**。
+- 前端通过代理访问控制面 `http://localhost:8080/api/v3/platform/ready`，**需先启动 MetricCenter 控制面**。
 - 生产构建：`make build-ui`（输出 `dist/`）。
 - ⚠️ 必须用 `pnpm`（吃 `pnpm-lock.yaml` 锁版本），**不要用 `npm install`**，否则依赖版本会漂移、与团队成员不一致。
 

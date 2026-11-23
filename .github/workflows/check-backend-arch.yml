@@ -1,8 +1,8 @@
 name: Check Backend Architecture
 
 # 后端架构红线检查：增量代码必须符合
-# docs/05-execution-records/module-00-infrastructure/feature-debt-control.md
-# 的 R1-R4 要求。
+# docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md
+# 的 V3 架构红线（R1/R2/R4）。
 
 on:
   pull_request:

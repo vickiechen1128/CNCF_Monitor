@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # scripts/ci/check-backend-arch.sh
-# 检查后端增量代码是否符合 feature-debt-control.md 的 R1-R4 红线。
+# 检查后端增量代码是否符合
+# docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md
+# 的 V3 架构红线（R1/R2/R4）。
 
 set -euo pipefail
 
@@ -24,7 +26,7 @@ fi
 
 ERRORS=0
 
-echo "=== Check Backend Architecture (R1-R4) ==="
+echo "=== Check Backend Architecture (R1/R2/R4) ==="
 echo "compare range: $COMPARE"
 echo ""
 
@@ -38,34 +40,19 @@ if echo "$HANDLER_DIFF" | grep -E '^\+.*func .*gin\.HandlerFunc' | grep -E 'db \
 fi
 
 # R2: 模型 schema 变更必须提供 migration
-MODEL_DIFF=$(git diff "$COMPARE" -- 'platform/models/*.go' ':!platform/models/*_test.go' || true)
-if echo "$MODEL_DIFF" | grep -E '^\+.*(gorm:"|type\s+\w+\s+struct)' >/dev/null; then
-    if ! echo "$DIFF_NAMES" | grep -q '^platform/db/migrations/'; then
-        echo "ERROR [R2]: platform/models/ 出现新增 struct 或 gorm 字段，但未在 platform/db/migrations/ 提供 migration。"
+MODEL_DIFF=$(git diff "$COMPARE" -- 'platform/models/*.go' 'platform/modules/**/*.go' ':!platform/**/*_test.go' || true)
+if echo "$MODEL_DIFF" | grep -E '^\+.*gorm:"' >/dev/null; then
+    if ! echo "$DIFF_NAMES" | grep -q '^platform/db/migrations/v3/'; then
+        echo "ERROR [R2]: 新增 gorm 字段/模型，但未在 platform/db/migrations/v3/ 提供 migration。"
         echo ""
         ERRORS=$((ERRORS + 1))
     fi
 fi
 
-# R3: 业务代码禁止新增字符串字段映射（resource_fields.go 自身与测试文件除外）
-FIELD_DIFF=$(git diff "$COMPARE" -- platform/ ':!platform/models/resource_fields.go' ':!platform/**/*_test.go' || true)
-if echo "$FIELD_DIFF" | grep -E '^\+.*(GetResourceField|LegacyFieldMap)' >/dev/null; then
-    echo "ERROR [R3]: 业务代码中新增 models.GetResourceField / LegacyFieldMap 调用，必须改为类型化方法。"
-    echo "$FIELD_DIFF" | grep -E '^\+.*(GetResourceField|LegacyFieldMap)' || true
-    echo ""
-    ERRORS=$((ERRORS + 1))
-fi
-
-# R4: 禁止在中央文件新增注册 / AutoMigrate
+# R4: 禁止在 main.go 新增逐条路由注册（模块应通过 foundation/module.Registry 注册）
 MAIN_DIFF=$(git diff "$COMPARE" -- platform/cmd/metric-center/main.go || true)
-DB_DIFF=$(git diff "$COMPARE" -- platform/db/db.go || true)
 if echo "$MAIN_DIFF" | grep -E '^\+.*RegisterRoutes' >/dev/null; then
     echo "ERROR [R4]: platform/cmd/metric-center/main.go 新增 RegisterRoutes 调用，违反模块自注册原则。"
-    echo ""
-    ERRORS=$((ERRORS + 1))
-fi
-if echo "$DB_DIFF" | grep -E '^\+.*AutoMigrate' >/dev/null; then
-    echo "ERROR [R4]: platform/db/db.go 新增 AutoMigrate 条目，违反 migration-first 原则。"
     echo ""
     ERRORS=$((ERRORS + 1))
 fi
