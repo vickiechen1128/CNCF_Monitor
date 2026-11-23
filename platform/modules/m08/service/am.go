@@ -156,7 +156,10 @@ func toAMMatchers(matchers []domain.Matcher) []map[string]any {
 }
 
 func (c *AMClient) getJSON(ctx context.Context, path string, dest any) error {
-	target := c.base.ResolveReference(&url.URL{Path: path})
+	target, err := c.resolve(path)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return fmt.Errorf("build alertmanager request: %w", err)
@@ -169,13 +172,27 @@ func (c *AMClient) postJSON(ctx context.Context, path string, body any, dest any
 	if err != nil {
 		return fmt.Errorf("marshal alertmanager request: %w", err)
 	}
-	target := c.base.ResolveReference(&url.URL{Path: path})
+	target, err := c.resolve(path)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("build alertmanager request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return c.do(req, dest)
+}
+
+// resolve keeps query parameters in the URL query, not in the path. Passing a
+// full "/api/v2/alerts?active=true" string to url.URL{Path: ...} escapes the
+// '?' and turns the query into part of the path (AM returns 404).
+func (c *AMClient) resolve(path string) (*url.URL, error) {
+	ref, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("parse alertmanager path %q: %w", path, err)
+	}
+	return c.base.ResolveReference(ref), nil
 }
 
 func (c *AMClient) do(req *http.Request, dest any) error {
