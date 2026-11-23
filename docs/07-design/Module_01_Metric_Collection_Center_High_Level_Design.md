@@ -1,15 +1,20 @@
-# M01 监控策略与指标管理 概要设计
+# 监控策略与指标管理 概要设计
 
 > **文档类型**：概要设计（High-Level Design, HLD）
 > **目标读者**：后端/前端开发工程师、测试工程师、运维架构师、代码审查者
-> **文档版本**：v1.1
-> **状态**：reviewing
+> **文档版本**：v1.5
+> **状态**：reviewing（场景优先试点）
 > **编写日期**：2026-11-20
-> **对应模块**：Module 01 — 监控策略与指标管理
+> **修订日期**：2026-11-22
+> **Domain ID**：`DOMAIN-M01`
+> **实现模块**：`m01`
 > **需求基线**：
-> - [M01 监控策略与指标管理 SRS](../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)（v1.5，采集模板 + 任务选择器）
-> - [M01 采集 Job 组与对象优先动线 SRS（增量，已并入基线 §5.7）](../02-product-requirements/Modules/SRS/Module_01_Job_Group_and_Object_First_SRS.md)
+> - [监控策略与指标管理 SRS](../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)（v1.9，场景优先试点）
+> - [采集 Job 组与对象优先动线 SRS（增量，已并入基线 §5.7）](../02-product-requirements/Modules/SRS/Module_01_Job_Group_and_Object_First_SRS.md)
+> **场景链接（唯一链接点）**：[Module_01_Scenario_Link.md](Module_01_Scenario_Link.md)
+> **场景演示脚本**：`docs/05-execution-records/module-01/scenario-walkthrough.md`
 > **接口契约**：`docs/05-execution-records/rewrite/v2.0/modules/module-01/api-contract-snapshot-v3.md`（字段级权威）
+> **对外验收说明书**：`docs/07-design/Module_01_Acceptance.md`（待创建，派生，非追溯）
 > **关键设计专题**：
 > - [规则检查与提交门禁](design-notes/m01-rule-validation-gate.md)
 > **关联决策**：D-2（M01/M09 边界）、D35/D36（规则中心求值、规则不绑网域）、D40（资源删除 M01 对账回收）、决策 44（RequireAdmin 最小授权，v1.1 起收口到内置模板与指标库）、决策 66/67-2/69-1/69-2（规则 job 引用与检查门禁）、v1.5 采集模板化（取消监控对象类型，模板不带适用范围）
@@ -20,7 +25,7 @@
 
 ### 1.1 目的
 
-本文档描述 M01 的**架构级设计**：模块边界、接口清单、数据归属、关键流程、状态机、安全与性能约束，以及与 SRS 需求条目的追溯关系。
+本文档描述监控策略与指标管理的**架构级设计**：模块边界、接口清单、数据归属、关键流程、状态机、安全与性能约束，以及**能力清单**；完整“场景 ↔ 设计 ↔ 演示 ↔ 验收”见 [Scenario Link](Module_01_Scenario_Link.md)。
 
 本文档**不展开**字段级契约、DTO、算法伪代码与页面组件细节：
 
@@ -37,6 +42,8 @@
 ### 1.3 参考
 
 - [SRS](../02-product-requirements/Modules/SRS/Module_01_Metric_Collection_Center_Requirements.md)
+- [Scenario Link](Module_01_Scenario_Link.md)
+- [场景演示脚本](../05-execution-records/module-01/scenario-walkthrough.md)
 - [API 设计标准](../03-engineering-standards/03_API_Standard.md)
 - [后端架构与技术债控制](../03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md)
 - [前端开发规范](../03-engineering-standards/02_Frontend_Standard.md)
@@ -57,7 +64,7 @@
         ┌───────────────┼─────────────────┐
         ▼               ▼                 ▼
    m01_* 表       M07 只读引用        promtool（规则语义校验）
-   (SQLite/PG)    (resources /        （子进程，失败降级为“未执行”）
+   (PostgreSQL)   (resources /        （子进程，失败降级为“未执行”）
                    m07_label_templates /
                     m07_attribute_definitions)
                         ▲
@@ -116,6 +123,24 @@ platform/modules/m01/
 > - 「采集器管理」菜单更名为「采集模板」，路由沿用 `/collectors` 以免书签失效。
 > - 业务指标库（`/business-metrics`）当前只有 API 与数据层，前端页面未落地（SRS §1.2 外）。
 
+### 2.5 能力清单
+
+> 能力（CAP）是技术内部的复用抽象，不要求需求方理解；完整「场景 → 实现」映射见 [Module_01_Scenario_Link.md](Module_01_Scenario_Link.md)（唯一链接点），本文不维护第二份追溯表。
+
+| CAP | 意图 | 实现模块 | 扩展点 |
+|-----|------|----------|--------|
+| CAP-COLLECTION-TEMPLATE | 采集模板、采集实现池、标签模板绑定、字段字典 | m01 | 新增采集模板 / 采集实现登记，无需改代码 |
+| CAP-SELECTOR | 选择器求值、候选预览、实例快照 | m01 | 条件组合 `all` / `any` + M07 字段字典 |
+| CAP-JOB-ORCHESTRATION | 单域 Job、跨域任务组扇出、整组启停 | m01 | 对象优先任务组 + 逐域子 Job |
+| CAP-RULE-GATE | 规则结构/job 引用/PromQL 检查与提交门禁 | m01 + promtool | 分级校验 + 逃生门留痕 |
+| CAP-METRIC-CATALOG | 技术/业务指标库、指标锚点、用户扩展 | m01 | 指标锚点挂采集模板 |
+| CAP-SYNC-STATUS | 同步状态回写与实例采集状态回显 | m01（消费 m09） | SyncResultSink 回写 |
+| CAP-RECONCILE | 资源删除对账回收、失效域子任务停用 | m01 | 对账周期回收 |
+| CAP-UI-STRATEGY | 采集策略导航、任务向导、规则与指标库页面 | ui-custom/web | 菜单 / 路由注册 |
+| CAP-AUTH-ADMIN | 登录鉴权与管理员写权限 | foundation | RequireAdmin 中间件 |
+
+> 本轮无新建能力；全部复用现有 `m01` 能力。若后续需要新建，必须在本文件说明为什么不能复用/扩展。
+
 ---
 
 ## 3. 约束与关键决策
@@ -130,6 +155,8 @@ platform/modules/m01/
 | v1.1 | 采集模板不带适用范围 | 模板只描述「怎么采」（采集实现 + 参数 + 标签模板）；候选范围由任务的选择器表达，避免「监控对象类型」以另一个名字复活 |
 | v1.1 | 模板与采集实现 1:1 | 需要第二套采集器或参数即新增第二个模板；取消「同类型多实现 + 默认标记」 |
 | v1.1 | 字段字典由 M07 提供 | M01 只持有 key → 取数（列/子查询）映射；自定义字段走 `资源 × key × value` 子查询，M07 加字段无需 M01 发版 |
+| 2026-11-22 | FR-04 网域级参数覆盖**不做**（需求已删除） | 模板可复制、选择器已支持 `network_domain_id`、实例已有 `scrape_port`，域覆盖的不可替代性不足；且会让同一模板跨域隐式分叉。域级差异改用域专用模板 + 网域筛选或实例端口表达；端口链固定为三级，不预留网域层 |
+| 2026-11-22 | FR-01 与 FR-21/24 职责互斥 | FR-01 只定义模板构成；FR-21/24 定义生命周期、权限与变更影响；FR-09 定义选择器求值，FR-22 只做选择器配置校验 |
 | 决策 66/67-2 | 规则 job 引用分级 + 逃生门 | 存活类规则 error 阻断；勾选确认后放行并留痕 |
 | 决策 69-1/69-2 | 检查与提交同口径、检查态驱动提交 | 组名唯一性纳入检查；内容变更作废检查结论 |
 | — | `job_name` 唯一性按「网域 + 任务名」 | 跨域任务组的子 Job 共用同一任务名（00012 起） |
@@ -249,13 +276,16 @@ platform/modules/m01/
   - 内置字段：M07 六类 CI 的内置字段清单 + 跨类别的归属字段（`app_code` / `biz_code` / `platform_code` / `env` / `cluster` / `owner` / `status`），服务端持有固定列映射；
   - 自定义字段：读 M07 `m07_attribute_definitions`（状态=在模型中），取数走 `EXISTS (SELECT 1 FROM m07_resource_attributes WHERE resource_id=r.resource_id AND attribute_key=? AND value?)`，key 与 value 全参数绑定；
   - 字典只暴露 `key / label / value_type / 支持的操作符 / 适用类别`，**不暴露物理列名**。
-- 选择器求值：`all` → AND 拼接、`any` → OR 拼接；值类型为 boolean 的字段只允许 `eq/in` 且值必须是 true/false；`regexp` 仅 PostgreSQL（SQLite 退化为 `contains`）。
+- 选择器求值：`all` → AND 拼接、`any` → OR 拼接；值类型为 boolean 的字段只允许 `eq/in` 且值必须是 true/false；`regexp` 使用 PostgreSQL `~*`（已无 SQLite 方言分支）。
 
 ### 6.2 参数层叠与端口解析
 
-- 参数解析顺序：Job 显式值 → 采集模板 → 采集实现（exporter）→ 系统默认；解析结果落 Job 快照，并计算 `template_overrides` 标记被覆盖字段。
-- 端口链：Resource `scrape_port` → 网域级覆盖 → 采集模板默认端口 → 业务端口兜底（仅数据库/中间件）。
-- 「同步模板默认值」按模板重算并清空对应 override。
+- 参数解析顺序：Job 显式值 → 采集模板 → 采集实现（exporter）→ 系统默认；解析结果落 Job 参数快照（间隔、超时、认证 / TLS、采集路径等），并计算 `template_overrides` 标记被覆盖字段。
+- 端口**不进入 Job 快照**，每次预览 / 生成时实时求值：
+  - 本期（MVP）三级链：Resource `scrape_port` → 采集模板默认端口 → 类别兜底（数据库 / 中间件回退业务端口；主机回退采集实现默认端口）。
+  - 旁路：`application` 直接使用资源自身端口；`generic_target` 使用资源端口，缺失时按 scheme 回落 443/80。
+  - 不做网域级覆盖：域级差异用域专用模板 + 按 `network_domain_id` 筛选，或实例 `scrape_port`；同一模板在不同网域保持确定行为。
+- 「同步模板默认值」按模板重算参数并清空对应 override；端口按链实时求值，不受该操作影响。
 - 保存前强制校验：任务名、模板存在且启用、选择器 category 与模板资源类别一致、网域已纳管、参数格式与 `timeout < interval`、实例存在/类别/同域/离线规则、凭据完整性。标签模板类别由模板保证，Job 不再重复校验。
 
 ### 6.3 采集任务与任务组扇出
@@ -278,7 +308,7 @@ platform/modules/m01/
 ### 6.5 指标库锚点与用户扩展
 
 - 指标 ↔ 采集模板为多对多，锚点元素 `{template_code, source_exporter}` 以 JSON 数组存储；同名不同义用 `source_exporter` 区分。
-- 查询过滤：`template_code` 直接匹配锚点；`resource_category` 先由模板表展开为该类别下的启用模板集合，再匹配锚点（SQLite `json_each` / PostgreSQL `jsonb_array_elements`）。
+- 查询过滤：`template_code` 直接匹配锚点；`resource_category` 先由模板表展开为该类别下的启用模板集合，再匹配锚点（PostgreSQL `jsonb_array_elements`）。
 - 内置指标只读；用户扩展由管理员创建，服务层强制 `is_builtin=false`，并校验 Prometheus 命名、标签键、锚点类型存在且启用。
 - 判重：同名 + 任一相同锚点 → 409（内置行与用户行一起参与）；锚点是 JSON 数组，暂由应用层保证唯一性。
 
@@ -380,7 +410,7 @@ sync: pending ──▶ syncing ──▶ synced / failed
 | 项 | 设计 |
 |----|------|
 | 日志 | access log + 模块日志（对账变更数、规则检查降级等）；不输出凭据 |
-| 健康检查 | `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status`（全局） |
+| 健康检查 | `/api/v3/platform/health`、`/api/v3/platform/ready`、`/api/v3/platform/ready`（全局） |
 | 后台循环 | 资源对账 60s（`Options.ReconcileInterval` 可配） |
 | 关键配置 | `METRIC_CENTER_DB_DRIVER`、`PROMTOOL_BIN`（默认 `promtool`） |
 | 依赖工具 | `promtool` 需在 PATH；不可用时规则 PromQL 校验降级为「未执行」仅提示 |
@@ -389,6 +419,8 @@ sync: pending ──▶ syncing ──▶ synced / failed
 
 ## 12. 测试与验证
 
+> 本节只写测试策略与覆盖范围；测试清单与执行证据见 acceptance / walkthrough，不在本文复制。
+
 - 单元：参数层叠与 override、端口链、任务名/指标名/标签校验、锚点判重、组扇出计划、组级启停级联、规则结构/组名/job 引用、目录刷新。
 - 集成：模板新增 → 立即挂指标 → 按模板筛选；选模板 + 选择器 → 命中数预览 → 单事务组+子 Job → 整组启停 → 同步回写；规则检查 → 提交门禁 → 逃生门。
 - 契约：路由/字段/错误类型与 `api-contract-snapshot-v3.md` 一致；非 admin 写接口 403。
@@ -396,21 +428,12 @@ sync: pending ──▶ syncing ──▶ synced / failed
 
 ---
 
-## 13. 需求追溯
+## 13. 场景链接
 
-| SRS 条目 | 设计章节 | 实现状态 |
-|----------|----------|----------|
-| FR-01 ~ FR-04 | §4.2、§6.1、§6.2、§7.2 | 已实现（FR-04 网域级参数覆盖未实现；FR-01 / FR-03 待按 v1.1 模板化改造） |
-| FR-05 ~ FR-13 | §4.3、§6.3、§7.2、§8.1 | 已实现 |
-| FR-14 ~ FR-16 | §4.4、§6.4、§7.4 | 已实现（校验结果明细随 SRS v1.4 补齐） |
-| FR-17 | — | 未实现（v0.3+） |
-| FR-18 ~ FR-19 | §6.5 | 技术库已实现；业务库仅 API/数据层 |
-| FR-20 | §7.2、§4.3 | 已实现 |
-| FR-21 ~ FR-24 | §6.1、§7.1、§8 | 待改造（v1.1：采集模板 + 任务选择器取代类型与推导规则） |
-| FR-25 ~ FR-28 | §6.3、§7.2、§7.3、§8.2 | 已实现 |
-| FR-29 | §4.1、§9 | 已实现 |
-| NFR-07 ~ NFR-08 | §4.1、§9 | 已实现（细粒度权限点待 M03） |
-| NFR-11 | §6.1（字段字典） | 待改造：字段字典接入 M07 后满足 |
+> 完整“场景 ↔ 设计 ↔ 演示 ↔ 验收”唯一链接点：[Module_01_Scenario_Link.md](Module_01_Scenario_Link.md)。
+> 本文不再维护第二份 FR→设计章节表；场景演示脚本见 `docs/05-execution-records/module-01/scenario-walkthrough.md`。
+
+场景与实现的完整映射见 Scenario Link §2（本文不维护）；NFR 覆盖见 Scenario Link §3。
 
 ---
 
@@ -436,7 +459,7 @@ sync: pending ──▶ syncing ──▶ synced / failed
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `METRIC_CENTER_DB_DRIVER` | sqlite | sqlite/postgres |
+| `METRIC_CENTER_DB_DRIVER` | postgres | 固定为 postgres（PostgreSQL-only，旧 sqlite 取值已拒绝） |
 | `PROMTOOL_BIN` | promtool | promtool 可执行文件路径 |
 
 ---
@@ -447,3 +470,7 @@ sync: pending ──▶ syncing ──▶ synced / failed
 |------|------|----------|
 | v1.0 | 2026-11-20 | 首版：由 M01 SRS v1.4 派生概要设计；字段级契约回归 `api-contract-snapshot-v3.md`；规则检查门禁下沉为设计专题；补任务组扇出/整组启停、指标库用户扩展、管理员写权限、对账回收与同步回写 |
 | v1.1 | 2026-11-20 | **采集模板化（跟随 SRS v1.5，owner 拍板）**：①§2.1 上下文与路由改为 `collection-templates / exporter-templates / candidate-fields`，M07 只读引用增补 `m07_attribute_definitions`；②§2.2 组件职责以 CollectionTemplate + 字段字典取代 MonitorType/Mapping，§2.3 服务清单同步；③§2.4 前端 IA 由 5 项收敛为 4 项，删除 `/monitor-types` 页（旧路由同步下线），`/collectors` 语义升级为「采集模板」+ 页内「采集实现」Tab；④§3 新增三条决策：模板不带适用范围、模板与采集实现 1:1、字段字典由 M07 提供；决策 44 收口到「内置模板 + 指标库」；⑤§4.1/§4.2 权限与接口清单重写（内置模板 admin、自定义模板与任务同权；新增 `/candidate-fields`；旧 `/monitor-types*`、`/ci-exporter-mappings*` 直接下线）；⑥§5 数据设计：`m01_collection_templates`（0023）取代类型/规则/映射三表，补自定义字段表只读引用与「模板是标签模板唯一引用点」约束；⑦§6.1 重写为「采集模板与字段字典」（含自定义字段 `EXISTS` 子查询与操作符收敛），§6.2 参数层叠与端口链改按模板，§6.5 指标锚点改 `template_code`；⑧§7.1/§7.2 流程改写（选模板 → 定条件 → 确认实例）；⑨§9 注入防护、§10 选择器性能、§12 集成用例、§13 追溯同步 |
+| v1.2 | 2026-11-22 | **场景优先试点（对齐 M09，跟随 SRS v1.6）**：①标题/元数据去除模块编号作为设计边界，新增 Domain ID、实现模块、Scenario Link 与场景演示脚本引用；②§1.1 增加场景→实现映射说明；③新增 §2.5 场景→实现映射（SCN-01~06 / CAP / m01 / HLD 章节 / 演示脚本）与能力图例；④§13 原 FR→设计追溯表迁移到 Scenario Link，改为引用唯一链接点 |
+| v1.3 | 2026-11-22 | **FR 重叠与端口口径收敛（跟随 SRS v1.7）**：①§3 新增两条决策——FR-04 本期不实现/端口链本期三级，FR-01 与 FR-21/24 职责互斥；②§6.2 明确端口不进 Job 快照、按链实时求值，本期三级链与 FR-04 启用后的四级插入点分开表述 |
+| v1.4 | 2026-11-22 | **删除 FR-04 网域级参数覆盖（跟随 SRS v1.8）**：①§3 决策改为「不做」，并记录理由与替代方案——域专用模板 + `network_domain_id` 筛选，或实例 `scrape_port`；②§6.2 删除网域层插入点，端口链固定为三级，明确同一模板跨网域行为确定 |
+| v1.5 | 2026-11-22 | **文档分层与对外验收衔接（跟随 SRS v1.9）**：①§2.5「场景→实现映射」改为「能力清单」，移除 SCN 行，SCN↔实现矩阵只保留在 Scenario Link；②§12 明确只写测试策略与覆盖范围，证据见 acceptance/walkthrough；③§13 场景映射引用改为 Scenario Link §2；④头部新增对外验收说明书引用 |

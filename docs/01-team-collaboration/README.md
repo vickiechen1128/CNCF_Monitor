@@ -2,7 +2,8 @@
 
 > 文档类型：团队协作规范
 > **目标读者**：项目全体成员（chenrt / guixm / zhaohy / zhangwq）——**面向"人"的协作指引**
-> 定位：本目录只回答团队成员的三个问题——**我是谁**（角色）、**我怎么参与**（流程）、**我具体做什么操作**（命令/模板）。凡涉及"Agent 内部怎么干活"的内容，权威在 `.kimi/agents/` 与 `docs/03-engineering-standards/`，本目录只做引用。
+> 定位：本目录只回答团队成员的三个问题——**我是谁**（角色）、**我怎么参与**（流程）、**我具体做什么操作**（命令/模板）。凡涉及"Agent 内部怎么干活"的内容，权威在 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 与 `docs/03-engineering-standards/`，本目录只做引用。
+> **V3 说明（2026-11-22）**：V2 原型目录 `docs/prototypes/` 已归档；文中涉及原型的操作条款仅作历史/按需流程参考，当前开发以 SRS + `docs/07-design/` + `rewrite/v2.0/plan.md` 为输入。
 
 ---
 
@@ -21,7 +22,7 @@
 
 ## 2. 各角色怎么用 Agent（速查卡）
 
-> Agent 行为规则的权威定义在 `.kimi/agents/*.md`（随 Agent 加载生效）；以下是**人视角**的调用指引——你只需知道"什么场景调谁、怎么给输入"。
+> Agent 行为规则的权威定义在 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`（随 Agent 加载生效）；以下是**人视角**的调用指引——你只需知道"什么场景调谁、怎么给输入"。
 
 ### 2.1 chenrt（产品 Owner / Orchestrator）
 
@@ -38,11 +39,11 @@
 |------|------|-----------|
 | 后端开发 | `backend-developer` | 给任务卡：PRD 章节 + task-sequence + 验收命令 |
 | 前端开发 | `frontend-developer` | 给任务卡：PRD 章节 + 原型路径 + 验收命令（含原型-实现一致性核对） |
-| 构建/测试修复 | `build-resolver` | 给报错信息 + 复现命令 |
-| 代码审查 | `golang-reviewer` / `frontend-reviewer` | 给 `git diff` + PRD + 原型路径（独立会话） |
-| 安全复核 | `security-reviewer` | 给变更文件 + 风险关注点 |
+| 构建/测试修复 | 开发会话直接处理 | 给报错信息 + 复现命令 |
+| 代码审查 | `reviewer`（Go / 前端） | 给 `git diff` + SRS + 原型路径（独立会话） |
+| 安全复核 | `reviewer`（安全） | 给变更文件 + 风险关注点 |
 
-> 关键：**任务卡驱动**——给子 Agent 的输入包含「输入路径+章节 / 输出 / 验收 / 不修改范围」四要素（格式见 `.kimi/agents/orchestrator.md`），子 Agent 只读任务卡指定的输入，无需读团队手册。
+> 关键：**任务卡驱动**——给子 Agent 的输入包含「输入路径+章节 / 输出 / 验收 / 不修改范围」四要素（格式见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`），子 Agent 只读任务卡指定的输入，无需读团队手册。
 
 ### 2.3 guixm（业务架构师）
 
@@ -66,6 +67,6 @@
 
 ## 3. 相关文档
 
-- `.kimi/agents/*.md` — Agent 行为规则（唯一权威，随 Agent 加载）
+- `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` — Agent 行为规则（唯一权威，随 Agent 加载）
 - `docs/03-engineering-standards/` — 工程标准（技术规范：API / 测试 / 分支 / 隔离）
 - `docs/02-product-requirements/` — 产品需求（PRD / 用户故事 / 路线图）

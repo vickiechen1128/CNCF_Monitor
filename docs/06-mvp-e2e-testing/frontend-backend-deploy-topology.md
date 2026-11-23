@@ -1,7 +1,7 @@
 # MetricCenter 前端访问后端部署拓扑方案
 
 > 背景：预生产 Ubuntu 虚拟机上部署一体化交付包后，前端页面报
-> `GET http://127.0.0.1:8080/api/v1/status net::ERR_CONNECTION_REFUSED`。
+> `GET http://127.0.0.1:8080/api/v3/platform/health net::ERR_CONNECTION_REFUSED`。
 > 本文记录问题根因、场景需求、方案对比与最终决策，作为后续打包改造和部署演进的依据。
 >
 > 关联文档：
@@ -18,8 +18,8 @@
 测试人员在 1 台 Ubuntu 虚拟机（预生产）部署 `metric-center-bundle` 后，从自己电脑的浏览器访问前端页面，所有 API 请求失败：
 
 ```text
-GET http://127.0.0.1:8080/api/v1/status net::ERR_CONNECTION_REFUSED
-GET http://127.0.0.1:8080/api/v2/platform/dashboard/summary net::ERR_CONNECTION_REFUSED
+GET http://127.0.0.1:8080/api/v3/platform/health net::ERR_CONNECTION_REFUSED
+GET http://127.0.0.1:8080/api/v3/platform/dashboard/summary net::ERR_CONNECTION_REFUSED
 ```
 
 ### 1.2 根因（不是跨域问题）
@@ -42,7 +42,7 @@ GET http://127.0.0.1:8080/api/v2/platform/dashboard/summary net::ERR_CONNECTION_
 | 场景 | 拓扑 | 时间 |
 |------|------|------|
 | S1 单机一体化（当前） | 1 台 Ubuntu：metric-center(:8080) + Prometheus(:9090) + 前端静态文件 | 现在，MVP/预生产 |
-| S2 前后端分离（未来扩容） | 服务器 1：前端静态托管；服务器 2：metric-center + MySQL（SQLite 替换） | 资源不足或运维规范化时 |
+| S2 前后端分离（未来扩容） | 服务器 1：前端静态托管；服务器 2：metric-center + PostgreSQL | 资源不足或运维规范化时 |
 
 要求：
 
@@ -50,7 +50,7 @@ GET http://127.0.0.1:8080/api/v2/platform/dashboard/summary net::ERR_CONNECTION_
 2. 尽量**不引入跨域**（同源优先），减少安全面配置；
 3. 从 S1 演进到 S2 时，前端产物零改动，已做的工作不返工。
 
-> 说明：SQLite → MySQL 与前端访问问题是**独立事项**。`platform/db/db.go` 使用 GORM 且已支持 `METRIC_CENTER_DB_DSN` 环境变量覆盖，届时换 `gorm.io/driver/mysql` 驱动并调整 DSN 解析即可，业务代码基本不动。另外控制面负载通常不高（瓶颈在 Prometheus 数据面），拆 MySQL 更多是为了高可用与运维规范而非容量。
+> 说明：数据库已是 PostgreSQL-only；`METRIC_CENTER_DB_DSN` 指向生产 PG 即可。控制面负载通常不高（瓶颈在 Prometheus 数据面），拆分部署更多是为了高可用与运维规范而非容量。
 
 ---
 
@@ -101,12 +101,12 @@ GET http://127.0.0.1:8080/api/v2/platform/dashboard/summary net::ERR_CONNECTION_
 ```bash
 # 在 Ubuntu 虚拟机上
 ./scripts/start.sh
-curl -s http://127.0.0.1:8080/api/v1/health | jq .          # API 正常（匿名放行）
+curl -s http://127.0.0.1:8080/api/v3/platform/health | jq .          # API 正常（匿名放行）
 curl -s http://127.0.0.1:8080/ | head -1                    # 返回 index.html
 curl -s http://127.0.0.1:8080/resources | head -1           # 子路由刷新同样返回 index.html，不应 404
 curl -s http://127.0.0.1:8080/api/v9/unknown | jq .         # 未注册 API 返回 JSON 错误，不返回 HTML
 curl -s -o /dev/null -w '%{http_code}\n' \
-     http://127.0.0.1:8080/api/v2/platform/resources        # 无 token → 401（认证强度未削弱）
+     http://127.0.0.1:8080/api/v3/platform/resources        # 无 token → 401（认证强度未削弱）
 
 # 在测试人员自己电脑的浏览器
 # 访问 http://<VM_IP>:8080/，打开 DevTools 确认：
@@ -149,7 +149,7 @@ server {
 
 迁移步骤（届时执行）：
 
-1. 服务器 2 部署 metric-center（摘掉 `--web.static-dir`）+ MySQL，配置 `METRIC_CENTER_DB_DSN` 指向 MySQL；
+1. 服务器 2 部署 metric-center（摘掉 `--web.static-dir`）+ PostgreSQL，配置 `METRIC_CENTER_DB_DSN` 指向 PG；
 2. 服务器 1 部署 nginx + 同一份前端产物（相对路径构建，无需重新打包）；
 3. metric-center 移除 `cors.Default()` 或改为允许服务器 1 的源（此时已无跨域，建议直接移除）；
 4. 后端地址只出现在 nginx 配置一处，换环境只改配置、不动产物。

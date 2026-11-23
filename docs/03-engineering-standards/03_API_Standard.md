@@ -9,10 +9,10 @@
 
 ## 1. 总体原则
 
-1. **兼容 Prometheus API**：查询类接口尽量复用 `/api/v1/*` 路径和返回格式
-2. **标准新增能力使用 `/api/v2/platform/*`**：平台专属能力与 Prometheus 原生 API 区分
-3. **v2.0 重写新线使用 `/api/v3/platform/*`**：旧 `/api/v2/*` 归档，仅作回归对照；旧新并行期需在 `rewrite/vX.Y/decisions.md` 登记兼容窗口
-4. **统一返回格式**：所有接口返回 JSON，包含 `status`、`data`、`error` 字段
+1. **兼容 Prometheus API**：查询类接口复用 `/api/v1/*` 路径和返回格式
+2. **平台能力统一使用 `/api/v3/platform/*`**：与 Prometheus 原生 API 区分；`/api/v3/edge/*` 用于边缘 Agent
+3. **旧 `/api/v2/*` 归档**：不再新增；仅作回归对照
+4. **统一返回格式**：所有平台接口返回 JSON，包含 `status`、`data`、`errorType`、`error` 字段
 
 ---
 
@@ -25,14 +25,12 @@
 | `/api/v1/labels` | 获取 label names（代理到 Prometheus） |
 | `/api/v1/label/:name/values` | 获取 label values（代理到 Prometheus） |
 | `/api/v1/series` | 查询 series（代理到 Prometheus） |
-| `/api/v2/platform/targets` | 采集目标管理（旧线归档） |
-| `/api/v2/platform/discovery-sources` | 发现源管理（旧线归档） |
-| `/api/v2/platform/tenants` | 租户管理（旧线归档） |
-| `/api/v2/platform/users` | 用户管理（旧线归档） |
-| `/api/v2/auth/login` | 登录（旧线归档） |
-| `/api/v2/auth/logout` | 登出（旧线归档） |
-| `/api/v3/platform/*` | **v2.0 重写新线平台能力** |
-| `/api/v3/auth/*` | **v2.0 重写新线认证** |
+| `/api/v3/platform/*` | **平台业务能力（V3 唯一线）** |
+| `/api/v3/platform/auth/*` | **认证入口** |
+| `/api/v3/edge/*` | **边缘 Agent 协议（Token-only）** |
+
+- `/api/v2/platform/*` 是历史线，已归档，不再新增；Alertmanager 自身的 `/api/v2/alerts`、`/api/v2/silences` 是上游 API，不属于平台 v2。
+- `/api/v1/*` 仅保留 Prometheus 查询代理。
 
 ---
 

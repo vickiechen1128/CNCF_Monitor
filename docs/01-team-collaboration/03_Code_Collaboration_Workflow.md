@@ -68,8 +68,8 @@ Phase 3: develop 验证
 ### 3.2 操作步骤
 
 1. 创建设计分支（命令见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §5）
-2. 编写 PRD 到 `docs/02-product-requirements/Modules/Module_XX_*.md`（骨架规范见 `.kimi/agents/prototype-designer.md` Phase 3）
-3. 生成原型到 `docs/prototypes/module-XX/`（调用 `prototype-designer`）
+2. 需求方产出 SRS 到 `docs/02-product-requirements/Modules/SRS/`（规范见 `.agents/skills/srs-authoring`）
+3. 技术方产出 HLD + Scenario Link（规范见 `.agents/skills/hld-design`），并与需求方做场景走查
 4. 发起 `design/module-mvp-demo → develop` PR，Reviewer 指定 guixm、zhaohy
 5. Review 通过后 chenrt `--no-ff` 合并到 develop（命令见 04 §5.5）
 
@@ -93,7 +93,7 @@ Phase 3: develop 验证
 ### 4.2 操作步骤
 
 1. 创建功能分支（命令见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §6）
-2. **任务卡驱动**调用 Agent：输入 = PRD 章节 + task-sequence + 原型路径 + 验收命令（任务卡格式见 `.kimi/agents/orchestrator.md`；后端调 `backend-developer`、前端调 `frontend-developer`、修复调 `build-resolver`）
+2. **任务卡驱动**调用 Agent：输入 = SRS 章节 + task-sequence + 原型路径 + 验收命令（任务卡格式见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`；后端/前端开发与构建修复由对应 harness 会话承担）
 3. 人工 Review + 测试补强（Review 清单见 zhangwq 手册 [`05_Vibe_Coding_Playbook_for_Zhangwq.md`](05_Vibe_Coding_Playbook_for_Zhangwq.md) §6）
 4. 执行提交前验证（命令见 `docs/03-engineering-standards/04_Testing_Standard.md` §4）
 5. 发起 `feat/module-XX → develop` PR（PR 描述要求见 04 §6.4）
@@ -170,4 +170,4 @@ Phase 3: develop 验证
 - [`05_Vibe_Coding_Playbook_for_Zhangwq.md`](05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
 - `docs/03-engineering-standards/04_Testing_Standard.md` — 测试标准（提交前验证唯一权威）
 - `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` — 分支策略与回退指南
-- `.kimi/agents/orchestrator.md` — Orchestrator 任务卡驱动与子 Agent 调用规范
+- `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` — Orchestrator 任务卡驱动与子 Agent 调用规范

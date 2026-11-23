@@ -151,7 +151,7 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 
 > **v1.25 去重**：测试 / lint / dev server 启动验证的完整命令与流程见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4（前端部分）；本节仅保留要点提醒。
 
-- 测试与 lint 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.kimi/skills/testing-tdd/SKILL.md` §6 执行：单任务默认单文件 / 目录测试；Phase 收尾用 `typecheck:test` + `--changed` + `lint`；全量 `pnpm test` 仅 `testing-tdd` §4.2 三种情形；
+- 测试与 lint 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.agents/skills/testing-tdd/SKILL.md` §6 执行：单任务默认单文件 / 目录测试；Phase 收尾用 `typecheck:test` + `--changed` + `lint`；全量 `pnpm test` 仅 `testing-tdd` §4.2 三种情形；
 - 必须验证前端 dev server 能实际启动并访问（`curl` 首页返回 200）；
 - 如果模块新增/修改了页面，必须额外访问对应路由验证；
 - 验证完成后必须停止服务，避免端口占用；

@@ -1,8 +1,10 @@
 # Gitflow 分支策略与回退指南
 
+> **V3 说明（2026-11-22）**：V2 原型目录 `docs/prototypes/` 已归档；当前开发以 `docs/02-product-requirements/Modules/SRS/` + `docs/07-design/` + `rewrite/v2.0/plan.md` 为输入，原型仅在任务卡明确要求时创建（默认 `docs/prototypes-v3/`）。下文中原型相关条款保留为历史/按需流程。
+
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
-> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
+> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、`docs/05-execution-records/rewrite/v2.0/plan.md`、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)
 > 更新日期：2026-11-10（新增 `rewrite/vX.Y` 产品级版本重写分支；v1.29 新增：版本基线 tag 规范 §2.5 / 联调出口打 tag §2.6.4 / 基线回退路径 §6.6 / 禁止事项 11；v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
 
 ---
@@ -179,7 +181,7 @@
 | 工程标准 | `docs/03-engineering-standards/` | 代码规范、API 标准、测试标准等 |
 | 团队规范 | `docs/01-team-collaboration/` | 团队守则、角色职责、协作流程 |
 | 生产代码 | `platform/`、`ui-custom/web/` | 已验收的后端/前端代码 |
-| Agent 定义 | `.kimi/agents/` | 团队统一的 Agent 定义 |
+| Agent 定义 | `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | 团队统一的 Agent 定义 |
 
 ### 3.2 develop 上不应出现的内容
 
@@ -217,7 +219,7 @@ CNCF_Monitor/
 | `docs/prototypes/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
 | `docs/03-engineering-standards/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
 | `docs/01-team-collaboration/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
-| `.kimi/agents/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | chenrt（design 分支）、zhangwq（feat 分支） | - |
 | `platform/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
 | `ui-custom/web/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
 | `upstream/` | 禁止直接修改 | 全员 |
@@ -293,7 +295,7 @@ git stash pop
 > cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 > git worktree add ../CNCF_Monitor-feature-YY -b feat/module-YY
 > ```
-> 参考 `using-git-worktrees` Skill 的使用协议。
+> 参考 `git worktree` 的常用命令（创建/切换/清理）。
 
 ---
 
@@ -453,13 +455,13 @@ zhangwq 提交的合并申请应包含：
 
 ### 8.1 标准流程
 
-> **v1.25 去重**：全链路协作流程（角色流程图 + 文字版步骤）的**权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**（Agent 执行视角）与 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §1（人视角概览）。本文件只承载**分支 / 回退 / 审批**等 git 操作层面规则，不再重复流程图。
+> **v1.25 去重**：全链路协作流程（角色流程图 + 文字版步骤）的**权威定义在 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`「标准工作流」**（Agent 执行视角）与 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §1（人视角概览）。本文件只承载**分支 / 回退 / 审批**等 git 操作层面规则，不再重复流程图。
 
 一句话概览：`design/module-mvp-demo`（PRD+原型）→ chenrt 合并到 `develop` 冻结 → zhangwq 切 `feat/module-XX` 开发 → 预览验收 → chenrt `--no-ff` 合并回 `develop`。
 
 ### 8.2 Commit 规范
 
-> **v1.28 去重**：Commit 格式、类型、scope、task id 与提交单元的权威定义在 `.kimi/skills/cncf-git-workflow/SKILL.md` §4 / §5；人视角示例见 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §3.6。本文件不再重复。
+> **v1.28 去重**：Commit 格式、类型、scope、task id 与提交单元的权威定义在 `.agents/skills/cncf-git-workflow/SKILL.md` §4 / §5；人视角示例见 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §3.6。本文件不再重复。
 
 关键要求速查：每个 feat 提交必须对应到某个 Agent 的一次执行记录（`docs/05-execution-records/module-XX/<agent>.md`），格式 `feat(module-XX): <动作> - <简短描述>`。
 

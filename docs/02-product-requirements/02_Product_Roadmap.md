@@ -2,7 +2,7 @@
 
 > 文档类型：产品需求文档  
 > 版本：v2.3
-> 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
+> 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[V2 功能架构（历史归档）](../05-execution-records/archive/v2-planning/03_Functional_Architecture.md)、[V2 实施地图（历史归档）](../05-execution-records/archive/v2-planning/04_Implementation_Map.md)
 > 更新日期：2026-11-05
 
 ---
@@ -15,11 +15,11 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 |------|------|------|----------|
 | **产品版本** | MVP、v0.2、v0.3、v0.4、v1.0 | 对外发布的里程碑，决定用户可见功能集合 | 本文档 |
 | **SRS 版本** | Module_09 v1.10 | 单个模块 SRS 的文档迭代号，记录需求变更历史 | `docs/02-product-requirements/Modules/SRS/*.md` |
-| **原型版本** | v1.2 | 验证某版 SRS 的可点击原型版本，**必须与 SRS 版本保持一致** | `docs/prototypes/module-XX/` |
+| **原型版本** | —（V2 已归档） | V3 当前不要求原型；如任务卡要求，按新目录 `docs/prototypes-v3/module-XX/` 登记 | — |
 
 **关联规则**：
 
-- 每个模块 SRS 顶部必须标注：SRS 状态、SRS 版本、**产品版本覆盖**、**原型版本**、**对应原型路径**。
+- 每个模块 SRS 顶部必须标注：SRS 状态、SRS 版本、**产品版本覆盖**；如任务卡要求原型，再标注原型版本与路径。
 - 原型 `README.md` / `package.json` 必须声明：验证的 PRD 版本、覆盖的产品版本。
 - 模块 PRD 的 Change Log 必须包含 **「产品版本影响」** 列。
 - 本文档的「功能-版本矩阵」是跨模块统一视图；各模块 PRD 仍保留 `{MVP}`、`{v0.2}`、`{v0.4+}` 等阶段标签作为细节标注。
@@ -36,7 +36,7 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | **v0.4** | 外部 CMDB 集成与异构监控接入 | 外部 CMDB 同步（BlueKing / HTTP / Nacos）：事件触发 + 15 分钟轮询、CI 类型映射表、待分类 CI 队列；`ResourceLabel.source=cmdb` 注入；异构监控源登记册；Zabbix / 云监控 Adapter；mTLS、证书轮转、Token 轮换 | PostgreSQL / MySQL 预研 | 3 ~ 4 周 |
 | **v1.0** | 企业级可用 | 告警规则 UI、Alertmanager 配置生成、多租户、权限、边缘自治告警（vmalert） | PostgreSQL / MySQL + VictoriaMetrics/Mimir + vmagent + vmalert | 4 ~ 6 周 |
 
-> 各功能落地难度、Prometheus 复用度、前后端工作量详见 [04_Implementation_Map.md](04_Implementation_Map.md)。
+> 各功能落地难度、Prometheus 复用度、前后端工作量详见 [V2 实施地图（历史归档）](../05-execution-records/archive/v2-planning/04_Implementation_Map.md)。
 
 ---
 
@@ -182,7 +182,7 @@ Phase 8: 企业级能力（v1.0）
 
 ## 4. 技术演进路线
 
-> 本节只保留关键演进决策。每个功能的落地难度、自研 vs 复用分析见 [04_Implementation_Map.md](04_Implementation_Map.md)。
+> 本节只保留关键演进决策。每个功能的落地难度、自研 vs 复用分析见 [V2 实施地图（历史归档）](../05-execution-records/archive/v2-planning/04_Implementation_Map.md)。
 
 ### 4.1 元数据存储
 

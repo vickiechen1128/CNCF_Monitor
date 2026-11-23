@@ -22,44 +22,40 @@
 
 ```
 CNCF_Monitor/
-├── .trae/skills/                    # Trae Skill（源码架构分析）
-├── .kimi/                            # Kimi Agent 团队配置
-│   ├── agents/                       # Agent 定义（Planner/Developer/Reviewer）
-│   ├── skills/                       # 共享知识库
-│   └── AGENTS.md                     # Agent 使用速查
+├── .agents/                          # 跨工具共享资产
+│   ├── README.md                     # 使用原则
+│   └── skills/                       # 唯一 Skill 源（OpenCode / Trae 自动发现）
 ├── upstream/                         # 上游开源源码（尽量不修改）
 │   ├── prometheus/
 │   ├── alertmanager/
 │   ├── blackbox_exporter/
 │   └── node_exporter/
 ├── platform/                         # MetricCenter 业务扩展代码
-│   ├── cmd/metric-center/            # 主程序入口
-│   ├── gateway/                      # API Gateway
-│   ├── discovery/                    # 自定义服务发现
-│   ├── collector/                    # 自定义采集器
-│   ├── storage/                      # 存储适配
-│   ├── config/                       # 平台配置
-│   ├── models/                       # 领域模型
-│   ├── api/                          # 自定义 API
-│   └── examples/                     # 示例 Agent / Exporter 模板
-│       └── simple-agent/             # 标准采集端 Agent 模板
+│   ├── cmd/metric-center/            # v3-only 主程序
+│   ├── cmd/migrate/                  # PostgreSQL migration 命令行
+│   ├── modules/mXX/                  # 业务模块
+│   ├── foundation/                   # 统一错误/响应/HTTP/模块注册/系统端点
+│   ├── gateway/auth/                 # 认证（过渡适配器）
+│   ├── models/                       # 共享模型
+│   ├── db/migrations/v3/             # PostgreSQL-only 迁移
+│   ├── testutil/testdb/              # 测试数据库
+│   └── edge-sync-agent/              # 边缘采集客户端
 ├── ui-custom/web/                    # 独立前端门户
-├── patches/prometheus/               # 对上游源码的必要 patch
 ├── scripts/                          # 构建与辅助脚本
 ├── deploy/                           # 部署配置
 ├── docs/                             # 文档（按读者/使用场景排号）
-│   ├── 01-team-collaboration/        # 团队协作指引（角色 / 流程 / Agent 使用）
-│   ├── 02-product-requirements/      # 产品需求（PRD / 用户故事 / 路线图）
-│   ├── 03-engineering-standards/     # 工程标准（API / 测试 / 分支 / 隔离）
+│   ├── 01-team-collaboration/        # 团队协作指引
+│   ├── 02-product-requirements/      # 需求（SRS 为基线）
+│   ├── 03-engineering-standards/     # 工程标准
 │   ├── 04-source-architecture/       # 源码架构理解
-│   ├── 05-execution-records/         # 执行记录（Agent 留痕）
-│   ├── 06-mvp-e2e-testing/           # MVP 配置下发闭环测试指导
-│   ├── 07-design/                    # 模块概要设计与关键设计专题（HLD）
-│   └── prototypes/                   # 可点击原型（分模块）
+│   ├── 05-execution-records/         # 执行记录
+│   ├── 06-mvp-e2e-testing/           # 部署手册（V2 E2E 已归档）
+│   ├── 07-design/                    # 概要设计与关键设计专题
+│   └── prototypes/                   # V2 可点击原型（已归档）
 ├── Makefile                          # 统一构建入口
 ├── setup.sh                          # 一键初始化脚本（跨平台）
 ├── SETUP_WINDOWS.md                  # Windows 环境初始化指南
-├── install-hooks.sh                  # 安装 Kimi hooks
+├── go.mod / go.sum                   # Go 模块依赖
 ├── .gitignore
 └── README.md
 ```
@@ -109,7 +105,8 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 | --------------------------------- | ------ | ---------------------------------------------- |
 | `platform/cmd/metric-center/`     | ✅ 已初始化 | 控制面主程序入口（Gin + 健康检查 + Query 代理）                |
 | `ui-custom/web/package.json`      | ✅ 已初始化 | Custom UI 前端项目（Vite + React + TS + Ant Design） |
-| `platform/examples/simple-agent/` | ✅ 已存在  | 标准采集端 Agent 模板，可独立运行                           |
+| `platform/modules/mXX/`           | ✅ 已初始化 | V3 业务模块（M01/M05/M06/M07/M08/M09）                 |
+| `platform/foundation/`            | ✅ 已初始化 | 统一错误/响应、HTTP 辅助、模块 Registry、health/ready      |
 | `upstream/prometheus/`            | ✅ 已存在  | 上游 Prometheus 源码                               |
 | `upstream/alertmanager/`          | ✅ 已存在  | 上游 Alertmanager 源码（M08 通知收敛）                   |
 | `upstream/blackbox_exporter/`     | ✅ 已存在  | 上游 blackbox\_exporter 源码（M01/M09 拨测）           |
@@ -162,27 +159,63 @@ bash setup.sh
 
 ## 4. 快速开始（当前可用）
 
-### 4.1 编译并启动 MetricCenter 控制面
+### 4.1 本地一键启动（推荐：一个终端启动 4 个服务）
+
+本地 PostgreSQL 的账号 / 密码可能随环境变化，因此连接串**不写死在仓库里**，统一由仓库根目录的 `.env.local` 提供（已被 `.gitignore` 忽略，不会入库）：
 
 ```bash
-# 先安装工具链
-make install-tools
+cp .env.local.example .env.local
+# 编辑 .env.local，把 METRIC_CENTER_DB_DSN 改成你本机的账号密码，例如：
+# METRIC_CENTER_DB_DSN=postgres://myuser:mypassword@127.0.0.1:5432/metric_center?sslmode=disable
+# 密码含特殊字符需 URL 编码：@ -> %40，: -> %3A，/ -> %2F，# -> %23
 
-# 编译并启动控制面（默认监听 :8080）
-make run-metric-center
+make dev-all
 ```
 
-访问 <http://localhost:8080/health> 查看健康状态。
+`make dev-all`（等价 `bash scripts/dev-all.sh`）会依次完成：
 
-### 4.2 启动前端开发服务器
+1. 读取 `.env.local`（或环境变量 `METRIC_CENTER_DB_DSN`）→ 校验连通性 → 执行 v3 迁移；未配置时回落到本机 trust 认证的默认库 `metric_center`（自动建库 + 迁移，见 `make db-init`）。
+2. 后台并发启动四个服务，日志分别写入 `.dev-logs/{center,prometheus,alertmanager,ui}.log`。
+3. 打印各服务地址；按 **Ctrl-C** 统一停止四个服务及其子进程。
+
+| 服务 | 地址 | 说明 |
+| ---- | ---- | ---- |
+| 控制面 metric-center | <http://localhost:8080> | 健康检查 `/api/v3/platform/health` |
+| Prometheus | <http://localhost:9090> | 查询代理 / M09 配置下发依赖 |
+| Alertmanager | <http://localhost:9093> | M08 告警场景需要 |
+| 前端 Vite | <http://localhost:5173> | `/api` 自动代理到 8080 |
+
+验证：
 
 ```bash
-make dev-ui
+curl http://localhost:8080/api/v3/platform/health   # 期望 200 {"status":"ok"}
 ```
 
-访问 <http://localhost:5173，前端会通过代理访问> <http://localhost:8080/api/v1/status。>
+浏览器打开 <http://localhost:5173>。
 
-> 注意：需先启动 MetricCenter 控制面，前端状态卡片才能正常显示。
+> 若 `METRIC_CENTER_DB_DSN` 指向的库还不存在，需先自行创建（如 `createdb metric_center` 或由 DBA 创建）——一键启动只负责迁移，不负责创建非默认库。`psql` 不在 PATH 时会跳过连通性预检，迁移失败会直接报错。
+>
+> 一次性覆盖 DSN 也可以走环境变量：`METRIC_CENTER_DB_DSN='postgres://user:pwd@host:5432/db?sslmode=disable' make dev-all`。
+
+### 4.2 分终端 / 按需启动单个服务
+
+不用一键脚本时，可在不同终端分别执行：
+
+```bash
+make db-init             # 首次：建本地默认库 + 迁移（幂等）
+make run-metric-center   # 控制面 :8080（编译 + 迁移 + 启动）
+make run-prometheus      # Prometheus :9090
+make run-alertmanager    # Alertmanager :9093
+make dev-ui              # 前端 :5173
+```
+
+只想在一个终端跑完（日志混在一起）：
+
+```bash
+make -j4 run-metric-center run-prometheus run-alertmanager dev-ui
+```
+
+> `make -j4` 要求工具链已安装（先执行过 `bash setup.sh` 或 `make install-tools`），否则 `install-go` / `install-pnpm` 可能并发重复触发。Ctrl-C 停止；端口残留时可用 `for p in 8080 9090 9093 5173; do lsof -ti tcp:$p | xargs -r kill; done` 清理。
 
 ### 4.4 PR 预览环境（Vercel）
 
@@ -199,17 +232,9 @@ Vercel 仅部署 `ui-custom/web/` 前端静态资源。预览环境下：
 
 > 详细配置见 `ui-custom/web/vercel.json` 和 [`docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md`](docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)。
 
-### 4.5 编译并运行 simple-agent 示例
+### 4.5 边缘采集客户端（可选）
 
-`simple-agent` 用于验证「CMDB 字段 → Prometheus Label → 配置下发」的完整链路。
-
-```bash
-cd platform/examples/simple-agent
-../../.tools/go/bin/go mod tidy
-../../.tools/go/bin/go run main.go -listen-address ":9100" -app-name "order-service" -env "prod"
-```
-
-运行后访问 <http://localhost:9100/metrics> 查看指标。
+`simple-agent` 示例已随 V2 代码移除；边缘采集使用 `platform/edge-sync-agent/`（独立 Go module），由 `make build-edge-agent` / `make build-edge-package` 构建。
 
 ### 4.6 使用 Docker 启动 Prometheus（可选）
 
@@ -255,7 +280,7 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)
 - [ ] 后端改动后重新编译并重启控制面（见 4.7）
 - [ ] 测试验证：`make test-platform` 与 `pnpm test` / `pnpm lint` 通过
 - [ ] 编译打包验证：`make build-center` 可完成（如需预生产/测试环境交付）
-- [ ] 如需验证采集链路，可运行 `platform/examples/simple-agent/`
+- [ ] 如需验证边缘采集链路，可构建并运行 `platform/edge-sync-agent/`
 
 ***
 
@@ -309,7 +334,7 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)
 
 ### 6.7 原型（docs/prototypes/）
 
-- 分模块可点击原型（module-XX/），GitHub Pages 部署说明见各模块 README
+- V2 分模块可点击原型已归档（[README](docs/prototypes/README.md)），仅作历史设计参考；V3 实现不以原型为输入。
 
 ***
 

@@ -67,31 +67,30 @@ platform/modules/m07/
 └── references/
 ```
 
-旧 `platform/config/resource` 为 v2 legacy，保持冻结。
+旧 v2 业务目录（含 `platform/config/resource`）已随版本归档移除，仅保留 tag / 分支快照。
 
 ### 运行
 
+控制面为 **v3-only / PostgreSQL-only**：只挂载 `/api/v3`，不启动旧后台任务；legacy 模式与 SQLite 双模式已移除。
+
 ```bash
-# SQLite 开发/测试：默认 legacy 模式（旧 v2 功能面 + 增量 v3 schema）
-METRIC_CENTER_DB_DRIVER=sqlite METRIC_CENTER_DB_DSN=metric_center_v3.db make migrate
+# 本地默认库（trust 认证，metric_center）：建库 + v3 迁移
+make db-init
+
+# 编译、幂等迁移并启动控制面（:8080）
 make run-metric-center
 
-# v3-only 模式（SQLite 开发 / PostgreSQL 生产）：只挂载 /api/v3，不启动旧后台任务
-METRIC_CENTER_DB_MODE=v3 \
-METRIC_CENTER_DB_DRIVER=sqlite \
-METRIC_CENTER_DB_DSN=metric_center_v3.db \
-make run-metric-center
+# 自定义 DSN（生产 / 其他环境）
+METRIC_CENTER_DB_DSN='postgres://user:pwd@host:5432/db?sslmode=disable' \
+  make run-metric-center
 
-# PostgreSQL（00000 baseline 已建共享参考表与认证表）
-METRIC_CENTER_DB_MODE=v3 \
-METRIC_CENTER_DB_DRIVER=postgres \
-METRIC_CENTER_DB_DSN='postgres://...' \
-make migrate
+# 一键启动控制面 + Prometheus + Alertmanager + 前端（DSN 读 .env.local）
+make dev-all
 ```
 
 #### 本地 PostgreSQL 测试环境（macOS / Homebrew）
 
-生产目标为 PostgreSQL，迁移运行器支持 SQLite/PostgreSQL 双方言。本地装一个 PG 用于迁移与集成验证：
+唯一支持的数据库为 PostgreSQL。本地装一个 PG 用于迁移与集成验证：
 
 ```bash
 # 国内网络可用清华镜像加速（否则 brew 可能无法拉元数据）
@@ -103,9 +102,11 @@ brew services start postgresql@16
 export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 createdb metric_center_test   # 一次性测试库，迁移测试会反复 Up/Down
 
-# 运行 PG 迁移生命周期测试（Up → 逐版本 Down → 全部 Down）
-METRIC_CENTER_TEST_POSTGRES_DSN='postgres://<user>@127.0.0.1:5432/metric_center_test?sslmode=disable' \
-  .tools/go/bin/go test ./platform/db -run TestMigrateV3Postgres -count=1 -v
+# 全量后端测试（PG，逐测试独立 schema；缺 DSN 时 make 自动准备本地测试库）
+make test-platform
+
+# 或显式指定测试库
+METRIC_CENTER_TEST_POSTGRES_DSN='postgres://<user>@127.0.0.1:5432/metric_center_test?sslmode=disable' make test-platform
 ```
 
 > 迁移运行器对 PostgreSQL 使用 `default_query_exec_mode=simple_protocol`，因为单个迁移文件会整段多语句执行（含 `DO $$` 块）；运行时连接池仍走 prepared-statement 模式。`schema_migrations` 记账语句相应使用内联字面量（值均为本地派生，无外部输入）。
@@ -127,7 +128,7 @@ v3 系统端点：`/api/v3/platform/health`（存活）、`/api/v3/platform/read
 ```bash
 go test ./platform/modules/m07/...
 go test -race ./platform/modules/m07/...
-make test-postgres   # 需 METRIC_CENTER_TEST_POSTGRES_DSN
+make test-platform   # PostgreSQL 全量；METRIC_CENTER_TEST_POSTGRES_DSN 可覆盖
 ```
 
 ### 已知遗留
@@ -136,7 +137,7 @@ make test-postgres   # 需 METRIC_CENTER_TEST_POSTGRES_DSN
 - `connection_secret_ref` 解析 / 加密（S-3）；
 - 审计写链路（S-6）；
 - v3-only 的认证面仍复用 legacy handler（M03 v3 模块落地后替换）；
-- PostgreSQL 迁移集成测试需 `METRIC_CENTER_TEST_POSTGRES_DSN` 环境（当前仅 SQLite 实测）；
+- 后端测试已统一跑 PostgreSQL（`make test-platform`，逐测试独立 schema）；CI 尚未配置带 `postgres:16` service 的 workflow；
 - `network_domains.ip_c_id_rs` 物理列名沿用 v2，v3 网域模型落地时用 migration 改名；
 - v2/v3 并行窗口结束后删除旧 v2 包。
 
@@ -186,7 +187,7 @@ GOPROXY=off .tools/go/bin/go vet ./platform/...
 
 ### 已知遗留
 
-- PostgreSQL 迁移集成测试需 `METRIC_CENTER_TEST_POSTGRES_DSN`，当前 SQLite 实测、PG 未实测；
+- PostgreSQL 迁移与业务测试已全量实测（`make test-platform`）；CI 门禁待补；
 - 最后管理员保护为进程内 mutex，多实例部署需数据库级锁；
 - 用户软删后用户名仍被唯一索引占用，不支持同名重建；
 - M09/M11 v3 未落地，网域删除级联为端口 + no-op；

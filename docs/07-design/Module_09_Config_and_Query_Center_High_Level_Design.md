@@ -1,13 +1,18 @@
-# M09 配置与查询中心 概要设计
+# 配置与查询中心 概要设计
 
 > **文档类型**：概要设计（High-Level Design, HLD）
 > **目标读者**：后端/前端开发工程师、测试工程师、运维架构师、代码审查者
-> **文档版本**：v1.0
-> **状态**：reviewing
+> **文档版本**：v1.2
+> **状态**：reviewing（场景优先试点）
 > **编写日期**：2026-11-20
-> **对应模块**：Module 09 — 配置与查询中心
-> **需求基线**：[M09 配置与查询中心 SRS](../02-product-requirements/Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
+> **修订日期**：2026-11-22
+> **Domain ID**：`DOMAIN-CFG-QUERY`
+> **实现模块**：`m06` / `m07` / `m09`
+> **需求基线**：[配置与查询中心 SRS](../02-product-requirements/Modules/SRS/Module_09_Network_Domain_Access_and_Query_Center_Requirements.md)
+> **场景链接（唯一链接点）**：[Module_09_Scenario_Link.md](Module_09_Scenario_Link.md)
+> **场景演示脚本**：`docs/05-execution-records/module-09/scenario-walkthrough.md`
 > **接口契约**：`docs/05-execution-records/rewrite/v2.0/modules/module-09/api-contract-snapshot-v3.md`（字段级权威）
+> **对外验收说明书**：[Module_09_Acceptance.md](Module_09_Acceptance.md)（派生，非追溯）
 > **关键设计专题**：
 > - [PromQL 网域注入](design-notes/m09-promql-domain-injection.md)
 > - [配置生成与原子发布](design-notes/m09-config-generation-and-publish.md)
@@ -20,7 +25,7 @@
 
 ### 1.1 目的
 
-本文档描述 M09 的**架构级设计**：模块边界、接口清单、数据归属、关键流程、状态机、安全与性能约束，以及与 SRS 需求条目的追溯关系。
+本文档描述配置与查询中心的**架构级设计**：模块边界、接口清单、数据归属、关键流程、状态机、安全与性能约束，以及**能力清单**；完整“场景 ↔ 设计 ↔ 演示 ↔ 验收”见 [Scenario Link](Module_09_Scenario_Link.md)。
 
 本文档**不展开**字段级契约、DTO、算法伪代码和页面组件细节：
 
@@ -56,7 +61,7 @@
                         │
            ┌────────────┴────────────┐
            ▼                         ▼
-     SQLite / PostgreSQL        Prometheus（中心）
+        PostgreSQL             Prometheus（中心）
                                      ▲
                                      │ remote write
                              采集节点（各网域，Edge Sync Agent）
@@ -105,6 +110,21 @@ platform/modules/m09/
 | 3 | 监控目标状态 | `/targets` | `TargetStatusPage` | 已实现 |
 | 4 | 指标查询 | `/query` | `QueryPage` | 已实现（页面无网域选择器；服务端按授权网域过滤；深链入口待增量） |
 | 5 | 配置产物历史 | `/config-snapshots` | `ConfigPreviewPage` | 已实现 |
+
+### 2.5 能力清单
+
+> 能力（CAP）是技术内部的复用抽象，不要求需求方理解；完整「场景 → 实现」映射见 [Module_09_Scenario_Link.md](Module_09_Scenario_Link.md)（唯一链接点），本文不维护第二份追溯表。
+
+| CAP | 意图 | 实现模块 | 扩展点 |
+|-----|------|----------|--------|
+| CAP-EDGE-ACCESS | 网域纳管、凭据、节点注册/心跳、离线包 | m09 | Token 鉴权 + 边缘协议 `/api/v3/edge/*` |
+| CAP-CONFIG-PUBLISH | 配置生成、校验、发布、产物历史/导出 | m09 | 生成器 + 校验 + 原子切换 |
+| CAP-OBS-TARGET | 目标状态、覆盖率、节点运行态 | m09 | 心跳快照上报 |
+| CAP-QUERY-PROXY | PromQL 代理、网域注入、查询护栏 | m09 | `/api/v1` 兼容面 + 网域注入 |
+| CAP-UI-NAV | 导航、查询页、场景入口 | ui-custom/web | 菜单 / 深链 |
+| CAP-AUTH-TENANT | 鉴权、租户、网域授权 | m06 / foundation | 授权网域集解析 |
+
+> 本轮无新建能力；全部复用现有能力。若后续需要新建，必须在 HLD 中说明为什么不能复用/扩展。
 
 ---
 
@@ -254,7 +274,7 @@ platform/modules/m09/
 
 ### 6.5 目标状态与采集覆盖率
 
-- 目标状态：读取 `edge_target_snapshots`，超过 90s 新鲜度置 `unknown`；回连 M07 补 `instance_name`（批量，避免 N+1）；支持网域/Job/健康/关键字/分页。
+- 目标状态：读取 `edge_target_snapshots`，超过 90s 新鲜度标记 `stale=true`（保留最后上报 `up/down/unknown`，前端展示“数据陈旧”）；回连 M07 补 `instance_name`（批量，避免 N+1）；支持网域/Job/健康/关键字/分页。
 - 中心侧目标信息作为兼容来源保留：v3 当前不单独拉取中心 Prometheus targets（通常为空）。
 - 覆盖率四态：`collecting` / `partial_collecting` / `pending_down` / `not_monitored`；以资源为粒度聚合，空资源集短路。
 
@@ -397,36 +417,28 @@ generated → validated(passed) → current → history → pruned
 | 日志 | access log + 模块日志；凭据/内容脱敏 |
 | reload | 中心规则写入后触达 Prometheus `/-/reload`；失败保留 current |
 | 后台循环 | 节点维护 1m；配置 watcher 30s；M01 对账 60s |
-| 健康检查 | `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` |
+| 健康检查 | `/api/v3/platform/health`、`/api/v3/platform/ready`、`/api/v3/platform/ready` |
 | 关键配置 | `--prometheus.url`、`--config-dir`、`--edge-package-dir`、`METRIC_CENTER_SNAPSHOT_*`、`METRIC_CENTER_DB_*` |
 
 ---
 
 ## 12. 测试与验证
 
+> 本节只写测试策略与覆盖范围；测试清单与执行证据见 acceptance / walkthrough，不在本文复制。
+
 - 单元：`promql.go` 注入边界、查询护栏边界、edge 注册/离线/seq、配置校验/current 不覆盖、产物导出、coverage 四态、查询页 step/gap/URL/图表 option。
 - 集成：纳管 → 心跳 → 配置生成 → 节点拉取 → 目标快照 → 查询；失败不覆盖 current；退纳管/删除级联；跨网域隔离；admin 预览/导出。
-- E2E：SRS 场景 1~5；导出件用 `promtool check config` / `amtool check-config` 验证。
+- E2E：SRS SCN-01~05；按 `scenario-walkthrough.md` 走查；导出件用 `promtool check config` / `amtool check-config` 验证。
 - 具体用例与命令见测试代码、`design-notes/` 及 `docs/03-engineering-standards/04_Testing_Standard.md`。
 
 ---
 
-## 13. 需求追溯
+## 13. 场景链接
 
-| SRS 条目 | 设计章节 | 实现状态 |
-|----------|----------|----------|
-| FR-01 ~ FR-04 | §4.2、§6.1、§7.1、§8.1 | 已实现 |
-| FR-05 ~ FR-09 | §4.3、§6.2、§7.2、§8.2 | 已实现 |
-| FR-10 ~ FR-14 | §4.2、§5、§6.3、§6.4、§7.3、§7.6、§8.3 | 已实现 |
-| FR-15 ~ FR-17 | §4.2、§6.5、§7.4 | 已实现（中心侧兼容拉取未启用） |
-| FR-18 ~ FR-20 | §4.4、§6.6 | 已实现（查询护栏见 NFR-11） |
-| FR-21 | §4.2、§6.8 | 已实现 |
-| FR-22 | §6.7、§6.9 | 部分实现（图表/时间范围/URL/预设/辅助选择/护栏已完成；深链入口与查询历史待增量） |
-| NFR-01 ~ NFR-09 | §3、§9 | 已实现（NFR-08 跨域 e2e 待 V1-1） |
-| NFR-10 | §10.2 | 部分实现（代理结构满足；P95 压测待补） |
-| NFR-11 | §10.1 | 已实现 |
-| NFR-12 | §6.7、§10.3 | 部分实现（路由懒加载已完成；1000×20 首屏压测待补） |
-| NFR-13 | §6.7、§6.9 | 部分实现（查询页文案/错误提示已可执行；全站文案检查待 V1-2） |
+> 完整“场景 ↔ 设计 ↔ 演示 ↔ 验收”唯一链接点：[Module_09_Scenario_Link.md](Module_09_Scenario_Link.md)。
+> 本文不再维护第二份 FR→设计章节表；场景演示脚本见 `docs/05-execution-records/module-09/scenario-walkthrough.md`。
+
+场景与实现的完整映射见 Scenario Link §2（本文不维护）；NFR 覆盖见 Scenario Link。
 
 ---
 
@@ -440,7 +452,7 @@ generated → validated(passed) → current → history → pruned
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `METRIC_CENTER_DB_DRIVER` | sqlite | sqlite/postgres |
+| `METRIC_CENTER_DB_DRIVER` | postgres | 固定为 postgres（PostgreSQL-only，旧 sqlite 取值已拒绝） |
 | `METRIC_CENTER_SNAPSHOT_RETENTION_DAYS` | 30 | 配置产物保留天数 |
 | `METRIC_CENTER_SNAPSHOT_TIMEZONE` | Asia/Shanghai | 日切时区 |
 
@@ -463,3 +475,5 @@ generated → validated(passed) → current → history → pruned
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
 | v1.0 | 2026-11-20 | 首版：由详细设计收敛为概要设计；字段级契约回归 `api-contract-snapshot-v3.md`，PromQL 注入/配置发布/查询页交互下沉为 3 个设计专题；删除 11 个历史 PRD，SRS 成为唯一需求基线 |
+| v1.1 | 2026-11-22 | **场景优先试点**：标题/元数据去除模块编号作为设计边界；新增 Domain ID 与实现模块；新增 §2.5 场景→实现映射（SCN/CAP/mXX/HLD 章节/演示脚本）；§13 追溯表迁移到 Scenario Link；新增场景演示脚本引用 |
+| v1.2 | 2026-11-22 | **文档分层与对外验收衔接**：①§2.5「场景→实现映射」改为「能力清单」，移除 SCN 行，SCN↔实现矩阵只保留在 Scenario Link；②§12 明确只写测试策略与覆盖范围，证据见 acceptance/walkthrough；③§13 场景映射引用改为 Scenario Link §2；④头部新增对外验收说明书引用 |

@@ -13,13 +13,13 @@
 > - `Makefile` 中的 `package-center` / `build-center` / `build-all` 目标
 > - `scripts/package-center.sh`
 > - `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`
-> - `docs/06-mvp-e2e-testing/README.md`
+> - `docs/06-mvp-e2e-testing/README.md`（部署手册索引）
 > - `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md`（前端访问后端的拓扑决策：当前 A2、未来 nginx 反代）
 > - **采集节点侧独立打包**：边缘一体化交付包（`edge-sync-agent` + `vmagent` + `blackbox_exporter`）走
 >   `make build-edge-package` → `scripts/package-edge-agent.sh`，产物 `dist/edge-package/*.tar.gz`，
 >   目录规范见 `platform/edge-sync-agent/packaging/README.md`（`/opt/apps/edge-sync-agent` 程序只读 +
 >   `/opt/data/edge-sync-agent` 数据可写）。中心包与采集节点包是**两份独立产物**，互不包含。
-> - **跨主机联调（中心本地/全上云两阶段）**：见 `docs/06-mvp-e2e-testing/edge-agent-cross-host-e2e.md`
+> - **跨主机联调（V2 历史）**：见 `docs/05-execution-records/archive/v2-e2e/edge-agent-cross-host-e2e.md`（已归档，不再维护）
 
 ---
 
@@ -171,7 +171,7 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 - Alertmanager：http://<服务器IP>:9093（仅 `WITH_ALERTMANAGER=1` 产物）
 - Blackbox exporter：http://<服务器IP>:9115（仅 `WITH_BLACKBOX=1` 产物）
 - MetricCenter API：http://<服务器IP>:8080/api
-- 健康检查：http://<服务器IP>:8080/api/v1/health
+- 健康检查：http://<服务器IP>:8080/api/v3/platform/health
 
 > 前端产物由 `metric-center` 通过 `--web.static-dir` 直接托管（部署拓扑方案 A2），不再单独起 5173 静态服务。构建时**不注入** `VITE_API_BASE_URL`，页面内 API 请求走相对路径，自适应当前访问的 IP / 域名——同一份产物可部署到任意机器，无需重新打包，也无跨域问题。详见 `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md`。
 
@@ -185,25 +185,13 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 
 ## 3. 在 macOS 上交叉编译为 Ubuntu 产物
 
-如果打包机是 macOS，可以通过 `zig` 作为交叉 C 工具链完成 CGO 交叉编译。
+`metric-center` 为纯 Go，`CGO_ENABLED=0` 即可交叉编译；Prometheus / Alertmanager / blackbox_exporter 同样不依赖 CGO，**不再需要 zig 或 C 工具链**。
 
 > ⚠️ **副作用提示（交叉打包会覆盖本机二进制）**：`CROSS=linux/amd64 make package-center` 会把源码目录里的本机二进制**覆盖为目标平台 ELF**（`platform/cmd/metric-center/metric-center`、`upstream/prometheus/prometheus`、`upstream/prometheus/promtool`、`upstream/alertmanager/{alertmanager,amtool}`、`upstream/blackbox_exporter/blackbox_exporter`），覆盖后 macOS 本地不能再直接运行这些二进制。恢复方法：在 macOS 上重跑一次原生 `make build-center` 即可。
 >
 > 定位说明：`package-center` 用于**产出放到 Ubuntu 环境执行测试/交付的安装包**，不属于 macOS 本地开发流程；本地开发验证用 `make run-*` / `make build-*` 原生编译即可。
 
-### 3.1 安装 zig
-
-```bash
-brew install zig
-```
-
-Ubuntu 上安装 zig（如需要）：
-
-```bash
-snap install zig --classic
-```
-
-### 3.2 执行交叉打包
+### 3.1 交叉打包
 
 ```bash
 cd /path/to/CNCF_Monitor
@@ -224,7 +212,7 @@ CROSS=linux/amd64 WITH_ALERTMANAGER=1 WITH_BLACKBOX=1 make package-center
 dist/metric-center-bundle-linux-amd64-20260828-170905.tar.gz
 ```
 
-### 3.3 实测验证（macOS arm64 → Ubuntu x86_64）
+### 3.2 实测验证（macOS arm64 → Ubuntu x86_64）
 
 在 macOS arm64 机器上执行：
 
@@ -236,20 +224,19 @@ CROSS=linux/amd64 make package-center
 
 ```bash
 $ file dist/metric-center-bundle-linux-amd64-*/bin/*
-dist/metric-center-bundle-linux-amd64-*/bin/metric-center: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 2.0.0
-dist/metric-center-bundle-linux-amd64-*/bin/prometheus:    ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked
+dist/metric-center-bundle-linux-amd64-*/bin/metric-center: ELF 64-bit LSB executable, x86-64, statically linked
+dist/metric-center-bundle-linux-amd64-*/bin/prometheus:    ELF 64-bit LSB executable, x86-64, statically linked
 ```
 
-- `metric-center`：通过 zig 完成 CGO 交叉编译，运行时依赖标准 glibc：`/lib64/ld-linux-x86-64.so.2`、`libc.so.6`、`libdl.so.2`、`libpthread.so.0`。Ubuntu 22.04/24.04 均自带。
-- `prometheus`：`CGO_ENABLED=0` 静态链接，无额外动态库依赖；Prometheus Web UI 静态资源通过 `-tags builtinassets` 内嵌进二进制，交付包自包含。
+- `metric-center` / `prometheus`：均为 `CGO_ENABLED=0` 静态链接，不依赖 glibc / zig。
+- Prometheus Web UI 静态资源通过 `-tags builtinassets` 内嵌进二进制，交付包自包含。
 - Custom UI 构建产物已正确收集到 `web/ui-custom/`；随包组件（alertmanager / blackbox_exporter，若开启对应 `WITH_*`）同样为静态链接 ELF。
 
 > 注意：脚本默认使用 `https://goproxy.io,direct` 作为 Go 代理。若你的网络无法访问 `proxy.golang.org` 且 `goproxy.io` 也不可用，请设置自己的代理后再打包，例如 `GOPROXY=https://your-proxy,direct make package-center`。
 
-### 3.4 常见限制
+### 3.3 常见限制
 
-- `metric-center` 必须使用 zig 做交叉 C 编译；Prometheus / UI 静态资源不依赖 CGO，可普通交叉编译。
-- 如果 zig 不可用，脚本会明确报错并给出安装提示。
+- `metric-center` 为纯 Go，`CGO_ENABLED=0` 交叉编译即可，不需要 zig。
 - 交叉编译产物建议上传到 Ubuntu 环境后执行 `file bin/metric-center` 确认格式为 `ELF 64-bit`，并运行 `./scripts/start.sh` 做最终验证。
 
 ---
@@ -311,7 +298,7 @@ chmod +x scripts/start.sh scripts/stop.sh
 
 # 4. 启动并检查健康/前端（UI 与 API 同为 8080）
 ./scripts/start.sh
-curl -s http://127.0.0.1:8080/api/v1/health | jq .
+curl -s http://127.0.0.1:8080/api/v3/platform/health | jq .
 curl -s http://127.0.0.1:8080/ | head -1           # 期望返回 HTML（index.html）
 curl -s http://127.0.0.1:8080/resources | head -1  # 子路由刷新同样返回 HTML，不应 404
 curl -s http://127.0.0.1:8080/api/v9/unknown | jq .  # 未注册 API 返回 JSON 错误，不返回 HTML

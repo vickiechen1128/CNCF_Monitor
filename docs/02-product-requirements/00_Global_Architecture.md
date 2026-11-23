@@ -2,7 +2,8 @@
 
 > 文档类型：产品需求文档 / 全局架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)  
-> 更新日期：2026-08-21
+> 更新日期：2026-08-21  
+> **目录映射已按 v2.0 rewrite / v3-only 更新**：控制面实现在 `platform/cmd/metric-center/`、`platform/foundation/` 与 `platform/modules/mXX/`；文中出现的 `platform/gateway/`、`platform/config/`、`platform/discovery/`、`platform/collector/`、`platform/edge/` 为 v1/v2 历史命名，仅保留概念映射，不再是实现目录。数据库统一为 PostgreSQL（PostgreSQL-only）。
 
 ---
 
@@ -51,10 +52,10 @@
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                         控制面（Control Plane）                           │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │              API Gateway（platform/gateway）                      │    │
+│  │       控制面 API（platform/cmd/metric-center + foundation）        │    │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │    │
 │  │  │ 认证鉴权 │  │ 租户隔离 │  │ 查询代理 │  │ 配置管理 / CMDB  │ │    │
-│  │  │ auth/    │  │ tenant/  │  │ proxy/   │  │ config/          │ │    │
+│  │  │ auth/    │  │   m06/   │  │   m09/   │  │ m01/m07/m09      │ │    │
 │  │  └──────────┘  └──────────┘  └──────────┘  └──────────────────┘ │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                    │                                      │
@@ -199,16 +200,16 @@ BlueKing CMDB                    MetricCenter              ITSM/ITIL
 
 | 模块 | 职责 | 对应目录 | 优先级 |
 |------|------|----------|--------|
-| **配置管理** | 五类资源管理（主机/数据库/中间件/应用服务/通用指标目标）、Excel 导入（含 upsert）、标签模板、拨测配置、配置生成与下发；为 BlueKing CMDB 预留统一 Provider 接口 {v0.4+ 由 Module_04 实现}；网域仅作为资源分组字段，**网域行政属性（登记/命名/区域）由 Module_06 负责、监控纳管（Token/Edge Agent 接入）由 Module_11 负责、配置下发由 Module_09 负责** | `platform/config/` | **P0 (MVP 核心)** |
-| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_11 提供 | `platform/discovery/`, `platform/collector/` | P0 |
-| 查询中心 | 提供统一查询入口、查询代理、结果展示；告警状态查询代理到 Module_08 | `platform/gateway/proxy/` | P0 |
-| 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；v0.4+ 基于 CI/Exporter/指标模板自动生成规则；v1.0+ 提供规则编辑器、静默管理、通知路由，对接 ITSM/ITIL 事件字段映射 | `platform/config/rules/` | P1/P2 |
-| 网关与认证 | 统一入口、网关层鉴权、多租户路由、请求级审计；用户/角色/租户 CRUD 由 Module_06 负责 | `platform/gateway/` | P2 |
-| 自定义服务发现与外部 CMDB 生命周期管理 | v0.4+ 对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB；承担外部数据源生命周期管理（同步策略、失败容错、7 天保留、孤儿虚拟 CI）；BlueKing CMDB 为唯一权威数据源 | `platform/discovery/cmdb/` | P2（v0.4+） |
+| **配置管理** | 五类资源管理（主机/数据库/中间件/应用服务/通用指标目标）、Excel 导入（含 upsert）、标签模板、拨测配置、配置生成与下发；为 BlueKing CMDB 预留统一 Provider 接口 {v0.4+ 由 Module_04 实现}；网域仅作为资源分组字段，**网域行政属性（登记/命名/区域）由 Module_06 负责、监控纳管（Token/Edge Agent 接入）由 Module_11 负责、配置下发由 Module_09 负责** | `platform/modules/m07/`、`platform/modules/m01/`、`platform/modules/m09/` | **P0 (MVP 核心)** |
+| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_11 提供 | `platform/modules/m01/` | P0 |
+| 查询中心 | 提供统一查询入口、查询代理、结果展示；告警状态查询代理到 Module_08 | `platform/modules/m09/handler/` | P0 |
+| 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；v0.4+ 基于 CI/Exporter/指标模板自动生成规则；v1.0+ 提供规则编辑器、静默管理、通知路由，对接 ITSM/ITIL 事件字段映射 | `platform/modules/m01/`、`platform/modules/m08/` | P1/P2 |
+| 网关与认证 | 统一入口、网关层鉴权、多租户路由、请求级审计；用户/角色/租户 CRUD 由 Module_06 负责 | `platform/gateway/auth/`（M03 重写前的过渡适配器）、`platform/modules/m06/` | P2 |
+| 自定义服务发现与外部 CMDB 生命周期管理 | v0.4+ 对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB；承担外部数据源生命周期管理（同步策略、失败容错、7 天保留、孤儿虚拟 CI）；BlueKing CMDB 为唯一权威数据源 | `platform/discovery/cmdb/`（v0.4+ 规划，尚未落地） | P2（v0.4+） |
 | 自定义前端 | 门户化 UI、页面组织与交互设计；业务规则以后端模块 PRD 为准 | `ui-custom/` | P0/P1 |
-| **网域与边缘 Agent 管理** | **网域监控纳管**（Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断；网域**行政属性——登记/命名/区域——由 Module_06 负责**）；租户-网域关联 {v0.2}；网域映射到 BlueKing Cloud Area {v0.4+}；`network_domain_id` 全局唯一（部署级前缀，决策 20）、网域为部署级资源可跨租户共享（决策 18~20） | `platform/edge/` | **P0（v0.2 起；MVP 提供网域登记于 Module_06）** |
-| **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；Ingestion Gateway 业务逻辑；接入源健康状态 | `platform/ingestion/` | **P0（集成模式）** |
-| 租户与平台管理 | 租户生命周期、租户-网域关联 {v0.2}、平台全局策略、数据存储管理；用户/角色/权限可能由外部 IAM/SSO 承接；租户映射到 BlueKing Business {v0.4+} | `platform/gateway/tenant/` | P2（租户/网域关联 v0.2，权限 UI P2） |
+| **网域与边缘 Agent 管理** | **网域监控纳管**（Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断；网域**行政属性——登记/命名/区域——由 Module_06 负责**）；租户-网域关联 {v0.2}；网域映射到 BlueKing Cloud Area {v0.4+}；`network_domain_id` 全局唯一（部署级前缀，决策 20）、网域为部署级资源可跨租户共享（决策 18~20） | `platform/modules/m09/`、`platform/edge-sync-agent/` | **P0（v0.2 起；MVP 提供网域登记于 Module_06）** |
+| **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；Ingestion Gateway 业务逻辑；接入源健康状态 | `platform/ingestion/`（集成模式规划，尚未落地） | **P0（集成模式）** |
+| 租户与平台管理 | 租户生命周期、租户-网域关联 {v0.2}、平台全局策略、数据存储管理；用户/角色/权限可能由外部 IAM/SSO 承接；租户映射到 BlueKing Business {v0.4+} | `platform/modules/m06/` | P2（租户/网域关联 v0.2，权限 UI P2） |
 
 > 模块间详细职责边界与跨模块引用关系见 [Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md)。
 
@@ -219,7 +220,7 @@ BlueKing CMDB                    MetricCenter              ITSM/ITIL
 ### 4.1 配置下发流（MVP 核心）
 
 ```
-用户 ──► Custom UI ──► API Gateway ──► platform/config/（配置管理）
+用户 ──► Custom UI ──► 控制面 API ──► platform/modules/m07/、m01/、m09/（配置管理）
                                               │
                                               ▼
                                       读取五类资源（Host/Database/Middleware/Application/GenericTarget）
@@ -325,7 +326,7 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 ### 4.7 多网域配置同步流（v0.2+）
 
 ```
-用户 ──► Custom UI ──► API Gateway ──► platform/config/（配置生成器）
+用户 ──► Custom UI ──► 控制面 API ──► platform/modules/m09/（配置生成器）
                                               │
                                               ▼
                                       按 network_domain_id 分组生成配置
@@ -335,7 +336,7 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
                                       存储为 prometheus.<network_domain_id>.yml
                                               │
                                               ▼
-                                      MetricCenter 暴露 /api/v2/platform/edge/config
+                                      MetricCenter 暴露 /api/v3/edge/config
                                               │
                  ═════════════════════════════╧══════════════════════════════
                                               │ HTTPS 443（隔离网域主动出站）
@@ -424,10 +425,10 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | 拨测引擎 | Blackbox Exporter | Prometheus 官方拨测组件，负责 HTTP/TCP/ICMP 探测 |
 | 告警收敛 | Alertmanager | Prometheus 官方告警管理组件，负责收敛、静默、通知路由 |
 | 控制面后端 | Go 1.25+ | 轻量，优先保持简单 |
-| Gateway | Go + Gin | 统一入口、鉴权、查询代理、配置管理 API |
+| 控制面 API | Go + Gin | 统一入口、鉴权、查询代理、配置管理 API（`platform/cmd/metric-center/` + `platform/foundation/` + `platform/modules/mXX/`） |
 | 前端 | React 18 + TypeScript | 门户化配置管理页面 |
 | UI 组件库 | Ant Design | 企业级后台组件库 |
-| 数据库（平台数据） | SQLite | 开发期使用，零运维、单机可运行 |
+| 数据库（平台数据） | PostgreSQL 16 | 生产 / 开发 / 测试统一；本地可用 `scripts/pg-dev.sh` 管理 |
 | 部署 | Docker / Docker Compose | 本地开发与测试 |
 | 网域模型 | `network_domain_id` | MVP 预置 `default` 网域 + **网域登记管理（Module_06，MVP 范围；行政属性）**，所有资源必须归属网域；`network_domain_id` 全局唯一，采用**部署级前缀**（`<deploy_code>-<domain_code>`，决策 20） |
 
@@ -437,7 +438,7 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 
 | 层级 | MVP 选型 | 未来演进 | 触发条件 |
 |------|---------|---------|---------|
-| 元数据存储 | SQLite | PostgreSQL / MySQL | 生产部署、多实例、需要事务与审计 |
+| 元数据存储 | PostgreSQL 16 | 已统一（无 SQLite / 双方言） | 生产部署、多实例、需要事务与审计 |
 | 缓存 | 无 | Redis | 会话管理、配置缓存、采集状态缓存 |
 | 时序存储 | Prometheus TSDB | **VictoriaMetrics（多网域默认）** / Mimir / Thanos | 长期存储、集群查询、高基数场景、多网域汇聚 |
 | 采集端 | Prometheus Server | **vmagent / Prometheus Agent Mode** + Edge Sync Agent | 多网域物理隔离、弱网场景 |

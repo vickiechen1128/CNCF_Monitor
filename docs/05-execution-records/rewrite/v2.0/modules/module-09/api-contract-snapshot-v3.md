@@ -475,6 +475,7 @@ POST /network-domains/:id/token/reset
         "network_domain": "mc-demo",
         "instance_name": "edge-node-01",
         "health": "up",
+        "stale": false,
         "last_scrape": "2026-11-11T10:00:30Z",
         "last_error": "",
         "source": "edge"
@@ -487,7 +488,9 @@ POST /network-domains/:id/token/reset
 }
 ```
 
-- `source`：`prometheus`（中心）/ `edge`（边缘快照）；`source=edge` 且快照过期时 health 降级为 `unknown`。
+- `source`：`prometheus`（中心）/ `edge`（边缘快照）。
+- `stale`：`source=edge` 且 `last_report_at` 超过新鲜度阈值时为 `true`；`health` 保留最后上报的 `up/down/unknown`，不再降级为 `unknown`，前端展示“在线/离线（数据陈旧）”。
+- `health` 过滤按原始 health 值匹配；`stale` 是独立维度，旧快照仍可按 up/down 筛选。
 - 只返回当前用户被授权网域的数据；无授权 → 空列表（NFR-08）。
 
 ### 7.2 `GET /api/v1/health/coverage`
@@ -536,7 +539,7 @@ POST /network-domains/:id/token/reset
 
 - 四态口径：存在新鲜 `up` 快照=采集中；多目标混合成功/失败=`partial_collecting`；有快照但无新鲜成功=`pending_down`；无任何快照=`not_monitored`。
 - `summary` 按 `state` 筛选后的全量结果统计（非当前页）；`coverage_rate = (total - not_monitored) / total`，保留两位小数。
-- 顶层 `collecting/deployed_not_collected/not_monitored` 为兼容窗口内保留的旧三态聚合（基于采集健康计数），新消费方使用 `items` + `summary`。
+- 顶层 `collecting/deployed_not_collected/not_monitored` 为兼容窗口内保留的旧三态字段，现为 `summary` 的别名（资源级）：`collecting=summary.collecting`、`deployed_not_collected=summary.partial_collecting+summary.pending_down`、`not_monitored=summary.not_monitored`；新消费方统一使用 `items` + `summary`。
 
 ### 7.3 PromQL 查询代理
 

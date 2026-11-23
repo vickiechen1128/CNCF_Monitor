@@ -9,25 +9,14 @@
 
 ## 1. 项目目录结构
 
-> **维护提示（v1.25）**：`.kimi/agents/` 下的文件清单以实际目录为准，新增 Agent 时无需（也不应）同步本文；本目录树仅作整体认知参考。
-> **跨工具 Skill（2026-10-23）**：`.kimi/skills/` 是单一源，`.agents/skills/` 是共享镜像；修改后执行 `make sync-skills`，OpenCode / Trae / Kimi Code CLI 会自动发现。
+> **维护提示**：Agent 角色/边界以 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 为准；本目录树仅作整体认知参考。
+> **Skill 单一源**：`.agents/skills/` 是唯一源，直接修改；OpenCode / Trae 等自动发现，不再维护镜像或同步脚本。
 
 ```
 CNCF_Monitor/
 ├── .agents/                                     # 跨工具共享资产
-│   └── skills/                                  # Skill 共享镜像（由 .kimi/skills 生成）
-├── .kimi/                                       # Kimi Agent 与 Skill 定义（Skill 单一源）
-│   ├── agents/                                  # Agent 角色定义
-│   │   ├── backend-developer.md
-│   │   ├── frontend-developer.md
-│   │   ├── planner.md
-│   │   ├── golang-reviewer.md
-│   │   ├── frontend-reviewer.md
-│   │   ├── prometheus-developer.md
-│   │   ├── build-resolver.md
-│   │   └── security-reviewer.md
-│   ├── AGENTS.md                                # Agent 团队速查
-│   └── skills/                                  # 可选 Skill（单一源）
+│   ├── README.md                                # 使用原则
+│   └── skills/                                  # 唯一 Skill 源
 │
 ├── upstream/                                    # 上游开源源码（尽量不修改）
 │   ├── prometheus/
@@ -36,37 +25,31 @@ CNCF_Monitor/
 │   └── node_exporter/
 │
 ├── platform/                                    # MetricCenter 业务扩展代码
-│   ├── cmd/metric-center/                       # 主程序入口
-│   ├── edge-sync-agent/                         # v0.2 边缘配置同步 Agent（独立 Go module）
-│   ├── gateway/                                 # API Gateway
-│   │   ├── auth/                                # 认证鉴权
-│   │   ├── tenant/                              # 多租户
-│   │   ├── proxy/                               # 查询代理
-│   │   └── router/                              # 路由注册
-│   ├── discovery/                               # 自定义服务发现
-│   │   ├── cmdb/
-│   │   ├── nacos/
-│   │   └── custom-http/
-│   ├── collector/                               # 自定义采集器
-│   ├── storage/                                 # 自定义存储适配
-│   ├── config/                                  # 平台配置
-│   ├── models/                                  # 领域模型
-│   └── api/                                     # 自定义 API
+│   ├── cmd/metric-center/                       # v3-only 主程序
+│   ├── cmd/migrate/                             # PostgreSQL migration 命令行
+│   ├── modules/mXX/                             # 业务模块
+│   ├── foundation/                              # 统一错误/响应/HTTP/模块注册/系统端点
+│   ├── gateway/auth/                            # 认证（过渡适配器）
+│   ├── models/                                  # 共享模型
+│   ├── db/migrations/v3/                        # PostgreSQL-only 迁移
+│   ├── testutil/testdb/                         # 测试数据库
+│   └── edge-sync-agent/                         # 边缘配置同步 Agent（独立 Go module）
 │
 ├── ui-custom/                                   # 独立前端门户
 │   └── web/
-│
-├── patches/                                     # 对上游源码的必要 patch
-│   └── prometheus/
-│       └── README.md
 │
 ├── scripts/                                     # 构建与辅助脚本
 ├── deploy/                                      # 部署配置
 │
 ├── docs/                                        # 文档
+│   ├── 01-team-collaboration/                   # 团队协作
+│   ├── 02-product-requirements/                 # 需求（SRS 为基线）
+│   ├── 03-engineering-standards/                # 工程标准
 │   ├── 04-source-architecture/                  # 源码架构理解
-│   ├── 02-product-requirements/                 # 新产品需求文档
-│   └── 03-engineering-standards/                # 工程约束与标准
+│   ├── 05-execution-records/                    # 执行记录
+│   ├── 06-mvp-e2e-testing/                      # 部署手册（V2 E2E 已归档）
+│   ├── 07-design/                               # 概要设计与设计专题
+│   └── prototypes/                              # V2 可点击原型（已归档）
 │
 ├── Makefile                                     # 统一构建入口
 ├── .gitignore
@@ -82,8 +65,8 @@ CNCF_Monitor/
 | 层级      | 技术                      | 说明                          |
 | ------- | ----------------------- | --------------------------- |
 | 后端引擎    | Prometheus（Go）          | 数据面核心，负责抓取、TSDB、PromQL、告警求值 |
-| 控制面后端   | Go 1.25+                | 轻量扩展层，优先保持简单                |
-| Gateway | Go + Gin                | 统一入口、鉴权、查询代理、配置管理 API       |
+| 控制面后端   | Go 1.26.1                | 项目级工具链 `.tools/go/`；v3-only 控制面        |
+| 控制面框架   | Gin v1.10                | 路由、中间件、HTTP API       |
 | 前端      | React 18 + TypeScript   | 门户化配置管理页面                   |
 | UI 组件库  | Ant Design              | 企业级后台组件库                    |
 | 数据库（平台） | PostgreSQL 16 | 生产与测试统一 PG；SQLite 已移除 |
@@ -138,15 +121,15 @@ func main() {
 
 ## 4. AI Agent 协作规范
 
-> **v1.25 去重**：Agent 协作的详细规则**权威定义在** **`.kimi/agents/*.md`**（行为规范）与 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md)（人视角流程概览）；分支策略见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。本节不再重复维护，仅保留核心原则速查：
+> **去重说明**：Agent 角色/边界见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 与 `AGENTS.md`；可执行流程见 `.agents/skills/`；分支策略见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。本节仅保留核心原则速查：
 
-1. **先读文档再写代码**：AI Agent 接到任务后，按任务卡读取相关 PRD 和工程标准（见 `.kimi/agents/orchestrator.md` 任务卡驱动）
-2. **按功能子模块开发**：每个功能子模块一个 `feature/module-XX-<功能名>` 分支
-3. **双文件夹隔离复用**：设计空间 `CNCF_Monitor-worktree`（固定分支 `design/module-mvp-demo`）与开发空间 `CNCF_Monitor-feature`（`develop` + `feat/*`）物理隔离；开发串行复用同一开发克隆，并行时额外 `git worktree add` 多目录
-4. **不编造接口**：所有 API 设计需符合 `03_API_Standard.md` 或已在 PRD 中定义
+1. **先读文档再写代码**：AI Agent 接到任务后，按任务卡读取相关 SRS/设计文档和工程标准（见 `.agents/skills/cncf-git-workflow` 启动协议）
+2. **按模块开发**：标准功能用 `feat/module-XX`；版本重写用 `rewrite/vX.Y`
+3. **双文件夹隔离复用**：设计空间 `CNCF_Monitor-worktree` 与开发空间 `CNCF_Monitor-feature` 物理隔离；开发串行复用同一克隆，并行时使用 `git worktree add`
+4. **不编造接口**：所有 API 设计需符合 `03_API_Standard.md` 或已在 SRS/契约快照中定义
 5. **提交前必须验证**：除测试/lint 外，必须启动服务并验证关键接口/页面可正常访问
 6. **Patch 可追溯**：所有对 upstream 的修改必须有 patch 文件和说明
-7. **执行记录关联**：每次 commit 必须能对应到 `docs/05-execution-records/module-XX-<功能名>/` 中的执行记录
+7. **执行记录关联**：每次 commit 必须能对应到 `docs/05-execution-records/module-XX/` 中的执行记录
 
 ***
 
@@ -162,4 +145,5 @@ func main() {
 | [04\_Testing\_Standard.md](04_Testing_Standard.md)                                      | 测试规范              |
 | [05\_AI\_Agent\_Collaboration\_Standard.md](05_AI_Agent_Collaboration_Standard.md)      | AI Agent 协作细则     |
 | [06\_Gitflow\_Branch\_and\_Rollback\_Guide.md](06_Gitflow_Branch_and_Rollback_Guide.md) | Gitflow 分支策略与回退指南 |
+| [07\_Backend\_Architecture\_and\_Debt\_Control.md](07_Backend_Architecture_and_Debt_Control.md) | V3 后端架构红线（R1/R2/R4） |
 

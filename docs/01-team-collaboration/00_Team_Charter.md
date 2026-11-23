@@ -3,7 +3,7 @@
 > 文档类型：团队协作规范  
 > **目标读者**：项目全体成员（chenrt、guixm、zhaohy、zhangwq）——团队共识与人机分工边界  
 > 版本：v1.3  
-> 更新日期：2026-08-12（v1.25 去重：Agent 细节指向 .kimi/agents/ 与团队目录其他文档）
+> 更新日期：2026-08-12（v1.25 去重：Agent 细节指向 docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md 与团队目录其他文档）
 
 ---
 
@@ -53,18 +53,18 @@
 
 ### 3.2 可以由 AI Agent 辅助执行的事项
 
-> **v1.25 去重**：各 Agent 的适用场景、调用人与输入方式的**权威定义在 `.kimi/agents/orchestrator.md`（子 Agent 调用规范）与 `README.md` §2（各角色怎么用 Agent 速查卡）**。此处仅列总览：
+> **v1.25 去重**：各 Agent 的适用场景、调用人与输入方式的**权威定义在 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`（子 Agent 调用规范）与 `README.md` §2（各角色怎么用 Agent 速查卡）**。此处仅列总览：
 
 | 事项 | 执行 Agent | 人类负责人 |
 |------|-----------|-----------|
-| 模块实现计划 | `planner` | chenrt |
+| 模块实现计划（可选） | `planner` | chenrt |
 | 可点击原型 | `prototype-designer` | chenrt |
 | 后端代码开发 | `backend-developer` | zhangwq |
 | 前端代码开发 | `frontend-developer` | zhangwq |
-| Prometheus 扩展分析 | `prometheus-developer` | zhangwq |
-| 构建/测试修复 | `build-resolver` | zhangwq |
-| 代码审查 | `golang-reviewer` / `frontend-reviewer` | zhangwq |
-| 安全审查 | `security-reviewer` | zhangwq |
+| Prometheus 扩展分析 | `prometheus-developer`（按需） | zhangwq |
+| 构建/测试修复 | 由开发会话直接处理 | zhangwq |
+| 代码审查 | `reviewer`（Go / 前端） | zhangwq |
+| 安全审查 | `reviewer`（安全） | zhangwq |
 
 ### 3.3 目录隔离铁律
 
@@ -94,7 +94,7 @@
 
 ### 4.2 统一 Agent 定义
 
-- 所有 Agent 定义位于 `.kimi/agents/`，由 chenrt 和 zhangwq 共同维护。
+- 所有 Agent 定义位于 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`，由 chenrt 和 zhangwq 共同维护。
 - 任何人不得私自修改 Agent 定义；修改需经 chenrt 批准并同步团队。
 
 ### 4.3 统一开发环境
@@ -135,7 +135,7 @@
 
 ### 6.1 zhangwq 在 Vibe Coding 中的关键动作
 
-1. **任务卡设计**：把 Module 文档、原型代码和工程标准转化为任务卡（输入路径+章节 / 输出 / 验收 / 不修改范围，见 `.kimi/agents/orchestrator.md`）。
+1. **任务卡设计**：把 Module 文档、原型代码和工程标准转化为任务卡（输入路径+章节 / 输出 / 验收 / 不修改范围，见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`）。
 2. **过程监督**：确保 AI 在正确的空间（开发空间 `CNCF_Monitor-feature`）、正确的分支、正确的范围内开发。
 3. **结果校验**：AI 输出后必须人工 Review，不盲目信任。
 4. **测试补强**：AI 写 happy path，SRE 补异常路径和集成场景。
@@ -166,11 +166,9 @@
 | `docs/02-product-requirements/00_Global_Architecture.md` | chenrt | zhangwq | 总体架构调整 |
 | `docs/02-product-requirements/01_User_Stories.md` | chenrt | zhaohy | 需求新增/变更 |
 | `docs/02-product-requirements/02_Product_Roadmap.md` | chenrt | guixm、zhangwq | 里程碑/阶段调整 |
-| `docs/02-product-requirements/03_Functional_Architecture.md` | chenrt | zhangwq | 功能架构调整 |
-| `docs/02-product-requirements/04_Implementation_Map.md` | chenrt | zhangwq | 实施难度/技术方案调整 |
-| `docs/02-product-requirements/05_Code_Implementation_Plan.md` | chenrt | zhangwq | 开发顺序/依赖调整 |
-| `docs/02-product-requirements/Modules/Module_XX_*.md` | chenrt | zhangwq（技术约束）、zhaohy（业务验收） | 模块需求细化 |
-| `docs/prototypes/module-XX/` | chenrt | zhangwq（技术可行性）、zhaohy（业务验收） | AI 生成的可点击原型代码 |
+| `docs/02-product-requirements/Modules/SRS/Module_XX_*.md` | chenrt | zhangwq（技术约束）、zhaohy（业务验收） | 模块需求细化 |
+| `docs/05-execution-records/rewrite/v2.0/plan.md` + 模块 `task-sequence.yaml` | chenrt | zhangwq | 开发顺序/依赖调整 |
+| `docs/prototypes/module-XX/` | —（已归档） | — | 仅历史参考，不再维护 |
 
 ### 7.2 工程标准
 
@@ -200,7 +198,7 @@
 | 文档/目录 | 主负责人 | 协作人 | 更新时机 |
 |----------|---------|--------|----------|
 | `README.md`（项目根目录） | chenrt | zhangwq | 项目整体说明调整 |
-| `.kimi/agents/` | zhangwq | chenrt | Agent 定义优化 |
+| `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | zhangwq | chenrt | Agent 定义优化 |
 | `docs/05-execution-records/` | zhangwq / AI Agent | chenrt | 每次开发后 |
 | `patches/prometheus/README.md` | zhangwq | chenrt | 新增/调整 patch |
 
@@ -264,7 +262,7 @@
 
 ## 11. 禁止事项
 
-1. **禁止私自修改 Agent 定义**（`.kimi/agents/`）。
+1. **禁止私自修改 Agent 定义**（`docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`）。
 2. **禁止在未经批准的情况下切换 AI 模型或工具**。
 3. **禁止绕过提交前验证直接申请合并**。
 4. **禁止在 `feat/module-XX` 分支混入其他模块改动**。
@@ -293,4 +291,4 @@
 - [`../02-product-requirements/README.md`](../02-product-requirements/README.md) — PRD 目录说明
 - [`../03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`](../03-engineering-standards/05_AI_Agent_Collaboration_Standard.md) — AI Agent 协作细则
 - [`../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md`](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md) — 分支策略与回退指南
-- [`../../.kimi/AGENTS.md`](../../.kimi/AGENTS.md) — Agent 团队速查
+- [`../../AGENTS.md`](../../AGENTS.md) — Agent 团队速查

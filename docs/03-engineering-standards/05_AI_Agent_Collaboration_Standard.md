@@ -1,19 +1,19 @@
 # MetricCenter AI Agent 协作标准
 
 > 文档类型：工程标准  
-> **目标读者**：chenrt（Orchestrator / 产品 Owner）、zhangwq（Vibe Coding 执行者）、评审（guixm / zhaohy）——**人视角**的 Agent 协作流程概览；Agent 行为规则权威在 `.kimi/agents/*.md`  
+> **目标读者**：chenrt（Orchestrator / 产品 Owner）、zhangwq（Vibe Coding 执行者）、评审（guixm / zhaohy）——**人视角**的 Agent 协作流程概览；Agent 角色/边界以本文 + `AGENTS.md` + `.agents/skills/` 为准
 > 目标：规范 AI Agent 在 MetricCenter 项目中的协作方式，确保代码质量和文档一致性。  
-> 更新日期：2026-11-10（新增 v2.0 版本重写模式；v1.25 去重）
+> 更新日期：2026-11-22（Kimi Agent 退役；角色规则与 Skill 单一源收敛）
 
 ---
 
 ## 1. AI Agent 工作流
 
-> **v1.25 起去重**：工作流每一步的**详细执行要求（每个 Agent 何时被调、读什么、产出什么、如何验收）的权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**；本文件仅保留人视角的流程概览，不再重复细节。
+> **去重说明**：工作流每一步的**详细执行要求（何时被调、读什么、产出什么、如何验收）以本文 §1/§4 + `.agents/skills/cncf-git-workflow` 为准**；本文件保留人视角流程概览，不再重复角色 prompt。
 
 本项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 的协作模式。
 
-- **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，写 PRD、改原型。
+- **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，写 SRS、改设计。
 - **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX` 做 Vibe Coding，**默认串行**——一个时间只开一个 feat 分支，任务按 task-sequence 先后顺序执行，保持线性历史，便于功能级回退。
 - **并行是按需手段，不是默认流程**：仅当两个以上零耦合任务确需同时开发时，才额外 `git worktree add` 独立目录，用完即 `git worktree remove`。
 
@@ -22,17 +22,17 @@
 当项目进入“全模块下一代版本重写”时，不再使用 `design/` + `feat/` 双空间流程，改用产品级重写分支：
 
 - **分支**：`rewrite/vX.Y`（如 `rewrite/v2.0`）；模块并行用 `rewrite/vX.Y-module-XX`。
-- **定位**：PRD + 代码 + DB schema 同分支演进；旧版本归档、不维护。
-- **PRD**：新 PRD 为 living document，从业务原始需求重写；旧 PRD 仅参考。
+- **定位**：SRS + 代码 + DB schema 同分支演进；旧版本归档、不维护。
+- **SRS**：新 SRS 为 living document，从业务原始需求重写；旧 SRS 仅参考。
 - **API**：新线统一 `/api/v3/platform/*`；旧 `/api/v2/*` 归档。
 - **计划**：`rewrite/vX.Y/plan.md` + 模块 `task-sequence.yaml`，不跑完整 L2 矩阵。
-- **门禁**：R0–R6（基线 / 需求 / PRD / 计划 / 模块重写 / 集成回归 / handover）。
-- **权威定义**：`.kimi/agents/orchestrator.md`「版本重写」与 `docs/05-execution-records/rewrite/vX.Y/charter.md`。
+- **门禁**：R0–R6（基线 / 需求 / SRS / 计划 / 模块重写 / 集成回归 / handover）。
+- **权威定义**：本文 §1.0.1 与 `docs/05-execution-records/rewrite/vX.Y/charter.md`；Git 操作见 `.agents/skills/cncf-git-workflow`。
 
 ```
 Orchestrator 接收需求
     │
-    ├──► [设计空间] prototype-designer 产出 PRD + 原型（design/module-mvp-demo）
+    ├──► [设计空间] 需求 Owner 产出 SRS（design/module-mvp-demo）
     ├──► Planner 输出模块任务规划（明确 feature/module-XX-<功能名> 分支）
     ├──► [开发空间] Backend / Frontend Developer TDD 开发（提交到 feat/module-XX-<功能名>）
     ├──► Reviewer 代码审查（如 REQUEST_CHANGES，返回 Developer 修复）
@@ -42,22 +42,22 @@ Orchestrator 接收需求
     └──► 开发空间保留，切换到下一模块 feat 分支
 ```
 
-> 各环节的**任务卡格式与子 Agent 只读规则见 `.kimi/agents/orchestrator.md`**；详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
+> 各环节的**任务卡格式与子 Agent 只读规则见本文 §4 + `.agents/skills/cncf-git-workflow`**；详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
 
 ### 1.0 双轨制：Track A / Track B（v2.0 起）
 
-流程重量与需求不确定性成正比。Orchestrator 接收需求后先做**分轨判定**（五问对话决策过程，权威定义见 `.kimi/agents/orchestrator.md`「需求分轨」）：
+流程重量与需求不确定性成正比。Orchestrator 接收需求后先做**分轨判定**（五问对话决策过程，见本文 §1.0 与 `.agents/skills/srs-authoring` / `hld-design`）：
 
 | 轨道 | 适用 | 流程 |
 |------|------|------|
-| **Track A 完整验证轨** | 核心差异化功能（配置生成管线、冻结语义、边缘自治等无行业标准模式的能力） | 完整 PRD + 高保真原型 + 两段评审 → `ready` → L2 完整派生（04/05）→ L3 → 开发 |
-| **Track B 轻量直通轨** | 通用标准能力（登录 / CRUD 管理页 / 字典 / 审计列表等有成熟模式的能力） | 轻量 PRD 增量（数据模型 + 接口 + 验收清单 + 决策点）+ 一轮决策对齐 → `dev-ready`（免原型，用户书面确认 + 豁免记录）→ planner 直派 L3 → 开发 → 按事前验收清单验收 → PRD 回填 as-built 补登 ready |
-| **Track B+** | 通用但安全敏感（认证 / 密钥 / 配置下发） | 同 Track B，强制追加 security-reviewer 审查关卡 |
+| **Track A 完整验证轨** | 核心差异化功能（配置生成管线、冻结语义、边缘自治等无行业标准模式的能力） | 完整 SRS + 场景演示 + 两段评审 → `ready` → `rewrite/vX.Y/plan.md` + 模块 `task-sequence.yaml` → 开发 |
+| **Track B 轻量直通轨** | 通用标准能力（登录 / CRUD 管理页 / 字典 / 审计列表等有成熟模式的能力） | 轻量规格（SRS 增量）（数据模型 + 接口 + 验收清单 + 决策点）+ 一轮决策对齐 → `dev-ready`（免场景演示，用户书面确认 + 豁免记录）→ 技术方出 HLD → 开发 → 按事前验收清单验收 → SRS 回填 as-built 补登 ready |
+| **Track B+** | 通用但安全敏感（认证 / 密钥 / 配置下发） | 同 Track B，强制追加独立安全审查关卡 |
 
 关键边界：
 
-- **验收标准前置不可省**：Track B 省的是高保真原型与两段评审，不是契约；没有事前验收清单的需求禁止进入开发。
-- **04/05 的分轨定位**：`04_Implementation_Map.md`（难度 / 优先级矩阵）主要服务 Track A，Track B 仅在其「关键判断 / 关键结论」被推翻时做最小修订；`05_Code_Implementation_Plan.md` 的 §7 验收清单是**两轨共用的单一验收来源**，Track B 以「增量登记 + 增量验收」小节汇入，版本末（integration 切出前）由 plan-maintainer 批量归并入 Phase 结构。
+- **验收标准前置不可省**：Track B 省的是场景演示与两段评审，不是契约；没有事前验收清单的需求禁止进入开发。
+- **分轨计划载体**：Track A 用 `rewrite/vX.Y/plan.md` + 模块 `task-sequence.yaml`；Track B 用轻量规格 + `task-sequence.yaml`。V2 的 `04/05` 规划已归档，不再作为当前输入。
 - **L3（task-sequence.yaml + api-contract-snapshot.md）两轨共用**，是 Track B 逐任务管理的唯一载体。
 - 判定记录留痕于 `docs/05-execution-records/module-XX/design-decisions.md`；推翻已落版决策的，决策修订先落档再开发。
 
@@ -65,44 +65,44 @@ Orchestrator 接收需求
 
 | 角色 | 负责人 | 职责 |
 |------|--------|------|
-| Orchestrator | chenrt | 接收需求、调用 planner、确定 feature 分支、执行最终 `--no-ff` 合并 |
-| Vibe Coding 执行者 | zhangwq | 调用 backend/frontend/prometheus/build-resolver 等 Agent 生成代码、Review、测试补强、提交前验证、提交合并申请 |
-| Reviewer Agent | `golang-reviewer` / `frontend-reviewer` | 在 zhangwq 要求下对代码进行结构化审查 |
+| Orchestrator | chenrt | 接收需求、编排角色、确定 feature 分支、执行最终 `--no-ff` 合并 |
+| Vibe Coding 执行者 | zhangwq | 调用 backend/frontend/prometheus 等会话生成代码、Review、测试补强、提交前验证、提交合并申请 |
+| Reviewer | `reviewer`（Go / 前端 / 安全） | 在 zhangwq 要求下对代码进行结构化审查 |
 
 > zhangwq 的具体执行 SOP 见 [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
 ### 1.2 功能详细设计提案（Design Proposal）
 
-当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 SRS 时，使用 **design-proposal** 机制：
 
 - **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
 - **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
-- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
-- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **评审**：由技术 Owner 或需求 Owner 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由技术 Owner 或原作者将内容合并进主 SRS/HLD，版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
 - **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
-- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 SRS/HLD 差异点 / 合并计划」
 
-> 设计提案是 PRD 的「前哨站」，避免工程师直接改动主 PRD 造成契约漂移；同时让详细设计有独立评审与版本追溯空间。
+> 设计提案是 SRS/HLD 的「前哨站」，避免工程师直接改动主 SRS 造成契约漂移；同时让详细设计有独立评审与版本追溯空间。
 
 ---
 
 ## 2. 项目文档导航（人视角参考）
 
-> **v1.25 起去重**：子 Agent 启动时**无需读取以下清单**——其强制读取内容由各 `.kimi/agents/<agent>.md` 定义 + Orchestrator 任务卡指定（见 `.kimi/agents/orchestrator.md`）。本表仅供**人（chenrt / zhangwq / 评审）**快速定位项目文档：
+> **去重说明**：子 Agent 启动时**无需读取以下清单**——其输入由本文 §4 + 任务卡指定；Skill 由 `.agents/skills/` 按需加载。本表仅供**人（chenrt / zhangwq / 评审）**快速定位项目文档：
 
 | 文档 | 用途 |
 |------|------|
-| `.kimi/agents/*.md` | **Agent 角色、边界、权限与专属流程**（工作流 / 调用规范 / 验收要求） |
-| `.kimi/skills/` | **通用规范单一源**（Gitflow / 目录 / API / TDD / R1–R4 / 审查）；`.agents/skills/` 为生成镜像 |
-| `.kimi/AGENTS.md` | Agent 角色与标准工作流总览 |
-| `docs/02-product-requirements/Modules/Module_XX_*.md` | 模块需求（PRD） |
+| 本文（`05_AI_Agent_Collaboration_Standard.md`） | **角色、边界、权限与协作流程** |
+| `.agents/skills/` | **唯一 Skill 源**（Gitflow / 测试 / Go / 前端 / API / 审查 / SRS / HLD） |
+| `AGENTS.md` | 项目事实、目录、命令、红线总览 |
+| `docs/02-product-requirements/Modules/SRS/*.md` | 模块需求基线（SRS） |
 | `docs/03-engineering-standards/00_Engineering_Standard.md` | 目录结构和技术栈 |
 | `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | 代码隔离边界 |
 | `docs/03-engineering-standards/03_API_Standard.md` | API 规范 |
 | `docs/03-engineering-standards/04_Testing_Standard.md` | 测试与服务启动验证要求 |
 | `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 分支策略与回退机制 |
-| `docs/01-team-collaboration/` | 团队协作指引（角色职责 / 需求流程 / zhangwq 手册） |
-| `.trae/skills/codebase-architecture-explorer/SKILL.md` | 源码分析 Skill（如存在） |
+| `docs/01-team-collaboration/` | 团队协作指引（角色职责 / 需求流程 / 执行者手册） |
+| `docs/04-source-architecture/` | 源码架构分析与 Prometheus 架构笔记 |
 
 ---
 
@@ -116,7 +116,7 @@ Orchestrator 接收需求
 ### 3.2 不编造接口
 
 - API 设计必须符合 `03_API_Standard.md`
-- 数据模型变更需同步更新对应 PRD
+- 数据模型变更需同步更新对应 HLD
 
 ### 3.3 小步变更
 
@@ -130,14 +130,14 @@ Orchestrator 接收需求
 
 ### 3.5 提交前必须验证运行状态
 
-- 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.kimi/skills/testing-tdd/SKILL.md` §6 的验证矩阵执行。
+- 按 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4 与 `.agents/skills/testing-tdd/SKILL.md` §6 的验证矩阵执行。
 - 后端：目标包测试 + `go vet`，并启动服务验证关键接口返回 200。
 - 前端：单文件 / 变更范围回归 + `pnpm lint`，并启动 dev server 验证页面返回 200；全量 `pnpm test` 仅在 `testing-tdd` §4.2 允许的情形下执行。
 - 验证完成后必须停止服务并释放端口。
 
 ### 3.6 Commit 规范
 
-Commit 格式、类型、scope、task id、执行记录关联与提交单元的权威定义在 `.kimi/skills/cncf-git-workflow/SKILL.md` §4 / §5；本节只保留人视角示例。
+Commit 格式、类型、scope、task id、执行记录关联与提交单元的权威定义在 `.agents/skills/cncf-git-workflow/SKILL.md` §4 / §5；本节只保留人视角示例。
 
 每次 commit 必须能对应到某个 Agent 的一次执行记录：
 
@@ -152,28 +152,27 @@ feat(module-07): 实现资源 CRUD API（T07-05）
 
 ## 4. Agent 调用规范
 
-> **v1.25 起去重**：Prompt 设计与任务卡格式的**权威定义在 `.kimi/agents/orchestrator.md`「子 Agent 调用规范」**（机器执行标准）；本节仅保留人视角的调用原则与适用场景速查，详细任务卡格式不再重复维护。
+> **任务卡格式**：输入路径+章节 / 输出 / 验收 / 不修改范围；详细可执行规则见 `.agents/skills/cncf-git-workflow` §6。
 
 ### 4.1 调用原则
 
 - **单一职责**：一次 Agent 调用聚焦一个任务（如一个 API 或一个页面）。
 - **范围控制**：在 prompt 中明确指定"不修改无关文件"，并在 AI 输出后检查 `git diff --stat`。
-- **任务卡驱动**：给子 Agent 的输入使用统一任务卡格式（输入路径+章节 / 输出 / 验收 / 不修改范围），见 `.kimi/agents/orchestrator.md`；子 Agent 只读任务卡指定的输入，无需读取本文件或团队手册（其行为规范已固化在自身定义中）。
+- **任务卡驱动**：给子 Agent 的输入使用统一任务卡格式（输入路径+章节 / 输出 / 验收 / 不修改范围），见 `.agents/skills/cncf-git-workflow` §6；子 Agent 只读任务卡指定的输入，无需读取团队手册。
 - **验收先行**：在 prompt 中明确列出验收标准（测试命令、服务启动验证）。
 
 ### 4.2 各 Agent 适用场景与调用人
 
-| Agent | 调用人 | 适用场景 | 产出要求 |
-|-------|--------|----------|----------|
-| `planner` | chenrt | Module 开发前 | 任务拆分、依赖分析、分支建议 |
-| `prototype-designer` | chenrt | 需求确认前 | 可点击原型、mock 数据、GitHub Pages 部署说明 |
-| `backend-developer` | zhangwq | 后端 API / 业务逻辑开发 | Go 代码、单元测试、API 文档注释 |
-| `frontend-developer` | zhangwq | 前端页面 / 交互开发 | React + TS 代码、基础渲染测试 |
-| `prometheus-developer` | zhangwq | Prometheus 源码分析 / 扩展点 | 分析报告、patch 建议 |
-| `build-resolver` | zhangwq | 编译失败 / 测试失败 / 依赖问题 | 修复后的可编译可测试代码 |
-| `golang-reviewer` | zhangwq | 后端代码 Review | APPROVE / REQUEST_CHANGES + 结构化意见 |
-| `frontend-reviewer` | zhangwq | 前端代码 Review | APPROVE / REQUEST_CHANGES + 结构化意见 |
-| `security-reviewer` | zhangwq | 关键变更安全复核 | 安全风险清单 + 修复建议 |
+| 角色 | 调用人 | 适用场景 | 产出要求 |
+|------|--------|----------|----------|
+| `需求 Owner` | chenrt | 需求确认前 / 业务场景 | SRS、场景验收、决策记录 |
+| `技术 Owner` | zhangwq | 设计阶段 | HLD、场景演示脚本、Scenario Link |
+| `backend-developer` | zhangwq | 后端 API / 业务逻辑 | Go 代码、测试、执行记录 |
+| `frontend-developer` | zhangwq | 前端页面 / 交互 | React + TS 代码、测试、执行记录 |
+| `prometheus-developer`（按需） | zhangwq | Prometheus 源码分析 / patch | 分析报告、patch 与验证 |
+| `reviewer`（Go / 前端 / 安全） | zhangwq | 独立代码审查 | 结构化报告 + APPROVE / REQUEST_CHANGES；安全 PASS / FAIL |
+
+> 角色是职责边界，不要求每个 harness 都维护独立 Agent 文件；各工具可用主会话或子代理承担。角色规则见本文与 `.agents/skills/`。
 
 ### 4.3 执行记录要求
 
@@ -187,27 +186,32 @@ feat(module-07): 实现资源 CRUD API（T07-05）
 
 | 变更类型 | 需要更新的文档 |
 |----------|----------------|
-| 新增模块 | `docs/02-product-requirements/Modules/` |
-| 修改 API | `docs/03-engineering-standards/03_API_Standard.md` |
+| 新增模块 | `docs/02-product-requirements/Modules/SRS/` |
+| 修改 API | `docs/03-engineering-standards/03_API_Standard.md` + 模块契约快照 |
 | 修改目录结构 | `docs/03-engineering-standards/00_Engineering_Standard.md` |
 | 修改代码隔离规则 | `docs/03-engineering-standards/01_Code_Isolation_Standard.md` |
 | 修改前端规范 | `docs/03-engineering-standards/02_Frontend_Standard.md` |
-| **修改用户可见文案 / 页面布局** | **同步更新对应模块 PRD 的 UI/UX 规范章节（v1.25 起：防止原型/前端改完 UI 而 PRD 没跟上，导致后续开发断层）** |
+| **修改用户可见文案 / 页面布局** | **同步更新对应模块 SRS/HLD 的场景与契约（防止前端改完而 SRS/HLD 没跟上）** |
 | 新增 patch | `patches/prometheus/README.md` |
 
 ---
 
 ## 6. Skill 使用
 
-> **v1.25 起去重**：各 Agent 强制加载的 Skill 清单**以各 `.kimi/agents/<agent>.md` 定义为权威**（随 Agent 加载生效）；本文件不再重复维护。此处仅保留人视角的提示：
+> **Skill 单一源**：`.agents/skills/`。按任务类型加载，不在任务卡里重复抄规则。
 
-当 AI Agent 需要理解源码架构时，应在任务描述中说明调用 `.trae/skills/codebase-architecture-explorer`，例如：
+| 任务 | Skill |
+|------|-------|
+| 分支 / commit / 交付 / 执行记录 | `cncf-git-workflow` |
+| 测试 / 验证矩阵 / flaky | `testing-tdd` |
+| Go 后端 | `golang-coding-style` |
+| 前端 | `web-development` |
+| API 契约 | `api-standard` |
+| 代码审查 / 安全 | `code-review` |
+| SRS / 业务场景 | `srs-authoring` |
+| HLD / 场景演示 / Scenario Link | `hld-design` |
 
-```
-请使用 codebase-architecture-explorer 分析 platform/api/ 目录的接口注册与路由组织方式，再基于分析结果完成 Module XX 的 API 开发。
-```
-
----
+当 AI Agent 需要理解源码架构时，优先读 `docs/04-source-architecture/` 与 `docs/04-source-architecture/prometheus-architecture.md`，再按需使用 harness 原生搜索；不需要单独的架构探索 Skill。
 
 ## 7. 相关文档
 

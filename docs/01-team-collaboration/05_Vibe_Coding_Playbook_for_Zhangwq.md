@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范
 > **目标读者**：SRE 工程师 / Vibe Coding 执行者 / 工程质量 Owner ——**人视角的执行 SOP**
-> 更新日期：2026-08-12（v1.25 重构：Prompt 模板 / 验证清单 / Commit 规范的权威定义在 .kimi/agents/ 与工程标准，本手册只保留 zhangwq 的人视角操作）
+> 更新日期：2026-08-12（v1.25 重构：Prompt 模板 / 验证清单 / Commit 规范的权威定义在 docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md 与工程标准，本手册只保留 zhangwq 的人视角操作）
 
 ***
 
@@ -17,7 +17,7 @@
 
 > AI Agent 是生产工具，不是责任主体。**最终代码质量、安全性和可运维性由 zhangwq 和 chenrt 共同负责。**
 
-> **v1.25 关键变化**：Agent 已改为**任务卡驱动**——任务卡格式（输入路径+章节 / 输出 / 验收 / 不修改范围）见 `.kimi/agents/orchestrator.md`；Agent 只读任务卡指定的输入，无需读团队手册。因此本手册不再提供 Prompt 模板（过去 4.2/4.3/4.4 的模板已废弃）。
+> **v1.25 关键变化**：Agent 已改为**任务卡驱动**——任务卡格式（输入路径+章节 / 输出 / 验收 / 不修改范围）见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`；Agent 只读任务卡指定的输入，无需读团队手册。因此本手册不再提供 Prompt 模板（过去 4.2/4.3/4.4 的模板已废弃）。
 
 ***
 
@@ -33,7 +33,7 @@
 设计任务卡（输入路径+章节 / 输出 / 验收 / 不修改范围）
         │
         ▼
-调用 Agent 生成代码（backend / frontend / prometheus / build-resolver）
+调用 Agent 生成代码（backend / frontend / prometheus）
         │
         ▼
 人工 Review（安全 / 正确性 / 可维护性 / 可测试性 / 可运维性）
@@ -90,7 +90,7 @@
 3. **验收**：测试命令 / lint / 服务启动验证
 4. **不修改范围**：如 platform/ 之外、原型目录、PRD
 
-任务卡格式示例见 `.kimi/agents/orchestrator.md`「子 Agent 调用规范」。
+任务卡格式示例见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`「子 Agent 调用规范」。
 
 ***
 
@@ -103,12 +103,12 @@
 | 后端代码开发          | `backend-developer`    | 实现后端 API 与业务逻辑               |
 | 前端代码开发          | `frontend-developer`   | 实现前端页面与交互                    |
 | Prometheus 扩展分析 | `prometheus-developer` | 分析 Prometheus 源码/扩展点         |
-| 构建/测试修复         | `build-resolver`       | 修复编译、测试、依赖问题                 |
-| 后端代码审查          | `golang-reviewer`      | Review Go 代码（独立会话）           |
-| 前端代码审查          | `frontend-reviewer`    | Review 前端代码（独立会话）            |
-| 安全审查            | `security-reviewer`    | 关键变更安全复核                     |
+| 构建/测试修复         | 开发会话直接处理          | 修复编译、测试、依赖问题                 |
+| 后端代码审查          | `reviewer`（Go）         | Review Go 代码（独立会话）           |
+| 前端代码审查          | `reviewer`（前端）       | Review 前端代码（独立会话）            |
+| 安全审查            | `reviewer`（安全）       | 关键变更安全复核                     |
 
-> 每个 Agent 的行为规范（启动协议 / 编码规范 / 验证要求）见 `.kimi/agents/<agent>.md`，随加载生效；调用时只需给任务卡。
+> 每个 Agent 的行为规范（启动协议 / 编码规范 / 验证要求）见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`，随加载生效；调用时只需给任务卡。
 
 ***
 
@@ -193,7 +193,7 @@ AI 通常擅长 happy path，但容易遗漏异常路径、并发、权限边界
 ### Q3：提交前验证失败，但 AI 已经生成了大量代码怎么办？
 
 1. 先定位失败原因（编译错误、测试失败、lint 错误）
-2. 调用 `build-resolver` 修复构建/测试问题
+2. 构建/测试问题由当前开发会话直接修复，不引入新功能
 3. 修复后重新执行完整验证清单
 4. 不要绕过验证直接提交
 
@@ -231,5 +231,5 @@ git stash pop
 - `docs/03-engineering-standards/04_Testing_Standard.md` — 测试标准（验证唯一权威）
 - `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` — Agent 协作（Commit 规范 §3.6）
 - `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` — 分支策略 / 合并申请模板
-- `.kimi/agents/orchestrator.md` — Orchestrator 任务卡驱动
+- `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` — Orchestrator 任务卡驱动
 

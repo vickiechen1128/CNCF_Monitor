@@ -1,5 +1,8 @@
 # Feature 开发技术债控制规范
 
+> **状态：archived（2026-11-22）**
+> 本文是 V2 时代的技术债控制提案，已被 `docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md`（V3 架构红线）取代。保留作为历史记录，不再维护；R3 与还债路线图已退役。
+
 > **状态**：approved（2026-10-23）
 > **长期规范**：本文为执行记录 / 初始提案；面向架构师与高级工程师的长期版本已沉淀到
 > `docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md`，后续以该标准为准。

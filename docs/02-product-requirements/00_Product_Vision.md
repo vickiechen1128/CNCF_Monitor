@@ -114,7 +114,7 @@ MetricCenter 在 Prometheus 生态之上构建控制面，详细架构见 [00_Gl
 
 ## 7. 演进路径（摘要）
 
-详细里程碑与技术演进见 [02_Product_Roadmap.md](02_Product_Roadmap.md)，实施难度分析见 [04_Implementation_Map.md](04_Implementation_Map.md)。
+详细里程碑与技术演进见 [02_Product_Roadmap.md](02_Product_Roadmap.md)，实施难度分析见 [V2 实施地图（历史归档）](../05-execution-records/archive/v2-planning/04_Implementation_Map.md)。
 
 - **MVP**：五类资源管理 + 网域登记（Module_06）+ 默认站点 + 标签模板（`system` / `user` label）+ 采集 Job + 拨测 + 规则文件挂载 + 配置下发 + 指标查询（单机模式无感知）
 - **v0.2**：多站点模式 + Edge Agent + Remote Write + VictoriaMetrics 中心汇聚 + 边缘 Agent 诊断；租户数据模型与租户-网域关联落地

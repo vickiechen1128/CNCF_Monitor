@@ -108,7 +108,7 @@ v1.0 阶段
 
 ### 2.3 多 Agent 协作开发模式
 
-本项目使用 `.kimi/agents/` 定义的 Agent 团队进行开发。当前统一走 **Trae IDE 对话面板**（未购买 Kimi CLI Agent 时，直接引用对应 `.md` 作为上下文）。
+本项目使用 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 定义的 Agent 团队进行开发。当前统一走 **Trae IDE 对话面板**（未购买 Kimi CLI Agent 时，直接引用对应 `.md` 作为上下文）。
 
 #### Agent 角色与职责
 
@@ -220,7 +220,7 @@ Agent 进入开发空间后必须先执行启动协议：
 
 - **backend-developer**: `make install-tools && make build-prometheus && go test ./platform/...`
 - **frontend-developer**: `cd ui-custom/web && pnpm install && pnpm lint`
-- **prometheus-developer**: 先用 `prometheus-architecture-explorer` skill 分析扩展点
+- **prometheus-developer**: 先用 `docs/04-source-architecture/prometheus-architecture.md-explorer` skill 分析扩展点
 
 #### Agent 间协作规则
 
@@ -1097,7 +1097,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 | 前端等待后端 API | 串行阻塞 | Planner 在规划中明确 API 契约，Frontend Developer 使用 mock 数据并行开发 |
 | 多 Agent 同时修改冲突 | 代码冲突、空间/分支污染 | 采用双文件夹隔离，开发集中在 `CNCF_Monitor-feature` 按 Phase 顺序进入；前后端按 `platform/` 与 `ui-custom/` 目录天然隔离 |
 | Agent 误解需求 | 实现偏离 | 每个 Phase 开始前必须调用 `planner` 输出规划，并引用相关 PRD 文件 |
-| Reviewer 与 Developer 标准不一致 | 反复修改 | Orchestrator 在启动时统一注入 `.kimi/skills/golang-coding-style` 和 `web-development` 规范 |
+| Reviewer 与 Developer 标准不一致 | 反复修改 | Orchestrator 在启动时统一注入 `.agents/skills/golang-coding-style` 和 `web-development` 规范 |
 | Prometheus 源码被误改 | 未来升级困难 | 涉及源码时必须走 `prometheus-developer`，生成 patch 文件 |
 | 配置中心草稿确认流程增加操作成本 | 配置变更延迟生效 | UI 提供清晰 diff 与一键确认；default 域场景简化流程 |
 | 本地 Prometheus 启动困难 | 阻塞 Phase 4 ~ 5 | 第 1 周就准备 `deploy/` 启动脚本和示例配置 |

@@ -176,7 +176,7 @@ zhaohy 提交需求时，建议按以下格式：
 - **代码 Review**：对 AI 生成的代码进行人工 Review，确保安全、边界、可维护性
 - **测试补充**：补充异常路径和集成测试
 - **提交前验证**：执行 go test/vet、pnpm test/lint、服务启动验证
-- **技术规范维护**：维护和优化 `.kimi/agents/` 及工程标准文档
+- **技术规范维护**：维护和优化 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 及工程标准文档
 - **可运维性保障**：确保代码可部署、可监控、可排障
 
 ### 5.2 日常工作清单

@@ -21,7 +21,7 @@
 
 ## 2. 按角色流程速查
 
-> **v1.25 去重**：全链路协作流程图（mermaid）的**权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**；本文件只保留各角色的 git 操作速查。协作流程总览见 [`03_Code_Collaboration_Workflow.md`](03_Code_Collaboration_Workflow.md)。
+> **v1.25 去重**：全链路协作流程图（mermaid）的**权威定义在 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`「标准工作流」**；本文件只保留各角色的 git 操作速查。协作流程总览见 [`03_Code_Collaboration_Workflow.md`](03_Code_Collaboration_Workflow.md)。
 
 ### 2.1 关键规则速查表
 
@@ -325,7 +325,7 @@ git checkout feat/module-XX
 git stash pop
 ```
 
-> **并行多模块**：如需同时推进多个模块（避免 stash 频繁切换），可在开发空间额外创建独立 worktree（`git worktree add ../CNCF_Monitor-feature-YY -b feat/module-YY`），参考 `using-git-worktrees` Skill。
+> **并行多模块**：如需同时推进多个模块（避免 stash 频繁切换），可在开发空间额外创建独立 worktree（`git worktree add ../CNCF_Monitor-feature-YY -b feat/module-YY`），参考 `git worktree` Skill。
 
 ---
 

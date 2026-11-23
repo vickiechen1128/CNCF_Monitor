@@ -3,7 +3,7 @@
 > 文档类型：工程标准
 > **目标读者**：后端开发工程师、前端开发工程师（编码前必读）、技术架构师（质量门禁 / 覆盖率评估）
 > 目标：建立后端与前端的测试规范，确保改造后的 Prometheus 稳定可靠。
-> **权威定位（v1.27）**：本文档 §4「提交前验证清单」是工程标准层面的最低提交门禁；可执行命令、测试范围分级、全量测试适用条件与 flaky 细则以 [`.kimi/skills/testing-tdd/SKILL.md`](../../.kimi/skills/testing-tdd/SKILL.md) 为准，两者冲突时执行更严格者。其他标准（01 §5、02 §6）只做引用。
+> **权威定位（v1.27）**：本文档 §4「提交前验证清单」是工程标准层面的最低提交门禁；可执行命令、测试范围分级、全量测试适用条件与 flaky 细则以 [`.agents/skills/testing-tdd/SKILL.md`](../../.agents/skills/testing-tdd/SKILL.md) 为准，两者冲突时执行更严格者。其他标准（01 §5、02 §6）只做引用。
 > 更新日期：2026-10-23（v1.27 对齐 `testing-tdd`：前端全量测试不再作为默认收尾动作）
 
 ---
@@ -60,9 +60,9 @@
 
 | 模块 | 目标覆盖率 |
 |------|-----------|
-| platform/gateway | ≥ 70% |
-| platform/discovery | ≥ 70% |
-| platform/collector | ≥ 60% |
+| platform/foundation | ≥ 80% |
+| platform/modules 新增/修改包 | ≥ 70% |
+| platform/db（migration / DSN） | ≥ 70% |
 | ui-custom/web | ≥ 50% |
 
 ---
@@ -114,9 +114,8 @@
 - [ ] 后端服务能正常启动，且关键接口返回 200
   ```bash
   GOPROXY=off go run ./platform/cmd/metric-center/main.go
-  curl -s http://localhost:8080/api/v1/health
-  curl -s http://localhost:8080/api/v1/health/db
-  curl -s http://localhost:8080/api/v1/status
+  curl -s http://localhost:8080/api/v3/platform/health
+  curl -s http://localhost:8080/api/v3/platform/ready
   ```
 - [ ] 前端 dev server 能正常启动，且首页返回 200
   ```bash

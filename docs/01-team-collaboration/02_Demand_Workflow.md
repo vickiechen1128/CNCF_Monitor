@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范  
 > **目标读者**：chenrt、guixm、zhaohy（产品与业务侧）——zhangwq 可选参考  
-> 更新日期：2026-07-21（v1.25 去重：原型设计细节指向 `.kimi/agents/prototype-designer.md`）
+> 更新日期：2026-07-21（v1.25 去重：场景/设计规范见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 与 `.agents/skills/srs-authoring` / `hld-design`）
 
 ---
 
@@ -210,9 +210,8 @@ Stage 8: 需求冻结
 |------|----------|
 | `01_User_Stories.md` | 用户故事状态、优先级、验收标准 |
 | `02_Product_Roadmap.md` | 里程碑、Phase 安排 |
-| `03_Functional_Architecture.md` | 新增/调整功能模块位置 |
-| `Modules/Module_XX_*.md` | 模块详细需求、业务规则、页面原型、验收标准 |
-| `05_Code_Implementation_Plan.md` | 实施顺序、依赖关系 |
+| `Modules/SRS/Module_XX_*.md` | 模块需求、验收标准（接口/字段/流程在 `docs/07-design/`） |
+| `docs/05-execution-records/rewrite/v2.0/plan.md` + 模块 `task-sequence.yaml` | 实施顺序、依赖关系 |
 
 ### 6.4 Module 文档模板
 
@@ -254,7 +253,7 @@ Stage 8: 需求冻结
 3. 在本地启动验证原型效果
 4. 如需修改，继续与 Agent 迭代
 
-> **v1.25 去重**：原型的详细设计规范（用户视角设计 / 两段评审 / 提示分区 / 组件选型）见 `.kimi/agents/prototype-designer.md`；此处只保留人视角的调用动作。
+> **v1.25 去重**：需求场景与设计规范见 `.agents/skills/srs-authoring` / `hld-design`；此处只保留人视角的调用动作。
 
 ### 7.4 原型范围控制
 
@@ -318,7 +317,7 @@ Stage 8: 需求冻结
 
 1. 阅读 Module 文档和原型
 2. 评估技术方案，补充：API 路径设计、数据模型建议、关键算法或第三方依赖、性能/安全/可运维性风险
-3. 在 Module 文档中补充技术约束部分（PRD 骨架规范见 `.kimi/agents/prototype-designer.md` Phase 3）
+3. 在 Module 文档中补充技术约束部分（SRS 场景规范见 `.agents/skills/srs-authoring`）
 4. 反馈实现工作量和阻塞点
 
 ### 9.4 预评审输出
@@ -345,7 +344,7 @@ Stage 8: 需求冻结
 
 1. 在 Module 文档顶部标注状态：`状态：已冻结`
 2. 更新 `01_User_Stories.md` 状态为 `待开发`
-3. 将模块加入 `05_Code_Implementation_Plan.md` 开发队列
+3. 将模块加入 `docs/05-execution-records/rewrite/v2.0/plan.md` 与模块 `task-sequence.yaml` 开发队列
 4. 通知 zhangwq 准备开发
 
 ### 10.4 冻结后变更
@@ -428,4 +427,4 @@ Stage 8: 需求冻结
 - [`03_Code_Collaboration_Workflow.md`](03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
 - [`../02-product-requirements/01_User_Stories.md`](../02-product-requirements/01_User_Stories.md) — 用户故事
 - [`../02-product-requirements/02_Product_Roadmap.md`](../02-product-requirements/02_Product_Roadmap.md) — 产品路线图
-- [`../02-product-requirements/05_Code_Implementation_Plan.md`](../02-product-requirements/05_Code_Implementation_Plan.md) — 代码实施计划
+- [V2 代码实施计划（历史归档）](../05-execution-records/archive/v2-planning/05_Code_Implementation_Plan.md) — 代码实施计划

@@ -13,10 +13,9 @@
 | [00_Global_Architecture.md](00_Global_Architecture.md) | 系统总体架构、控制面/数据面分层、数据流、技术栈 | 架构师、后端开发、AI 开发 | 不写详细功能点、不写具体字段模型 |
 | [01_User_Stories.md](01_User_Stories.md) | 用户故事、使用场景 | 产品经理、开发 | 不写实现方案 |
 | [02_Product_Roadmap.md](02_Product_Roadmap.md) | 里程碑、开发顺序、各阶段交付物 | 项目经理、开发负责人 | 不写详细功能设计、不写实施难度矩阵 |
-| [03_Functional_Architecture.md](03_Functional_Architecture.md) | 全量功能架构：模块 → 一级功能 → 二级功能 | 产品经理、开发 | 不写 Prometheus 复用度、不写落地难度 |
-| [04_Implementation_Map.md](04_Implementation_Map.md) | 实施难度地图：Prometheus 复用度、前后端工作量、落地优先级 | 技术负责人、开发 | 不写功能详细定义、不写完整数据模型 |
-| [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) | 代码实施计划（开发路径）：阶段划分、模块依赖与开发顺序、前后端分工、各阶段验收标准与风险规避 | 技术负责人、开发工程师、AI 开发（Orchestrator/子 Agent） | 不写功能详细定义（在 03 / Modules）、不写系统架构（在 00_Global_Architecture）、不写实施难度矩阵（在 04）、不写里程碑路线（在 02） |
-| [Modules/SRS/*.md](Modules/SRS/) | 需求规格说明书（SRS）：只写范围/场景/FR/NFR/验收，不写接口、字段、算法、页面实现 | 产品、测试、开发（了解范围） | 设计细节（在 [docs/07-design/](../07-design/)） |
+| [Modules/SRS/_TEMPLATE.md](Modules/SRS/_TEMPLATE.md) | SRS 模板：场景 SCN、FR/NFR、非目标、验收；不写实现细节 | 需求方、技术方 | 不写具体模块内容 |
+| [Modules/SRS/*.md](Modules/SRS/) | 需求规格说明书（SRS）：业务场景（SCN）、FR/NFR、验收；不写接口/字段/页面实现 | 产品、测试、开发（了解范围） | 设计细节（在 [docs/07-design/](../07-design/)） |
+| [Domain_Map.md](Domain_Map.md) | 业务域（DOMAIN）↔ 实现模块（mXX）映射 | 需求方、技术方 | 不写需求细节 |
 | [Modules/Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md) | 历史模块职责矩阵（索引性质；11 个 PRD 已移除） | 架构师、AI Agent | 不写新需求（以 SRS 为准） |
 
 > **需求与设计分层**：SRS 只放需求；接口契约、字段、数据模型、算法、状态机、页面交互、测试设计等放在 [docs/07-design/](../07-design/)。两者通过 FR/NFR 编号追溯，不互相复制。
@@ -53,9 +52,9 @@
 | 这个产品要解决什么问题？目标用户是谁？ | [00_Product_Vision.md](00_Product_Vision.md) |
 | 控制面和数据面如何划分？技术栈是什么？ | [00_Global_Architecture.md](00_Global_Architecture.md) |
 | MVP 要做到什么？未来分几阶段？ | [02_Product_Roadmap.md](02_Product_Roadmap.md) |
-| 有哪些模块和功能？ | [03_Functional_Architecture.md](03_Functional_Architecture.md) |
-| 这个功能落地难不难？是否需要自研后端？ | [04_Implementation_Map.md](04_Implementation_Map.md) |
-| 按什么顺序开发？每个阶段交付什么、怎么验收、前后端怎么分工？ | [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) |
+| 有哪些模块和功能？ | [Modules/SRS/](Modules/SRS/) + [00_Global_Architecture.md](00_Global_Architecture.md) |
+| 这个功能落地难不难？是否需要自研后端？ | [docs/07-design/](../07-design/) + 模块 SRS |
+| 按什么顺序开发？ | [02_Product_Roadmap.md](02_Product_Roadmap.md) + `docs/05-execution-records/rewrite/v2.0/plan.md` |
 | 这个模块的需求与验收是什么？ | [Modules/SRS/](Modules/SRS/) |
 
 ---
@@ -64,11 +63,9 @@
 
 1. **00_Product_Vision.md 只写"为什么"和"是什么"**：不写架构图、不写功能清单细节、不写技术演进表格。
 2. **00_Global_Architecture.md 只写"整体怎么搭"**：不写具体字段、不写每个功能的二级菜单。
-3. **02_Product_Roadmap.md 只写"什么时候做"和"做到什么程度"**：不写实施难度矩阵（在 04_Implementation_Map 中）。
-4. **03_Functional_Architecture.md 只写"有什么功能"**：不写 Prometheus 复用度评估。
-5. **04_Implementation_Map.md 只写"落地难度和优先级"**：不写功能完整定义。
-6. **Modules/SRS/*.md 只写"这个模块做什么、验收什么"**：不写接口、字段、算法与页面实现。
-7. **05_Code_Implementation_Plan.md 只写"怎么落地开发"**：不写功能完整定义（在 03 / Modules）、不写系统架构（在 00_Global_Architecture）、不写实施难度矩阵（在 04）、不写里程碑路线（在 02）。
+3. **02_Product_Roadmap.md 只写"什么时候做"和"做到什么程度"**：不写实施难度矩阵。
+4. **Modules/SRS/*.md 只写"这个模块做什么、验收什么"**：不写接口、字段、算法与页面实现。
+5. **开发顺序与拆分**：以 `docs/05-execution-records/rewrite/v2.0/plan.md` + 模块 `task-sequence.yaml` 为准，不在本目录重复维护。
 
 ---
 
@@ -80,16 +77,15 @@
 2. [00_Global_Architecture.md](00_Global_Architecture.md) — 理解技术架构
 3. [02_Product_Roadmap.md](02_Product_Roadmap.md) — 理解阶段规划
 
-### 查看整体开发路径与阶段
-
-1. [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) — 从当前状态到 MVP / v1.0 的开发阶段、模块依赖顺序、前后端分工、各阶段验收标准
-
 ### 准备开发某个模块
 
-1. [03_Functional_Architecture.md](03_Functional_Architecture.md) — 找到对应模块的功能范围
-2. [04_Implementation_Map.md](04_Implementation_Map.md) — 评估落地难度和优先级
-3. [05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md) — 查看该模块所属开发阶段、前后端分工与验收标准
-4. [Modules/对应模块.md](Modules/) — 查看详细需求、数据模型、验收标准
+1. [Modules/SRS/对应模块.md](Modules/SRS/) — 查看需求与验收
+2. [docs/07-design/](../07-design/) — 查看接口/数据/流程设计
+3. `docs/05-execution-records/rewrite/v2.0/plan.md` + 模块 `task-sequence.yaml` — 查看当前开发顺序与任务拆分
+
+### 历史规划（已归档）
+
+- [V2 功能架构 / 实施地图 / 代码计划](../05-execution-records/archive/v2-planning/) — 仅作历史追溯，不再维护
 
 ---
 
@@ -101,5 +97,5 @@
 - **告警收敛/静默/通知**：MVP 借助 Alertmanager 原生能力
 - **拨测**：使用 Blackbox Exporter，MetricCenter 只生成配置
 - **时序存储**：MVP 用 Prometheus TSDB；多网域场景演进为 VictoriaMetrics / Mimir
-- **平台元数据**：MVP 用 SQLite
+- **平台元数据**：PostgreSQL（生产与测试统一，SQLite 已移除）
 - **代码隔离**：所有业务代码在 `platform/` 和 `ui-custom/`，不修改 `upstream/`
