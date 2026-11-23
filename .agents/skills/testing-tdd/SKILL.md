@@ -33,6 +33,7 @@ RED → GREEN → IMPROVE → VERIFY
 - **正常路径**：典型输入、典型响应。
 - **边界情况**：空输入、超大值、特殊字符、分页边界、枚举边界。
 - **错误路径**：400 / 404 / 409 / 校验失败 / 依赖失败。
+- **场景验收**：每个 SCN 至少一条端到端断言（谁/情境/任务/成功标准）。
 - **契约**：字段名、枚举、嵌套结构、错误类型与契约快照一致。
 
 ---
@@ -69,7 +70,7 @@ func TestLoadConfig(t *testing.T) {
 
 - 使用标准 `testing` + `testify/assert` / `require`。
 - 外部依赖通过接口注入或 mock。
-- 数据库测试优先使用内存 DSN：`file::memory:?cache=shared`。
+- 数据库测试统一使用 `platform/testutil/testdb`（逐测试独立 PostgreSQL schema），不新写 SQLite / 内存库。
 - 并发相关代码提供 `go test -race` 结果（如适用）。
 - 不修改 `upstream/prometheus/` 原有测试；patch 影响 upstream 测试时必须在 patch README 标注。
 
@@ -154,7 +155,6 @@ pnpm test
 
 - 「功能性测试」指上述目标测试 + 服务启动验证，**不能只靠手工点点页面替代自动化目标测试**。
 - 全量 `pnpm test` 仍按 §4.2 三种情形触发；增量阶段默认不需要。
-- 技术债修复（`debt:` 提交）同样只要求最小验证 + 现有测试通过。
 
 ### 4.4 版本重写测试范围（`mode: rewrite`）
 
@@ -163,7 +163,7 @@ pnpm test
 | 层 | 必做 | 说明 |
 |----|------|------|
 | 旧版回归基线 | 关键 API golden / 关键用户动线 | 先记录旧版行为；保留项必须一致，变更/删除项必须登记 |
-| 新版验收 | 新 PRD 验收标准逐项 | 功能、边界、错误路径、权限 |
+| 新版验收 | 新 SRS 场景验收逐项 | 场景、边界、错误路径、权限 |
 | 契约 | `/api/v3/platform/*` 契约快照 | 字段 / 枚举 / 错误码 / 分页 |
 | schema | migration Up/Down + 空库 / 基线库 | 禁止只测 AutoMigrate |
 | 数据 | 迁移对账（计数、空值、唯一键、孤儿） | 有旧数据迁移时必须做 |
@@ -183,15 +183,14 @@ docs/05-execution-records/rewrite/vX.Y/modules/module-XX/regression.md
 
 ## 5. 覆盖率目标
 
-| 模块 | 目标覆盖率 |
+| 范围 | 目标覆盖率 |
 |------|-----------|
-| `platform/gateway` | ≥ 70% |
-| `platform/discovery` | ≥ 70% |
-| `platform/collector` | ≥ 60% |
-| `platform/config` | ≥ 70% |
+| `platform/foundation` | ≥ 80% |
+| `platform/modules` 新增/修改包 | ≥ 70% |
+| `platform/db`（migration / DSN） | ≥ 70% |
 | `ui-custom/web` | ≥ 50% |
 
-覆盖率是下限，不是替代行为测试的理由。
+覆盖率是下限，不是替代行为测试的理由；存量包按实际基线逐步提升，不设“全局债务指标”。
 
 ---
 
@@ -207,9 +206,8 @@ go vet ./platform/...
 GOPROXY=off go run ./platform/cmd/metric-center/main.go
 
 # 另一个终端验证
-curl -s http://localhost:8080/api/v1/health
-curl -s http://localhost:8080/api/v1/health/db
-curl -s http://localhost:8080/api/v1/status
+curl -s http://localhost:8080/api/v3/platform/health
+curl -s http://localhost:8080/api/v3/platform/ready
 ```
 
 - 新增 / 修改 API 必须额外验证对应接口。
@@ -238,7 +236,9 @@ pnpm lint
 pnpm build
 ```
 
-### 6.3 Patch 变更（`patches/prometheus/`）
+### 6.3 Patch 变更（可选）
+
+仅在确实存在 `patches/prometheus/*.patch` 时执行：
 
 ```bash
 make apply-patches
@@ -263,19 +263,19 @@ pnpm lint
 pnpm build
 
 # migration（如涉及 schema）
-# 工具链接入后：make migrate-status
-# 未接入前：在空库 + 旧基线副本上人工执行 migration Up/Down，并记录结果
+# 空库 + 旧基线副本上执行 Up/Down，并记录结果
+# 迁移运行器：platform/cmd/migrate（make migrate / migrate-status / migrate-down）
 ```
 
 - 旧版关键 API golden / 用户动线回归。
 - 数据迁移对账（计数、空值、唯一键、孤儿）。
 - 结果写入模块 `regression.md` / 执行记录。
 
-### 6.5 文档 / Agent / Skill 变更
+### 6.5 文档 / Skill / Agent 变更
 
 - 至少检查：无密钥、无临时文件、无意外修改生产代码。
+- Skill 变更直接改 `.agents/skills/`；不需要同步镜像或额外脚本。
 - 如仓库配置 markdown lint，运行对应 lint。
-- Skill 变更后运行 `make sync-skills && make check-skills`。
 
 ### 6.6 develop 合并后
 

@@ -1,11 +1,11 @@
 ---
 name: api-standard
-description: "MetricCenter API 契约与接口规范：路由前缀、响应信封、字段命名、分页、枚举、鉴权、SSRF 与契约优先原则"
+description: "MetricCenter API 契约与接口规范（V3）：路由前缀、响应信封、字段命名、分页、枚举、鉴权、SSRF 与契约优先"
 ---
 
-# API 契约与接口规范
+# API 契约与接口规范（V3）
 
-本 Skill 是前后端共同的 API 契约基线。实现或对接 API 前必须读取；与 PRD 冲突时按「契约优先级」处理，禁止自行猜测。
+本 Skill 是前后端共同的 API 契约基线。实现或对接 API 前必须读取；与 SRS 冲突时按「契约优先级」处理，禁止自行猜测。
 
 ---
 
@@ -13,26 +13,15 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 
 | 场景 | 第一权威 | 第二权威 | 禁止 |
 |------|----------|----------|------|
-| 后端实现 | PRD 第 5/6 章 + `api-contract-snapshot.md` | `docs/03-engineering-standards/03_API_Standard.md` | 反向读取前端代码对齐字段 |
-| 前端对接 | `api-contract-snapshot.md` | PRD 第 5/6 章 + `03_API_Standard.md` | 反向读取 `platform/models/*.go` 拉齐字段 |
-| 快照缺失 | PRD 第 5/6 章 | `03_API_Standard.md` | 以对端实现为准 |
+| 后端实现 | SRS 第 5/6 章 + `api-contract-snapshot-v3.md` | `docs/03-engineering-standards/03_API_Standard.md` | 反向读取前端代码对齐字段 |
+| 前端对接 | `api-contract-snapshot-v3.md` | SRS 第 5/6 章 + `03_API_Standard.md` | 反向读取 `platform/models/*.go` 拉齐字段 |
+| 快照缺失 | SRS 第 5/6 章 | `03_API_Standard.md` | 以对端实现为准 |
 
-- 契约快照路径：`docs/05-execution-records/module-XX/api-contract-snapshot.md`
+- 快照路径：
+  - 标准模块：`docs/05-execution-records/module-XX/api-contract-snapshot.md`
+  - rewrite 模块：`docs/05-execution-records/rewrite/vX.Y/modules/module-XX/api-contract-snapshot-v3.md`
 - 对端实现与契约不一致时，报告 Orchestrator 决策，禁止擅自改契约或照抄对端代码。
-- 新增/修改接口必须同步更新契约快照；PRD 第 5/6 章、API 标准或后端模型变更后，旧快照作废。
-
-### 1.1 增量/修复阶段的契约规则（PRD 滞后回填）
-
-项目存在「代码先行、PRD 每周回填」的增量/修复阶段（任务卡标记 `mode: incremental`）。该阶段的分层口径：
-
-| 变更类型 | `api-contract-snapshot.md` | PRD 章节 |
-|----------|---------------------------|----------|
-| 跨端契约变更（新增 / 修改路由、字段、枚举、响应结构、errorType） | **必须随代码同步更新** | 可滞后，由 chenrt 每周收割 commit + `dev-feedback.md` 统一回填 |
-| 纯单端变更（仅前端 UI / 仅后端内部逻辑，不影响对端） | 无需更新 | 可滞后 |
-
-- 快照是前后端对接的 as-built 事实，**不允许拖到 PRD 回填时一起补**。
-- 已提交 PRD 的既有约定仍然有效；实现与 PRD 冲突时先报告 Orchestrator，不直接覆盖 PRD 意图。
-- PRD 回填以快照 + `dev-feedback.md` + commit 信息为事实来源；回填后快照与 PRD 章节必须一致。
+- 新增/修改接口必须同步更新契约快照；SRS、API 标准或后端模型变更后，旧快照作废。
 
 ---
 
@@ -42,21 +31,20 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 |----------|------|------|
 | `/api/v1/query`、`/api/v1/query_range` | PromQL 查询 | 代理到 Prometheus，保持原生格式 |
 | `/api/v1/labels`、`/api/v1/label/:name/values`、`/api/v1/series` | 元数据查询 | 代理到 Prometheus |
-| `/api/v2/platform/*` | 旧线平台业务能力（归档） | 旧版本使用；新线不要求向后兼容 |
-| `/api/v2/auth/*` | 旧线认证（归档） | 旧版本使用 |
-| `/api/v3/platform/*` | **v2.0 重写新线平台业务能力** | 新 PRD / 新前端 / 新代码统一使用 |
-| `/api/v3/auth/*` | **v2.0 重写新线认证** | 新线认证入口 |
+| `/api/v3/platform/*` | **平台业务能力** | 新 SRS / 新前端 / 新代码统一使用 |
+| `/api/v3/platform/auth/*` | **认证入口** | 登录、登出、当前用户、改密 |
+| `/api/v3/edge/*` | **边缘 Agent 协议** | Token-only，不走平台用户会话 |
 
 - 平台能力不得塞进 `/api/v1/*`；Prometheus 代理不得改写成平台信封以外的格式。
 - 代理接口必须经过认证与租户隔离，禁止裸透传。
-- **rewrite 模式**：新线一律 `/api/v3/platform/*`；旧 `/api/v2/*` 仅作旧版回归对照，不要求长期兼容。旧新并行期如需双路由，必须在 `rewrite/vX.Y/decisions.md` 登记兼容窗口与下线时间。
-- 新线契约快照必须标注 `api_version: v3`；旧快照保留作回归基线。
+- `/api/v2/platform/*` 是历史线，已归档；不再新增。Alertmanager 自身的 `/api/v2/alerts`、`/api/v2/silences` 是上游 API，不属于平台 v2。
+- 旧新并行期如需双路由，必须在 `rewrite/vX.Y/decisions.md` 登记兼容窗口与下线时间。
 
 ---
 
 ## 3. 响应信封
 
-所有平台接口（成功 / 错误）统一通过 `platform/api/response` 封装。
+所有平台接口（成功 / 错误）统一通过 `platform/foundation/apiresponse` 封装。
 
 成功：
 
@@ -86,8 +74,9 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 | `forbidden` | 403 | 无权限 |
 | `not_found` | 404 | 资源不存在 |
 | `conflict` | 409 | 资源冲突 / 重复创建 |
+| `unavailable` | 503 | 依赖未就绪（外部工具缺失 / reload 未配置，可重试） |
 | `internal` | 500 | 服务器内部错误 |
-| `bad_gateway` | 502 | 代理 Prometheus 失败 |
+| `bad_gateway` | 502 | 代理 Prometheus / Alertmanager 失败 |
 
 禁止裸返回、自定义信封、直接裸 HTTP 状态码或自定义错误码。
 
@@ -100,8 +89,8 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 - 时间字段统一以 `_at` 结尾；HTTP 边界使用 **RFC3339** 字符串。
 - 可空时间返回 `null` 或 RFC3339，禁止 Go 零值 `0001-01-01T00:00:00Z`。
 - 枚举在 HTTP 层统一小写字符串（如 `"active"` / `"disabled"`），Go 使用 `type X string`。
-- 枚举取值必须在 PRD 第 5 章或任务卡契约段穷举；写接口收到未定义值必须返回 `bad_request`，禁止静默接收。
-- 字段契约以 PRD 字段表 + 契约快照为准；UI 展示名使用 PRD 字段表「UI 展示名」列，禁止把后端字段名直接当文案。
+- 枚举取值必须在 SRS 第 5 章或任务卡契约段穷举；写接口收到未定义值必须返回 `bad_request`，禁止静默接收。
+- 字段契约以 SRS 字段表 + 契约快照为准；UI 展示名使用 SRS 字段表「UI 展示名」列，禁止把后端字段名直接当文案。
 
 ---
 
@@ -133,6 +122,7 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 - 租户标识：`X-Tenant-ID` Header，或从 JWT claim 解析。
 - Gateway / 代理层负责注入租户并隔离查询范围。
 - 所有写接口必须鉴权；配置下发、资源导入等核心写接口未鉴权视为 CRITICAL。
+- `/api/v3/edge/*` 使用 Edge Token，不走平台用户会话。
 
 ---
 
@@ -149,15 +139,15 @@ description: "MetricCenter API 契约与接口规范：路由前缀、响应信�
 
 - 已发布接口只做向后兼容的增量变更；删除/重命名字段必须走版本化或 CR。
 - 新增字段必须可缺省，前端不得假定字段一定存在。
-- 破坏性变更必须更新契约快照、PRD 第 6 章和 API 标准，并通知前后端。
+- 破坏性变更必须更新契约快照、SRS 第 6 章和 API 标准，并通知前后端。
 - API 路径、响应信封、errorType 的变更属于跨端契约变更，必须由 Orchestrator 协调。
 
 ---
 
 ## 9. 提交前自检
 
-- [ ] 路由前缀正确（`/api/v2/platform/*` 或 `/api/v1/*` 代理）
-- [ ] 成功 / 错误响应均走 `platform/api/response`
+- [ ] 路由前缀正确（`/api/v3/platform/*`、`/api/v3/edge/*` 或 `/api/v1/*` 代理）
+- [ ] 成功 / 错误响应均走 `platform/foundation/apiresponse`
 - [ ] JSON 字段 snake_case 且有显式 tag
 - [ ] 枚举小写字符串，写接口拒绝未定义值
 - [ ] 分页结构符合 `list/total/page/page_size`

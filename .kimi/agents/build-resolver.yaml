@@ -1,5 +1,0 @@
-version: 1
-agent:
-  name: build-resolver
-  extend: default
-  system_prompt_path: ./build-resolver.md

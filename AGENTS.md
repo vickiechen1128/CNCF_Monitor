@@ -15,14 +15,14 @@
 
 **核心约束**：业务代码必须写在 `platform/` 或 `ui-custom/web/`，尽量不动 `upstream/`；必须修改上游源码时，通过 `patches/prometheus/` 管理 patch（当前该目录尚未创建，属于预留机制）。
 
-当前处于 **MVP 阶段**，已实现：
+当前处于 **v3-only / PostgreSQL-only（v2.0 rewrite 线）**，已实现：
 
 - `platform/cmd/metric-center/`：基于 Gin 的 v3-only 控制面主程序，提供 `/api/v3/platform/*` 管理接口、`/api/v3/edge/*` 边缘接口与 `/api/v1/*` Prometheus 查询代理。
-- `platform/models/`：CMDB 资源模型（Host / Middleware / Application）、标签模板、采集任务、Blackbox 探测配置的 GORM 模型。
-- `platform/db/`：PostgreSQL + GORM 初始化与 v3 版本化迁移（`migrations/v3/*.postgres.sql`）。
-- `platform/api/response/`：统一 JSON 响应格式。
+- `platform/modules/mXX/`：M01/M05/M06/M07/M08/M09 业务模块。
+- `platform/foundation/`：统一错误/响应、HTTP 辅助、模块 Registry、health/ready。
+- `platform/db/`：PostgreSQL + GORM 初始化与 v3 版本化迁移（`migrations/v3/*.postgres.sql`）；`cmd/migrate/` 提供迁移命令。
 - `ui-custom/web/`：基于 Vite + React 18 + TypeScript + Ant Design 的独立前端门户。
-- `platform/examples/simple-agent/`：标准采集端 Agent 模板，演示 Prometheus client_golang 用法。
+- `platform/edge-sync-agent/`：边缘采集客户端（独立 Go module）。
 
 ---
 
@@ -34,7 +34,7 @@
 | Web 框架 | Gin v1.10 | 路由、中间件、HTTP API |
 | 元数据存储 | PostgreSQL 16 + GORM | `gorm.io/driver/postgres`；本地默认 `postgres://<系统用户>@127.0.0.1:5432/metric_center`，生产由 `METRIC_CENTER_DB_DSN` 注入 |
 | 数据面引擎 | Prometheus（Go） | `upstream/prometheus/` 子模块，负责抓取/存储/查询 |
-| 采集示例 | node_exporter + simple-agent | `upstream/node_exporter/` 子模块；`platform/examples/simple-agent/` |
+| 采集/边缘 | node_exporter + edge-sync-agent | `upstream/node_exporter/` 子模块；`platform/edge-sync-agent/` |
 | 前端 | React 18 + TypeScript 5.5 | `ui-custom/web/` |
 | 构建工具 | Vite 5 | 前端 dev / build / preview |
 | UI 组件 | Ant Design 5 | 企业级后台组件库 |
@@ -49,12 +49,8 @@
 ```
 CNCF_Monitor-worktree/
 ├── .agents/                        # 跨工具共享资产
-│   └── skills/                     # Skill 共享镜像（由 .kimi/skills 生成；OpenCode / Trae / Kimi Code CLI 自动发现）
-├── .kimi/                          # Kimi Agent 团队配置（Skill 单一源）
-│   ├── agents/                     # Agent 角色定义（orchestrator、backend-developer、frontend-developer 等）
-│   ├── skills/                     # 共享 Skill 单一源（cncf-project、prometheus-architecture、testing-tdd 等）
-│   └── AGENTS.md                   # Agent 团队速查（与本文件不同：本文件面向所有 AI Agent 的项目总览）
-├── .trae/                          # Trae IDE 配置与 Skill
+│   ├── README.md                   # 使用原则
+│   └── skills/                     # 唯一 Skill 源（OpenCode / Trae 自动发现）
 ├── .tools/                         # 项目级工具链（Go、Node.js、pnpm、可选 MinGW-w64），被 .gitignore 忽略
 ├── upstream/                       # 上游开源子模块源码
 │   ├── prometheus/                 # Prometheus 源码（禁止直接修改）
@@ -62,13 +58,15 @@ CNCF_Monitor-worktree/
 │   ├── blackbox_exporter/          # blackbox_exporter 源码（禁止直接修改）
 │   └── node_exporter/              # node_exporter 源码（禁止直接修改，当前不默认构建）
 ├── platform/                       # MetricCenter 业务扩展代码
-│   ├── cmd/metric-center/          # 控制面主程序入口
-│   ├── edge-sync-agent/            # v0.2 边缘采集客户端（独立 Go module）
-│   ├── api/response/                 # 统一 API 响应封装
-│   ├── db/                         # PostgreSQL + GORM 连接与迁移
-│   ├── models/                     # 领域模型（CMDB、标签模板、采集任务等）
-│   ├── examples/simple-agent/      # 标准采集端 Agent 模板（独立 Go 模块）
-│   └── gateway/、discovery/、collector/、storage/、config/  # 预留扩展目录
+│   ├── cmd/metric-center/          # v3-only 控制面主程序（main.go + v3.go）
+│   ├── cmd/migrate/                # PostgreSQL migration 命令行
+│   ├── modules/mXX/                # 业务模块（m01/m05/m06/m07/m08/m09）
+│   ├── foundation/                 # apierror / apiresponse / httpx / module registry / system
+│   ├── gateway/auth/               # 认证（M03 重写前的过渡适配器）
+│   ├── models/                     # 共享 GORM 模型
+│   ├── db/migrations/v3/           # PostgreSQL-only 版本化迁移
+│   ├── testutil/testdb/            # 逐测试独立 PG schema
+│   └── edge-sync-agent/            # 边缘采集客户端（独立 Go module）
 ├── ui-custom/web/                  # 独立前端门户
 │   ├── src/api/                    # API 客户端
 │   ├── src/components/             # 通用组件
@@ -84,21 +82,20 @@ CNCF_Monitor-worktree/
 │   ├── 02-product-requirements/    # 产品需求（Modules/SRS/*.md 为需求基线）
 │   ├── 03-engineering-standards/   # 工程标准（必读）
 │   ├── 04-source-architecture/     # 源码架构分析
-│   ├── 05-execution-records/       # Agent 执行记录（含 design-proposals/ 功能详细设计提案）
-│   ├── 06-mvp-e2e-testing/         # MVP 配置下发闭环测试指导
-│   ├── 07-design/                  # 模块概要设计与关键设计专题（HLD，承接 SRS）
-│   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
+│   ├── 05-execution-records/       # 执行记录（含 design-proposals/）
+│   ├── 06-mvp-e2e-testing/         # 部署手册（V2 E2E 已归档）
+│   ├── 07-design/                  # 模块概要设计与关键设计专题（HLD）
+│   └── prototypes/                 # V2 可点击原型（已归档）
 ├── scripts/                        # 构建与辅助脚本（含可选的 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
 ├── setup.sh                        # 跨平台一键初始化脚本
 ├── SETUP_WINDOWS.md                # Windows 环境初始化指南
-├── install-hooks.sh                # Kimi hooks 安装脚本
 ├── go.mod / go.sum                 # Go 模块依赖
-├── .gitmodules                     # Git 子模块配置（upstream/prometheus、upstream/node_exporter）
+├── .gitmodules                     # Git 子模块配置
 └── README.md                       # 项目总览与快速开始
 ```
 
-> **跨工具 Skill 共享（2026-10-23）**：`.kimi/skills/` 是单一源；`.agents/skills/` 是生成的共享镜像，OpenCode / Trae / Kimi Code CLI 会自动发现。修改 Skill 后执行 `make sync-skills`（或 `bash scripts/sync-skills.sh`），CI 会校验一致性。
+> **Skill 单一源**：`.agents/skills/` 是唯一源，直接修改；不再维护 `.kimi` 镜像、同步脚本或工具专属副本。各 harness 只写薄适配器指向 `AGENTS.md` 与 `.agents/skills/`。
 
 ---
 
@@ -211,13 +208,13 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
 ### 6.1 后端（`platform/`）
 
 - `cmd/metric-center/main.go`：唯一控制面入口。
-  - 注册 `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status`。
+  - 系统模块注册 `/api/v3/platform/health`（liveness）与 `/api/v3/platform/ready`（DB + migration readiness）。
   - 注册 `/api/v1/query`、`/api/v1/query_range`、`/api/v1/labels`、`/api/v1/label/:name/values`、`/api/v1/series`，代理到 Prometheus。
-  - 注册 `/api/v2/platform/config/preview` 和 `/api/v2/platform/config/apply` 占位。
-- `db/db.go`：PostgreSQL 连接（GORM）与 v3 迁移入口；DSN 由 `METRIC_CENTER_DB_DSN`（或 `METRIC_CENTER_DB_HOST/PORT/USER/...`）覆盖；`migrations/v3/` 为嵌入式版本化迁移。
-- `models/`：领域模型，统一嵌入 `BaseModel`（ID、时间戳、软删除），实现 `Resource` 接口。
-- `api/response/`：统一响应格式 `{status, data, errorType, error}`。
-- `edge-sync-agent/`（v0.2）：部署在边缘监控代理节点的独立客户端，负责心跳上报、配置包拉取、进程守护与 reload；使用独立 `go.mod`，便于最小化依赖与交叉编译。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
+- `db/db.go` + `db/migrate.go`：PostgreSQL 连接与 v3 迁移入口；`cmd/migrate/` 提供 migrate/status/down 命令；`migrations/v3/` 为嵌入式版本化迁移。
+- `models/`：共享 GORM 模型。
+- `foundation/`：`apierror` / `apiresponse` 统一错误与响应、`httpapi` / `httpx` HTTP 辅助、`module` Registry、`system` health/ready。
+- `modules/mXX/`：业务模块（m01/m05/m06/m07/m08/m09），按 handler / service / repository / dto / domain 分层。
+- `edge-sync-agent/`：部署在边缘节点的独立客户端（独立 `go.mod`），负责心跳、配置包拉取、进程守护与 reload。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
 
 ### 6.2 前端（`ui-custom/web/`）
 
@@ -237,11 +234,9 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
   3. 在 `patches/prometheus/README.md` 记录用途和验证方法；
   4. 通过 `make apply-patches` 应用。
 
-### 6.4 预留扩展目录
+### 6.4 代码布局
 
-v0.2 计划落地的目录：`platform/edge-sync-agent/`（边缘采集客户端，独立 Go module）。
-
-项目中存在但未实际落地的目录：`platform/gateway/`、`platform/discovery/`、`platform/collector/`、`platform/storage/`、`platform/config/`，后续模块会按需实现。
+当前为 v3-only / PostgreSQL-only：业务模块在 `platform/modules/mXX`，跨模块基础设施在 `platform/foundation`，迁移在 `platform/db/migrations/v3`。旧 v2 业务目录已移除；`platform/gateway/auth` 是 M03 重写前的过渡认证适配器。
 
 ---
 
@@ -251,20 +246,22 @@ v0.2 计划落地的目录：`platform/edge-sync-agent/`（边缘采集客户端
 
 | 目录 | 允许修改 | 禁止修改 |
 |------|----------|----------|
-| `platform/` | backend-developer、prometheus-developer | prototype-designer |
-| `platform/edge-sync-agent/`（v0.2，独立 Go module） | backend-developer | prototype-designer |
-| `ui-custom/web/` | frontend-developer | prototype-designer |
-| `docs/02-product-requirements/` | prototype-designer、chenrt | backend-developer、frontend-developer |
-| `docs/prototypes/` | prototype-designer、chenrt | backend-developer、frontend-developer |
-| `docs/05-execution-records/` | 各 Agent 写入自己的执行记录 | 覆盖他人记录 |
-| `upstream/` | 全部禁止 | 全部 Agent |
-| `patches/prometheus/` | prometheus-developer | prototype-designer |
+| `platform/modules/`、`platform/foundation/`、`platform/models/`、`platform/db/`、`platform/cmd/` | backend / prometheus developer | frontend developer、reviewer |
+| `platform/edge-sync-agent/`（独立 Go module） | backend developer | reviewer |
+| `ui-custom/web/` | frontend developer | backend developer、reviewer |
+| `docs/02-product-requirements/`（SRS） | 需求 Owner、项目 Owner | developer、reviewer |
+| `docs/07-design/`（HLD / Scenario Link） | 技术 Owner | developer、reviewer |
+| `docs/prototypes/`（V2 已归档） | 不维护 | developer、reviewer |
+| `docs/05-execution-records/` | 各角色写入自己的执行记录 | 覆盖他人记录 |
+| `.agents/skills/`、`docs/03-engineering-standards/`、`AGENTS.md` | 项目 Owner + 任务明确要求 | 借任务夹带无关改动 |
+| `upstream/` | 仅 patch 流程中的最小化修改 | 直接新增业务代码 |
+| `patches/prometheus/` | prometheus developer | 其余角色 |
 
 ### 7.2 Go 编码风格
 
 - 包注释说明用途；结构体/函数按需添加注释。
 - 错误处理使用 `fmt.Errorf("...: %w", err)` 包装上下文。
-- HTTP API 使用 `platform/api/response` 统一响应。
+- HTTP API 使用 `platform/foundation/apiresponse` 统一响应。
 - 外部依赖通过接口注入，便于单元测试 mock。
 - 测试文件使用 `*_test.go`，使用 `testify/assert` 和 `testify/require`。
 
@@ -317,9 +314,9 @@ pnpm test                              # 全量，仅 testing-tdd §4.2 允许�
 
 | 模块 | 目标覆盖率 |
 |------|-----------|
-| `platform/gateway` | ≥ 70% |
-| `platform/discovery` | ≥ 70% |
-| `platform/collector` | ≥ 60% |
+| `platform/foundation` | ≥ 80% |
+| `platform/modules` 新增/修改包 | ≥ 70% |
+| `platform/db`（migration / DSN） | ≥ 70% |
 | `ui-custom/web` | ≥ 50% |
 
 ### 8.4 提交前验证清单
@@ -327,7 +324,7 @@ pnpm test                              # 全量，仅 testing-tdd §4.2 允许�
 - [ ] `go test ./platform/...` 通过
 - [ ] `go vet ./platform/...` 通过
 - [ ] 前端按 `testing-tdd` §6 完成目标测试 / 变更范围回归、`typecheck:test`、`pnpm lint`；全量 `pnpm test` 仅在 §4.2 适用时执行
-- [ ] 后端服务能启动，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 返回 200
+- [ ] 后端服务能启动，`/api/v3/platform/health`、`/api/v3/platform/ready` 返回 200
 - [ ] 前端 dev server 能启动，首页返回 200
 - [ ] 验证完成后停止服务并释放端口
 
@@ -377,11 +374,10 @@ make dev-ui
   - `ignoreCommand` 跳过 `design/*` 和 `feature/prototype-*` 分支。
 - 如需联调真实后端，可在 Vercel Environment Variables 中配置 `VITE_API_BASE_URL`。
 
-### 10.3 GitHub Pages 原型预览
+### 10.3 GitHub Pages 原型预览（历史）
 
-- 触发分支：`develop`、`main`，当 `docs/prototypes/**` 变更时。
-- 工作流：`.github/workflows/deploy-prototype.yml`。
-- 原型分支统一走 GitHub Pages，不走 Vercel。
+- V2 原型已归档，`docs/prototypes/**` 不再更新；`.github/workflows/deploy-prototype.yml` 保留但默认不触发。
+- 如恢复原型流程，使用新目录 `docs/prototypes-v3/` 并同步调整 workflow 路径。
 
 ### 10.4 容器化（可选）
 
@@ -395,30 +391,30 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模型。
 
-- **双轨制（v2.0 起）**：需求由 Orchestrator 按「五问」对话判定走 **Track A**（核心差异化功能：完整 PRD + 高保真原型 + ready 门禁）或 **Track B/B+**（通用标准能力：轻量 PRD 增量 + `dev-ready` 直派开发；B+ 涉安全敏感，强制 security-reviewer）；权威定义见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` §1.0 与 `.kimi/agents/orchestrator.md`「需求分轨」。
-- **版本重写（v2.0 起）**：全模块下一代版本重写使用 `rewrite/vX.Y`（如 `rewrite/v2.0`）；PRD + 代码 + schema 同分支演进，旧版本归档不维护；新线 API 统一 `/api/v3/platform/*`。权威定义见 `.kimi/agents/orchestrator.md`「版本重写」与 `docs/05-execution-records/rewrite/v2.0/charter.md`。
-- **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，用于写 PRD、改原型。
-- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding，**默认串行**（一个时间只开一个 feat 分支）；仅当零耦合任务确需并行时才额外 `git worktree add` 多目录（按需手段，用完即删）。
+- **双轨制（v2.0 起）**：需求按「五问」判定走 **Track A**（核心差异化能力：完整 SRS + 高保真场景演示）或 **Track B/B+**（通用标准能力：轻量 SRS + `dev-ready`；B+ 涉安全敏感，强制独立安全审查）；权威定义见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` §1.0 与 `srs-authoring` / `hld-design` Skill。
+- **版本重写（v2.0 起）**：全模块下一代版本重写使用 `rewrite/vX.Y`（如 `rewrite/v2.0`）；SRS + 代码 + schema 同分支演进，旧版本归档不维护；新线 API 统一 `/api/v3/platform/*`。权威定义见 `docs/05-execution-records/rewrite/v2.0/charter.md` 与 `cncf-git-workflow` Skill。
+- **需求 → 设计**：需求方产出 SRS（业务场景 SCN + 验收），技术方产出 HLD（场景→实现 + 演示脚本），双方唯一链接点是 `Module_XX_Scenario_Link.md`，并在开发前完成场景演示走查。
 
-1. **需求阶段**：`prototype-designer` 在设计空间产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
-2. **规划阶段**：`planner` 从 ready PRD 派生 L2（实现地图 + 代码实施计划）和 L3（`task-sequence.yaml`）。
-3. **开发阶段**：`backend-developer` / `frontend-developer` / `prometheus-developer` 在开发空间基于 `develop` 创建 `feat/module-XX-<功能名>` 分支，TDD 开发。
-4. **审查阶段**：`golang-reviewer`、`frontend-reviewer`、`security-reviewer` 独立审查。
-5. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
-6. **验证阶段**：在 `develop` 重复执行测试和服务启动验证。
+1. **需求阶段**：需求 Owner 通过对话产出 SRS（场景 + 验收 + 非目标），分支 `design/module-mvp-demo` 或 `rewrite/vX.Y`。
+2. **设计阶段**：技术 Owner 产出 HLD + Scenario Link + 场景演示脚本，与需求方联合走查。
+3. **规划阶段**：从 Scenario Link 派生 `task-sequence.yaml`（每个任务引用 SCN / HLD 章节）。
+4. **开发阶段**：backend / frontend 在开发空间基于 `develop` / `rewrite/vX.Y` 创建分支，TDD 开发，按场景验收。
+5. **审查阶段**：独立 reviewer（Go / 前端 / 安全）审查，核对场景覆盖。
+6. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
+7. **验证阶段**：在 `develop` 重复执行测试与服务启动验证。
 
 ### 功能详细设计提案（Design Proposal）
 
-当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 SRS 时，使用 **design-proposal** 机制：
 
 - **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
 - **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
-- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
-- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
-- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
-- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
+- **评审**：由技术 Owner 或需求 Owner 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由技术 Owner 或原作者将内容合并进主 SRS/HLD，版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 SRS/HLD 差异点 / 合并计划」
 
-Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`。
+Agent 角色、边界与流程的权威定义见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` 与 `.agents/skills/`；各 harness 的子代理/模型/权限由工具自身管理。
 
 ---
 
@@ -436,33 +432,32 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/03-engineering-standards/04_Testing_Standard.md` | 测试标准与提交前验证清单 |
 | `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | AI Agent 协作流程 |
 | `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 分支策略与回退指南 |
-| `docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md` | 后端分层、migration、技术债控制红线（R1-R4）与还债路线图 |
-| `docs/02-product-requirements/Modules/SRS/*.md` | 各模块 SRS（需求基线） |
+| `docs/03-engineering-standards/07_Backend_Architecture_and_Debt_Control.md` | 后端分层、migration、架构红线（R1/R2/R4） |
+| `docs/02-product-requirements/Modules/SRS/*.md` | 各模块 SRS（需求基线：场景 SCN + 验收） |
+| `docs/02-product-requirements/Domain_Map.md` | 业务域（DOMAIN）↔ 实现模块（mXX）映射 |
 | `docs/07-design/README.md` | 概要设计目录：SRS/设计分层约定、模板与索引 |
-| `docs/07-design/Module_09_Config_and_Query_Center_High_Level_Design.md` | M09 配置与查询中心概要设计（接口清单/数据归属/关键流程/追溯） |
+| `docs/07-design/Module_09_Config_and_Query_Center_High_Level_Design.md` | M09 配置与查询中心概要设计（场景→实现映射/接口清单/数据归属/关键流程/追溯） |
+| `docs/07-design/Module_09_Scenario_Link.md` | M09 场景链接矩阵（场景 ↔ 设计 ↔ 演示 ↔ 验收） |
+| `docs/05-execution-records/module-09/scenario-walkthrough.md` | M09 场景演示脚本（技术方走查、需求方反馈） |
 | `docs/07-design/design-notes/` | M09 关键设计专题（PromQL 注入 / 配置发布 / 查询页交互） |
-| `docs/prototypes/module-XX/` | 可点击原型 |
+| `docs/prototypes/module-XX/` | V2 可点击原型（已归档，仅历史参考） |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
-| `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
+| `docs/06-mvp-e2e-testing/README.md` | 部署手册索引（V3 / PostgreSQL；V2 E2E 已归档） |
 | `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md` | 前端访问后端部署拓扑决策：当前单机走 A2（相对路径 + metric-center 托管静态文件），未来前后端分离走 nginx 反代；含打包改造清单 |
 | `docs/04-source-architecture/repo-map.md` | 业务代码符号地图（`make repo-map` 生成，禁止手改）；可选辅助索引，非强制定位入口 |
-| `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
-| `.kimi/agents/*.md` | 各 Agent 详细行为规则 |
-| `.kimi/skills/` | Skill 单一源（Kimi 及跨工具共享的维护入口） |
-| `.agents/skills/` | 跨工具 Skill 共享镜像（由 `scripts/sync-skills.sh` 生成，禁止手改） |
-| `scripts/sync-skills.sh` | 同步 / 校验 `.kimi/skills` 与 `.agents/skills` |
-| `docs/05-execution-records/module-00-infrastructure/cross-tool-skill-sharing.md` | 跨工具 Skill 共享（Phase 1）决策与验证记录 |
+| `.agents/README.md` | 跨工具项目资产使用原则 |
+| `.agents/skills/` | **唯一 Skill 源**（OpenCode / Trae 自动发现；直接修改） |
+| `docs/05-execution-records/module-00-infrastructure/cross-tool-skill-sharing.md` | 跨工具 Skill 共享历史决策（旧机制，已由单一源取代） |
 
 ---
 
 ## 13. 已知当前状态（截至本文件生成时）
 
-- 后端 MVP 骨架已跑通，`make test-platform`（PostgreSQL 全量）通过。
-- 前端骨架已建立，包含首页状态卡片、MainLayout、API 客户端和若干页面占位。
-- `platform/examples/simple-agent/` 可独立运行，用于验证采集链路。
-- `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
-- `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 MVP 的 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
-- `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
+- 后端 v3-only / PostgreSQL-only 骨架已跑通，`make test-platform`（PostgreSQL 全量）通过；`platform/modules/mXX` + `platform/foundation` 为当前代码布局。
+- 前端已接入 v3 API（`/api/v3/platform/*`），M09 查询页持续演进。
+- `patches/` 目录尚未创建；仅在实际需要修改 upstream 时创建并走 patch 流程。
+- `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
+- `platform/gateway/auth/` 是 M03 重写前的过渡认证适配器；其余旧 v2 业务目录已移除。
 - 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop`、在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，作为整版回退锚点）并删除分支；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md` 与 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §2.5/§6.6。
-- 已新增可选的代码定位辅助：`scripts/repo-map`（Go AST + TS 导出正则）生成 `docs/04-source-architecture/repo-map.md` 符号地图（覆盖 `platform/` 与 `ui-custom/web/src/`，刻意排除 `upstream/`）；`.kimi/skills/code-navigation/` 提供「文档/地图 → 定点查询 → 限定域全文扫」的搜索建议，Agent 不强制先刷新或查询 repo-map。
-- repo-map 不再作为提交/合并门禁：pre-commit hook 仅保留 PRD 合规校验，`check-repo-map.yml` 已移除，`review-precheck.sh` 不再输出该项；`make check-repo-map` 保留为手动可选校验。
+- 已新增可选的代码定位辅助：`scripts/repo-map`（Go AST + TS 导出正则）生成 `docs/04-source-architecture/repo-map.md` 符号地图（覆盖 `platform/` 与 `ui-custom/web/src/`，刻意排除 `upstream/`）；定位优先使用 harness 原生搜索与文档索引，repo-map 仅作可选辅助。
+- repo-map 不再作为提交/合并门禁：pre-commit hook 仅保留 SRS 合规校验，`check-repo-map.yml` 已移除，`review-precheck.sh` 不再输出该项；`make check-repo-map` 保留为手动可选校验。
