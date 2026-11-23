@@ -2,8 +2,8 @@
 
 > **状态**：draft（骨架已建，待场景走查）
 > **Domain ID**：`DOMAIN-SYS-MGMT`
-> **SRS**：[Module_06_Multi_Tenant_Requirements.md](../02-product-requirements/Modules/SRS/Module_06_Multi_Tenant_Requirements.md) v1.4
-> **HLD**：[Module_06_System_and_Platform_Management_High_Level_Design.md](Module_06_System_and_Platform_Management_High_Level_Design.md) v1.0
+> **SRS**：[Module_06_Multi_Tenant_Requirements.md](../02-product-requirements/Modules/SRS/Module_06_Multi_Tenant_Requirements.md) v1.5
+> **HLD**：[Module_06_System_and_Platform_Management_High_Level_Design.md](Module_06_System_and_Platform_Management_High_Level_Design.md) v1.1
 > **演示脚本**：`docs/05-execution-records/module-06/scenario-walkthrough.md`（待创建）
 > **对外验收说明书**：`docs/07-design/Module_06_Acceptance.md`（待创建，派生，非追溯）
 > **需求 Owner**：chenrt　**技术 Owner**：待指定
@@ -44,7 +44,7 @@
 
 | NFR | 设计落点 | 覆盖场景 | 状态 |
 |-----|----------|----------|------|
-| NFR-01~02（中心不采集 / 取消 management 域） | HLD §3 未决口径 | SCN-01 | **未收敛**（实现仍保留 management/default/local，见未决问题 #1） |
+| NFR-01~02（中心不采集 / 取消 management 域） | HLD §3、§5.1、§6.4 | SCN-01 | **已收敛**（实现仅创建 `edge`，通道固定 `agent_pull`；migration 0013 拒绝 `management`，0014 移除本表运行态字段） |
 | NFR-03（租户与网域隔离） | HLD §6.3、§9 | SCN-02 | 部分（M09 查询注入已有；跨租户验收待补） |
 | NFR-04（管理最小授权门） | HLD §6.2 | SCN-02/05 | 已实现 |
 | NFR-05（生产管理员密码） | HLD §9 | SCN-05 | 待部署环境验证 |
@@ -72,7 +72,7 @@
 
 | # | 问题 | 场景 | Owner | 状态 |
 |---|------|------|-------|------|
-| 1 | **网域类型口径冲突**：SRS v1.3 主张取消 `management` / `default` / `local`，当前实现仍保留（管理域系统预置、通道按域类型派生），M09 文档也按管理域描述 | SCN-01/03 | 需求 Owner + 技术 Owner | open（需 owner 决策后同步 SRS/HLD/代码） |
+| 1 | **网域类型口径冲突**：SRS v1.3 主张取消 `management` / `default` / `local`，当前实现仍保留（管理域系统预置、通道按域类型派生），M09 文档也按管理域描述 | SCN-01/03 | 需求 Owner + 技术 Owner | **closed（2026-11-23）**：按 SRS 收敛实现——移除模型中的管理域类型/默认域常量/`ChannelForDomainType`/local 通道；migration 归一历史数据并收紧 CHECK；M09 注释与前端文案同步移除管理域口径 |
 | 2 | 场景演示脚本与实测结果尚未建立，SCN-01~05 未走查 | 全部 | 技术 Owner | open |
 | 3 | FR-12 审计日志、FR-13 平台配置为 P2 / v1.0+，未纳入本轮验收 | 全部 | 需求 Owner | open |
 | 4 | SRS 称 MVP 仅开放 `platform_admin` 查看/编辑、不开放创建租户，但实现已提供租户创建/状态变更接口，范围口径待统一 | SCN-02 | 需求 Owner | open |
@@ -91,3 +91,4 @@
 | 日期 | 变更 |
 |------|------|
 | 2026-11-22 | 创建 M06 场景链接矩阵；SCN-01~05；能力图例；NFR 覆盖；登记网域类型口径冲突 |
+| 2026-11-23 | 关闭网域类型口径冲突：NFR-01~02 改为已收敛；同步 SRS v1.5 / HLD v1.1；记录代码、迁移与前端文案收敛范围 |

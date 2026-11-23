@@ -2,13 +2,13 @@
 
 > **文档类型**：概要设计（High-Level Design, HLD）
 > **目标读者**：后端/前端开发工程师、测试工程师、运维架构师、代码审查者
-> **文档版本**：v1.0
+> **文档版本**：v1.1
 > **状态**：draft
 > **编写日期**：2026-11-22
-> **修订日期**：2026-11-22
+> **修订日期**：2026-11-23
 > **Domain ID**：`DOMAIN-SYS-MGMT`
 > **实现模块**：`m06` / `foundation`（+ `ui-custom/web`）
-> **需求基线**：[系统与平台管理（含多租户）SRS](../02-product-requirements/Modules/SRS/Module_06_Multi_Tenant_Requirements.md)（v1.4）
+> **需求基线**：[系统与平台管理（含多租户）SRS](../02-product-requirements/Modules/SRS/Module_06_Multi_Tenant_Requirements.md)（v1.5）
 > **场景链接（唯一链接点）**：[Module_06_Scenario_Link.md](Module_06_Scenario_Link.md)
 > **场景演示脚本**：`docs/05-execution-records/module-06/scenario-walkthrough.md`（待创建）
 > **对外验收说明书**：`docs/07-design/Module_06_Acceptance.md`（待创建，派生，非追溯）
@@ -123,12 +123,12 @@ platform/gateway/auth/        # 认证与会话（M03 重写前的过渡适配�
 | 2 | 网域读视图归 M09，写与影响读归 M06 | D32：列表/详情由 M09 提供富化视图，避免两套读口径 |
 | 3 | 网域编码与登记归属创建后不可变 | 避免历史数据与资源引用漂移；变更走新建 + 迁移 |
 | 4 | 网域删除 = 引用检查 + 级联清退 | 有 M07 引用硬拒绝；无引用软删并废止 Token、停止下发 |
-| 5 | 下发通道由域类型派生 | `ChannelForDomainType`：管理域↔local，边缘域↔agent_pull |
+| 5 | 所有网域统一通过采集节点下发 | v3 仅创建 `edge` 网域，通道固定 `agent_pull`；不存在 `management` / `default` / `local` 通道；历史 `management` 数据由 migration 归一为 `edge` |
 | 6 | 云字典只增不改不删 | 已引用编码必须稳定；停用受引用检查保护 |
 | 7 | 保留策略只写配置、不越权重启 | 避免管理面直接操作数据面进程 |
 | 8 | 删除用户 / 网域为软删 | 保留审计与追溯 |
 
-> **未决口径（需 owner 决策）**：SRS v1.3 主张取消 `management`（中心直连域）与预置 `default` 管理域，但当前实现仍保留 `domain_type=management`、`default` 预置域与 `local` 通道（见 `platform/models/network_domain.go::ChannelForDomainType`）。本文按**实现事实**描述；差异登记在 Scenario Link 未决问题 #1，决策后同步修订 SRS/HLD/代码。
+> **口径已收敛（2026-11-23）**：`management` / `default` / `local` 已从实现移除——`platform/models/network_domain.go` 不再暴露管理域类型、默认域常量或 `ChannelForDomainType`；数据库 `domain_type` CHECK 仅接受 `edge`（migration 0013）；M06 登记接口拒绝 `management`；历史数据归一说明见 migration 00004 / 0013。Scenario Link 未决问题 #1 已关闭。
 
 ---
 
@@ -181,7 +181,7 @@ platform/gateway/auth/        # 认证与会话（M03 重写前的过渡适配�
 | `users` | M06 | 用户名唯一、bcrypt 哈希、角色、租户、状态、软删 |
 | `sessions` | M06 / auth | 不透明 Token（唯一索引）、用户、过期时间 |
 | `login_logs` | M06 | 账号、成败、IP、失败原因、时间 |
-| `network_domains` | M06 行政 + M09 监控同表 | 行政字段：名称、`domain_type`、`cloud_code`、`tenant_id`、授权租户、CIDR、状态；M09 字段：`channel`、`token`、`center_endpoint`、心跳、纳管状态等 |
+| `network_domains` | M06 | 行政字段：名称、`domain_type`（仅 `edge`）、`cloud_code`、`tenant_id`、授权租户、CIDR、状态；M09 运行态字段（token / channel / 心跳 / 纳管状态）在 `network_domain_access`，已由 migration 0014 从本表移除 |
 
 ### 5.2 保留与生命周期
 
@@ -191,7 +191,7 @@ platform/gateway/auth/        # 认证与会话（M03 重写前的过渡适配�
 
 ### 5.3 编码规则
 
-- 网域 ID 按 `<deploy_code>-<domain_code>` 生成，`default` 为历史例外。
+- 网域 ID 按 `<deploy_code>-<domain_code>` 生成；历史迁移行可能保留 `default` ID，但 `default` 为保留值，不允许新建或复用。
 - 租户 ID、`cloud_code`、网域 ID 创建后不可变更；展示名可改。
 - 云编码采用 `{类型}-{载体}` 复合码（如 `PUB-TX`、`GM-CU`），全局唯一。
 
@@ -222,7 +222,7 @@ platform/gateway/auth/        # 认证与会话（M03 重写前的过渡适配�
 - **删除**：先查 M07 资源引用，有引用返回 409 + 清单；无引用软删，并在同一次请求内级联清退 M09 纳管状态（废止 Token、停止下发、Agent 转离线）。
 - 删除响应带 `cascade_impact`：`edge_agent_count` 与最多 10 条 `will_retire_agents`。
 - 网域名称大小写不敏感唯一；重名返回 409。
-- `management` 域仅系统预置，普通登记 API 不允许创建。
+- 所有网域（含与中心同区域）均按 `edge` 登记；`management` 类型由数据库 CHECK 与登记接口双重拒绝，`default` ID 仅用于承接历史迁移行。
 
 ### 6.5 云字典
 
@@ -244,7 +244,7 @@ platform/gateway/auth/        # 认证与会话（M03 重写前的过渡适配�
 
 ### 7.2 网域登记
 
-填写行政字段 → 校验云编码/名称唯一/ID 规则 → 生成 ID 与通道 → 保存 → 返回接入引导（复制 Token、安装采集节点、跳转 M09）。
+填写行政字段 → 校验云编码/名称唯一/ID 规则 → 生成 ID（通道固定 `agent_pull`）→ 保存 → 返回接入引导（复制 Token、安装采集节点、跳转 M09）。
 
 ### 7.3 网域禁用/删除
 
@@ -359,3 +359,4 @@ active ⇄ suspended
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
 | v1.0 | 2026-11-22 | 首版：按 M09 形态建立 M06 概要设计；覆盖认证/角色门/租户/网域行政与级联/云字典/存储；网域读归 M09 的边界；登记 management/default 口径未决问题 |
+| v1.1 | 2026-11-23 | 网域类型口径收敛：按 SRS v1.5 移除 `management` / `default` / `local` 残留，通道固定 `agent_pull`；同步数据归属（运行态字段归 M09 `network_domain_access`）与历史迁移说明 |
