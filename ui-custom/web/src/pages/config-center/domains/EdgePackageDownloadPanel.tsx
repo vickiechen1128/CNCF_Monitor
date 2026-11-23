@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Descriptions, Empty, Spin, Tooltip, Typography, message } from 'antd'
+import { Alert, Button, Descriptions, Empty, Spin, Tag, Tooltip, Typography, message } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { edgePackageApi } from '../../../api/edgePackages'
+import { latestPackageVersion } from '../nodes/edgeConstants'
 import type { EdgePackage } from '../../../types/config-center'
 import { triggerBlobDownload } from '../../../utils/triggerBlobDownload'
 
@@ -25,15 +26,16 @@ function formatFileSize(bytes: number): string {
 
 /**
  * 下载文件名：优先用后端 `release_meta.json` 提供的真实 tar.gz 产物名（`pkg.file`）；
- * 缺失时回落为真实构建产物命名约定 edge-sync-agent-<version>-linux-amd64.tar.gz。
+ * 缺失时回落到不带架构后缀的通用名——生产实际是 arm64 包，不再写死 amd64，避免误导部署机。
  */
 function offlineFilename(pkg: EdgePackage): string {
-  return pkg.file ?? `edge-sync-agent-${pkg.version}-linux-amd64.tar.gz`
+  return pkg.file ?? `edge-sync-agent-${pkg.version}.tar.gz`
 }
 
 /**
  * 顶部安装指引·下载安装包（T11-22 实连）。
- * 拉取 /edge-packages 版本清单，每条展示版本 / 大小 / sha256（省略 + Tooltip）/ 组件版本，
+ * 拉取 /edge-packages 版本清单，每条展示版本（版本号最大者标「最新」）/ 大小 /
+ * sha256（省略 + Tooltip）/ 组件版本；清单顶部展示适配环境（架构 + 操作系统）。
  * 附「下载」按钮触发 tar.gz 二进制下载（rawRequest 带认证，triggerBlobDownload 触发浏览器下载）。
  * 列表加载失败 / 下载失败分别给出 error 提示。
  * 懒加载：`active` 为 false 时不发起请求（配合父级 Collapse 折叠态；默认 true 兼容独立挂载）。
@@ -114,11 +116,21 @@ export function EdgePackageDownloadPanel({ active = true }: { active?: boolean }
     )
   }
 
+  // 版本号最大者视为「最新」（当前后端通常只有一份构建产物；兼容未来多版本清单）。
+  const latestVersion = latestPackageVersion(packages.map((p) => p.version))
+
   return (
     <div style={{ marginTop: 8 }}>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
         离线安装包
       </Text>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="适配环境"
+        description="支持 linux/arm64（麒麟 V10）、linux/amd64（Ubuntu）。离线包内含双架构二进制，部署机按 uname -m 自动选装对应版本。"
+      />
       {packages.map((pkg) => (
         <div
           key={pkg.version}
@@ -135,7 +147,14 @@ export function EdgePackageDownloadPanel({ active = true }: { active?: boolean }
             style={{ marginBottom: 8 }}
             labelStyle={{ width: 96, color: 'rgba(0,0,0,0.65)' }}
           >
-            <Descriptions.Item label="版本">{pkg.version}</Descriptions.Item>
+            <Descriptions.Item label="版本">
+              {pkg.version}
+              {pkg.version === latestVersion && (
+                <Tag color="gold" style={{ marginLeft: 8 }}>
+                  最新
+                </Tag>
+              )}
+            </Descriptions.Item>
             <Descriptions.Item label="大小">{formatFileSize(pkg.size_bytes)}</Descriptions.Item>
             <Descriptions.Item label="SHA256">
               <Tooltip title={pkg.sha256}>

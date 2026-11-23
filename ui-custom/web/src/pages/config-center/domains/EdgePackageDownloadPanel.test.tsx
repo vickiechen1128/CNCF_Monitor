@@ -30,7 +30,7 @@ const pkg = (over: Partial<EdgePackage> = {}): EdgePackage => ({
     { name: 'vmagent', version: 'v1.101.0' },
     { name: 'blackbox_exporter', version: 'v0.25.0' },
   ],
-  download_url: '/api/v2/platform/edge-packages/v1.2.0/download',
+  download_url: '/api/v3/platform/edge-packages/edge-sync-agent-v1.2.0-linux-amd64.tar.gz',
   ...over,
 })
 
@@ -66,6 +66,29 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     expect(screen.getByText('edge-sync-agent v1.2.0')).toBeInTheDocument()
     expect(screen.getByText('vmagent v1.101.0')).toBeInTheDocument()
     expect(screen.getByText('blackbox_exporter v0.25.0')).toBeInTheDocument()
+  })
+
+  it('展示适配环境说明（麒麟 V10 / arm64 / amd64 Ubuntu，含双架构选装提示）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: [pkg()] })
+    renderPanel()
+
+    expect(await screen.findByText('适配环境')).toBeInTheDocument()
+    expect(screen.getByText(/linux\/arm64（麒麟 V10）/)).toBeInTheDocument()
+    expect(screen.getByText(/linux\/amd64（Ubuntu）/)).toBeInTheDocument()
+    expect(screen.getByText(/uname -m 自动选装/)).toBeInTheDocument()
+  })
+
+  it('多版本清单中仅版本号最大者标「最新」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: [pkg(), pkg({ id: 'release-v1.3.0', version: 'v1.3.0' })],
+    })
+    renderPanel()
+
+    expect(await screen.findByText('适配环境')).toBeInTheDocument()
+    expect(screen.getAllByText('最新')).toHaveLength(1)
+    const latestVersionCell = screen.getByText('v1.3.0')
+    expect(latestVersionCell.parentElement?.textContent).toContain('最新')
   })
 
   it('短 sha256 不省略，直接展示全量', async () => {
@@ -119,7 +142,7 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     expect(screen.getByText('网络异常')).toBeInTheDocument()
   })
 
-  it('点击「下载安装包」触发 blob 下载，缺 file 时回落 edge-sync-agent-<version>-linux-amd64.tar.gz', async () => {
+  it('点击「下载安装包」触发 blob 下载，缺 file 时回落到不带架构后缀的通用文件名', async () => {
     listMock.mockResolvedValue({ status: 'success', data: [pkg()] })
     downloadMock.mockResolvedValue(new Blob(['tarball'], { type: 'application/gzip' }))
     renderPanel()
@@ -128,7 +151,7 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     await waitFor(() => expect(downloadMock).toHaveBeenCalledWith('v1.2.0'))
     expect(vi.mocked(triggerBlobDownload)).toHaveBeenCalledWith(
       expect.any(Blob),
-      'edge-sync-agent-v1.2.0-linux-amd64.tar.gz',
+      'edge-sync-agent-v1.2.0.tar.gz',
     )
     expect(msg.success).toHaveBeenCalledWith('安装包 v1.2.0 下载已开始')
   })
