@@ -305,7 +305,7 @@ export interface EdgePackage {
   sha256: string
   size_bytes: number
   components: EdgePackageComponent[]
-  /** 指定版本下载路径，如 /api/v2/platform/edge-packages/v1.2.0/download */
+  /** 指定产物下载路径，如 /api/v3/platform/edge-packages/<file> */
   download_url: string
   /**
    * tar.gz 真实产物文件名，由后端读取 build 目录 `release_meta.json` 的 `file` 字段提供，

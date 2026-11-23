@@ -407,7 +407,7 @@ export interface ApplicationDict {
   merged_into?: string
   /**
    * @deprecated {v2.49 决策 111} 应用↔平台改 M:N，关联权威迁至 `app_platform_rel`
-   * （`GET /api/v2/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`）。
+   * （`GET /api/v3/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`）。
    *
    * {v2026-10-03 决策 118-3} 写链路（`ApplicationDictCreateInput` / `ApplicationDictUpdateInput`）
    * 与 generator 读取侧**均已退役**，本字段**全仓生产消费者归零**，仅保留只读响应兼容。
@@ -487,7 +487,7 @@ export interface CloudDict {
   merged_into?: string
 }
 
-/** 操作系统内置字典条目（os_dict.go，GET /api/v2/platform/os-options）：规范名 + 家族 */
+/** 操作系统内置字典条目（os_dict.go，GET /api/v3/platform/os-options）：规范名 + 家族 */
 export interface OSOption {
   name: string
   /** 监控家族：linux / windows（对齐 host_linux / host_windows） */

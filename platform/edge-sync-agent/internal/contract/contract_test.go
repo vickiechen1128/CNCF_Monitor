@@ -96,7 +96,7 @@ func TestHeartbeatResponseJSON(t *testing.T) {
 	err := json.Unmarshal([]byte(`{
 		"config_changed": true,
 		"config_version": "20260724-121500",
-		"config_download_url": "https://10.8.0.5:8443/api/v2/platform/edge/config?network_domain=gov-cloud-a"
+		"config_download_url": "https://10.8.0.5:8443/api/v3/platform/edge/config?network_domain=gov-cloud-a"
 	}`), &resp)
 	if err != nil {
 		t.Fatal(err)

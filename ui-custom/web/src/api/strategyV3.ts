@@ -1,7 +1,7 @@
 /**
  * M01 v3 API 客户端（/api/v3/platform/*）。
  *
- * 页面在 F2/F3 迁移到本模块；旧的 `/api/v2` 客户端在页面迁完前保留。
+ * 页面已迁移到本模块；不再保留 `/api/v2` 客户端。
  */
 import { apiClient } from './client'
 import type { ApiResponse, Paginated } from '../types/api'

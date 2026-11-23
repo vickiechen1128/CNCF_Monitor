@@ -1,8 +1,8 @@
 /**
  * M06「存储与日志管理」类型（F-41）。
  * 对齐 platform/admin/storagelog/handler.go 的响应结构：
- * - GET  /api/v2/platform/storage-logs
- * - PUT  /api/v2/platform/storage-logs/retention
+ * - GET  /api/v3/platform/storage-logs
+ * - PUT  /api/v3/platform/storage-logs/retention
  */
 
 /** TSDB 保留策略二元组（time/size 原始字符串形态）。 */

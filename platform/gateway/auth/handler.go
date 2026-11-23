@@ -11,7 +11,7 @@ import (
 )
 
 // RegisterRoutes mounts the Module_03 轻量认证 endpoints under an
-// `/api/v2/platform` sub-group（路由为 /auth/*）。认证中间件由 au-02 统一挂载，
+// `/api/v3/platform` sub-group（路由为 /auth/*）。认证中间件由 au-02 统一挂载，
 // 本任务只实现认证 API 与写 LoginLog，不做鉴权。
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	h := NewHandler(NewService(NewRepository(db)))
@@ -65,7 +65,7 @@ type changePasswordRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
-// Login handles POST /api/v2/platform/auth/login。
+// Login handles POST /api/v3/platform/auth/login。
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -90,7 +90,7 @@ func (h *Handler) Login(c *gin.Context) {
 	})
 }
 
-// Logout handles POST /api/v2/platform/auth/logout（幂等：会话失效即成功）。
+// Logout handles POST /api/v3/platform/auth/logout（幂等：会话失效即成功）。
 func (h *Handler) Logout(c *gin.Context) {
 	if err := h.svc.Logout(bearerToken(c)); err != nil {
 		writeError(c, err)
@@ -99,7 +99,7 @@ func (h *Handler) Logout(c *gin.Context) {
 	response.OK(c, nil)
 }
 
-// Me handles GET /api/v2/platform/auth/me：按 Token 解析当前用户。
+// Me handles GET /api/v3/platform/auth/me：按 Token 解析当前用户。
 func (h *Handler) Me(c *gin.Context) {
 	u, err := h.svc.Authenticate(bearerToken(c))
 	if err != nil {
@@ -116,7 +116,7 @@ func (h *Handler) Me(c *gin.Context) {
 	})
 }
 
-// ChangePassword handles PUT /api/v2/platform/auth/password（自助改密）。
+// ChangePassword handles PUT /api/v3/platform/auth/password（自助改密）。
 func (h *Handler) ChangePassword(c *gin.Context) {
 	token := bearerToken(c)
 	var req changePasswordRequest

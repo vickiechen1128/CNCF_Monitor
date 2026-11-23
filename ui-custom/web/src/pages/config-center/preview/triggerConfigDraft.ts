@@ -5,7 +5,7 @@
  * best-effort 触发一次即时生成，缩短「待同步」窗口。触发失败静默降级，
  * watcher 会在下一轮补齐。
  *
- * 历史背景：v2 通过 POST /api/v2/platform/config/drafts 即时触发变更单生成；
+ * 历史背景：v2 通过 POST /api/v3/platform/config/drafts 即时触发变更单生成；
  * v3 改为 POST /api/v3/platform/config-sync/trigger。
  */
 import { configSyncTriggerApi } from '../../../api/configCenter'

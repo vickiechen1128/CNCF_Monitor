@@ -215,11 +215,6 @@ export const deploymentStatusColor: Record<DeploymentStatus, string> = {
   rolled_back: 'warning',
 }
 
-/** Remote Write URL 自动推导（决策 14）：留空自动生成，可手动覆盖 */
-export function deriveRemoteWriteUrl(domainId: string): string {
-  return `https://metriccenter.example.com/api/v2/ingest/${domainId}/prometheus`
-}
-
 /** 最高风险（列表风险等级列：取给定变更项集的最高风险） */
 export function highestRisk(items: { risk: Risk }[] | undefined): Risk {
   return (items ?? []).some((i) => i.risk === 'high') ? 'high' : 'low'

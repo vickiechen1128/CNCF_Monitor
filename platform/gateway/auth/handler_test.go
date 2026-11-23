@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTestDB opens a per-test in-memory SQLite DB with exactly the tables the
+// openTestDB opens a per-test PostgreSQL schema with exactly the tables the
 // auth package touches.
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -34,11 +34,11 @@ func openTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// newTestRouter builds a gin engine with the auth routes under /api/v2/platform.
+// newTestRouter builds a gin engine with the auth routes under /api/v3/platform.
 func newTestRouter(db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	platform := r.Group("/api/v2/platform")
+	platform := r.Group("/api/v3/platform")
 	RegisterRoutes(platform, db)
 	return r
 }
@@ -98,7 +98,7 @@ func seedUser(t *testing.T, db *gorm.DB, id, username, displayName, password str
 // loginAndToken logs in via the API and returns the raw token string.
 func loginAndToken(t *testing.T, r *gin.Engine, username, password string) string {
 	t.Helper()
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login",
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login",
 		fmt.Sprintf(`{"username":%q,"password":%q}`, username, password), "")
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	env := decodeEnvelope(t, w)
@@ -129,7 +129,7 @@ func TestLogin_Success(t *testing.T) {
 	r := newTestRouter(db)
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
 	require.Equal(t, http.StatusOK, w.Code)
 	env := decodeEnvelope(t, w)
 	assert.Equal(t, "success", env.Status)
@@ -174,8 +174,8 @@ func TestLogin_Failure_UnifiedAndLogged(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 
 	// 错误密码 vs 不存在账号：响应必须完全一致以防账号枚举。
-	wrongPW := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":"admin","password":"wrongpass"}`, "")
-	noSuch := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":"ghost","password":"whatever1"}`, "")
+	wrongPW := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":"admin","password":"wrongpass"}`, "")
+	noSuch := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":"ghost","password":"whatever1"}`, "")
 	for _, tt := range []*httptest.ResponseRecorder{wrongPW, noSuch} {
 		require.Equal(t, http.StatusUnauthorized, tt.Code)
 		env := decodeEnvelope(t, tt)
@@ -205,7 +205,7 @@ func TestLogin_DisabledUser(t *testing.T) {
 	u.Status = models.UserStatusDisabled
 	require.NoError(t, db.Save(u).Error)
 
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 	assert.Equal(t, "用户名或密码错误", decodeEnvelope(t, w).Error)
@@ -222,7 +222,7 @@ func TestLogin_ResponseNeverLeaksPasswordHash(t *testing.T) {
 		`{"username":"admin","password":"badpass1"}`, // 失败
 		`{"username":"admin","password":"admin123"}`, // 成功
 	} {
-		w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", body, "")
+		w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", body, "")
 		require.True(t, w.Code == http.StatusOK || w.Code == http.StatusUnauthorized)
 		// 任何登录响应都不泄露 password_hash 或 bcrypt 前缀 `$2a$`。
 		assert.NotContains(t, w.Body.String(), "password_hash")
@@ -235,7 +235,7 @@ func TestLogin_ResponseNeverLeaksPasswordHash(t *testing.T) {
 func TestLogin_MalformedJSON(t *testing.T) {
 	db := openTestDB(t)
 	r := newTestRouter(db)
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":`, "")
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":`, "")
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, "bad_request", decodeEnvelope(t, w).ErrorType)
 }
@@ -248,7 +248,7 @@ func TestLogout_Idempotent(t *testing.T) {
 	token := loginAndToken(t, r, "admin", "admin123")
 	require.Equal(t, int64(1), countSessions(t, db, "u1"))
 
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/logout", "", token)
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/logout", "", token)
 	require.Equal(t, http.StatusOK, w.Code)
 	env := decodeEnvelope(t, w)
 	assert.Equal(t, "success", env.Status)
@@ -256,14 +256,14 @@ func TestLogout_Idempotent(t *testing.T) {
 	assert.Equal(t, int64(0), countSessions(t, db, "u1"))
 
 	// 幂等：再次登出同一 token 仍返回 200。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/auth/logout", "", token)
+	w = perform(t, r, http.MethodPost, "/api/v3/platform/auth/logout", "", token)
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestLogout_MissingToken(t *testing.T) {
 	db := openTestDB(t)
 	r := newTestRouter(db)
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/logout", "", "")
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/logout", "", "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 }
@@ -274,7 +274,7 @@ func TestMe_ValidToken(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 	token := loginAndToken(t, r, "admin", "admin123")
 
-	w := perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", token)
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", token)
 	require.Equal(t, http.StatusOK, w.Code)
 	env := decodeEnvelope(t, w)
 	var data meDTO
@@ -295,15 +295,15 @@ func TestMe_InvalidOrMissingToken(t *testing.T) {
 	token := loginAndToken(t, r, "admin", "admin123")
 
 	// 无 token。
-	w := perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", "")
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	// 无效 token。
-	w = perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", "garbage-token")
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", "garbage-token")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	// 登出后的 token 失效。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/auth/logout", "", token)
+	w = perform(t, r, http.MethodPost, "/api/v3/platform/auth/logout", "", token)
 	require.Equal(t, http.StatusOK, w.Code)
-	w = perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", token)
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 }
@@ -318,7 +318,7 @@ func TestMe_ExpiredSession(t *testing.T) {
 	require.NoError(t, db.Model(&models.Session{}).
 		Where("token = ?", token).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 
-	w := perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", token)
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 }
@@ -334,7 +334,7 @@ func TestMe_DisabledUserSessionInvalid(t *testing.T) {
 	u.Status = models.UserStatusDisabled
 	require.NoError(t, db.Save(u).Error)
 
-	w := perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", token)
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 }
@@ -349,7 +349,7 @@ func TestChangePassword_SuccessInvalidatesSessions(t *testing.T) {
 		ID: "sess2", Token: "tok-other", UserID: "u1", ExpiresAt: time.Now().Add(time.Hour),
 	}).Error)
 
-	w := perform(t, r, http.MethodPut, "/api/v2/platform/auth/password",
+	w := perform(t, r, http.MethodPut, "/api/v3/platform/auth/password",
 		`{"old_password":"admin123","new_password":"newpass456"}`, token)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	env := decodeEnvelope(t, w)
@@ -366,10 +366,10 @@ func TestChangePassword_SuccessInvalidatesSessions(t *testing.T) {
 	assert.Equal(t, int64(0), countSessions(t, db, "u1"))
 
 	// 旧 token 不再可用，新密码可登录。
-	w = perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", token)
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	newToken := loginAndToken(t, r, "admin", "newpass456")
-	w = perform(t, r, http.MethodGet, "/api/v2/platform/auth/me", "", newToken)
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/auth/me", "", newToken)
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -379,7 +379,7 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 	token := loginAndToken(t, r, "admin", "admin123")
 
-	w := perform(t, r, http.MethodPut, "/api/v2/platform/auth/password",
+	w := perform(t, r, http.MethodPut, "/api/v3/platform/auth/password",
 		`{"old_password":"wrongold","new_password":"newpass456"}`, token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	env := decodeEnvelope(t, w)
@@ -400,17 +400,17 @@ func TestChangePassword_Validation(t *testing.T) {
 	token := loginAndToken(t, r, "admin", "admin123")
 
 	// 新密码过短 → 400 bad_request。
-	w := perform(t, r, http.MethodPut, "/api/v2/platform/auth/password",
+	w := perform(t, r, http.MethodPut, "/api/v3/platform/auth/password",
 		`{"old_password":"admin123","new_password":"abc"}`, token)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, "bad_request", decodeEnvelope(t, w).ErrorType)
 
 	// 缺字段 → 400。
-	w = perform(t, r, http.MethodPut, "/api/v2/platform/auth/password", `{}`, token)
+	w = perform(t, r, http.MethodPut, "/api/v3/platform/auth/password", `{}`, token)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	// 未认证（无 token）→ 401，即便 body 非法也该先拦会话。
-	w = perform(t, r, http.MethodPut, "/api/v2/platform/auth/password",
+	w = perform(t, r, http.MethodPut, "/api/v3/platform/auth/password",
 		`{"old_password":"admin123","new_password":"newpass456"}`, "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 }

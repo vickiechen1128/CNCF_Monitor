@@ -8,7 +8,6 @@ import {
   changeTargetLabel,
   draftStatusLabel,
   deploymentStatusLabel,
-  deriveRemoteWriteUrl,
   deriveRegistrationStatus,
   formatLocalDate,
   highestRisk,
@@ -51,10 +50,6 @@ describe('configCenterConstants（Module_09 契约映射）', () => {
   it('变更对象/变更类型映射（契约 §10）', () => {
     expect(changeTargetLabel.scrape_job).toBe('采集 Job')
     expect(changeTargetLabel.monitoring_rule).toBe('告警规则')
-  })
-
-  it('Remote Write URL 自动推导（决策 14），可手动覆盖', () => {
-    expect(deriveRemoteWriteUrl('gov-cloud-a')).toContain('/api/v2/ingest/gov-cloud-a/prometheus')
   })
 
   it('最高风险取 change_items 中高风险', () => {

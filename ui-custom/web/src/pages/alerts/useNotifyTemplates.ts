@@ -1,6 +1,6 @@
 /**
  * Module_08 通知模板管理页数据 Hook（2026-10-22 模板改为可编辑实体）。
- * 消费 GET / GET :id / POST / PUT / DELETE /api/v2/platform/alertmanager/notify-templates。
+ * 消费 GET / GET :id / POST / PUT / DELETE /api/v3/platform/alertmanager/notify-templates。
  * 模板不再有版本历史 / remount；列表不含 content，详情按需拉取。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足。
  */

@@ -22,26 +22,14 @@
 //
 // # Adopting in an existing test
 //
-// Replace a local helper such as:
+// Remove any legacy local SQLite helper and use a thin delegate:
 //
 //	func openTestDB(t *testing.T) *gorm.DB {
 //	    t.Helper()
-//	    dsn := filepath.Join(t.TempDir(), "m07_repository.db")
-//	    require.NoError(t, db.MigrateV3("sqlite", dsn))
-//	    gormDB, err := gorm.Open(sqlite.Open(dsn+"?_foreign_keys=on"), &gorm.Config{})
-//	    require.NoError(t, err)
-//	    ... seed rows ...
-//	    return gormDB
+//	    return testdb.Open(t)
 //	}
 //
-// with a thin delegate:
-//
-//	func openTestDB(t *testing.T) *gorm.DB {
-//	    t.Helper()
-//	    gormDB := testdb.Open(t)   // isolated PG schema + v3 migrations applied
-//	    ... seed rows ...           // unchanged business logic
-//	    return gormDB
-//	}
+// Then seed rows and exercise the repository/service as usual.
 //
 // Open applies db.MigrateV3 for you. Keep only the fixture-specific statements
 // (seed INSERTs, etc.) in the helper. Tests that need a raw *sql.DB should use

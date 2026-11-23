@@ -116,13 +116,13 @@ describe('apiClient', () => {
   it('builds URL with query params', async () => {
     mockFetch(createJsonResponse({ status: 'success', data: [] }))
 
-    await apiClient.get('/api/v2/platform/config', {
+    await apiClient.get('/api/v3/platform/config', {
       params: { page: 1, limit: 10, empty: '', nil: undefined },
     })
 
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     const url = new URL(call[0])
-    expect(url.pathname).toBe('/api/v2/platform/config')
+    expect(url.pathname).toBe('/api/v3/platform/config')
     expect(url.searchParams.get('page')).toBe('1')
     expect(url.searchParams.get('limit')).toBe('10')
     expect(url.searchParams.has('empty')).toBe(false)
@@ -137,16 +137,16 @@ describe('apiClient', () => {
     expect(new URL(v1Call[0]).pathname).toBe('/api/v1/query')
 
     mockFetch(createJsonResponse({ status: 'success', data: null }))
-    await request('/api/v2/platform/config')
+    await request('/api/v3/platform/config')
     const v2Call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]
-    expect(new URL(v2Call[0]).pathname).toBe('/api/v2/platform/config')
+    expect(new URL(v2Call[0]).pathname).toBe('/api/v3/platform/config')
   })
 
   it('attaches Authorization Bearer token from localStorage', async () => {
     setToken('tok-123')
     mockFetch(createJsonResponse({ status: 'success', data: null }))
 
-    await apiClient.get('/api/v2/platform/auth/me')
+    await apiClient.get('/api/v3/platform/auth/me')
 
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(call[1].headers.Authorization).toBe('Bearer tok-123')
@@ -155,7 +155,7 @@ describe('apiClient', () => {
   it('omits Authorization header when no token is stored', async () => {
     mockFetch(createJsonResponse({ status: 'success', data: null }))
 
-    await apiClient.get('/api/v2/platform/auth/me')
+    await apiClient.get('/api/v3/platform/auth/me')
 
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(call[1].headers).not.toHaveProperty('Authorization')
@@ -167,7 +167,7 @@ describe('apiClient', () => {
     setToken('tok-expired')
     mockFetch(createJsonResponse({ status: 'error', error: 'unauthorized', errorType: 'unauthorized' }, { status: 401 }))
 
-    await expect(apiClient.get('/api/v2/platform/dashboard/summary')).rejects.toThrow()
+    await expect(apiClient.get('/api/v3/platform/dashboard/summary')).rejects.toThrow()
 
     expect(getToken()).toBeNull()
     expect(navigate).toHaveBeenCalled()

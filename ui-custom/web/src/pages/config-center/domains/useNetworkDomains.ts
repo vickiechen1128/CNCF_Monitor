@@ -6,7 +6,7 @@ import type { NetworkDomain, PaginatedItems } from '../../../types/config-center
 
 /**
  * 网域纳管列表数据 Hook（Module_09，契约 §3）。
- * 消费 `GET /api/v2/platform/network-domains`（该 GET 列表由 Module_06 networkdomain 包实现，
+ * 消费 `GET /api/v3/platform/network-domains`（该 GET 列表由 Module_06 networkdomain 包实现，
  * 返回信封 `{list,total,page,page_size}`；本 Hook 归一化为 M09 `PaginatedItems` 的 `{items,total}`）。
  * 覆盖：分页 / keyword 筛选 / 加载 / 接口错误 / 权限不足（越权其他租户 forbidden）。
  */

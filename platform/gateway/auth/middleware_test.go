@@ -24,7 +24,7 @@ func newMiddlewareRouter(db *gorm.DB) *gin.Engine {
 	r := gin.New()
 	r.Use(AuthMiddleware(NewService(NewRepository(db))))
 
-	api := r.Group("/api/v1")
+	api := r.Group("/api/v3/platform")
 	api.GET("/protected", func(c *gin.Context) {
 		u := c.MustGet(ContextUserKey).(*models.User)
 		response.OK(c, gin.H{"username": u.Username})
@@ -33,11 +33,10 @@ func newMiddlewareRouter(db *gorm.DB) *gin.Engine {
 		c.Status(http.StatusNoContent)
 	})
 	api.GET("/health", func(c *gin.Context) { response.OK(c, gin.H{"status": "ok"}) })
-	api.GET("/health/db", func(c *gin.Context) { response.OK(c, gin.H{"status": "ok"}) })
-	api.GET("/status", func(c *gin.Context) { response.OK(c, gin.H{"status": "ok"}) })
+	api.GET("/ready", func(c *gin.Context) { response.OK(c, gin.H{"status": "ready"}) })
 
-	v2 := r.Group("/api/v2/platform/auth")
-	v2.POST("/login", func(c *gin.Context) { response.OK(c, gin.H{"ok": true}) })
+	v3 := r.Group("/api/v3/platform/auth")
+	v3.POST("/login", func(c *gin.Context) { response.OK(c, gin.H{"ok": true}) })
 	return r
 }
 
@@ -62,14 +61,14 @@ func TestMiddleware_AnonymousProtectedRejected(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 
 	// 无 token → 401。
-	w := perform(t, r, http.MethodGet, "/api/v1/protected", "", "")
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", "")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	env := decodeEnvelope(t, w)
 	assert.Equal(t, "error", env.Status)
 	assert.Equal(t, "unauthorized", env.ErrorType)
 
 	// 畸形 Authorization（非 Bearer）→ 401。
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/protected", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v3/platform/protected", nil)
 	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -83,14 +82,14 @@ func TestMiddleware_LoginAndHealthBypass(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 
 	// 匿名可访问健康检查与状态（无需 token）。
-	for _, path := range []string{"/api/v1/health", "/api/v1/health/db", "/api/v1/status"} {
+	for _, path := range []string{"/api/v3/platform/health", "/api/v3/platform/ready"} {
 		w := perform(t, r, http.MethodGet, path, "", "")
 		require.Equal(t, http.StatusOK, w.Code, "path %s 应放行: %s", path, w.Body.String())
 		assert.Equal(t, "success", decodeEnvelope(t, w).Status)
 	}
 
 	// 匿名 POST login 放行并真正签发 token。
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login", `{"username":"admin","password":"admin123"}`, "")
 	require.Equal(t, http.StatusOK, w.Code, "login 应放行: %s", w.Body.String())
 	assert.Equal(t, "success", decodeEnvelope(t, w).Status)
 }
@@ -101,7 +100,7 @@ func TestMiddleware_ValidTokenPasses(t *testing.T) {
 	seedUser(t, db, "u1", "admin", "系统管理员", "admin123")
 	token := loginToken(t, db, "admin", "admin123")
 
-	w := perform(t, r, http.MethodGet, "/api/v1/protected", "", token)
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", token)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	env := decodeEnvelope(t, w)
 	var data struct {
@@ -120,7 +119,7 @@ func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T) {
 	// 登出后 token 失效。
 	token := loginToken(t, db, "admin", "admin123")
 	require.NoError(t, svc.Logout(token))
-	w := perform(t, r, http.MethodGet, "/api/v1/protected", "", token)
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", token)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 
@@ -128,7 +127,7 @@ func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T) {
 	token2 := loginToken(t, db, "admin", "admin123")
 	require.NoError(t, db.Model(&models.Session{}).
 		Where("token = ?", token2).Update("expires_at", time.Now().Add(-time.Minute)).Error)
-	w = perform(t, r, http.MethodGet, "/api/v1/protected", "", token2)
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", token2)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// 用户被禁用。
@@ -137,7 +136,7 @@ func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T) {
 	require.NoError(t, db.First(&u, "id = ?", "u1").Error)
 	u.Status = models.UserStatusDisabled
 	require.NoError(t, db.Save(u).Error)
-	w = perform(t, r, http.MethodGet, "/api/v1/protected", "", token3)
+	w = perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", token3)
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 }
@@ -147,7 +146,7 @@ func TestMiddleware_OptionsPreflightPasses(t *testing.T) {
 	r := newMiddlewareRouter(db)
 
 	// OPTIONS 预检不要求认证。
-	w := perform(t, r, http.MethodOptions, "/api/v1/protected", "", "")
+	w := perform(t, r, http.MethodOptions, "/api/v3/platform/protected", "", "")
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
@@ -161,15 +160,15 @@ func TestMiddleware_NoAuthorization(t *testing.T) {
 
 	for _, cred := range [][2]string{{"admin", "admin123"}, {"ops", "opspass1"}} {
 		token := loginToken(t, db, cred[0], cred[1])
-		w := perform(t, r, http.MethodGet, "/api/v1/protected", "", token)
+		w := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", token)
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.NotEqual(t, http.StatusForbidden, w.Code, "中间件不应返回 403（无授权逻辑）")
 	}
 
 	// 无效/缺失 token 也只返回 401，绝不 403。
-	w := perform(t, r, http.MethodGet, "/api/v1/protected", "", "bad-token")
+	w := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", "bad-token")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	w2 := perform(t, r, http.MethodGet, "/api/v1/protected", "", "")
+	w2 := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", "")
 	require.Equal(t, http.StatusUnauthorized, w2.Code)
 }
 
@@ -186,7 +185,7 @@ func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T) {
 	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "index.html") })
 	r.GET("/assets/app.js", func(c *gin.Context) { c.String(http.StatusOK, "js") })
 	r.GET("/resources", func(c *gin.Context) { c.String(http.StatusOK, "index.html") })
-	r.GET("/api/v1/protected", func(c *gin.Context) { response.OK(c, gin.H{"ok": true}) })
+	r.GET("/api/v3/platform/protected", func(c *gin.Context) { response.OK(c, gin.H{"ok": true}) })
 
 	for _, path := range []string{"/", "/assets/app.js", "/resources"} {
 		w := perform(t, r, http.MethodGet, path, "", "")
@@ -194,6 +193,6 @@ func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T) {
 	}
 
 	// 放行非 /api 路径不应削弱 /api/* 的认证强度：受保护接口仍须 401。
-	protected := perform(t, r, http.MethodGet, "/api/v1/protected", "", "")
+	protected := perform(t, r, http.MethodGet, "/api/v3/platform/protected", "", "")
 	require.Equal(t, http.StatusUnauthorized, protected.Code)
 }

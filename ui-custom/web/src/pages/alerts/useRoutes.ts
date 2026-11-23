@@ -1,7 +1,7 @@
 /**
  * 「路由规则」页数据 Hook。
  *
- * 只读数据来源：`GET /api/v2/platform/alertmanager/routes`（仅全局认证）：
+ * 只读数据来源：`GET /api/v3/platform/alertmanager/routes`（仅全局认证）：
  *   成功 → `{ items, declared_receivers, effective_checksum }`（v3：无待确认变更单）；
  *   解析失败 → `{ parse_error, raw_yaml }`（非 500、不白屏）。
  *
@@ -9,7 +9,7 @@
  * - 进入编辑 = 只读树 → 编辑态树（`fromRouteNodes`，`enabled` 显式置 true）；
  * - 顺序用上移 / 下移 / 拖拽表达，落盘顺序 = 同层数组位置；
  * - 保存 = **只提交结构化路由树 + base_checksum** 给
- *   `POST /api/v2/platform/alertmanager/routes`，由后端生成 route 段、合并整份配置、
+ *   `POST /api/v3/platform/alertmanager/routes`，由后端生成 route 段、合并整份配置、
  *   amtool 校验并立即 reload 生效。前端不再生成 / 合并 YAML。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -234,7 +234,7 @@ export interface UseRouteEditorResult {
  * 编辑态 Hook：载入 / 顺序调整 / 删除 / 预检 / 保存。
  *
  * 保存链路：只提交 `{ base_checksum, route_tree }` 给
- * `POST /api/v2/platform/alertmanager/routes`；route YAML 生成、整份合并、amtool 校验、
+ * `POST /api/v3/platform/alertmanager/routes`；route YAML 生成、整份合并、amtool 校验、
  * 版本落库、apply 与 reload 全部由后端完成。
  */
 export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEditorResult {

@@ -15,7 +15,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/testutil/testdb"
 )
 
-// newTestDB opens a migrated v3 SQLite database for the M08 tests.
+// newTestDB opens a migrated v3 PostgreSQL database for the M08 tests.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	g := testdb.Open(t)

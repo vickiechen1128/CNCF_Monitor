@@ -74,14 +74,14 @@ func TestLogin_RateLimitLocksAfterThreshold(t *testing.T) {
 
 	// 第 1~5 次错误密码：401 unauthorized，第 5 次触发锁定。
 	for i := 0; i < loginFailThreshold; i++ {
-		w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login",
+		w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login",
 			`{"username":"lockvictim","password":"wrong-pass"}`, "")
 		require.Equal(t, http.StatusUnauthorized, w.Code, "第 %d 次连续失败应 401", i+1)
 		assert.Equal(t, "unauthorized", decodeEnvelope(t, w).ErrorType)
 	}
 
 	// 第 6 次（锁定期内）：拒绝为 429 too_many_requests。
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login",
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login",
 		`{"username":"lockvictim","password":"wrong-pass"}`, "")
 	require.Equal(t, http.StatusTooManyRequests, w.Code, "锁定后应返回 429")
 	env := decodeEnvelope(t, w)
@@ -112,7 +112,7 @@ func TestLogin_RateLimitResetAfterSuccess(t *testing.T) {
 		_, err := svc.Login("rlvictim", "wrong-pass", "127.0.0.1")
 		assert.ErrorIs(t, err, ErrInvalidCredentials, "成功登录后失败计数应被重置")
 	}
-	w := perform(t, r, http.MethodPost, "/api/v2/platform/auth/login",
+	w := perform(t, r, http.MethodPost, "/api/v3/platform/auth/login",
 		`{"username":"rlvictim","password":"correct-pass1"}`, "")
 	require.Equal(t, http.StatusOK, w.Code, "重置后不得误锁，正确密码应可登录")
 }

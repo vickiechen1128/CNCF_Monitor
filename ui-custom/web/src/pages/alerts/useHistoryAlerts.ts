@@ -1,7 +1,7 @@
 /**
  * 历史告警页数据 Hook（Module_08 历史告警：webhook 留痕 + 分钟级对账）。
  * 一行 = 一次告警发生（按 fingerprint 合并），支持六态 / 时间范围 / 关键字服务端分页查询。
- * 数据源：GET /api/v2/platform/alertmanager/alert-events。
+ * 数据源：GET /api/v3/platform/alertmanager/alert-events。
  */
 import { useCallback, useEffect, useState } from 'react'
 import dayjs, { type Dayjs } from 'dayjs'

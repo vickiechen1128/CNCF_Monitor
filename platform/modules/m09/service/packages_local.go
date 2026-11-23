@@ -24,13 +24,12 @@ type packageComponent struct {
 }
 
 type packageArtifact struct {
-	ID          string             `json:"id"`
-	Version     string             `json:"version"`
-	File        string             `json:"file"`
-	Components  []packageComponent `json:"components"`
-	SizeBytes   int64              `json:"size_bytes"`
-	Sha256      string             `json:"sha256"`
-	DownloadURL string             `json:"download_url"`
+	ID         string             `json:"id"`
+	Version    string             `json:"version"`
+	File       string             `json:"file"`
+	Components []packageComponent `json:"components"`
+	SizeBytes  int64              `json:"size_bytes"`
+	Sha256     string             `json:"sha256"`
 }
 
 var errPackageArtifactUnavailable = errors.New("edge offline package artifact unavailable")
@@ -65,7 +64,6 @@ func loadPackageManifest(dir string) (packageArtifact, error) {
 	if art.SizeBytes <= 0 {
 		art.SizeBytes = info.Size()
 	}
-	art.DownloadURL = "/api/v2/platform/edge-packages/" + art.Version + "/download"
 	return art, nil
 }
 

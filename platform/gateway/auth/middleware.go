@@ -40,21 +40,17 @@ func CurrentUsername(c *gin.Context) string {
 	return u.Username
 }
 
-// loginPaths are the anonymous login endpoints (v2 legacy + v3 line).
+// loginPaths are the anonymous login endpoints (v3 line only).
 var loginPaths = map[string]struct{}{
-	"/api/v2/platform/auth/login": {},
 	"/api/v3/platform/auth/login": {},
 }
 
 // healthPaths are the public health endpoints that must remain anonymous.
-// 契约 §4「横切约定」：除 POST /api/v2/platform/auth/login 与 /api/v1/health*
-// 外，所有 /api/* 请求须携带有效 Bearer token。
-// v3 线（/api/v3/platform/*）的 health / ready / meta 同为探针类端点，保持匿名：
+// 契约 §4「横切约定」：除 POST /api/v3/platform/auth/login 与 v3 探针端点外，
+// 所有 /api/* 请求须携带有效 Bearer token。
+// v3 线（/api/v3/platform/*）的 health / ready / meta 保持匿名：
 // 编排系统与负载均衡无法持有平台用户 token。
 var healthPaths = map[string]struct{}{
-	"/api/v1/health":          {},
-	"/api/v1/health/db":       {},
-	"/api/v1/status":          {},
 	"/api/v3/platform/health": {},
 	"/api/v3/platform/ready":  {},
 	"/api/v3/platform/meta":   {},
@@ -62,7 +58,7 @@ var healthPaths = map[string]struct{}{
 
 // PublicPathPrefixes 是需豁免全局平台用户认证的 /api/* 路径前缀（D1：edge 协议
 // outbound-only，Agent 非平台用户，走独立 edge-token 中间件）。默认空，行为与既有
-// 一致；由 main.go 接线时填充（如 "/api/v2/platform/edge/"）。命中前缀直接放行，不校验用户 token。
+// 一致；由 main.go 接线时填充（如 "/api/v3/edge/"）。命中前缀直接放行，不校验用户 token。
 var PublicPathPrefixes []string
 
 // AuthMiddleware enforces the contract-wide authentication gate for /api/*
@@ -71,8 +67,8 @@ var PublicPathPrefixes []string
 //   - every non-/api/* request (frontend static assets and SPA routes when the
 //     control plane hosts the UI itself, see deploy topology A2);
 //   - OPTIONS preflight requests;
-//   - POST /api/v2/platform/auth/login;
-//   - the /api/v1/health*, /api/v1/status public health endpoints.
+//   - POST /api/v3/platform/auth/login;
+//   - the /api/v3/platform/{health,ready,meta} public probe endpoints.
 //
 // Every other request must carry an `Authorization: Bearer <token>` header
 // resolving to a live, unexpired session of an active user, otherwise a 401

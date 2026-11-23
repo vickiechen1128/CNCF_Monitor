@@ -1,7 +1,7 @@
 /**
  * 路由「分组键」标签名联想（T08-F13，v0.3-c 联动）。
  *
- * 数据来源：`GET /api/v2/platform/alertmanager/silences/label-options`——与静默管理页同源的
+ * 数据来源：`GET /api/v3/platform/alertmanager/silences/label-options`——与静默管理页同源的
  * **四层并集**键集合（决策 71 既有资产，零后端改动）：系统与采集标签 ∪ 标签模板 ∪ 规则标签 ∪ 网域标识。
  *
  * 口径：

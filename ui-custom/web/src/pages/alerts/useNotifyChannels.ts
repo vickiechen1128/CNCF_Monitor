@@ -1,7 +1,7 @@
 /**
  * Module_08 通知渠道管理页数据 Hook（PL-3 通知渲染桥，2026-09-28）。
  * 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
- * 消费 GET / POST / PUT / DELETE /api/v2/platform/alertmanager/notify-channels；
+ * 消费 GET / POST / PUT / DELETE /api/v3/platform/alertmanager/notify-channels；
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足。
  */
 import { useCallback, useEffect, useState } from 'react'

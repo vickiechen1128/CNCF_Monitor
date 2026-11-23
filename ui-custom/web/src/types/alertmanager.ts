@@ -180,7 +180,7 @@ export interface AmAlertStatus {
   inhibited_by?: string[]
 }
 
-/** Alertmanager 通知状态告警项（M08 代理 GET /api/v2/platform/alertmanager/alerts，data.items[]） */
+/** Alertmanager 通知状态告警项（M08 代理 GET /api/v3/platform/alertmanager/alerts，data.items[]） */
 export interface AmAlertItem extends AlertInstanceFields {
   /** 告警标签（alertname / severity / network_domain / instance，UI 展示名同契约 §10.1） */
   labels: Record<string, string>
@@ -195,7 +195,7 @@ export interface AmAlertItem extends AlertInstanceFields {
   notify_status: NotifyStatus
 }
 
-/** GET /api/v2/platform/alertmanager/alerts 响应 data 信封（空结果返回 [] 而非 null） */
+/** GET /api/v3/platform/alertmanager/alerts 响应 data 信封（空结果返回 [] 而非 null） */
 export interface AmAlertsData {
   items: AmAlertItem[]
 }
@@ -264,7 +264,7 @@ export interface AlertEventItem extends AlertInstanceFields {
   annotations?: Record<string, string>
 }
 
-/** GET /api/v2/platform/alertmanager/alert-events 响应 data 信封 */
+/** GET /api/v3/platform/alertmanager/alert-events 响应 data 信封 */
 export interface AlertEventData {
   list: AlertEventItem[]
   total: number
@@ -273,7 +273,7 @@ export interface AlertEventData {
 }
 
 /**
- * GET /api/v2/platform/alertmanager/alert-events/current 响应 data 信封。
+ * GET /api/v3/platform/alertmanager/alert-events/current 响应 data 信封。
  * 全部未结告警（firing/silenced/inhibited），不分页；首页「当前告警」卡一次取满。
  */
 export interface AlertEventCurrentData {
@@ -281,7 +281,7 @@ export interface AlertEventCurrentData {
   total: number
 }
 
-/** GET /api/v2/platform/alertmanager/alert-events/stats 响应 data */
+/** GET /api/v3/platform/alertmanager/alert-events/stats 响应 data */
 export interface AlertEventStats {
   /** 今日告警：今天 0 点后开始触发的发生数（严格按开始时间） */
   today_total: number
@@ -479,7 +479,7 @@ export interface RouteEditNode {
 }
 
 /**
- * GET `/api/v2/platform/alertmanager/routes` 响应 data（只读、无写能力）。
+ * GET `/api/v3/platform/alertmanager/routes` 响应 data（只读、无写能力）。
  * 成功：`{ items, declared_receivers }`；
  * 解析失败 / 非常规结构降级：`{ parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
  *
@@ -500,7 +500,7 @@ export interface RouteTreeData {
   raw_yaml?: string
 }
 
-/** POST `/api/v2/platform/alertmanager/routes` 请求体：只提交结构化路由树，不提交 YAML */
+/** POST `/api/v3/platform/alertmanager/routes` 请求体：只提交结构化路由树，不提交 YAML */
 export interface SaveRoutesPayload {
   /** 进入编辑时 GET /routes 返回的 effective_checksum（乐观锁） */
   base_checksum: string

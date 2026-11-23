@@ -9,7 +9,7 @@ import (
 func TestRouteProbeParamNameConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	g := r.Group("/api/v2/platform")
+	g := r.Group("/api/v3/platform")
 	func() {
 		defer func() {
 			if rec := recover(); rec != nil {
