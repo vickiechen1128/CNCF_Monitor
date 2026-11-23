@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // CI 模型内置字段清单（SRS Module_07 v2.2 §5.8 FR-30）。
 //
 // 内置字段是平台识别、归属、采集与类型推导所必需的最小字段集：
@@ -71,6 +73,34 @@ func BuiltinFields(c Category) []BuiltinField {
 	default:
 		return nil
 	}
+}
+
+// IsBuiltinField reports whether key belongs to the platform-owned field set of
+// one category.
+//
+// Built-in fields never enter the custom field dictionary, so a custom
+// registration using the same key would shadow a platform field and split the
+// field's meaning across two storage layers (SRS v2.4 §5.8 FR-30 / NFR-24).
+func IsBuiltinField(c Category, key string) bool {
+	key = strings.TrimSpace(key)
+	for _, field := range BuiltinFields(c) {
+		if field.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBuiltinFieldKey reports whether key is platform-owned in any category. It
+// lets the custom field API reject requests that address a built-in field by
+// key while returning an actionable message instead of a generic not-found.
+func IsBuiltinFieldKey(key string) bool {
+	for _, c := range AllCategories() {
+		if IsBuiltinField(c, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func ownershipFields(withPlatform bool) []BuiltinField {

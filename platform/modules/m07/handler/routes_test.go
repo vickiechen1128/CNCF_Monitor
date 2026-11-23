@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/dictionary"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/domain"
 	"github.com/metriccenter/metriccenter/platform/modules/m07/importer"
@@ -23,7 +25,41 @@ import (
 	"gorm.io/gorm"
 )
 
+// testAdmin is the authenticated platform administrator used by the default
+// test router. Custom field definition writes require it (SRS Module_07 v2.4
+// §4.1 角色表 + §5.8 FR-32); every other M07 write stays open to logged-in
+// users.
+func testAdmin() *models.User {
+	return &models.User{
+		ID:       "test-admin",
+		Username: "admin",
+		TenantID: models.PlatformAdminTenantID,
+		Role:     models.UserRoleAdmin,
+		Status:   models.UserStatusActive,
+	}
+}
+
+// testRegularUser is an authenticated non-admin used to lock the 403 boundary
+// of the custom field administration routes.
+func testRegularUser() *models.User {
+	return &models.User{
+		ID:       "test-user",
+		Username: "operator",
+		TenantID: "tenant-a",
+		Role:     models.UserRoleUser,
+		Status:   models.UserStatusActive,
+	}
+}
+
 func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+	return newTestRouterAs(t, testAdmin())
+}
+
+// newTestRouterAs mounts M07 behind a stub auth context. The production router
+// runs the real AuthMiddleware (401) before RequireAdmin (403); these handler
+// tests set the context directly, so nil means "anonymous context".
+func newTestRouterAs(t *testing.T, user *models.User) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	gormDB := testdb.Open(t)
@@ -59,6 +95,12 @@ func newTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	router := gin.New()
 	group := router.Group("/api/v3/platform")
+	if user != nil {
+		group.Use(func(c *gin.Context) {
+			c.Set(auth.ContextUserKey, user)
+			c.Next()
+		})
+	}
 	RegisterRoutes(group,
 		NewResourceHandler(resourceSvc, refs),
 		NewDictionaryHandler(dictionarySvc),

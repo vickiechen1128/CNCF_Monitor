@@ -175,6 +175,33 @@ func TestDeleteAttributeDefinitionBlockedWhileUsed(t *testing.T) {
 	assert.EqualValues(t, 0, result.UsageCount)
 }
 
+// TestBuiltinFieldKeysStayOutOfCustomDictionary locks SRS v2.4 FR-30 / NFR-24:
+// a custom registration may not shadow a platform built-in field, and built-in
+// keys cannot be addressed through the custom field edit/remove paths.
+func TestBuiltinFieldKeysStayOutOfCustomDictionary(t *testing.T) {
+	svc, _ := newAttributeService(t)
+	ctx := context.Background()
+
+	for _, key := range []string{"has_gpu", "owner", "status"} {
+		_, err := svc.CreateDefinition(ctx, &domain.AttributeDefinition{
+			Key: key, DisplayName: "影子字段", ValueType: domain.AttributeTypeText,
+			ResourceCategory: domain.CategoryHost,
+		})
+		require.Error(t, err, key)
+		assert.Contains(t, err.Error(), "平台内置字段", key)
+	}
+
+	_, err := svc.UpdateDefinition(ctx, "has_gpu", &domain.AttributeDefinition{
+		DisplayName: "改名", ValueType: domain.AttributeTypeBoolean,
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "平台内置字段")
+
+	_, err = svc.RemoveDefinition(ctx, "has_gpu")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "平台内置字段")
+}
+
 func TestAttributeDefinitionGroupAndOrder(t *testing.T) {
 	svc, _ := newAttributeService(t)
 	ctx := context.Background()

@@ -2,10 +2,10 @@
 
 > **文档类型**：概要设计（High-Level Design, HLD）
 > **目标读者**：后端/前端开发工程师、测试工程师、运维架构师、代码审查者
-> **文档版本**：v1.0
+> **文档版本**：v1.1
 > **状态**：draft
 > **编写日期**：2026-11-22
-> **修订日期**：2026-11-22
+> **修订日期**：2026-11-23
 > **Domain ID**：`DOMAIN-CMDB`
 > **实现模块**：`m07`（+ `ui-custom/web`）
 > **需求基线**：[监控对象管理（CMDB）SRS](../02-product-requirements/Modules/SRS/Module_07_Monitoring_Object_Management_Requirements.md)（v2.4）
@@ -126,7 +126,7 @@ platform/modules/m07/
 | 7 | 静态资源标签只读 | 避免 CMDB 治理之外二次打标造成口径混乱 |
 | 8 | 应用至少一个平台、恰一个主平台 | 服务端强制不变量，禁止静默改写告警派单归属 |
 
-> **安全遗留（需关注）**：SRS 要求内置模板与内置字段仅 admin 可改（决策 44），但当前 M07 路由组未挂 `RequireAdmin`，仅依赖登录态与前端入口约束；列为 Scenario Link 未决问题 #2。
+> **权限收口（2026-11-23）**：内置字段由平台代码定义，**任何角色（含 admin）都不可修改**（FR-30 / NFR-24），前端只读、接口无写入口；**自定义字段定义**的增 / 改 / 移出仅平台管理员可做，`/attribute-definitions` 写路由挂 `RequireAdmin`，非 admin 返回 403，前端入口同步隐藏。
 
 ---
 
@@ -135,7 +135,8 @@ platform/modules/m07/
 ### 4.1 鉴权
 
 - 所有 M07 路由挂在 `/api/v3/platform`，由全局 `AuthMiddleware` 建立用户上下文；匿名请求 401。
-- M07 路由层当前无额外 `RequireAdmin`；管理员专属写操作的收口为遗留项（见 §3 安全遗留）。
+- 自定义字段定义的新增 / 编辑 / 移出叠挂 `RequireAdmin`（非 admin 403）；资源、字典、标签模板、导入等业务写操作保留登录态。
+- 内置字段没有写路由，由平台代码定义，任何角色都不可修改（FR-30 / NFR-24）。
 
 ### 4.2 平台 API
 
@@ -154,8 +155,8 @@ platform/modules/m07/
 | PUT/DELETE | `/resources/:id/labels/:label_id` | 编辑/删除 user 标签 |
 | GET/POST | `/label-templates` | 标签模板列表/新增 |
 | GET/PUT/DELETE | `/label-templates/:id` | 标签模板详情/编辑/删除 |
-| GET/POST | `/attribute-definitions` | 自定义字段定义列表/新增 |
-| PUT/DELETE | `/attribute-definitions/:id` | 编辑/移除自定义字段 |
+| GET/POST | `/attribute-definitions` | 自定义字段定义列表（登录态）/ 新增（admin） |
+| PUT/DELETE | `/attribute-definitions/:id` | 编辑/移除自定义字段（admin） |
 | GET | `/ci-models` | 六类 CI 模型列表 |
 | GET | `/ci-models/:category` | 单类 CI 模型（内置字段只读 + 自定义字段） |
 | GET/POST | `/business-domains` | 业务字典列表/新增 |
@@ -318,10 +319,10 @@ enabled ⇄ disabled
 
 ## 9. 安全
 
-- 资源写操作要求有效登录态；管理类写操作应叠加 admin 门（当前为遗留项，见 §3）。
+- 资源写操作要求有效登录态；自定义字段定义写操作叠加 admin 门（`RequireAdmin`）。
 - 静态资源 user 标签写操作拒绝（403）。
 - 导入文件校验格式、字段长度、非法字符；导入结果与日志不含连接串等敏感明文。
-- 字典编码不可通过编辑接口修改；内置字段改操作拒绝并返回可执行提示。
+- 字典编码不可通过编辑接口修改；内置字段没有写入口，自定义字段登记与内置 key 冲突时返回 400 与可执行提示。
 - 多租户资源隔离为 v0.2+ 能力，当前按 `tenant_id` 预留。
 
 ---
@@ -389,3 +390,4 @@ enabled ⇄ disabled
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
 | v1.0 | 2026-11-22 | 首版：按 M09 形态建立 M07 概要设计；覆盖模块边界、接口清单、数据归属、关键设计、流程、状态机、安全与性能；场景映射交由 Scenario Link；登记 M07 路由缺 admin 门的安全遗留 |
+| v1.1 | 2026-11-23 | 订正权限口径：内置字段任何角色都不可修改（接口无写入口）；自定义字段定义写接口挂 `RequireAdmin`，前端非 admin 只读；关闭安全遗留与 Scenario Link 未决问题 #2 |

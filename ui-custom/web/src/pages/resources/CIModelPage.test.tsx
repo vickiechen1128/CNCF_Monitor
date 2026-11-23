@@ -27,6 +27,39 @@ vi.mock('../../layouts/MainLayout', () => ({
   MainLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+// vitest jsdom 的 window.localStorage 不受控，用内存 Map 承载登录态（角色判定走 getStoredUser）。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
+
+const USER_STORAGE_KEY = 'metriccenter:auth:user'
+
+function setRole(role: 'admin' | 'user' | null) {
+  if (!role) {
+    storageMap.delete(USER_STORAGE_KEY)
+    return
+  }
+  storageMap.set(
+    USER_STORAGE_KEY,
+    JSON.stringify({
+      id: 'u1',
+      username: 'u1',
+      display_name: '测试用户',
+      tenant_id: 'platform_admin',
+      role,
+    }),
+  )
+}
+
 const GROUPS = [
   { value: 'identity' as const, label: '身份信息' },
   { value: 'ownership' as const, label: '归属信息' },
@@ -86,6 +119,7 @@ describe('CIModelPage', () => {
   setupAntdTest()
 
   beforeEach(() => {
+    setRole('admin')
     listModelsMock.mockReset()
     listDefsMock.mockReset()
     createMock.mockReset()
@@ -319,5 +353,18 @@ describe('CIModelPage', () => {
       expect(within(builtin).queryByText('实例名')).not.toBeInTheDocument()
     })
     expect(within(builtin).getByText('NPU 芯片')).toBeInTheDocument()
+  })
+
+  it('普通用户只能查看 CI 模型：隐藏新增/编辑/移除入口并提示联系管理员', async () => {
+    setRole('user')
+    render(<CIModelPage />)
+
+    const customSection = await screen.findByTestId('custom-field-section')
+    expect(screen.getByTestId('ci-model-readonly-notice')).toBeInTheDocument()
+    expect(screen.queryByTestId('create-custom-field')).not.toBeInTheDocument()
+    expect(within(customSection).queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
+    expect(within(customSection).queryByRole('button', { name: /移\s*除/ })).not.toBeInTheDocument()
+    // 只读视图仍展示字段内容，便于资源登记时了解可用字段。
+    expect(within(customSection).getByText('机柜位置')).toBeInTheDocument()
   })
 })

@@ -21,6 +21,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../layouts/MainLayout'
 import { attributeDefinitionApi, ciModelApi } from '../../api/attributes'
+import { getStoredUser } from '../../api/client'
 import type {
   AttributeDefinition,
   AttributeDefinitionInput,
@@ -68,6 +69,9 @@ const FIELD_PAGINATION = {
  * 面板预留整列宽度，真实详情却在 Tabs 之外，导致一大片空白；改为 flex 两列彻底消除。
  */
 export function CIModelPage() {
+  // 内置字段平台维护、任何角色只读；自定义字段定义仅平台管理员可增删改，
+  // 读接口对登录用户开放（服务端 /attribute-definitions 写路由挂 RequireAdmin 兜底）。
+  const isAdmin = getStoredUser()?.role === 'admin'
   const [models, setModels] = useState<CIModel[]>([])
   const [category, setCategory] = useState<ResourceCategory>('host')
   const [loading, setLoading] = useState(false)
@@ -262,6 +266,22 @@ export function CIModelPage() {
     },
   ]
 
+  const customActionColumn: ColumnsType<AttributeDefinition>[number] = {
+    title: '操作',
+    key: 'actions',
+    width: 140,
+    render: (_, record) => (
+      <Space>
+        <Button size="small" onClick={() => openEdit(record)}>
+          编辑
+        </Button>
+        <Button size="small" danger onClick={() => remove(record)}>
+          移除
+        </Button>
+      </Space>
+    ),
+  }
+
   const customColumns: ColumnsType<AttributeDefinition> = [
     { title: '展示名', dataIndex: 'display_name', width: 160 },
     { title: '字段 key', dataIndex: 'attribute_key', width: 180, render: (key: string) => <Tag>{key}</Tag> },
@@ -274,21 +294,7 @@ export function CIModelPage() {
     groupColumn,
     { title: '组内排序', dataIndex: 'display_order', width: 100 },
     { title: '必填', dataIndex: 'required', width: 80, render: (required: boolean) => (required ? '是' : '否') },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 140,
-      render: (_, record) => (
-        <Space>
-          <Button size="small" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Button size="small" danger onClick={() => remove(record)}>
-            移除
-          </Button>
-        </Space>
-      ),
-    },
+    ...(isAdmin ? [customActionColumn] : []),
   ]
 
   const removedColumns: ColumnsType<AttributeDefinition> = [
@@ -314,16 +320,29 @@ export function CIModelPage() {
         extra={
           <Space>
             <Button onClick={() => void loadModels()}>刷新</Button>
-            <Button type="primary" onClick={openCreate} data-testid="create-custom-field">
-              新增自定义字段
-            </Button>
+            {isAdmin && (
+              <Button type="primary" onClick={openCreate} data-testid="create-custom-field">
+                新增自定义字段
+              </Button>
+            )}
           </Space>
         }
       >
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          内置字段由平台维护并随版本更新，不可增删改；自定义字段可自行登记，且可选择登记到任意 CI 类型。
-          移除时系统按引用情况处理：无资源使用时删除，已有资源使用时移出模型并保留历史值。
+          内置字段由平台维护并随版本更新，不可增删改（任何角色均只读）；自定义字段由平台管理员登记维护，
+          可选择登记到任意 CI 类型。移除时系统按引用情况处理：无资源使用时删除，已有资源使用时移出模型并保留历史值。
         </Paragraph>
+
+        {!isAdmin && (
+          <Alert
+            type="info"
+            showIcon
+            message="当前账号仅可查看 CI 模型"
+            description="自定义字段的新增、编辑与移除由平台管理员维护；如需调整字段口径，请联系平台管理员。"
+            style={{ marginBottom: 16 }}
+            data-testid="ci-model-readonly-notice"
+          />
+        )}
 
         {error && (
           <Alert
@@ -405,7 +424,11 @@ export function CIModelPage() {
                       dataSource={model.custom_fields}
                       pagination={FIELD_PAGINATION}
                       scroll={{ x: 900 }}
-                      locale={{ emptyText: '还没有自定义字段，点右上角「新增自定义字段」登记' }}
+                      locale={{
+                        emptyText: isAdmin
+                          ? '还没有自定义字段，点右上角「新增自定义字段」登记'
+                          : '暂无自定义字段',
+                      }}
                     />
                   )}
                 </div>

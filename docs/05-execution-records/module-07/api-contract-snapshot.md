@@ -245,9 +245,13 @@
 | GET | `/ci-models` | — | `{list: CIModel[]}`，六类固定顺序 | — | §5.8 FR-32 |
 | GET | `/ci-models/:category` | — | `CIModel` | `bad_request`：未知 category | §5.8 FR-32 |
 | GET | `/attribute-definitions` | `resource_category?`、`status?`（`active` / `removed`） | `{list: AttributeDefinition[], total}` | `bad_request`：status 非法 | §5.8 FR-31 |
-| POST | `/attribute-definitions` | `AttributeDefinitionInput` | `AttributeDefinition` | `bad_request`：key 重复（active）/ 校验失败 | §5.8 FR-31 |
-| PUT | `/attribute-definitions/:id` | `AttributeDefinitionInput` | `AttributeDefinition` | `bad_request`：已移出字段不可编辑 / 校验失败；`not_found` | §5.8 FR-31 |
-| DELETE | `/attribute-definitions/:id` | — | `{id, mode: "deleted"\|"removed", usage_count}` | `not_found` | §5.8 FR-34 |
+| POST | `/attribute-definitions` | `AttributeDefinitionInput` | `AttributeDefinition` | `forbidden`：非 admin；`bad_request`：key 与平台内置字段冲突 / key 重复（active）/ 校验失败 | §5.8 FR-31 |
+| PUT | `/attribute-definitions/:id` | `AttributeDefinitionInput` | `AttributeDefinition` | `forbidden`：非 admin；`bad_request`：内置字段 key / 已移出字段不可编辑 / 校验失败；`not_found` | §5.8 FR-31 |
+| DELETE | `/attribute-definitions/:id` | — | `{id, mode: "deleted"\|"removed", usage_count}` | `forbidden`：非 admin；`bad_request`：内置字段 key；`not_found` | §5.8 FR-34 |
+
+> **鉴权（2026-11-23 增量）**：`GET /ci-models*` 与 `GET /attribute-definitions` 对所有登录用户开放（资源表单与 M01 字段字典消费）；`POST/PUT/DELETE /attribute-definitions` 挂 `RequireAdmin`，仅 `role=admin` 且 active 可访问，非 admin 返回 `403 forbidden`。
+>
+> **内置字段边界（2026-11-23 增量）**：内置字段由平台代码定义，接口只读返回，**没有任何写接口，任何角色（含 admin）都不可新增、删除、改名、停用或改类型**（FR-30 / NFR-24）。自定义字段登记若使用内置字段 key（如 `host.has_gpu` / `host.owner`），或通过 `PUT/DELETE` 以内置字段 key 作为 id 寻址，返回 `400 bad_request`，error 含「平台内置字段」可执行提示。
 
 **CIModel**：
 

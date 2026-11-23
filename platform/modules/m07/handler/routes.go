@@ -1,6 +1,10 @@
 package handler
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+)
 
 // RegisterRoutes mounts the M07 v3 HTTP API under the given platform group
 // (expected prefix: /api/v3/platform).
@@ -44,12 +48,19 @@ func RegisterRoutes(platform *gin.RouterGroup, resources *ResourceHandler, dicti
 
 	// 自定义字段字典（SRS Module_07 v2.2 §5.8 FR-31/FR-34）：
 	// 新增字段无需改表或发版；移除时由系统按引用数判定删除或移出模型。
+	//
+	// 读接口对所有登录用户开放（资源表单与 M01 字段字典依赖）；字段定义的
+	// 新增 / 编辑 / 移出属于 CI 模型口径维护，仅平台管理员可做（§4.1 角色表 +
+	// FR-32）。内置字段没有任何写路由：它们由 domain.BuiltinFields 定义，
+	// 任何角色都不可修改（FR-30 / NFR-24）。
 	attributeDefGroup := platform.Group("/attribute-definitions")
+	attributeDefGroup.GET("", attributes.ListDefinitions)
+	attributeDefAdmin := attributeDefGroup.Group("")
+	attributeDefAdmin.Use(auth.RequireAdmin())
 	{
-		attributeDefGroup.GET("", attributes.ListDefinitions)
-		attributeDefGroup.POST("", attributes.CreateDefinition)
-		attributeDefGroup.PUT("/:id", attributes.UpdateDefinition)
-		attributeDefGroup.DELETE("/:id", attributes.RemoveDefinition)
+		attributeDefAdmin.POST("", attributes.CreateDefinition)
+		attributeDefAdmin.PUT("/:id", attributes.UpdateDefinition)
+		attributeDefAdmin.DELETE("/:id", attributes.RemoveDefinition)
 	}
 
 	// CI 模型配置（SRS Module_07 v2.2 §5.8 FR-32）：六类 CI 的内置字段只读 +

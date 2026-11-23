@@ -60,6 +60,9 @@ func (s *AttributeService) CreateDefinition(ctx context.Context, def *domain.Att
 	if err := def.Validate(); err != nil {
 		return nil, err
 	}
+	if domain.IsBuiltinField(def.ResourceCategory, def.Key) {
+		return nil, builtinFieldReadOnlyError("attribute_key", def.Key)
+	}
 	existing, found, err := s.defs.FindByKey(ctx, def.ResourceCategory, def.Key)
 	if err != nil {
 		return nil, err
@@ -96,11 +99,22 @@ func (s *AttributeService) CreateDefinition(ctx context.Context, def *domain.Att
 }
 
 // applyAttributeDefaults fills the group default so a registration that omits
-// it still lands in a valid model position. The order keeps its zero value;
-// a negative order is rejected by Validate instead of being silently fixed.
+// it still lands in a valid model position. The order keeps its zero value; a
+// negative order is rejected by Validate instead of being silently fixed.
 func applyAttributeDefaults(def *domain.AttributeDefinition) {
 	if def.Group == "" {
 		def.Group = domain.AttributeGroupProfile
+	}
+}
+
+// builtinFieldReadOnlyError renders the actionable rejection required by
+// SRS v2.4 §6 NFR-24: built-in fields are read-only for every role, including
+// the platform administrator.
+func builtinFieldReadOnlyError(field, key string) *domain.ValidationError {
+	return &domain.ValidationError{
+		Field: field,
+		Message: fmt.Sprintf(
+			"平台内置字段 %q 不可新增、修改或移除；请换一个自定义字段 key", key),
 	}
 }
 
@@ -108,6 +122,9 @@ func applyAttributeDefaults(def *domain.AttributeDefinition) {
 // lifecycle state are immutable: a removed field is restored by re-registering
 // the same key, not by toggling a switch.
 func (s *AttributeService) UpdateDefinition(ctx context.Context, id string, patch *domain.AttributeDefinition, _ *bool) (*domain.AttributeDefinition, error) {
+	if domain.IsBuiltinFieldKey(id) {
+		return nil, builtinFieldReadOnlyError("id", id)
+	}
 	existing, err := s.defs.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -140,6 +157,9 @@ func (s *AttributeService) UpdateDefinition(ctx context.Context, id string, patc
 // The system decides how: an unused field is deleted outright; a field that
 // still carries values is marked removed so the historical values survive.
 func (s *AttributeService) RemoveDefinition(ctx context.Context, id string) (*RemoveResult, error) {
+	if domain.IsBuiltinFieldKey(id) {
+		return nil, builtinFieldReadOnlyError("id", id)
+	}
 	existing, err := s.defs.Get(ctx, id)
 	if err != nil {
 		return nil, err
